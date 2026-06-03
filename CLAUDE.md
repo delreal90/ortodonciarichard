@@ -148,6 +148,7 @@ images/ejemplo-*.jpg     ← fotos de casos clínicos (sección Tratamientos)
 3. **DNS en nic.cl** — agregar registros A y CNAME sin borrar registros MX del correo Gmail
 4. **GitHub Pages custom domain** — Settings → Pages → Custom domain → `ortodonciarichard.cl`
 5. **Integración DentiDesk** — buscar en `index.html` el comentario `TODO: DentiDesk` y reemplazar el botón de WhatsApp por el widget de agendamiento
+6. **WhatsApp MCP** — instalar Go (go.dev) y Node.js (nodejs.org) en la máquina, luego configurar [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp) (5.7k ⭐). Permite que Claude lea y envíe mensajes de WhatsApp: avisar al equipo, redactar mensajes, buscar en chats. Fork mantenido activamente: [verygoodplugins/whatsapp-mcp](https://github.com/verygoodplugins/whatsapp-mcp). Toma ~30 min instalar.
 6. **Casos de Instagram** — el usuario mencionó querer usar fotos de casos publicados en @ortodonciarichard para la sección de tratamientos
 
 ---
