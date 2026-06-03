@@ -226,6 +226,34 @@ document.querySelectorAll('.placeholder-photo').forEach(photo => {
 
 
 /* ═══════════════════════════════════════════
+   FAQ TABS
+═══════════════════════════════════════════ */
+document.querySelectorAll('.faq-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const id = btn.dataset.faq;
+        document.querySelectorAll('.faq-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.faq-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        const target = document.getElementById('faq-' + id);
+        if (target) target.classList.add('active');
+    });
+});
+
+/* ═══════════════════════════════════════════
+   ACCORDION
+═══════════════════════════════════════════ */
+document.querySelectorAll('.acc-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const item = btn.closest('.acc-item');
+        const isOpen = item.classList.contains('open');
+        // Cierra todos los del mismo accordion
+        item.closest('.accordion').querySelectorAll('.acc-item').forEach(i => i.classList.remove('open'));
+        // Abre el clickeado (si no estaba abierto)
+        if (!isOpen) item.classList.add('open');
+    });
+});
+
+/* ═══════════════════════════════════════════
    ACTIVE NAV LINK — highlight on scroll
 ═══════════════════════════════════════════ */
 const sections  = document.querySelectorAll('section[id]');

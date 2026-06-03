@@ -1017,6 +1017,159 @@ h4 { font-size: 1rem; font-weight: 600; }
    RESPONSIVE — MOBILE (< 640px)
 ═══════════════════════════════════════════ */
 /* ═══════════════════════════════════════════
+   INFORMACIÓN PARA PACIENTES
+═══════════════════════════════════════════ */
+
+/* Primera consulta */
+.primera-consulta {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 24px;
+    align-items: start;
+    background: var(--light-bg);
+    border-radius: var(--radius-lg);
+    padding: 40px;
+    margin-bottom: 56px;
+    border: 1px solid var(--border);
+}
+.pc-icon {
+    width: 56px; height: 56px;
+    background: var(--navy);
+    border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem;
+    color: var(--gold);
+    flex-shrink: 0;
+}
+.pc-content h3 { font-size: 1.3rem; color: var(--navy); margin-bottom: 24px; }
+.pc-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.pc-step {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: var(--white);
+    padding: 18px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+}
+.pc-num {
+    width: 28px; height: 28px;
+    background: var(--navy);
+    color: var(--gold);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .82rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.pc-step strong { display: block; font-size: .95rem; color: var(--navy); margin-bottom: 4px; }
+.pc-step p { font-size: .86rem; color: var(--text-mid); line-height: 1.6; margin: 0; }
+
+/* FAQ Tabs */
+.faq-tabs {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+}
+.faq-tab-btn {
+    display: flex; align-items: center; gap: 7px;
+    padding: 9px 18px;
+    border-radius: 50px;
+    font-size: .85rem;
+    font-weight: 500;
+    color: var(--text-mid);
+    border: 1.5px solid var(--border);
+    background: var(--white);
+    transition: var(--transition);
+}
+.faq-tab-btn:hover   { border-color: var(--navy); color: var(--navy); }
+.faq-tab-btn.active  { background: var(--navy); color: var(--white); border-color: var(--navy); font-weight: 600; }
+.faq-tab-btn.active i { color: var(--gold); }
+
+.faq-content        { display: none; }
+.faq-content.active { display: block; }
+
+/* Accordion */
+.accordion { display: flex; flex-direction: column; gap: 8px; }
+.acc-item {
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--white);
+    overflow: hidden;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+.acc-item.open {
+    border-color: var(--navy);
+    box-shadow: var(--shadow-sm);
+}
+.acc-btn {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 22px;
+    text-align: left;
+    font-size: .95rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    background: none;
+    transition: color var(--transition), background var(--transition);
+}
+.acc-btn:hover { color: var(--navy); background: var(--light-bg); }
+.acc-item.open .acc-btn { color: var(--navy); }
+.acc-btn i {
+    flex-shrink: 0;
+    font-size: .8rem;
+    color: var(--text-light);
+    transition: transform var(--transition), color var(--transition);
+}
+.acc-item.open .acc-btn i { transform: rotate(180deg); color: var(--gold); }
+.acc-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .4s ease, padding .3s ease;
+    padding: 0 22px;
+}
+.acc-item.open .acc-body {
+    max-height: 600px;
+    padding: 0 22px 20px;
+}
+.acc-body p  { font-size: .92rem; color: var(--text-mid); line-height: 1.75; margin-bottom: 10px; }
+.acc-body p:last-child { margin-bottom: 0; }
+.acc-body ul { margin: 8px 0 10px 16px; display: flex; flex-direction: column; gap: 6px; }
+.acc-body ul li { font-size: .92rem; color: var(--text-mid); line-height: 1.65; }
+
+.urgencias-link {
+    display: block;
+    margin-top: 14px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 2px solid var(--border);
+    position: relative;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+.urgencias-link:hover { border-color: var(--navy); box-shadow: var(--shadow-md); }
+.urgencias-link img { width: 100%; display: block; }
+.urgencias-link span {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(26,46,74,.75);
+    color: var(--white);
+    font-size: .82rem;
+    font-weight: 600;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    backdrop-filter: blur(4px);
+}
+
+@media (max-width: 768px) {
+    .primera-consulta { grid-template-columns: 1fr; }
+    .pc-steps { grid-template-columns: 1fr; }
+}
+
+/* ═══════════════════════════════════════════
    DOCTOR CARD — clickable
 ═══════════════════════════════════════════ */
 .doctor-card { cursor: pointer; }
