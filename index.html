@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Clínica de Ortodoncia Richard - Especialistas en Ortodoncia y Rehabilitación Oral en Las Condes, Santiago. Experiencia y Excelencia.">
+    <title>Ortodoncistas Richard | Las Condes, Santiago</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="icon" type="image/png" href="images/logo-png.png">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+    <!-- ═══════════════════════════════════════════
+         NAVEGACIÓN
+    ═══════════════════════════════════════════ -->
+    <nav id="navbar">
+        <div class="nav-container">
+            <a href="#inicio" class="nav-logo">
+                <!-- logo-png: blanco/transparente → visible sobre hero oscuro -->
+                <img src="images/logo-png.png" class="logo-on-dark" alt="Ortodoncistas Richard">
+                <!-- logo.jpg: celeste con fondo blanco → visible sobre nav blanco -->
+                <img src="images/logo.jpg" class="logo-on-light" alt="Ortodoncistas Richard">
+            </a>
+
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#nosotros" class="nav-link">Nosotros</a></li>
+                <li><a href="#equipo" class="nav-link">Equipo</a></li>
+                <li><a href="#tratamientos" class="nav-link">Tratamientos</a></li>
+                <li><a href="#galeria" class="nav-link">Clínica</a></li>
+                <li><a href="#contacto" class="nav-link">Contacto</a></li>
+            </ul>
+
+            <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" class="btn-nav-cta" target="_blank" rel="noopener">
+                <i class="fab fa-whatsapp"></i>
+                <span>Agenda tu hora</span>
+            </a>
+
+            <button class="nav-toggle" id="navToggle" aria-label="Abrir menú">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+
+    <!-- ═══════════════════════════════════════════
+         HERO
+    ═══════════════════════════════════════════ -->
+    <section id="inicio" class="hero">
+        <div class="hero-media">
+            <video autoplay muted loop playsinline poster="images/clinica-1.jpg">
+                <source src="images/video.MP4" type="video/mp4">
+            </video>
+            <div class="hero-overlay"></div>
+        </div>
+
+        <div class="hero-content fade-up">
+            <p class="hero-eyebrow">Clínica de Ortodoncia · Las Condes, Santiago</p>
+            <h1>Experiencia y<br><span class="text-gold">Excelencia</span></h1>
+            <p class="hero-subtitle">La tranquilidad que se siente al contar<br>con el apoyo de todo un equipo</p>
+            <div class="hero-ctas">
+                <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" class="btn btn-primary" target="_blank" rel="noopener">
+                    <i class="fab fa-whatsapp"></i> Agenda por WhatsApp
+                </a>
+                <a href="#nosotros" class="btn btn-outline-white">
+                    Conoce nuestra clínica
+                </a>
+            </div>
+        </div>
+
+        <a href="#nosotros" class="hero-scroll-indicator" aria-label="Ir a siguiente sección">
+            <span>Scroll</span>
+            <i class="fas fa-chevron-down"></i>
+        </a>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════
+         NOSOTROS
+    ═══════════════════════════════════════════ -->
+    <section id="nosotros" class="section section-light">
+        <div class="container">
+            <div class="nosotros-grid">
+
+                <div class="nosotros-text reveal">
+                    <p class="section-eyebrow">Quiénes somos</p>
+                    <h2>Especialistas comprometidos<br>con tu sonrisa</h2>
+                    <p>Somos una clínica de ortodoncia de referencia en Las Condes, Santiago. Nuestro equipo de especialistas combina tecnología de vanguardia con un trato cercano y personalizado, acompañándote en cada etapa de tu tratamiento.</p>
+                    <p>Contamos con un Rehabilitador Oral e Implantólogo, permitiéndonos ofrecer una atención integral y multidisciplinaria para los casos más complejos.</p>
+
+                    <div class="affiliations">
+                        <div class="affiliation-item">
+                            <img src="images/sortch-png.png" alt="SORT Chile - Sociedad de Ortodoncia y Ortopedia Dentofacial de Chile">
+                        </div>
+                        <div class="affiliation-item">
+                            <img src="images/aao-png.png" alt="AAO - American Association of Orthodontists">
+                        </div>
+                        <div class="affiliation-item">
+                            <img src="images/WFO-png.png" alt="WFO - World Federation of Orthodontists">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="features-grid reveal reveal-delay">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-user-doctor"></i>
+                        </div>
+                        <h3>Especialistas certificados</h3>
+                        <p>Ortodoncistas con postgrado y miembros de sociedades internacionales de referencia.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-microscope"></i>
+                        </div>
+                        <h3>Tecnología avanzada</h3>
+                        <p>Equipamiento de última generación para diagnóstico y tratamiento de precisión.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-people-group"></i>
+                        </div>
+                        <h3>Equipo completo</h3>
+                        <p>Clínica con laboratorio propio y equipo multidisciplinario dedicado a tu cuidado.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-location-dot"></i>
+                        </div>
+                        <h3>Ubicación privilegiada</h3>
+                        <p>En el corazón de Las Condes, con fácil acceso en metro y estacionamiento.</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════
+         EQUIPO
+    ═══════════════════════════════════════════ -->
+    <section id="equipo" class="section section-dark">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-eyebrow light">Nuestro equipo</p>
+                <h2>Profesionales dedicados<br>a tu cuidado</h2>
+            </div>
+
+            <div class="team-tabs reveal">
+                <button class="tab-btn active" data-tab="especialistas">
+                    <i class="fas fa-stethoscope"></i> Especialistas
+                </button>
+                <button class="tab-btn" data-tab="secretaria">
+                    <i class="fas fa-headset"></i> Secretaría
+                </button>
+                <button class="tab-btn" data-tab="asistentes">
+                    <i class="fas fa-hand-holding-medical"></i> Asistentes
+                </button>
+                <button class="tab-btn" data-tab="laboratorio">
+                    <i class="fas fa-flask"></i> Laboratorio
+                </button>
+            </div>
+
+            <!-- Especialistas -->
+            <div class="tab-content active" id="tab-especialistas">
+                <div class="team-grid">
+
+                    <div class="team-card reveal doctor-card" data-doctor-id="octavio" role="button" tabindex="0">
+                        <div class="team-photo">
+                            <img src="images/dr-octavio-del-real.jpeg" alt="Dr. Octavio Del Real S.">
+                        </div>
+                        <div class="team-info">
+                            <h3>Dr. Octavio Del Real S.</h3>
+                            <p class="team-role">Ortodoncista</p>
+                            <div class="team-badges">
+                                <span class="team-badge">AAO</span>
+                                <span class="team-badge">WFO</span>
+                                <span class="team-badge">SORT Chile</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="team-card reveal reveal-delay doctor-card" data-doctor-id="rodrigo" role="button" tabindex="0">
+                        <div class="team-photo">
+                            <img src="images/dr-rodrigo-oyonarte.jpeg" alt="Dr. Rodrigo Oyonarte W.">
+                        </div>
+                        <div class="team-info">
+                            <h3>Dr. Rodrigo Oyonarte W.</h3>
+                            <p class="team-role">Ortodoncista</p>
+                            <div class="team-badges">
+                                <span class="team-badge">AAO</span>
+                                <span class="team-badge">WFO</span>
+                                <span class="team-badge">SORT Chile</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="team-card reveal reveal-delay-2 doctor-card" data-doctor-id="alberto" role="button" tabindex="0">
+                        <div class="team-photo">
+                            <img src="images/dr-alberto-del-real.jpeg" alt="Dr. Alberto Del Real V.">
+                        </div>
+                        <div class="team-info">
+                            <h3>Dr. Alberto Del Real V.</h3>
+                            <p class="team-role">Ortodoncista</p>
+                            <div class="team-badges">
+                                <span class="team-badge">AAO</span>
+                                <span class="team-badge">WFO</span>
+                                <span class="team-badge">SORT Chile</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="team-card reveal reveal-delay-3 doctor-card" data-doctor-id="patricio" role="button" tabindex="0">
+                        <div class="team-photo">
+                            <img src="images/dr-patricio-vial.png" alt="Dr. Patricio Vial U.">
+                        </div>
+                        <div class="team-info">
+                            <h3>Dr. Patricio Vial U.</h3>
+                            <p class="team-role">Rehabilitador Oral<br>e Implantólogo</p>
+                            <div class="team-badges">
+                                <span class="team-badge">Implantología</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Secretaría -->
+            <!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
+            <div class="tab-content" id="tab-secretaria">
+                <div class="team-grid team-grid-small">
+                    <div class="team-card reveal">
+                        <div class="team-photo placeholder-photo" data-initials="S1">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Secretaria</p>
+                        </div>
+                    </div>
+                    <div class="team-card reveal reveal-delay">
+                        <div class="team-photo placeholder-photo" data-initials="S2">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Secretaria</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Asistentes Dentales -->
+            <!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
+            <div class="tab-content" id="tab-asistentes">
+                <div class="team-grid">
+                    <div class="team-card reveal">
+                        <div class="team-photo placeholder-photo" data-initials="A1">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Asistente Dental</p>
+                        </div>
+                    </div>
+                    <div class="team-card reveal reveal-delay">
+                        <div class="team-photo placeholder-photo" data-initials="A2">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Asistente Dental</p>
+                        </div>
+                    </div>
+                    <div class="team-card reveal reveal-delay-2">
+                        <div class="team-photo placeholder-photo" data-initials="A3">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Asistente Dental</p>
+                        </div>
+                    </div>
+                    <div class="team-card reveal reveal-delay-3">
+                        <div class="team-photo placeholder-photo" data-initials="A4">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Asistente Dental</p>
+                        </div>
+                    </div>
+                    <div class="team-card reveal">
+                        <div class="team-photo placeholder-photo" data-initials="A5">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Asistente Dental</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Laboratorio y Aseo -->
+            <!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
+            <div class="tab-content" id="tab-laboratorio">
+                <div class="team-grid team-grid-small">
+                    <div class="team-card reveal">
+                        <div class="team-photo placeholder-photo" data-initials="L1">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Laboratorio</p>
+                        </div>
+                    </div>
+                    <div class="team-card reveal reveal-delay">
+                        <div class="team-photo placeholder-photo" data-initials="L2">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Laboratorio</p>
+                        </div>
+                    </div>
+                    <div class="team-card reveal reveal-delay-2">
+                        <div class="team-photo placeholder-photo" data-initials="L3">
+                            <div class="initials-circle"></div>
+                        </div>
+                        <div class="team-info">
+                            <h3>Nombre Apellido</h3>
+                            <p class="team-role">Aseo y Mantención</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════
+         TRATAMIENTOS
+    ═══════════════════════════════════════════ -->
+    <section id="tratamientos" class="section section-light">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-eyebrow">Lo que hacemos</p>
+                <h2>Tratamientos especializados</h2>
+                <p class="section-subtitle">Cada paciente es único. Diseñamos planes de tratamiento personalizados para lograr los mejores resultados en tu caso específico.</p>
+            </div>
+
+            <div class="treatments-grid">
+
+                <div class="treatment-card reveal">
+                    <div class="treatment-image">
+                        <img src="images/ejemplo-apiñamiento.jpg" alt="Apiñamiento dentario">
+                        <div class="treatment-overlay">
+                            <span>Caso clínico</span>
+                        </div>
+                    </div>
+                    <div class="treatment-body">
+                        <h3>Apiñamiento Dentario</h3>
+                        <p>Tratamiento para corregir la falta de espacio y la mala posición de los dientes, logrando una alineación óptima.</p>
+                    </div>
+                </div>
+
+                <div class="treatment-card reveal reveal-delay">
+                    <div class="treatment-image">
+                        <img src="images/ejemplo-clase-II.jpg" alt="Tratamiento Clase II">
+                        <div class="treatment-overlay">
+                            <span>Caso clínico</span>
+                        </div>
+                    </div>
+                    <div class="treatment-body">
+                        <h3>Tratamiento Clase II</h3>
+                        <p>Corrección de la discrepancia entre maxilar y mandíbula mediante ortopedia y ortodoncia especializada.</p>
+                    </div>
+                </div>
+
+                <div class="treatment-card reveal reveal-delay-2">
+                    <div class="treatment-image">
+                        <img src="images/ejemplo-overjet-aumentado.jpg" alt="Overjet aumentado">
+                        <div class="treatment-overlay">
+                            <span>Caso clínico</span>
+                        </div>
+                    </div>
+                    <div class="treatment-body">
+                        <h3>Overjet Aumentado</h3>
+                        <p>Corrección de la protrusión dental mediante tratamiento ortodóncico para mejorar función y estética.</p>
+                    </div>
+                </div>
+
+                <div class="treatment-card reveal">
+                    <div class="treatment-image">
+                        <img src="images/ejemplo-mordida-abierta.jpg" alt="Mordida abierta">
+                        <div class="treatment-overlay">
+                            <span>Caso clínico</span>
+                        </div>
+                    </div>
+                    <div class="treatment-body">
+                        <h3>Mordida Abierta</h3>
+                        <p>Tratamiento para corregir la falta de contacto entre dientes superiores e inferiores, mejorando la función masticatoria.</p>
+                    </div>
+                </div>
+
+                <div class="treatment-card reveal reveal-delay">
+                    <div class="treatment-image">
+                        <img src="images/ejemplo-compresion.jpg" alt="Compresión maxilar">
+                        <div class="treatment-overlay">
+                            <span>Caso clínico</span>
+                        </div>
+                    </div>
+                    <div class="treatment-body">
+                        <h3>Compresión Maxilar</h3>
+                        <p>Expansión del maxilar para corregir la falta de espacio y mejorar la relación entre arcadas dentarias.</p>
+                    </div>
+                </div>
+
+                <div class="treatment-card reveal reveal-delay-2">
+                    <div class="treatment-image">
+                        <img src="images/ejemplo-ortodoncia-lingual.jpg" alt="Ortodoncia lingual">
+                        <div class="treatment-overlay">
+                            <span>Caso clínico</span>
+                        </div>
+                    </div>
+                    <div class="treatment-body">
+                        <h3>Ortodoncia Lingual</h3>
+                        <p>Brackets colocados en la cara interna de los dientes, completamente invisible desde el exterior.</p>
+                    </div>
+                </div>
+
+                <div class="treatment-card reveal">
+                    <div class="treatment-image">
+                        <img src="images/ejemplo-ddm.jpg" alt="DDM - Discrepancia Dento-Maxilar">
+                        <div class="treatment-overlay">
+                            <span>Caso clínico</span>
+                        </div>
+                    </div>
+                    <div class="treatment-body">
+                        <h3>Discrepancia Dento-Maxilar</h3>
+                        <p>Tratamiento integral de la discrepancia entre el tamaño de los dientes y el espacio disponible en los maxilares.</p>
+                    </div>
+                </div>
+
+                <div class="treatment-card treatment-card-cta reveal reveal-delay">
+                    <div class="treatment-cta-content">
+                        <i class="fas fa-tooth"></i>
+                        <h3>¿Tienes otro caso?</h3>
+                        <p>Tratamos ortodoncia de adultos, cirugía ortognática, alineadores estéticos, ortopedia y corrección de hábitos.</p>
+                        <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20consultar%20sobre%20mi%20caso" class="btn btn-primary-sm" target="_blank" rel="noopener">
+                            Consulta tu caso
+                        </a>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════
+         GALERÍA CLÍNICA
+    ═══════════════════════════════════════════ -->
+    <section id="galeria" class="section section-white">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-eyebrow">Nuestras instalaciones</p>
+                <h2>Una clínica diseñada para ti</h2>
+                <p class="section-subtitle">Contamos con 8 boxes clínicos, sala de diagnóstico, laboratorio propio, sala de esterilización y equipo de rayos. Todo bajo un mismo techo.</p>
+            </div>
+
+            <!-- TODO: Agregar más fotos: clinica-recepcion.jpg, clinica-box.jpg, clinica-laboratorio.jpg,
+                 clinica-rayos.jpg, clinica-esterilizacion.jpg, clinica-diagnostico.jpg -->
+            <div class="gallery-grid reveal">
+                <div class="gallery-item gallery-item-large">
+                    <img src="images/clinica-1.jpg" alt="Clínica Ortodoncistas Richard">
+                    <div class="gallery-caption">Clínica</div>
+                </div>
+                <div class="gallery-placeholder">
+                    <i class="fas fa-image"></i>
+                    <span>Más fotos próximamente</span>
+                </div>
+                <div class="gallery-placeholder">
+                    <i class="fas fa-image"></i>
+                    <span>Más fotos próximamente</span>
+                </div>
+            </div>
+
+            <div class="clinic-features reveal">
+                <div class="clinic-feature">
+                    <i class="fas fa-door-open"></i>
+                    <span>8 Boxes clínicos</span>
+                </div>
+                <div class="clinic-feature">
+                    <i class="fas fa-x-ray"></i>
+                    <span>Equipo de rayos</span>
+                </div>
+                <div class="clinic-feature">
+                    <i class="fas fa-flask"></i>
+                    <span>Laboratorio propio</span>
+                </div>
+                <div class="clinic-feature">
+                    <i class="fas fa-shield-virus"></i>
+                    <span>Sala de esterilización</span>
+                </div>
+                <div class="clinic-feature">
+                    <i class="fas fa-magnifying-glass"></i>
+                    <span>Sala de diagnóstico</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════
+         CTA AGENDA
+    ═══════════════════════════════════════════ -->
+    <section id="agenda" class="section section-cta">
+        <div class="container">
+            <div class="cta-content reveal">
+                <p class="section-eyebrow light">¿Listo para comenzar?</p>
+                <h2>Agenda tu primera consulta</h2>
+                <p>Da el primer paso hacia la sonrisa que siempre quisiste. Nuestro equipo te recibirá, evaluará tu caso y te explicará todas las opciones de tratamiento disponibles.</p>
+
+                <div class="cta-buttons">
+                    <!-- Botón activo: WhatsApp -->
+                    <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20primera%20consulta" class="btn btn-primary btn-lg" target="_blank" rel="noopener">
+                        <i class="fab fa-whatsapp"></i> Agendar por WhatsApp
+                    </a>
+
+                    <!-- TODO: Cuando esté disponible la integración con DentiDesk (app.dentidesk.cl),
+                         reemplazar el href por el link/iframe de agendamiento online -->
+                    <a href="tel:+56222173499" class="btn btn-outline-white btn-lg">
+                        <i class="fas fa-phone"></i> +56 2 2217 3499
+                    </a>
+                </div>
+
+                <p class="cta-note">
+                    <i class="fas fa-clock"></i>
+                    Lunes a Viernes · 9:00 a 19:30 hrs
+                </p>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════
+         CONTACTO
+    ═══════════════════════════════════════════ -->
+    <section id="contacto" class="section section-light">
+        <div class="container">
+            <div class="section-header reveal">
+                <p class="section-eyebrow">Contáctanos</p>
+                <h2>Estamos para ayudarte</h2>
+            </div>
+
+            <div class="contact-grid">
+
+                <div class="contact-info reveal">
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fas fa-location-dot"></i>
+                        </div>
+                        <div>
+                            <h4>Dirección</h4>
+                            <p>Paul Harris 10.349, oficina 305<br>Piso 3, Las Condes, Santiago</p>
+                            <div class="nav-buttons">
+                                <a href="https://www.google.com/maps/dir/?api=1&destination=Paul+Harris+10349,+Las+Condes,+Santiago" target="_blank" rel="noopener" class="nav-btn">
+                                    <i class="fab fa-google"></i> Google Maps
+                                </a>
+                                <a href="https://waze.com/ul?q=Paul+Harris+10349+Las+Condes+Santiago&navigate=yes" target="_blank" rel="noopener" class="nav-btn">
+                                    <i class="fas fa-route"></i> Waze
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fas fa-phone"></i>
+                        </div>
+                        <div>
+                            <h4>Teléfono</h4>
+                            <p><a href="tel:+56222173499">+56 2 2217 3499</a></p>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fab fa-whatsapp"></i>
+                        </div>
+                        <div>
+                            <h4>WhatsApp</h4>
+                            <p><a href="https://wa.me/56933558189" target="_blank" rel="noopener">+56 9 3355 8189</a></p>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fas fa-envelope"></i>
+                        </div>
+                        <div>
+                            <h4>Email</h4>
+                            <p><a href="mailto:recepcion@ortodonciarichard.cl">recepcion@ortodonciarichard.cl</a></p>
+                        </div>
+                    </div>
+
+                    <div class="social-links">
+                        <a href="https://www.facebook.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Facebook">
+                            <i class="fab fa-facebook-f"></i>
+                        </a>
+                        <a href="https://www.instagram.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Instagram">
+                            <i class="fab fa-instagram"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Formulario vía Web3Forms (gratuito, sin servidor) -->
+                <!-- TODO: Reemplazar YOUR_ACCESS_KEY con la clave obtenida en web3forms.com -->
+                <form class="contact-form reveal reveal-delay" action="https://api.web3forms.com/submit" method="POST">
+                    <!-- Web3Forms: reemplazar YOUR_ACCESS_KEY con tu clave de web3forms.com -->
+                    <input type="hidden" name="access_key" value="f0aa501d-602a-4212-ac11-16b414a91b61">
+                    <input type="hidden" name="subject" value="Consulta desde el sitio web - Ortodoncistas Richard">
+                    <input type="hidden" name="from_name" value="Sitio Web Ortodoncistas Richard">
+                    <input type="checkbox" name="botcheck" style="display:none">
+                    <div class="form-group">
+                        <label for="nombre">Nombre completo</label>
+                        <input type="text" id="nombre" name="nombre" placeholder="Tu nombre" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" name="email" placeholder="tu@email.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="telefono">Teléfono</label>
+                            <input type="tel" id="telefono" name="telefono" placeholder="+56 9 xxxx xxxx">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="mensaje">Mensaje</label>
+                        <textarea id="mensaje" name="mensaje" rows="4" placeholder="¿En qué podemos ayudarte?" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">
+                        <i class="fas fa-paper-plane"></i> Enviar mensaje
+                    </button>
+                </form>
+
+            </div>
+
+            <div class="map-container reveal">
+                <iframe
+                    src="https://maps.google.com/maps?q=Paul+Harris+10349,+Las+Condes,+Santiago,+Chile&output=embed"
+                    width="100%"
+                    height="380"
+                    style="border:0;"
+                    allowfullscreen=""
+                    loading="lazy"
+                    referrerpolicy="no-referrer-when-downgrade"
+                    title="Ubicación Clínica Ortodoncistas Richard">
+                </iframe>
+            </div>
+
+        </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════
+         FOOTER
+    ═══════════════════════════════════════════ -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+
+                <div class="footer-brand">
+                    <img src="images/logo-png.png" alt="Ortodoncistas Richard" class="footer-logo">
+                    <p>Clínica de referencia en ortodoncia y rehabilitación oral en Las Condes, Santiago.</p>
+                    <div class="footer-social">
+                        <a href="https://www.facebook.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Facebook">
+                            <i class="fab fa-facebook-f"></i>
+                        </a>
+                        <a href="https://www.instagram.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Instagram">
+                            <i class="fab fa-instagram"></i>
+                        </a>
+                        <a href="https://wa.me/56933558189" target="_blank" rel="noopener" aria-label="WhatsApp">
+                            <i class="fab fa-whatsapp"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="footer-links">
+                    <h4>Navegación</h4>
+                    <ul>
+                        <li><a href="#nosotros">Nosotros</a></li>
+                        <li><a href="#equipo">Equipo</a></li>
+                        <li><a href="#tratamientos">Tratamientos</a></li>
+                        <li><a href="#galeria">Clínica</a></li>
+                        <li><a href="#contacto">Contacto</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-links">
+                    <h4>Tratamientos</h4>
+                    <ul>
+                        <li><a href="#tratamientos">Ortodoncia</a></li>
+                        <li><a href="#tratamientos">Ortopedia</a></li>
+                        <li><a href="#tratamientos">Ortodoncia Lingual</a></li>
+                        <li><a href="#tratamientos">Alineadores Estéticos</a></li>
+                        <li><a href="#tratamientos">Cirugía Ortognática</a></li>
+                        <li><a href="#tratamientos">Implantología</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-contact">
+                    <h4>Contacto</h4>
+                    <p><i class="fas fa-location-dot"></i> Paul Harris 10.349, Of. 305<br>Las Condes, Santiago</p>
+                    <p><i class="fas fa-phone"></i> <a href="tel:+56222173499">+56 2 2217 3499</a></p>
+                    <p><i class="fab fa-whatsapp"></i> <a href="https://wa.me/56933558189" target="_blank" rel="noopener">+56 9 3355 8189</a></p>
+                    <p><i class="fas fa-envelope"></i> <a href="mailto:recepcion@ortodonciarichard.cl">recepcion@ortodonciarichard.cl</a></p>
+                </div>
+
+            </div>
+
+            <div class="footer-bottom">
+                <p>&copy; 2025 Clínica Ortodoncistas Richard. Todos los derechos reservados.</p>
+                <p>Paul Harris 10.349, Of. 305, Las Condes, Santiago · Chile</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- MODAL DOCTOR -->
+    <div id="doctorModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalName">
+        <div class="modal-box">
+            <button class="modal-close" id="modalClose" aria-label="Cerrar">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="modal-inner">
+                <div class="modal-photo-col">
+                    <img id="modalPhoto" src="" alt="">
+                    <div class="modal-badges" id="modalBadges"></div>
+                </div>
+                <div class="modal-info-col">
+                    <p class="modal-role" id="modalRole"></p>
+                    <h3 id="modalName"></h3>
+                    <p class="modal-bio" id="modalBio"></p>
+                    <div class="modal-section" id="modalEducationWrap">
+                        <h4><i class="fas fa-graduation-cap"></i> Formación</h4>
+                        <ul id="modalEducation"></ul>
+                    </div>
+                    <div class="modal-section" id="modalSpecialtiesWrap">
+                        <h4><i class="fas fa-star"></i> Especialidades</h4>
+                        <ul id="modalSpecialties"></ul>
+                    </div>
+                    <a href="https://wa.me/56933558189?text=Hola%2C%20me%20gustar%C3%ADa%20agendar%20una%20hora" class="btn btn-primary" target="_blank" rel="noopener" style="margin-top:8px">
+                        <i class="fab fa-whatsapp"></i> Agendar hora
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+</html>
