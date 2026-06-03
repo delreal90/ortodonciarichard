@@ -1,6 +1,6 @@
-# Sitio Web — Ortodoncistas Richard
+# Sitio Web — Ortodoncia Richard
 
-Sitio web estático para la Clínica Ortodoncistas Richard, Las Condes, Santiago.
+Sitio web estático para la Clínica Ortodoncia Richard, Las Condes, Santiago.
 
 - **URL producción:** https://ortodonciarichard.cl *(una vez configurado el DNS en nic.cl)*
 - **GitHub Pages:** https://delreal90.github.io/ortodonciarichard
