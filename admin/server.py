@@ -141,10 +141,22 @@ def set_equipo():
                 rol_el.string = data['rol_nuevo']
             if data.get('foto_nueva'):
                 photo_div = card.find(class_='team-photo')
-                img = photo_div.find('img') if photo_div else None
-                if img:
-                    img['src'] = data['foto_nueva']
-                    img['alt'] = data.get('nombre_nuevo', data['nombre_actual'])
+                if photo_div:
+                    img = photo_div.find('img')
+                    if img:
+                        img['src'] = data['foto_nueva']
+                        img['alt'] = data.get('nombre_nuevo', data['nombre_actual'])
+                    else:
+                        # Era placeholder — reemplazar por img real
+                        photo_div.clear()
+                        photo_div['class'] = ['team-photo']
+                        if photo_div.get('data-initials'):
+                            del photo_div['data-initials']
+                        new_img = BeautifulSoup(
+                            f'<img src="{data["foto_nueva"]}" alt="{data.get("nombre_nuevo", data["nombre_actual"])}">',
+                            'html.parser'
+                        )
+                        photo_div.append(new_img)
             break
 
     write_html(soup)
