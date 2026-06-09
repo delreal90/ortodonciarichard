@@ -103,14 +103,14 @@ const doctorData = {
         role:        'DoctorTest',
         photo:       'None',
         memberships: [
-            ,
+            'pruebamembresia',
         ],
-        bio:         '',
+        bio:         'prueba',
         education: [
-            ,
+            'no lo se',
         ],
         specialties: [
-            ,
+            'es seco',
         ],
     }
 };
