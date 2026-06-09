@@ -508,7 +508,11 @@ def publicar():
     msg = data.get('mensaje', 'Actualización desde panel admin')
     try:
         subprocess.run(['git', 'add', '.'], cwd=str(BASE), check=True)
-        subprocess.run(['git', 'commit', '-m', msg], cwd=str(BASE), check=True)
+        commit = subprocess.run(['git', 'commit', '-m', msg], cwd=str(BASE), capture_output=True, text=True)
+        if commit.returncode != 0:
+            if 'nothing to commit' in commit.stdout or 'nothing to commit' in commit.stderr:
+                return jsonify({'ok': True, 'detalle': 'No hay cambios nuevos para publicar.'})
+            return jsonify({'ok': False, 'error': commit.stderr or commit.stdout})
         result = subprocess.run(['git', 'push'], cwd=str(BASE), capture_output=True, text=True)
         if result.returncode == 0:
             return jsonify({'ok': True, 'detalle': 'Publicado en GitHub Pages ✓'})
