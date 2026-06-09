@@ -1,1004 +1,925 @@
 <!DOCTYPE html>
+
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Clínica de Ortodoncia Richard - Especialistas en Ortodoncia y Rehabilitación Oral en Las Condes, Santiago. Experiencia y Excelencia.">
-    <title>Ortodoncia Richard | Las Condes, Santiago</title>
-
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <link rel="icon" type="image/png" href="images/logo-png.png">
-    <link rel="stylesheet" href="css/styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Clínica de Ortodoncia Richard - Especialistas en Ortodoncia y Rehabilitación Oral en Las Condes, Santiago. Experiencia y Excelencia." name="description"/>
+<title>Ortodoncia Richard | Las Condes, Santiago</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&amp;family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
+<link href="images/logo-png.png" rel="icon" type="image/png"/>
+<link href="css/styles.css" rel="stylesheet"/>
 </head>
 <body>
-
-    <!-- ═══════════════════════════════════════════
+<!-- ═══════════════════════════════════════════
          NAVEGACIÓN
     ═══════════════════════════════════════════ -->
-    <nav id="navbar">
-        <div class="nav-container">
-            <a href="#inicio" class="nav-logo">
-                <!-- logo-png: blanco/transparente → visible sobre hero oscuro -->
-                <img src="images/logo-png.png" class="logo-on-dark" alt="Ortodoncia Richard">
-                <!-- logo.jpg: celeste con fondo blanco → visible sobre nav blanco -->
-                <img src="images/logo.jpg" class="logo-on-light" alt="Ortodoncia Richard">
-            </a>
-
-            <ul class="nav-links" id="navLinks">
-                <li><a href="#nosotros" class="nav-link">Nosotros</a></li>
-                <li><a href="#equipo" class="nav-link">Equipo</a></li>
-                <li><a href="#tratamientos" class="nav-link">Tratamientos</a></li>
-                <li><a href="#galeria" class="nav-link">Clínica</a></li>
-                <li><a href="#pacientes" class="nav-link">Pacientes</a></li>
-                <li><a href="#contacto" class="nav-link">Contacto</a></li>
-            </ul>
-
-            <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" class="btn-nav-cta" target="_blank" rel="noopener">
-                <i class="fab fa-whatsapp"></i>
-                <span>Agenda tu hora</span>
-            </a>
-
-            <button class="nav-toggle" id="navToggle" aria-label="Abrir menú">
-                <span></span>
-                <span></span>
-                <span></span>
-            </button>
-        </div>
-    </nav>
-
-
-    <!-- ═══════════════════════════════════════════
+<nav id="navbar">
+<div class="nav-container">
+<a class="nav-logo" href="#inicio">
+<!-- logo-png: blanco/transparente → visible sobre hero oscuro -->
+<img alt="Ortodoncia Richard" class="logo-on-dark" src="images/logo-png.png"/>
+<!-- logo.jpg: celeste con fondo blanco → visible sobre nav blanco -->
+<img alt="Ortodoncia Richard" class="logo-on-light" src="images/logo.jpg"/>
+</a>
+<ul class="nav-links" id="navLinks">
+<li><a class="nav-link" href="#nosotros">Nosotros</a></li>
+<li><a class="nav-link" href="#equipo">Equipo</a></li>
+<li><a class="nav-link" href="#tratamientos">Tratamientos</a></li>
+<li><a class="nav-link" href="#galeria">Clínica</a></li>
+<li><a class="nav-link" href="#pacientes">Pacientes</a></li>
+<li><a class="nav-link" href="#contacto">Contacto</a></li>
+</ul>
+<a class="btn-nav-cta" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" target="_blank">
+<i class="fab fa-whatsapp"></i>
+<span>Agenda tu hora</span>
+</a>
+<button aria-label="Abrir menú" class="nav-toggle" id="navToggle">
+<span></span>
+<span></span>
+<span></span>
+</button>
+</div>
+</nav>
+<!-- ═══════════════════════════════════════════
          HERO
     ═══════════════════════════════════════════ -->
-    <section id="inicio" class="hero">
-        <div class="hero-media">
-            <video autoplay muted loop playsinline poster="images/clinica-1.jpg">
-                <source src="images/video.MP4" type="video/mp4">
-            </video>
-            <div class="hero-overlay"></div>
-        </div>
-
-        <div class="hero-content fade-up">
-            <p class="hero-eyebrow">Clínica de Ortodoncia · Las Condes, Santiago</p>
-            <h1>Experiencia y<br><span class="text-gold">Excelencia</span></h1>
-            <p class="hero-subtitle">La tranquilidad que se siente al contar<br>con el apoyo de todo un equipo</p>
-            <div class="hero-ctas">
-                <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" class="btn btn-primary" target="_blank" rel="noopener">
-                    <i class="fab fa-whatsapp"></i> Agenda por WhatsApp
+<section class="hero" id="inicio">
+<div class="hero-media">
+<video autoplay="" loop="" muted="" playsinline="" poster="images/clinica-1.jpg">
+<source src="images/video.MP4" type="video/mp4"/>
+</video>
+<div class="hero-overlay"></div>
+</div>
+<div class="hero-content fade-up">
+<p class="hero-eyebrow">Clínica de Ortodoncia · Las Condes, Santiago</p>
+<h1>Experiencia y<br/><span class="text-gold">Excelencia</span></h1>
+<p class="hero-subtitle">La tranquilidad que se siente al contar<br/>con el apoyo de todo un equipo</p>
+<div class="hero-ctas">
+<a class="btn btn-primary" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" target="_blank">
+<i class="fab fa-whatsapp"></i> Agenda por WhatsApp
                 </a>
-                <a href="#nosotros" class="btn btn-outline-white">
+<a class="btn btn-outline-white" href="#nosotros">
                     Conoce nuestra clínica
                 </a>
-            </div>
-        </div>
-
-        <a href="#nosotros" class="hero-scroll-indicator" aria-label="Ir a siguiente sección">
-            <span>Scroll</span>
-            <i class="fas fa-chevron-down"></i>
-        </a>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+</div>
+</div>
+<a aria-label="Ir a siguiente sección" class="hero-scroll-indicator" href="#nosotros">
+<span>Scroll</span>
+<i class="fas fa-chevron-down"></i>
+</a>
+</section>
+<!-- ═══════════════════════════════════════════
          NOSOTROS
     ═══════════════════════════════════════════ -->
-    <section id="nosotros" class="section section-light">
-        <div class="container">
-            <div class="nosotros-grid">
-
-                <div class="nosotros-text reveal">
-                    <p class="section-eyebrow">Quiénes somos</p>
-                    <h2>Especialistas comprometidos<br>con tu sonrisa</h2>
-                    <p>Somos una clínica de ortodoncia de referencia en Las Condes, Santiago. Nuestro equipo de especialistas combina tecnología de vanguardia con un trato cercano y personalizado, acompañándote en cada etapa de tu tratamiento.</p>
-                    <p>Contamos con un Rehabilitador Oral e Implantólogo, permitiéndonos ofrecer una atención integral y multidisciplinaria para los casos más complejos.</p>
-
-                    <div class="affiliations">
-                        <div class="affiliation-item">
-                            <img src="images/sortch-png.png" alt="SORT Chile - Sociedad de Ortodoncia y Ortopedia Dentofacial de Chile">
-                        </div>
-                        <div class="affiliation-item">
-                            <img src="images/aao-png.png" alt="AAO - American Association of Orthodontists">
-                        </div>
-                        <div class="affiliation-item">
-                            <img src="images/WFO-png.png" alt="WFO - World Federation of Orthodontists">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="features-grid reveal reveal-delay">
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-user-doctor"></i>
-                        </div>
-                        <h3>Especialistas certificados</h3>
-                        <p>Ortodoncistas con postgrado y miembros de sociedades internacionales de referencia.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-microscope"></i>
-                        </div>
-                        <h3>Tecnología avanzada</h3>
-                        <p>Equipamiento de última generación para diagnóstico y tratamiento de precisión.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-people-group"></i>
-                        </div>
-                        <h3>Equipo completo</h3>
-                        <p>Clínica con laboratorio propio y equipo multidisciplinario dedicado a tu cuidado.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-location-dot"></i>
-                        </div>
-                        <h3>Ubicación privilegiada</h3>
-                        <p>En el corazón de Las Condes, con fácil acceso en metro y estacionamiento.</p>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+<section class="section section-light" id="nosotros">
+<div class="container">
+<div class="nosotros-grid">
+<div class="nosotros-text reveal">
+<p class="section-eyebrow">Quiénes somos</p>
+<h2>Especialistas comprometidos<br/>con tu sonrisa</h2>
+<p>Somos una clínica de ortodoncia de referencia en Las Condes, Santiago. Nuestro equipo de especialistas combina tecnología de vanguardia con un trato cercano y personalizado, acompañándote en cada etapa de tu tratamiento.</p>
+<p>Contamos con un Rehabilitador Oral e Implantólogo, permitiéndonos ofrecer una atención integral y multidisciplinaria para los casos más complejos.</p>
+<div class="affiliations">
+<div class="affiliation-item">
+<img alt="SORT Chile - Sociedad de Ortodoncia y Ortopedia Dentofacial de Chile" src="images/sortch-png.png"/>
+</div>
+<div class="affiliation-item">
+<img alt="AAO - American Association of Orthodontists" src="images/aao-png.png"/>
+</div>
+<div class="affiliation-item">
+<img alt="WFO - World Federation of Orthodontists" src="images/WFO-png.png"/>
+</div>
+</div>
+</div>
+<div class="features-grid reveal reveal-delay">
+<div class="feature-card">
+<div class="feature-icon">
+<i class="fas fa-user-doctor"></i>
+</div>
+<h3>Especialistas certificados</h3>
+<p>Ortodoncistas con postgrado y miembros de sociedades internacionales de referencia.</p>
+</div>
+<div class="feature-card">
+<div class="feature-icon">
+<i class="fas fa-microscope"></i>
+</div>
+<h3>Tecnología avanzada</h3>
+<p>Equipamiento de última generación para diagnóstico y tratamiento de precisión.</p>
+</div>
+<div class="feature-card">
+<div class="feature-icon">
+<i class="fas fa-people-group"></i>
+</div>
+<h3>Equipo completo</h3>
+<p>Clínica con laboratorio propio y equipo multidisciplinario dedicado a tu cuidado.</p>
+</div>
+<div class="feature-card">
+<div class="feature-icon">
+<i class="fas fa-location-dot"></i>
+</div>
+<h3>Ubicación privilegiada</h3>
+<p>En el corazón de Las Condes, con fácil acceso en metro y estacionamiento.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ═══════════════════════════════════════════
          EQUIPO
     ═══════════════════════════════════════════ -->
-    <section id="equipo" class="section section-dark">
-        <div class="container">
-            <div class="section-header reveal">
-                <p class="section-eyebrow light">Nuestro equipo</p>
-                <h2>Profesionales dedicados<br>a tu cuidado</h2>
-            </div>
-
-            <div class="team-tabs reveal">
-                <button class="tab-btn active" data-tab="especialistas">
-                    <i class="fas fa-stethoscope"></i> Especialistas
+<section class="section section-dark" id="equipo">
+<div class="container">
+<div class="section-header reveal">
+<p class="section-eyebrow light">Nuestro equipo</p>
+<h2>Profesionales dedicados<br/>a tu cuidado</h2>
+</div>
+<div class="team-tabs reveal">
+<button class="tab-btn active" data-tab="especialistas">
+<i class="fas fa-stethoscope"></i> Especialistas
                 </button>
-                <button class="tab-btn" data-tab="secretaria">
-                    <i class="fas fa-headset"></i> Secretaría
+<button class="tab-btn" data-tab="secretaria">
+<i class="fas fa-headset"></i> Secretaría
                 </button>
-                <button class="tab-btn" data-tab="asistentes">
-                    <i class="fas fa-hand-holding-medical"></i> Asistentes
+<button class="tab-btn" data-tab="asistentes">
+<i class="fas fa-hand-holding-medical"></i> Asistentes
                 </button>
-                <button class="tab-btn" data-tab="laboratorio">
-                    <i class="fas fa-flask"></i> Laboratorio
+<button class="tab-btn" data-tab="laboratorio">
+<i class="fas fa-flask"></i> Laboratorio
                 </button>
-            </div>
+</div>
+<!-- Especialistas -->
+<div class="tab-content active" id="tab-especialistas">
+<div class="team-grid">
+<div class="team-card reveal doctor-card" data-doctor-id="octavio" role="button" tabindex="0">
+<div class="team-photo">
+<img alt="Dr. Octavio Del Real S." src="images/dr-octavio-del-real.jpeg"/>
+</div>
+<div class="team-info">
+<h3>Dr. Octavio Del Real S.</h3>
+<p class="team-role">Ortodoncista</p>
+<div class="team-badges">
+<span class="team-badge">AAO</span>
+<span class="team-badge">WFO</span>
+<span class="team-badge">SORT Chile</span>
+</div>
+</div>
+</div>
+<div class="team-card reveal reveal-delay doctor-card" data-doctor-id="rodrigo" role="button" tabindex="0">
+<div class="team-photo">
+<img alt="Dr. Rodrigo Oyonarte W." src="images/dr-rodrigo-oyonarte.jpeg"/>
+</div>
+<div class="team-info">
+<h3>Dr. Rodrigo Oyonarte W.</h3>
+<p class="team-role">Ortodoncista</p>
+<div class="team-badges">
+<span class="team-badge">AAO</span>
+<span class="team-badge">WFO</span>
+<span class="team-badge">SORT Chile</span>
+</div>
+</div>
+</div>
+<div class="team-card reveal reveal-delay-2 doctor-card" data-doctor-id="alberto" role="button" tabindex="0">
+<div class="team-photo">
+<img alt="Dr. Alberto Del Real V." src="images/dr-alberto-del-real.jpeg"/>
+</div>
+<div class="team-info">
+<h3>Dr. Alberto Del Real V.</h3>
+<p class="team-role">Ortodoncista</p>
+<div class="team-badges">
+<span class="team-badge">AAO</span>
+<span class="team-badge">WFO</span>
+<span class="team-badge">SORT Chile</span>
+</div>
+</div>
+</div>
+<div class="team-card reveal reveal-delay-3 doctor-card" data-doctor-id="patricio" role="button" tabindex="0">
+<div class="team-photo">
+<img alt="Dr. Patricio Vial U." src="images/dr-patricio-vial.png"/>
+</div>
+<div class="team-info">
+<h3>Dr. Patricio Vial U.</h3>
+<p class="team-role">Rehabilitador Oral e Implantólogo</p>
+<div class="team-badges">
+<span class="team-badge">Implantología</span>
+</div>
+</div>
+</div>
 
-            <!-- Especialistas -->
-            <div class="tab-content active" id="tab-especialistas">
-                <div class="team-grid">
-
-                    <div class="team-card reveal doctor-card" data-doctor-id="octavio" role="button" tabindex="0">
-                        <div class="team-photo">
-                            <img src="images/dr-octavio-del-real.jpeg" alt="Dr. Octavio Del Real S.">
-                        </div>
-                        <div class="team-info">
-                            <h3>Dr. Octavio Del Real S.</h3>
-                            <p class="team-role">Ortodoncista</p>
-                            <div class="team-badges">
-                                <span class="team-badge">AAO</span>
-                                <span class="team-badge">WFO</span>
-                                <span class="team-badge">SORT Chile</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="team-card reveal reveal-delay doctor-card" data-doctor-id="rodrigo" role="button" tabindex="0">
-                        <div class="team-photo">
-                            <img src="images/dr-rodrigo-oyonarte.jpeg" alt="Dr. Rodrigo Oyonarte W.">
-                        </div>
-                        <div class="team-info">
-                            <h3>Dr. Rodrigo Oyonarte W.</h3>
-                            <p class="team-role">Ortodoncista</p>
-                            <div class="team-badges">
-                                <span class="team-badge">AAO</span>
-                                <span class="team-badge">WFO</span>
-                                <span class="team-badge">SORT Chile</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="team-card reveal reveal-delay-2 doctor-card" data-doctor-id="alberto" role="button" tabindex="0">
-                        <div class="team-photo">
-                            <img src="images/dr-alberto-del-real.jpeg" alt="Dr. Alberto Del Real V.">
-                        </div>
-                        <div class="team-info">
-                            <h3>Dr. Alberto Del Real V.</h3>
-                            <p class="team-role">Ortodoncista</p>
-                            <div class="team-badges">
-                                <span class="team-badge">AAO</span>
-                                <span class="team-badge">WFO</span>
-                                <span class="team-badge">SORT Chile</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="team-card reveal reveal-delay-3 doctor-card" data-doctor-id="patricio" role="button" tabindex="0">
-                        <div class="team-photo">
-                            <img src="images/dr-patricio-vial.png" alt="Dr. Patricio Vial U.">
-                        </div>
-                        <div class="team-info">
-                            <h3>Dr. Patricio Vial U.</h3>
-                            <p class="team-role">Rehabilitador Oral<br>e Implantólogo</p>
-                            <div class="team-badges">
-                                <span class="team-badge">Implantología</span>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
-
-            <!-- Secretaría -->
-            <!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
-            <div class="tab-content" id="tab-secretaria">
-                <div class="team-grid team-grid-small">
-                    <div class="team-card reveal">
-                        <div class="team-photo placeholder-photo" data-initials="S1">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Secretaria</p>
-                        </div>
-                    </div>
-                    <div class="team-card reveal reveal-delay">
-                        <div class="team-photo placeholder-photo" data-initials="S2">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Secretaria</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Asistentes Dentales -->
-            <!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
-            <div class="tab-content" id="tab-asistentes">
-                <div class="team-grid">
-                    <div class="team-card reveal">
-                        <div class="team-photo placeholder-photo" data-initials="A1">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Asistente Dental</p>
-                        </div>
-                    </div>
-                    <div class="team-card reveal reveal-delay">
-                        <div class="team-photo placeholder-photo" data-initials="A2">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Asistente Dental</p>
-                        </div>
-                    </div>
-                    <div class="team-card reveal reveal-delay-2">
-                        <div class="team-photo placeholder-photo" data-initials="A3">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Asistente Dental</p>
-                        </div>
-                    </div>
-                    <div class="team-card reveal reveal-delay-3">
-                        <div class="team-photo placeholder-photo" data-initials="A4">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Asistente Dental</p>
-                        </div>
-                    </div>
-                    <div class="team-card reveal">
-                        <div class="team-photo placeholder-photo" data-initials="A5">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Asistente Dental</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Laboratorio y Aseo -->
-            <!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
-            <div class="tab-content" id="tab-laboratorio">
-                <div class="team-grid team-grid-small">
-                    <div class="team-card reveal">
-                        <div class="team-photo placeholder-photo" data-initials="L1">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Laboratorio</p>
-                        </div>
-                    </div>
-                    <div class="team-card reveal reveal-delay">
-                        <div class="team-photo placeholder-photo" data-initials="L2">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Laboratorio</p>
-                        </div>
-                    </div>
-                    <div class="team-card reveal reveal-delay-2">
-                        <div class="team-photo placeholder-photo" data-initials="L3">
-                            <div class="initials-circle"></div>
-                        </div>
-                        <div class="team-info">
-                            <h3>Nombre Apellido</h3>
-                            <p class="team-role">Aseo y Mantención</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+<div class="team-card reveal">
+<div class="team-photo placeholder-photo" data-initials="E5"><div class="initials-circle"></div></div>
+<div class="team-info">
+<h3>Prueba doc</h3>
+<p class="team-role">DoctorTest</p>
+</div>
+</div></div>
+</div>
+<!-- Secretaría -->
+<!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
+<div class="tab-content" id="tab-secretaria">
+<div class="team-grid team-grid-small">
+<div class="team-card reveal">
+<div class="team-photo placeholder-photo" data-initials="S1">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Secretaria</p>
+</div>
+</div>
+<div class="team-card reveal reveal-delay">
+<div class="team-photo placeholder-photo" data-initials="S2">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Secretaria</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Asistentes Dentales -->
+<!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
+<div class="tab-content" id="tab-asistentes">
+<div class="team-grid">
+<div class="team-card reveal">
+<div class="team-photo placeholder-photo" data-initials="A1">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Asistente Dental</p>
+</div>
+</div>
+<div class="team-card reveal reveal-delay">
+<div class="team-photo placeholder-photo" data-initials="A2">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Asistente Dental</p>
+</div>
+</div>
+<div class="team-card reveal reveal-delay-2">
+<div class="team-photo placeholder-photo" data-initials="A3">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Asistente Dental</p>
+</div>
+</div>
+<div class="team-card reveal reveal-delay-3">
+<div class="team-photo placeholder-photo" data-initials="A4">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Asistente Dental</p>
+</div>
+</div>
+<div class="team-card reveal">
+<div class="team-photo placeholder-photo" data-initials="A5">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Asistente Dental</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Laboratorio y Aseo -->
+<!-- TODO: Reemplazar "Nombre Apellido" con nombres reales y agregar fotos en images/ -->
+<div class="tab-content" id="tab-laboratorio">
+<div class="team-grid team-grid-small">
+<div class="team-card reveal">
+<div class="team-photo placeholder-photo" data-initials="L1">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Laboratorio</p>
+</div>
+</div>
+<div class="team-card reveal reveal-delay">
+<div class="team-photo placeholder-photo" data-initials="L2">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Laboratorio</p>
+</div>
+</div>
+<div class="team-card reveal reveal-delay-2">
+<div class="team-photo placeholder-photo" data-initials="L3">
+<div class="initials-circle"></div>
+</div>
+<div class="team-info">
+<h3>Nombre Apellido</h3>
+<p class="team-role">Aseo y Mantención</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ═══════════════════════════════════════════
          TRATAMIENTOS
     ═══════════════════════════════════════════ -->
-    <section id="tratamientos" class="section section-light">
-        <div class="container">
-            <div class="section-header reveal">
-                <p class="section-eyebrow">Lo que hacemos</p>
-                <h2>Tratamientos especializados</h2>
-                <p class="section-subtitle">Cada paciente es único. Diseñamos planes de tratamiento personalizados para lograr los mejores resultados en tu caso específico.</p>
-            </div>
-
-            <div class="treatments-grid">
-
-                <div class="treatment-card reveal">
-                    <div class="treatment-image">
-                        <img src="images/ejemplo-apiñamiento.jpg" alt="Apiñamiento dentario">
-                        <div class="treatment-overlay">
-                            <span>Caso clínico</span>
-                        </div>
-                    </div>
-                    <div class="treatment-body">
-                        <h3>Apiñamiento Dentario</h3>
-                        <p>Tratamiento para corregir la falta de espacio y la mala posición de los dientes, logrando una alineación óptima.</p>
-                    </div>
-                </div>
-
-                <div class="treatment-card reveal reveal-delay">
-                    <div class="treatment-image">
-                        <img src="images/ejemplo-clase-II.jpg" alt="Tratamiento Clase II">
-                        <div class="treatment-overlay">
-                            <span>Caso clínico</span>
-                        </div>
-                    </div>
-                    <div class="treatment-body">
-                        <h3>Tratamiento Clase II</h3>
-                        <p>Corrección de la discrepancia entre maxilar y mandíbula mediante ortopedia y ortodoncia especializada.</p>
-                    </div>
-                </div>
-
-                <div class="treatment-card reveal reveal-delay-2">
-                    <div class="treatment-image">
-                        <img src="images/ejemplo-overjet-aumentado.jpg" alt="Overjet aumentado">
-                        <div class="treatment-overlay">
-                            <span>Caso clínico</span>
-                        </div>
-                    </div>
-                    <div class="treatment-body">
-                        <h3>Overjet Aumentado</h3>
-                        <p>Corrección de la protrusión dental mediante tratamiento ortodóncico para mejorar función y estética.</p>
-                    </div>
-                </div>
-
-                <div class="treatment-card reveal">
-                    <div class="treatment-image">
-                        <img src="images/ejemplo-mordida-abierta.jpg" alt="Mordida abierta">
-                        <div class="treatment-overlay">
-                            <span>Caso clínico</span>
-                        </div>
-                    </div>
-                    <div class="treatment-body">
-                        <h3>Mordida Abierta</h3>
-                        <p>Tratamiento para corregir la falta de contacto entre dientes superiores e inferiores, mejorando la función masticatoria.</p>
-                    </div>
-                </div>
-
-                <div class="treatment-card reveal reveal-delay">
-                    <div class="treatment-image">
-                        <img src="images/ejemplo-compresion.jpg" alt="Compresión maxilar">
-                        <div class="treatment-overlay">
-                            <span>Caso clínico</span>
-                        </div>
-                    </div>
-                    <div class="treatment-body">
-                        <h3>Compresión Maxilar</h3>
-                        <p>Expansión del maxilar para corregir la falta de espacio y mejorar la relación entre arcadas dentarias.</p>
-                    </div>
-                </div>
-
-                <div class="treatment-card reveal reveal-delay-2">
-                    <div class="treatment-image">
-                        <img src="images/ejemplo-ortodoncia-lingual.jpg" alt="Ortodoncia lingual">
-                        <div class="treatment-overlay">
-                            <span>Caso clínico</span>
-                        </div>
-                    </div>
-                    <div class="treatment-body">
-                        <h3>Ortodoncia Lingual</h3>
-                        <p>Brackets colocados en la cara interna de los dientes, completamente invisible desde el exterior.</p>
-                    </div>
-                </div>
-
-                <div class="treatment-card reveal">
-                    <div class="treatment-image">
-                        <img src="images/ejemplo-ddm.jpg" alt="DDM - Discrepancia Dento-Maxilar">
-                        <div class="treatment-overlay">
-                            <span>Caso clínico</span>
-                        </div>
-                    </div>
-                    <div class="treatment-body">
-                        <h3>Discrepancia Dento-Maxilar</h3>
-                        <p>Tratamiento integral de la discrepancia entre el tamaño de los dientes y el espacio disponible en los maxilares.</p>
-                    </div>
-                </div>
-
-                <div class="treatment-card treatment-card-cta reveal reveal-delay">
-                    <div class="treatment-cta-content">
-                        <i class="fas fa-tooth"></i>
-                        <h3>¿Tienes otro caso?</h3>
-                        <p>Tratamos ortodoncia de adultos, cirugía ortognática, alineadores estéticos, ortopedia y corrección de hábitos.</p>
-                        <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20consultar%20sobre%20mi%20caso" class="btn btn-primary-sm" target="_blank" rel="noopener">
+<section class="section section-light" id="tratamientos">
+<div class="container">
+<div class="section-header reveal">
+<p class="section-eyebrow">Lo que hacemos</p>
+<h2>Tratamientos especializados</h2>
+<p class="section-subtitle">Cada paciente es único. Diseñamos planes de tratamiento personalizados para lograr los mejores resultados en tu caso específico.</p>
+</div>
+<div class="treatments-grid">
+<div class="treatment-card reveal">
+<div class="treatment-image">
+<img alt="Apiñamiento dentario" src="images/ejemplo-apiñamiento.jpg"/>
+<div class="treatment-overlay">
+<span>Caso clínico</span>
+</div>
+</div>
+<div class="treatment-body">
+<h3>Apiñamiento Dentario</h3>
+<p>Tratamiento para corregir la falta de espacio y la mala posición de los dientes, logrando una alineación óptima.</p>
+</div>
+</div>
+<div class="treatment-card reveal reveal-delay">
+<div class="treatment-image">
+<img alt="Tratamiento Clase II" src="images/ejemplo-clase-II.jpg"/>
+<div class="treatment-overlay">
+<span>Caso clínico</span>
+</div>
+</div>
+<div class="treatment-body">
+<h3>Tratamiento Clase II</h3>
+<p>Corrección de la discrepancia entre maxilar y mandíbula mediante ortopedia y ortodoncia especializada.</p>
+</div>
+</div>
+<div class="treatment-card reveal reveal-delay-2">
+<div class="treatment-image">
+<img alt="Overjet aumentado" src="images/ejemplo-overjet-aumentado.jpg"/>
+<div class="treatment-overlay">
+<span>Caso clínico</span>
+</div>
+</div>
+<div class="treatment-body">
+<h3>Overjet Aumentado</h3>
+<p>Corrección de la protrusión dental mediante tratamiento ortodóncico para mejorar función y estética.</p>
+</div>
+</div>
+<div class="treatment-card reveal">
+<div class="treatment-image">
+<img alt="Mordida abierta" src="images/ejemplo-mordida-abierta.jpg"/>
+<div class="treatment-overlay">
+<span>Caso clínico</span>
+</div>
+</div>
+<div class="treatment-body">
+<h3>Mordida Abierta</h3>
+<p>Tratamiento para corregir la falta de contacto entre dientes superiores e inferiores, mejorando la función masticatoria.</p>
+</div>
+</div>
+<div class="treatment-card reveal reveal-delay">
+<div class="treatment-image">
+<img alt="Compresión maxilar" src="images/ejemplo-compresion.jpg"/>
+<div class="treatment-overlay">
+<span>Caso clínico</span>
+</div>
+</div>
+<div class="treatment-body">
+<h3>Compresión Maxilar</h3>
+<p>Expansión del maxilar para corregir la falta de espacio y mejorar la relación entre arcadas dentarias.</p>
+</div>
+</div>
+<div class="treatment-card reveal reveal-delay-2">
+<div class="treatment-image">
+<img alt="Ortodoncia lingual" src="images/ejemplo-ortodoncia-lingual.jpg"/>
+<div class="treatment-overlay">
+<span>Caso clínico</span>
+</div>
+</div>
+<div class="treatment-body">
+<h3>Ortodoncia Lingual</h3>
+<p>Brackets colocados en la cara interna de los dientes, completamente invisible desde el exterior.</p>
+</div>
+</div>
+<div class="treatment-card reveal">
+<div class="treatment-image">
+<img alt="DDM - Discrepancia Dento-Maxilar" src="images/ejemplo-ddm.jpg"/>
+<div class="treatment-overlay">
+<span>Caso clínico</span>
+</div>
+</div>
+<div class="treatment-body">
+<h3>Discrepancia Dento-Maxilar</h3>
+<p>Tratamiento integral de la discrepancia entre el tamaño de los dientes y el espacio disponible en los maxilares.</p>
+</div>
+</div>
+<div class="treatment-card treatment-card-cta reveal reveal-delay">
+<div class="treatment-cta-content">
+<i class="fas fa-tooth"></i>
+<h3>¿Tienes otro caso?</h3>
+<p>Tratamos ortodoncia de adultos, cirugía ortognática, alineadores estéticos, ortopedia y corrección de hábitos.</p>
+<a class="btn btn-primary-sm" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20consultar%20sobre%20mi%20caso" rel="noopener" target="_blank">
                             Consulta tu caso
                         </a>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ═══════════════════════════════════════════
          GALERÍA CLÍNICA
     ═══════════════════════════════════════════ -->
-    <section id="galeria" class="section section-white">
-        <div class="container">
-            <div class="section-header reveal">
-                <p class="section-eyebrow">Nuestras instalaciones</p>
-                <h2>Una clínica diseñada para ti</h2>
-                <p class="section-subtitle">Contamos con 8 boxes clínicos, sala de diagnóstico, laboratorio propio, sala de esterilización y equipo de rayos. Todo bajo un mismo techo.</p>
-            </div>
-
-            <!-- TODO: Agregar más fotos: clinica-recepcion.jpg, clinica-box.jpg, clinica-laboratorio.jpg,
+<section class="section section-white" id="galeria">
+<div class="container">
+<div class="section-header reveal">
+<p class="section-eyebrow">Nuestras instalaciones</p>
+<h2>Una clínica diseñada para ti</h2>
+<p class="section-subtitle">Contamos con 8 boxes clínicos, sala de diagnóstico, laboratorio propio, sala de esterilización y equipo de rayos. Todo bajo un mismo techo.</p>
+</div>
+<!-- TODO: Agregar más fotos: clinica-recepcion.jpg, clinica-box.jpg, clinica-laboratorio.jpg,
                  clinica-rayos.jpg, clinica-esterilizacion.jpg, clinica-diagnostico.jpg -->
-            <div class="gallery-grid reveal">
-                <div class="gallery-item gallery-item-large">
-                    <img src="images/clinica-1.jpg" alt="Clínica Ortodoncia Richard">
-                    <div class="gallery-caption">Clínica</div>
-                </div>
-                <div class="gallery-placeholder">
-                    <i class="fas fa-image"></i>
-                    <span>Más fotos próximamente</span>
-                </div>
-                <div class="gallery-placeholder">
-                    <i class="fas fa-image"></i>
-                    <span>Más fotos próximamente</span>
-                </div>
-            </div>
-
-            <div class="clinic-features reveal">
-                <div class="clinic-feature">
-                    <i class="fas fa-door-open"></i>
-                    <span>8 Boxes clínicos</span>
-                </div>
-                <div class="clinic-feature">
-                    <i class="fas fa-x-ray"></i>
-                    <span>Equipo de rayos</span>
-                </div>
-                <div class="clinic-feature">
-                    <i class="fas fa-flask"></i>
-                    <span>Laboratorio propio</span>
-                </div>
-                <div class="clinic-feature">
-                    <i class="fas fa-shield-virus"></i>
-                    <span>Sala de esterilización</span>
-                </div>
-                <div class="clinic-feature">
-                    <i class="fas fa-magnifying-glass"></i>
-                    <span>Sala de diagnóstico</span>
-                </div>
-            </div>
-        </div>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+<div class="gallery-grid reveal">
+<div class="gallery-item gallery-item-large">
+<img alt="Clínica Ortodoncia Richard" src="images/clinica-1.jpg"/>
+<div class="gallery-caption">Clínica</div>
+</div>
+<div class="gallery-placeholder">
+<i class="fas fa-image"></i>
+<span>Más fotos próximamente</span>
+</div>
+<div class="gallery-placeholder">
+<i class="fas fa-image"></i>
+<span>Más fotos próximamente</span>
+</div>
+</div>
+<div class="clinic-features reveal">
+<div class="clinic-feature">
+<i class="fas fa-door-open"></i>
+<span>8 Boxes clínicos</span>
+</div>
+<div class="clinic-feature">
+<i class="fas fa-x-ray"></i>
+<span>Equipo de rayos</span>
+</div>
+<div class="clinic-feature">
+<i class="fas fa-flask"></i>
+<span>Laboratorio propio</span>
+</div>
+<div class="clinic-feature">
+<i class="fas fa-shield-virus"></i>
+<span>Sala de esterilización</span>
+</div>
+<div class="clinic-feature">
+<i class="fas fa-magnifying-glass"></i>
+<span>Sala de diagnóstico</span>
+</div>
+</div>
+</div>
+</section>
+<!-- ═══════════════════════════════════════════
          CTA AGENDA
     ═══════════════════════════════════════════ -->
-    <section id="agenda" class="section section-cta">
-        <div class="container">
-            <div class="cta-content reveal">
-                <p class="section-eyebrow light">¿Listo para comenzar?</p>
-                <h2>Agenda tu primera consulta</h2>
-                <p>Da el primer paso hacia la sonrisa que siempre quisiste. Nuestro equipo te recibirá, evaluará tu caso y te explicará todas las opciones de tratamiento disponibles.</p>
-
-                <div class="cta-buttons">
-                    <!-- Botón activo: WhatsApp -->
-                    <a href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20primera%20consulta" class="btn btn-primary btn-lg" target="_blank" rel="noopener">
-                        <i class="fab fa-whatsapp"></i> Agendar por WhatsApp
+<section class="section section-cta" id="agenda">
+<div class="container">
+<div class="cta-content reveal">
+<p class="section-eyebrow light">¿Listo para comenzar?</p>
+<h2>Agenda tu primera consulta</h2>
+<p>Da el primer paso hacia la sonrisa que siempre quisiste. Nuestro equipo te recibirá, evaluará tu caso y te explicará todas las opciones de tratamiento disponibles.</p>
+<div class="cta-buttons">
+<!-- Botón activo: WhatsApp -->
+<a class="btn btn-primary btn-lg" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20primera%20consulta" rel="noopener" target="_blank">
+<i class="fab fa-whatsapp"></i> Agendar por WhatsApp
                     </a>
-
-                    <!-- TODO: Cuando esté disponible la integración con DentiDesk (app.dentidesk.cl),
+<!-- TODO: Cuando esté disponible la integración con DentiDesk (app.dentidesk.cl),
                          reemplazar el href por el link/iframe de agendamiento online -->
-                    <a href="tel:+56222173499" class="btn btn-outline-white btn-lg">
-                        <i class="fas fa-phone"></i> +56 2 2217 3499
+<a class="btn btn-outline-white btn-lg" href="tel:+56222173499">
+<i class="fas fa-phone"></i> +56 2 2217 3499
                     </a>
-                </div>
-
-                <p class="cta-note">
-                    <i class="fas fa-clock"></i>
+</div>
+<p class="cta-note">
+<i class="fas fa-clock"></i>
                     Lunes a Viernes · 9:00 a 19:30 hrs
                 </p>
-            </div>
-        </div>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+</div>
+</div>
+</section>
+<!-- ═══════════════════════════════════════════
          INFORMACIÓN PARA PACIENTES
     ═══════════════════════════════════════════ -->
-    <section id="pacientes" class="section section-white">
-        <div class="container">
-            <div class="section-header reveal">
-                <p class="section-eyebrow">Información para pacientes</p>
-                <h2>Todo lo que necesitas saber</h2>
-                <p class="section-subtitle">Resolvemos las dudas más frecuentes de nuestros pacientes, organizadas por tema.</p>
-            </div>
-
-            <!-- Primera Consulta -->
-            <div class="primera-consulta reveal">
-                <div class="pc-icon"><i class="fas fa-calendar-check"></i></div>
-                <div class="pc-content">
-                    <h3>¿Qué ocurre en la primera consulta?</h3>
-                    <div class="pc-steps">
-                        <div class="pc-step">
-                            <span class="pc-num">1</span>
-                            <div>
-                                <strong>Examen y escucha</strong>
-                                <p>Examinamos al paciente y nos interesa escucharle para saber qué es lo que espera del tratamiento.</p>
-                            </div>
-                        </div>
-                        <div class="pc-step">
-                            <span class="pc-num">2</span>
-                            <div>
-                                <strong>Diagnóstico preliminar</strong>
-                                <p>Realizamos una evaluación inicial para determinar el estado actual y las necesidades del paciente.</p>
-                            </div>
-                        </div>
-                        <div class="pc-step">
-                            <span class="pc-num">3</span>
-                            <div>
-                                <strong>Evaluación del tratamiento</strong>
-                                <p>Determinamos si el tratamiento es necesario, identificamos el momento óptimo para comenzar y explicamos nuestra metodología de trabajo.</p>
-                            </div>
-                        </div>
-                        <div class="pc-step">
-                            <span class="pc-num">4</span>
-                            <div>
-                                <strong>Siguientes pasos</strong>
-                                <p>Si el paciente está de acuerdo con el presupuesto, se toman las radiografías necesarias, se agenda una nueva cita y se realizan los exámenes complementarios para establecer el diagnóstico definitivo.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tabs de preguntas -->
-            <div class="faq-tabs reveal">
-                <button class="faq-tab-btn active" data-faq="primeros">
-                    <i class="fas fa-star"></i> Primeros pasos
+<section class="section section-white" id="pacientes">
+<div class="container">
+<div class="section-header reveal">
+<p class="section-eyebrow">Información para pacientes</p>
+<h2>Todo lo que necesitas saber</h2>
+<p class="section-subtitle">Resolvemos las dudas más frecuentes de nuestros pacientes, organizadas por tema.</p>
+</div>
+<!-- Primera Consulta -->
+<div class="primera-consulta reveal">
+<div class="pc-icon"><i class="fas fa-calendar-check"></i></div>
+<div class="pc-content">
+<h3>¿Qué ocurre en la primera consulta?</h3>
+<div class="pc-steps">
+<div class="pc-step">
+<span class="pc-num">1</span>
+<div>
+<strong>Examen y escucha</strong>
+<p>Examinamos al paciente y nos interesa escucharle para saber qué es lo que espera del tratamiento.</p>
+</div>
+</div>
+<div class="pc-step">
+<span class="pc-num">2</span>
+<div>
+<strong>Diagnóstico preliminar</strong>
+<p>Realizamos una evaluación inicial para determinar el estado actual y las necesidades del paciente.</p>
+</div>
+</div>
+<div class="pc-step">
+<span class="pc-num">3</span>
+<div>
+<strong>Evaluación del tratamiento</strong>
+<p>Determinamos si el tratamiento es necesario, identificamos el momento óptimo para comenzar y explicamos nuestra metodología de trabajo.</p>
+</div>
+</div>
+<div class="pc-step">
+<span class="pc-num">4</span>
+<div>
+<strong>Siguientes pasos</strong>
+<p>Si el paciente está de acuerdo con el presupuesto, se toman las radiografías necesarias, se agenda una nueva cita y se realizan los exámenes complementarios para establecer el diagnóstico definitivo.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Tabs de preguntas -->
+<div class="faq-tabs reveal">
+<button class="faq-tab-btn active" data-faq="primeros">
+<i class="fas fa-star"></i> Primeros pasos
                 </button>
-                <button class="faq-tab-btn" data-faq="durante">
-                    <i class="fas fa-tooth"></i> Durante el tratamiento
+<button class="faq-tab-btn" data-faq="durante">
+<i class="fas fa-tooth"></i> Durante el tratamiento
                 </button>
-                <button class="faq-tab-btn" data-faq="alineadores">
-                    <i class="fas fa-align-center"></i> Alineadores
+<button class="faq-tab-btn" data-faq="alineadores">
+<i class="fas fa-align-center"></i> Alineadores
                 </button>
-                <button class="faq-tab-btn" data-faq="contenciones">
-                    <i class="fas fa-shield-halved"></i> Contenciones
+<button class="faq-tab-btn" data-faq="contenciones">
+<i class="fas fa-shield-halved"></i> Contenciones
                 </button>
-                <button class="faq-tab-btn" data-faq="cirugia">
-                    <i class="fas fa-hospital"></i> Cirugía Ortognática
+<button class="faq-tab-btn" data-faq="cirugia">
+<i class="fas fa-hospital"></i> Cirugía Ortognática
                 </button>
-                <button class="faq-tab-btn" data-faq="urgencias">
-                    <i class="fas fa-triangle-exclamation"></i> Urgencias
+<button class="faq-tab-btn" data-faq="urgencias">
+<i class="fas fa-triangle-exclamation"></i> Urgencias
                 </button>
-            </div>
-
-            <!-- PRIMEROS PASOS -->
-            <div class="faq-content active" id="faq-primeros">
-                <div class="accordion">
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Qué cosas controlar en mi hijo para saber si necesita ortodoncia? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Hay ciertos signos que pueden indicar que tu hijo necesita una evaluación ortodóncica: hábito de chuparse el dedo, apiñamiento o superposición de los dientes permanentes, dientes quebrados o ausentes, dificultad para masticar, respiración bucal y una mordida anormal (hacia adelante, atrás u otras variaciones). Si observas alguno de estos signos, es recomendable consultar a un ortodoncista.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Por qué es bueno corregir una mala mordida? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Una mala mordida puede tener efectos adversos sobre la salud del paciente. Los dientes mal posicionados dificultan el trabajo del dentista en la realización de restauraciones. En cambio, los dientes bien posicionados y con soporte óseo adecuado son más fáciles de limpiar y, por lo tanto, es más probable que duren toda la vida del paciente. Además, corregir la mordida facilita la realización de coronas, puentes y otras restauraciones dentales.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Por qué se aconseja tener un tratamiento de ortodoncia ahora? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Hay numerosas razones para que un adulto decida tener un tratamiento de ortodoncia: puede ayudarte a tener dientes más derechos, una sonrisa más agradable y mayor seguridad en situaciones sociales y laborales. Otros beneficios incluyen un cepillado dental más fácil, menor posibilidad de caries y problemas periodontales en el futuro, y una mayor eficacia masticatoria que facilita el tragar.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Existe algún límite de edad para la ortodoncia? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Prácticamente no existe un límite de edad para la ortodoncia. Tanto los dientes como los tejidos blandos son los mismos en niños y adultos, y se pueden tratar con éxito a cualquier edad. La diferencia radica en que los tratamientos en adultos suelen ser relativamente más largos. No obstante, controles periodontales periódicos pueden ser necesarios durante el tratamiento, o la interacción con otras especialidades como rehabilitación oral o cirugía ortognática, según se estime necesario.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">Una mirada a la ortodoncia en adultos <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La ortodoncia en adultos es tan posible como lo es en un adolescente o un niño. Aproximadamente el 30% de los tratamientos ortodóncicos se realizan en pacientes adultos de distintas edades, y estas intervenciones producen resultados significativamente positivos para quienes los reciben.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Qué causa la falta de alineación de los dientes? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La mala alineación dental puede tener múltiples causas. Entre los factores conductuales y del desarrollo se encuentran el hábito de chuparse el dedo, sacar la lengua, la pérdida prematura de dientes de leche y vías respiratorias estrechas por amígdalas o adenoides agrandadas. También influyen factores estructurales y hereditarios como dientes de gran tamaño, ausencia de dientes, exceso de espacios y maxilares pequeños.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Qué rol juega lo hereditario? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La herencia es una combinación compleja de factores. Ambos padres pueden tener dientes perfectamente alineados, y el primer hijo puede no tener ningún problema. Sin embargo, el segundo hijo puede presentar dificultades, como si los factores hereditarios estuvieran trabajando unos contra otros. Por eso se recomienda que un ortodoncista evalúe la mordida de los hijos y realice el tratamiento adecuado, sin asumir ni lo mejor ni lo peor basándose solo en el historial dental familiar.</p></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- DURANTE EL TRATAMIENTO -->
-            <div class="faq-content" id="faq-durante">
-                <div class="accordion">
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Va a doler? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Las visitas al ortodoncista generalmente no generan dolor inmediato. Sin embargo, la activación de los aparatos puede causar molestias o sensibilidad en las horas siguientes a la consulta. Esta sensación suele durar entre 48 y 72 horas mientras los dientes se asientan en su nueva posición. Con cada ajuste sucesivo los pacientes experimentan molestias leves, y los propios pacientes reportan una disminución del dolor a medida que avanza el tratamiento.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Me molestará o dolerá mucho al inicio? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>El dolor o molestias dentales en ortodoncia es un fenómeno muy común al inicio del tratamiento y es producto del movimiento de uno o más dientes. Estas molestias pueden durar 2 a 3 días después de instalados los aparatos, y para aliviarlas se puede usar un analgésico recomendado por el doctor. En el caso de los aparatos removibles, no es conveniente sacárselos para que desaparezcan las molestias, ya que de esa forma siempre molestarán al ponérselos. Lo correcto es usarlos, ayudarse con un analgésico y aguantar un poco, ya que luego esas molestias desaparecerán.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Cuánto se podría demorar la ortodoncia? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La duración de un tratamiento ortodóncico varía significativamente según su complejidad. Una simple corrección de espacios anteriores puede tomar unos pocos meses, mientras que el enderezamiento de dientes muy apiñados requerirá más tiempo. Los casos más complejos, como la corrección completa de una mordida severa, pueden extenderse dos años o más.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Con qué frecuencia tendré que asistir a mis controles? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Los controles ortodóncicos se programan en intervalos que varían según las necesidades del tratamiento, generalmente entre dos/tres y seis semanas.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">Factores a considerar al usar aparatos de ortodoncia <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Una nutrición y un cuidado adecuados son fundamentales para mantener los dientes y encías sanos durante el tratamiento. Los aparatos crean espacios donde los restos de alimentos quedan atrapados fácilmente, por lo que se recomienda consultar con el doctor las técnicas correctas de cepillado y enjuague, y considerar el uso de un irrigador oral. Algunos alimentos deben evitarse: los pegajosos (chicle, toffees) y los duros o crujientes (frutos secos, palomitas) pueden dañar los alambres y soltar los brackets. Los alimentos sólidos como manzanas y carnes se pueden comer cortados en trozos pequeños. Si no es posible lavarse los dientes después de comer, enjuagarse la boca con abundante agua ayuda a reducir los residuos.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Qué pasa con las actividades extracurriculares? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La ortodoncia no tiene contraindicación con las actividades normales de los niños, incluso con deportes de contacto, siempre que se usen protectores bucales adecuados. Algunos instrumentos musicales pueden incluso resultar beneficiosos durante el tratamiento. El habla puede verse levemente afectada solo durante los primeros días. La ortodoncia es una parte normal de esta etapa de la vida y el tratamiento no debe impedir ninguna actividad que el paciente realice habitualmente.</p></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ALINEADORES -->
-            <div class="faq-content" id="faq-alineadores">
-                <div class="accordion">
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Cómo usar y cuidar los alineadores? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body">
-                            <p><strong>Uso:</strong> Los alineadores deben usarse 22 horas al día, retirándolos solo para comer y cepillarse los dientes. Después de cada comida, cepilla tanto los dientes como los alineadores, o al menos enjuágalos con agua. Las bebidas sin azúcar y no ácidas pueden tomarse con los alineadores puestos; las azucaradas o ácidas requieren retirarlos o limpiarlos después. Los alimentos y bebidas muy calientes pueden deformar el plástico.</p>
-                            <p><strong>Cuidado:</strong> Guarda los alineadores en su estuche cuando no los uses. Límplalos suavemente con un cepillo suave y agua a temperatura ambiente. Evita las tabletas para dentaduras y el enjuague bucal, ya que opacifican el plástico.</p>
-                            <p><strong>Avance:</strong> Pasa al siguiente alineador solo con indicación del ortodoncista. Conserva los anteriores y tráelos a los controles. Si pierdes un alineador, prueba el siguiente; si calza bien, úsalo el tiempo restante más su período asignado. Si no calza, vuelve al anterior y contacta a la clínica.</p>
-                        </div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">Alineadores a la casa, ¿qué mejor, o no? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Existen empresas que ofrecen alineadores enviados directamente al domicilio, sin consultas presenciales y a precios atractivos. Sin embargo, estas empresas planifican el tratamiento sin radiografías, sin evaluación ósea ni diagnóstico clínico adecuado. Ciertos movimientos no pueden lograrse solo con alineadores sin herramientas auxiliares y sin monitoreo periódico. Las simulaciones en pantalla no siempre se traducen en resultados clínicos reales. Europa y Estados Unidos están reconsiderando estos tratamientos tras observar daños en pacientes. Apoyamos las innovaciones que mejoran la calidad de vida, pero creemos firmemente que los especialistas deben guiar el uso de la tecnología para evitar daños. — Dr. Alberto Del Real V.</p></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- CONTENCIONES -->
-            <div class="faq-content" id="faq-contenciones">
-                <div class="accordion">
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Qué son las contenciones y por cuánto tiempo tendré que usarlas? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Al finalizar el tratamiento ortodóncico, se usan contenciones para evitar que los dientes vuelvan a su posición original. Existen dos tipos: fijas (un pequeño alambre en la cara interna de los dientes que los mantiene en posición) y removibles (placas o planos de relajación). Los primeros seis meses post-tratamiento son los más críticos para el uso consistente de las contenciones. La clínica recomienda mantenerlas el mayor tiempo posible, ya que no hay inconvenientes en su uso de por vida. Esto se debe a que los dientes se mueven naturalmente a lo largo de la vida por el proceso de crecimiento y envejecimiento.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Son permanentes los cambios logrados con la ortodoncia? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La experiencia de ortodoncistas alrededor del mundo, respaldada por evidencia científica, indica que las posibilidades de mantener los resultados a través del tiempo son muy altas, siempre y cuando el paciente siga correctamente las instrucciones de la etapa de contención. Los dientes y maxilares, como todas las partes del cuerpo, están en constante cambio; los dientes que han estado en mala posición por largo tiempo tienden a querer volver a su posición inicial, y esto puede verse afectado además por el proceso natural de envejecimiento. Pequeñas recidivas pueden ocurrir, pero se minimizan con el uso correcto de las contenciones.</p></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- CIRUGÍA ORTOGNÁTICA -->
-            <div class="faq-content" id="faq-cirugia">
-                <div class="accordion">
-                    <div class="acc-item">
-                        <button class="acc-btn">¿De qué se trata la Cirugía Ortognática? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La cirugía ortognática es una forma de cirugía dentomaxilofacial que permite corregir casos severos de alteraciones dentofaciales o de gran descoordinación de los maxilares. Puede ofrecer resultados espectaculares en los casos en que las relaciones intermaxilares están tan severamente mal puestas que el solo movimiento de los dientes no puede lograr los resultados esperados. Requiere una estrecha colaboración entre el ortodoncista y el cirujano maxilofacial para asegurar una planificación y resultados óptimos.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Cuándo se indica la cirugía ortognática? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Cuando los maxilares están severamente desalineados, los aparatos convencionales por sí solos no pueden lograr una mordida correcta. El tratamiento combinado de ortodoncia y cirugía se indica cuando los procedimientos convencionales no permiten lograr una oclusión estable o una armonía dentofacial aceptable. También se recomienda para pacientes que buscan modificaciones estéticas junto a correcciones dentales, como reducir la proyección del mentón o reducir la exposición de las encías al sonreír. Para muchos adultos con anomalías dentofaciales severas, esta es la única opción de excelencia.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Cuáles son los problemas que la cirugía ortognática mejor corrige? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Los problemas más frecuentemente tratados son: mentón prominente o retraído, exceso de exposición de las encías al sonreír, incapacidad de lograr contacto labial con los músculos faciales en reposo, y elongación vertical excesiva del rostro. Estos pueden deberse a predisposición genética, lesiones o alteraciones del desarrollo.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Cuáles son los principales beneficios de la ortodoncia con cirugía ortognática? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body">
-                            <p>El tratamiento combinado ofrece tres beneficios principales:</p>
-                            <ul>
-                                <li><strong>Estética facial:</strong> Mejoría en el balance del perfil y simetría facial.</li>
-                                <li><strong>Alineación dental:</strong> Permite una relación óptima de las arcadas dentarias entre sí.</li>
-                                <li><strong>Bienestar psicológico:</strong> Mejora la autoestima y refuerza la seguridad de los pacientes tratados.</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Cómo progresa el tratamiento combinado con cirugía? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>La mayoría de los pacientes requieren brackets para alinear los dientes, coordinar las arcadas y cerrar espacios de extracción antes de la cirugía. La cirugía no se realiza hasta que los dientes hayan quedado alineados. Durante la intervención quirúrgica, los aparatos ortodóncicos sirven para estabilizar los dientes y el hueso. Tras la cirugía, se continúa con ortodoncia posquirúrgica para lograr la alineación final de los dientes en la nueva posición de los maxilares.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Qué diferencia a la técnica "Cirugía Primero"? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>En el enfoque "Cirugía Primero", los aparatos de ortodoncia se instalan inmediatamente antes de la cirugía y se activan durante el procedimiento quirúrgico una vez que los maxilares están fijados. Este método permite duraciones de tratamiento significativamente más cortas y brinda al paciente mejoras estéticas faciales inmediatas desde el inicio del tratamiento ortodóncico.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Es posible evitar la cirugía? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>En pacientes jóvenes, el crecimiento facial mediante una adecuada intervención ortodóncica puede a veces corregir o compensar situaciones de exceso o deficiencia mandibular. Los procedimientos de ortopedia dentofacial pueden guiar el crecimiento óseo y eliminar la necesidad futura de cirugía. Sin embargo, en adultos y en quienes han completado su crecimiento óseo, la inadecuada relación entre los dientes y el hueso suele necesitar tratarse con cirugía.</p></div>
-                    </div>
-                    <div class="acc-item">
-                        <button class="acc-btn">¿Existen riesgos asociados a la cirugía ortognática? <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body"><p>Como cualquier procedimiento quirúrgico, la cirugía ortognática conlleva los riesgos vinculados a cualquier tipo de cirugía. Sin embargo, no son técnicas experimentales: se realizan rutinariamente en clínicas y hospitales por cirujanos maxilofaciales con amplia experiencia. Se recomienda al paciente preguntar a su cirujano oral que le explique los riesgos asociados antes de proceder.</p></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- URGENCIAS -->
-            <div class="faq-content" id="faq-urgencias">
-                <div class="accordion">
-                    <div class="acc-item">
-                        <button class="acc-btn">Manejo de urgencias durante las vacaciones <i class="fas fa-chevron-down"></i></button>
-                        <div class="acc-body">
-                            <p>Un buen cuidado de los aparatos y evitar comer cosas muy duras o pegajosas es la mejor manera de prevenir urgencias en ortodoncia. Siempre puedes venir a atender una urgencia, incluso durante las vacaciones — no cerramos. Si estás lejos, puedes llamarnos o escribirnos para que te asesoremos cómo manejarla o si puede esperar hasta el próximo control.</p>
-                            <a href="images/urgencias.webp" target="_blank" rel="noopener" class="urgencias-link">
-                                <img src="images/urgencias.webp" alt="Guía de urgencias en ortodoncia">
-                                <span><i class="fas fa-magnifying-glass-plus"></i> Ver guía completa</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+</div>
+<!-- PRIMEROS PASOS -->
+<div class="faq-content active" id="faq-primeros">
+<div class="accordion">
+<div class="acc-item">
+<button class="acc-btn">¿Qué cosas controlar en mi hijo para saber si necesita ortodoncia? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Hay ciertos signos que pueden indicar que tu hijo necesita una evaluación ortodóncica: hábito de chuparse el dedo, apiñamiento o superposición de los dientes permanentes, dientes quebrados o ausentes, dificultad para masticar, respiración bucal y una mordida anormal (hacia adelante, atrás u otras variaciones). Si observas alguno de estos signos, es recomendable consultar a un ortodoncista.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Por qué es bueno corregir una mala mordida? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Una mala mordida puede tener efectos adversos sobre la salud del paciente. Los dientes mal posicionados dificultan el trabajo del dentista en la realización de restauraciones. En cambio, los dientes bien posicionados y con soporte óseo adecuado son más fáciles de limpiar y, por lo tanto, es más probable que duren toda la vida del paciente. Además, corregir la mordida facilita la realización de coronas, puentes y otras restauraciones dentales.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Por qué se aconseja tener un tratamiento de ortodoncia ahora? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Hay numerosas razones para que un adulto decida tener un tratamiento de ortodoncia: puede ayudarte a tener dientes más derechos, una sonrisa más agradable y mayor seguridad en situaciones sociales y laborales. Otros beneficios incluyen un cepillado dental más fácil, menor posibilidad de caries y problemas periodontales en el futuro, y una mayor eficacia masticatoria que facilita el tragar.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Existe algún límite de edad para la ortodoncia? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Prácticamente no existe un límite de edad para la ortodoncia. Tanto los dientes como los tejidos blandos son los mismos en niños y adultos, y se pueden tratar con éxito a cualquier edad. La diferencia radica en que los tratamientos en adultos suelen ser relativamente más largos. No obstante, controles periodontales periódicos pueden ser necesarios durante el tratamiento, o la interacción con otras especialidades como rehabilitación oral o cirugía ortognática, según se estime necesario.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">Una mirada a la ortodoncia en adultos <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La ortodoncia en adultos es tan posible como lo es en un adolescente o un niño. Aproximadamente el 30% de los tratamientos ortodóncicos se realizan en pacientes adultos de distintas edades, y estas intervenciones producen resultados significativamente positivos para quienes los reciben.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Qué causa la falta de alineación de los dientes? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La mala alineación dental puede tener múltiples causas. Entre los factores conductuales y del desarrollo se encuentran el hábito de chuparse el dedo, sacar la lengua, la pérdida prematura de dientes de leche y vías respiratorias estrechas por amígdalas o adenoides agrandadas. También influyen factores estructurales y hereditarios como dientes de gran tamaño, ausencia de dientes, exceso de espacios y maxilares pequeños.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Qué rol juega lo hereditario? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La herencia es una combinación compleja de factores. Ambos padres pueden tener dientes perfectamente alineados, y el primer hijo puede no tener ningún problema. Sin embargo, el segundo hijo puede presentar dificultades, como si los factores hereditarios estuvieran trabajando unos contra otros. Por eso se recomienda que un ortodoncista evalúe la mordida de los hijos y realice el tratamiento adecuado, sin asumir ni lo mejor ni lo peor basándose solo en el historial dental familiar.</p></div>
+</div>
+</div>
+</div>
+<!-- DURANTE EL TRATAMIENTO -->
+<div class="faq-content" id="faq-durante">
+<div class="accordion">
+<div class="acc-item">
+<button class="acc-btn">¿Va a doler? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Las visitas al ortodoncista generalmente no generan dolor inmediato. Sin embargo, la activación de los aparatos puede causar molestias o sensibilidad en las horas siguientes a la consulta. Esta sensación suele durar entre 48 y 72 horas mientras los dientes se asientan en su nueva posición. Con cada ajuste sucesivo los pacientes experimentan molestias leves, y los propios pacientes reportan una disminución del dolor a medida que avanza el tratamiento.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Me molestará o dolerá mucho al inicio? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>El dolor o molestias dentales en ortodoncia es un fenómeno muy común al inicio del tratamiento y es producto del movimiento de uno o más dientes. Estas molestias pueden durar 2 a 3 días después de instalados los aparatos, y para aliviarlas se puede usar un analgésico recomendado por el doctor. En el caso de los aparatos removibles, no es conveniente sacárselos para que desaparezcan las molestias, ya que de esa forma siempre molestarán al ponérselos. Lo correcto es usarlos, ayudarse con un analgésico y aguantar un poco, ya que luego esas molestias desaparecerán.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Cuánto se podría demorar la ortodoncia? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La duración de un tratamiento ortodóncico varía significativamente según su complejidad. Una simple corrección de espacios anteriores puede tomar unos pocos meses, mientras que el enderezamiento de dientes muy apiñados requerirá más tiempo. Los casos más complejos, como la corrección completa de una mordida severa, pueden extenderse dos años o más.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Con qué frecuencia tendré que asistir a mis controles? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Los controles ortodóncicos se programan en intervalos que varían según las necesidades del tratamiento, generalmente entre dos/tres y seis semanas.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">Factores a considerar al usar aparatos de ortodoncia <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Una nutrición y un cuidado adecuados son fundamentales para mantener los dientes y encías sanos durante el tratamiento. Los aparatos crean espacios donde los restos de alimentos quedan atrapados fácilmente, por lo que se recomienda consultar con el doctor las técnicas correctas de cepillado y enjuague, y considerar el uso de un irrigador oral. Algunos alimentos deben evitarse: los pegajosos (chicle, toffees) y los duros o crujientes (frutos secos, palomitas) pueden dañar los alambres y soltar los brackets. Los alimentos sólidos como manzanas y carnes se pueden comer cortados en trozos pequeños. Si no es posible lavarse los dientes después de comer, enjuagarse la boca con abundante agua ayuda a reducir los residuos.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Qué pasa con las actividades extracurriculares? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La ortodoncia no tiene contraindicación con las actividades normales de los niños, incluso con deportes de contacto, siempre que se usen protectores bucales adecuados. Algunos instrumentos musicales pueden incluso resultar beneficiosos durante el tratamiento. El habla puede verse levemente afectada solo durante los primeros días. La ortodoncia es una parte normal de esta etapa de la vida y el tratamiento no debe impedir ninguna actividad que el paciente realice habitualmente.</p></div>
+</div>
+</div>
+</div>
+<!-- ALINEADORES -->
+<div class="faq-content" id="faq-alineadores">
+<div class="accordion">
+<div class="acc-item">
+<button class="acc-btn">¿Cómo usar y cuidar los alineadores? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body">
+<p><strong>Uso:</strong> Los alineadores deben usarse 22 horas al día, retirándolos solo para comer y cepillarse los dientes. Después de cada comida, cepilla tanto los dientes como los alineadores, o al menos enjuágalos con agua. Las bebidas sin azúcar y no ácidas pueden tomarse con los alineadores puestos; las azucaradas o ácidas requieren retirarlos o limpiarlos después. Los alimentos y bebidas muy calientes pueden deformar el plástico.</p>
+<p><strong>Cuidado:</strong> Guarda los alineadores en su estuche cuando no los uses. Límplalos suavemente con un cepillo suave y agua a temperatura ambiente. Evita las tabletas para dentaduras y el enjuague bucal, ya que opacifican el plástico.</p>
+<p><strong>Avance:</strong> Pasa al siguiente alineador solo con indicación del ortodoncista. Conserva los anteriores y tráelos a los controles. Si pierdes un alineador, prueba el siguiente; si calza bien, úsalo el tiempo restante más su período asignado. Si no calza, vuelve al anterior y contacta a la clínica.</p>
+</div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">Alineadores a la casa, ¿qué mejor, o no? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Existen empresas que ofrecen alineadores enviados directamente al domicilio, sin consultas presenciales y a precios atractivos. Sin embargo, estas empresas planifican el tratamiento sin radiografías, sin evaluación ósea ni diagnóstico clínico adecuado. Ciertos movimientos no pueden lograrse solo con alineadores sin herramientas auxiliares y sin monitoreo periódico. Las simulaciones en pantalla no siempre se traducen en resultados clínicos reales. Europa y Estados Unidos están reconsiderando estos tratamientos tras observar daños en pacientes. Apoyamos las innovaciones que mejoran la calidad de vida, pero creemos firmemente que los especialistas deben guiar el uso de la tecnología para evitar daños. — Dr. Alberto Del Real V.</p></div>
+</div>
+</div>
+</div>
+<!-- CONTENCIONES -->
+<div class="faq-content" id="faq-contenciones">
+<div class="accordion">
+<div class="acc-item">
+<button class="acc-btn">¿Qué son las contenciones y por cuánto tiempo tendré que usarlas? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Al finalizar el tratamiento ortodóncico, se usan contenciones para evitar que los dientes vuelvan a su posición original. Existen dos tipos: fijas (un pequeño alambre en la cara interna de los dientes que los mantiene en posición) y removibles (placas o planos de relajación). Los primeros seis meses post-tratamiento son los más críticos para el uso consistente de las contenciones. La clínica recomienda mantenerlas el mayor tiempo posible, ya que no hay inconvenientes en su uso de por vida. Esto se debe a que los dientes se mueven naturalmente a lo largo de la vida por el proceso de crecimiento y envejecimiento.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Son permanentes los cambios logrados con la ortodoncia? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La experiencia de ortodoncistas alrededor del mundo, respaldada por evidencia científica, indica que las posibilidades de mantener los resultados a través del tiempo son muy altas, siempre y cuando el paciente siga correctamente las instrucciones de la etapa de contención. Los dientes y maxilares, como todas las partes del cuerpo, están en constante cambio; los dientes que han estado en mala posición por largo tiempo tienden a querer volver a su posición inicial, y esto puede verse afectado además por el proceso natural de envejecimiento. Pequeñas recidivas pueden ocurrir, pero se minimizan con el uso correcto de las contenciones.</p></div>
+</div>
+</div>
+</div>
+<!-- CIRUGÍA ORTOGNÁTICA -->
+<div class="faq-content" id="faq-cirugia">
+<div class="accordion">
+<div class="acc-item">
+<button class="acc-btn">¿De qué se trata la Cirugía Ortognática? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La cirugía ortognática es una forma de cirugía dentomaxilofacial que permite corregir casos severos de alteraciones dentofaciales o de gran descoordinación de los maxilares. Puede ofrecer resultados espectaculares en los casos en que las relaciones intermaxilares están tan severamente mal puestas que el solo movimiento de los dientes no puede lograr los resultados esperados. Requiere una estrecha colaboración entre el ortodoncista y el cirujano maxilofacial para asegurar una planificación y resultados óptimos.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Cuándo se indica la cirugía ortognática? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Cuando los maxilares están severamente desalineados, los aparatos convencionales por sí solos no pueden lograr una mordida correcta. El tratamiento combinado de ortodoncia y cirugía se indica cuando los procedimientos convencionales no permiten lograr una oclusión estable o una armonía dentofacial aceptable. También se recomienda para pacientes que buscan modificaciones estéticas junto a correcciones dentales, como reducir la proyección del mentón o reducir la exposición de las encías al sonreír. Para muchos adultos con anomalías dentofaciales severas, esta es la única opción de excelencia.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Cuáles son los problemas que la cirugía ortognática mejor corrige? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Los problemas más frecuentemente tratados son: mentón prominente o retraído, exceso de exposición de las encías al sonreír, incapacidad de lograr contacto labial con los músculos faciales en reposo, y elongación vertical excesiva del rostro. Estos pueden deberse a predisposición genética, lesiones o alteraciones del desarrollo.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Cuáles son los principales beneficios de la ortodoncia con cirugía ortognática? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body">
+<p>El tratamiento combinado ofrece tres beneficios principales:</p>
+<ul>
+<li><strong>Estética facial:</strong> Mejoría en el balance del perfil y simetría facial.</li>
+<li><strong>Alineación dental:</strong> Permite una relación óptima de las arcadas dentarias entre sí.</li>
+<li><strong>Bienestar psicológico:</strong> Mejora la autoestima y refuerza la seguridad de los pacientes tratados.</li>
+</ul>
+</div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Cómo progresa el tratamiento combinado con cirugía? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>La mayoría de los pacientes requieren brackets para alinear los dientes, coordinar las arcadas y cerrar espacios de extracción antes de la cirugía. La cirugía no se realiza hasta que los dientes hayan quedado alineados. Durante la intervención quirúrgica, los aparatos ortodóncicos sirven para estabilizar los dientes y el hueso. Tras la cirugía, se continúa con ortodoncia posquirúrgica para lograr la alineación final de los dientes en la nueva posición de los maxilares.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Qué diferencia a la técnica "Cirugía Primero"? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>En el enfoque "Cirugía Primero", los aparatos de ortodoncia se instalan inmediatamente antes de la cirugía y se activan durante el procedimiento quirúrgico una vez que los maxilares están fijados. Este método permite duraciones de tratamiento significativamente más cortas y brinda al paciente mejoras estéticas faciales inmediatas desde el inicio del tratamiento ortodóncico.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Es posible evitar la cirugía? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>En pacientes jóvenes, el crecimiento facial mediante una adecuada intervención ortodóncica puede a veces corregir o compensar situaciones de exceso o deficiencia mandibular. Los procedimientos de ortopedia dentofacial pueden guiar el crecimiento óseo y eliminar la necesidad futura de cirugía. Sin embargo, en adultos y en quienes han completado su crecimiento óseo, la inadecuada relación entre los dientes y el hueso suele necesitar tratarse con cirugía.</p></div>
+</div>
+<div class="acc-item">
+<button class="acc-btn">¿Existen riesgos asociados a la cirugía ortognática? <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body"><p>Como cualquier procedimiento quirúrgico, la cirugía ortognática conlleva los riesgos vinculados a cualquier tipo de cirugía. Sin embargo, no son técnicas experimentales: se realizan rutinariamente en clínicas y hospitales por cirujanos maxilofaciales con amplia experiencia. Se recomienda al paciente preguntar a su cirujano oral que le explique los riesgos asociados antes de proceder.</p></div>
+</div>
+</div>
+</div>
+<!-- URGENCIAS -->
+<div class="faq-content" id="faq-urgencias">
+<div class="accordion">
+<div class="acc-item">
+<button class="acc-btn">Manejo de urgencias durante las vacaciones <i class="fas fa-chevron-down"></i></button>
+<div class="acc-body">
+<p>Un buen cuidado de los aparatos y evitar comer cosas muy duras o pegajosas es la mejor manera de prevenir urgencias en ortodoncia. Siempre puedes venir a atender una urgencia, incluso durante las vacaciones — no cerramos. Si estás lejos, puedes llamarnos o escribirnos para que te asesoremos cómo manejarla o si puede esperar hasta el próximo control.</p>
+<a class="urgencias-link" href="images/urgencias.webp" rel="noopener" target="_blank">
+<img alt="Guía de urgencias en ortodoncia" src="images/urgencias.webp"/>
+<span><i class="fas fa-magnifying-glass-plus"></i> Ver guía completa</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ═══════════════════════════════════════════
          CONTACTO
     ═══════════════════════════════════════════ -->
-    <section id="contacto" class="section section-light">
-        <div class="container">
-            <div class="section-header reveal">
-                <p class="section-eyebrow">Contáctanos</p>
-                <h2>Estamos para ayudarte</h2>
-            </div>
-
-            <div class="contact-grid">
-
-                <div class="contact-info reveal">
-                    <div class="contact-item">
-                        <div class="contact-icon">
-                            <i class="fas fa-location-dot"></i>
-                        </div>
-                        <div>
-                            <h4>Dirección</h4>
-                            <p>Paul Harris 10.349, oficina 305<br>Piso 3, Las Condes, Santiago</p>
-                            <div class="nav-buttons">
-                                <a href="https://www.google.com/maps/dir/?api=1&destination=Paul+Harris+10349,+Las+Condes,+Santiago" target="_blank" rel="noopener" class="nav-btn">
-                                    <i class="fab fa-google"></i> Google Maps
+<section class="section section-light" id="contacto">
+<div class="container">
+<div class="section-header reveal">
+<p class="section-eyebrow">Contáctanos</p>
+<h2>Estamos para ayudarte</h2>
+</div>
+<div class="contact-grid">
+<div class="contact-info reveal">
+<div class="contact-item">
+<div class="contact-icon">
+<i class="fas fa-location-dot"></i>
+</div>
+<div>
+<h4>Dirección</h4>
+<p>Paul Harris 10.349, oficina 305<br/>Piso 3, Las Condes, Santiago</p>
+<div class="nav-buttons">
+<a class="nav-btn" href="https://www.google.com/maps/dir/?api=1&amp;destination=Paul+Harris+10349,+Las+Condes,+Santiago" rel="noopener" target="_blank">
+<i class="fab fa-google"></i> Google Maps
                                 </a>
-                                <a href="https://waze.com/ul?q=Paul+Harris+10349+Las+Condes+Santiago&navigate=yes" target="_blank" rel="noopener" class="nav-btn">
-                                    <i class="fas fa-route"></i> Waze
+<a class="nav-btn" href="https://waze.com/ul?q=Paul+Harris+10349+Las+Condes+Santiago&amp;navigate=yes" rel="noopener" target="_blank">
+<i class="fas fa-route"></i> Waze
                                 </a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="contact-item">
-                        <div class="contact-icon">
-                            <i class="fas fa-phone"></i>
-                        </div>
-                        <div>
-                            <h4>Teléfono</h4>
-                            <p><a href="tel:+56222173499">+56 2 2217 3499</a></p>
-                        </div>
-                    </div>
-                    <div class="contact-item">
-                        <div class="contact-icon">
-                            <i class="fab fa-whatsapp"></i>
-                        </div>
-                        <div>
-                            <h4>WhatsApp</h4>
-                            <p><a href="https://wa.me/56933558189" target="_blank" rel="noopener">+56 9 3355 8189</a></p>
-                        </div>
-                    </div>
-                    <div class="contact-item">
-                        <div class="contact-icon">
-                            <i class="fas fa-envelope"></i>
-                        </div>
-                        <div>
-                            <h4>Email</h4>
-                            <p><a href="mailto:recepcion@ortodonciarichard.cl">recepcion@ortodonciarichard.cl</a></p>
-                        </div>
-                    </div>
-
-                    <div class="social-links">
-                        <a href="https://www.facebook.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Facebook">
-                            <i class="fab fa-facebook-f"></i>
-                        </a>
-                        <a href="https://www.instagram.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Instagram">
-                            <i class="fab fa-instagram"></i>
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Formulario vía Web3Forms (gratuito, sin servidor) -->
-                <!-- TODO: Reemplazar YOUR_ACCESS_KEY con la clave obtenida en web3forms.com -->
-                <form class="contact-form reveal reveal-delay" action="https://api.web3forms.com/submit" method="POST">
-                    <!-- Web3Forms: reemplazar YOUR_ACCESS_KEY con tu clave de web3forms.com -->
-                    <input type="hidden" name="access_key" value="f0aa501d-602a-4212-ac11-16b414a91b61">
-                    <input type="hidden" name="subject" value="Consulta desde el sitio web - Ortodoncia Richard">
-                    <input type="hidden" name="from_name" value="Sitio Web Ortodoncia Richard">
-                    <input type="checkbox" name="botcheck" style="display:none">
-                    <div class="form-group">
-                        <label for="nombre">Nombre completo</label>
-                        <input type="text" id="nombre" name="nombre" placeholder="Tu nombre" required>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="email">Email</label>
-                            <input type="email" id="email" name="email" placeholder="tu@email.com" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="telefono">Teléfono</label>
-                            <input type="tel" id="telefono" name="telefono" placeholder="+56 9 xxxx xxxx">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="mensaje">Mensaje</label>
-                        <textarea id="mensaje" name="mensaje" rows="4" placeholder="¿En qué podemos ayudarte?" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-full">
-                        <i class="fas fa-paper-plane"></i> Enviar mensaje
+</div>
+</div>
+</div>
+<div class="contact-item">
+<div class="contact-icon">
+<i class="fas fa-phone"></i>
+</div>
+<div>
+<h4>Teléfono</h4>
+<p><a href="tel:+56222173499">+56 2 2217 3499</a></p>
+</div>
+</div>
+<div class="contact-item">
+<div class="contact-icon">
+<i class="fab fa-whatsapp"></i>
+</div>
+<div>
+<h4>WhatsApp</h4>
+<p><a href="https://wa.me/56933558189" rel="noopener" target="_blank">+56 9 3355 8189</a></p>
+</div>
+</div>
+<div class="contact-item">
+<div class="contact-icon">
+<i class="fas fa-envelope"></i>
+</div>
+<div>
+<h4>Email</h4>
+<p><a href="mailto:recepcion@ortodonciarichard.cl">recepcion@ortodonciarichard.cl</a></p>
+</div>
+</div>
+<div class="social-links">
+<a aria-label="Facebook" href="https://www.facebook.com/ortodonciarichard" rel="noopener" target="_blank">
+<i class="fab fa-facebook-f"></i>
+</a>
+<a aria-label="Instagram" href="https://www.instagram.com/ortodonciarichard" rel="noopener" target="_blank">
+<i class="fab fa-instagram"></i>
+</a>
+</div>
+</div>
+<!-- Formulario vía Web3Forms (gratuito, sin servidor) -->
+<!-- TODO: Reemplazar YOUR_ACCESS_KEY con la clave obtenida en web3forms.com -->
+<form action="https://api.web3forms.com/submit" class="contact-form reveal reveal-delay" method="POST">
+<!-- Web3Forms: reemplazar YOUR_ACCESS_KEY con tu clave de web3forms.com -->
+<input name="access_key" type="hidden" value="f0aa501d-602a-4212-ac11-16b414a91b61"/>
+<input name="subject" type="hidden" value="Consulta desde el sitio web - Ortodoncia Richard"/>
+<input name="from_name" type="hidden" value="Sitio Web Ortodoncia Richard"/>
+<input name="botcheck" style="display:none" type="checkbox"/>
+<div class="form-group">
+<label for="nombre">Nombre completo</label>
+<input id="nombre" name="nombre" placeholder="Tu nombre" required="" type="text"/>
+</div>
+<div class="form-row">
+<div class="form-group">
+<label for="email">Email</label>
+<input id="email" name="email" placeholder="tu@email.com" required="" type="email"/>
+</div>
+<div class="form-group">
+<label for="telefono">Teléfono</label>
+<input id="telefono" name="telefono" placeholder="+56 9 xxxx xxxx" type="tel"/>
+</div>
+</div>
+<div class="form-group">
+<label for="mensaje">Mensaje</label>
+<textarea id="mensaje" name="mensaje" placeholder="¿En qué podemos ayudarte?" required="" rows="4"></textarea>
+</div>
+<button class="btn btn-primary btn-full" type="submit">
+<i class="fas fa-paper-plane"></i> Enviar mensaje
                     </button>
-                </form>
-
-            </div>
-
-            <div class="map-container reveal">
-                <iframe
-                    src="https://maps.google.com/maps?q=Paul+Harris+10349,+Las+Condes,+Santiago,+Chile&output=embed"
-                    width="100%"
-                    height="380"
-                    style="border:0;"
-                    allowfullscreen=""
-                    loading="lazy"
-                    referrerpolicy="no-referrer-when-downgrade"
-                    title="Ubicación Clínica Ortodoncia Richard">
-                </iframe>
-            </div>
-
-        </div>
-    </section>
-
-
-    <!-- ═══════════════════════════════════════════
+</form>
+</div>
+<div class="map-container reveal">
+<iframe allowfullscreen="" height="380" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=Paul+Harris+10349,+Las+Condes,+Santiago,+Chile&amp;output=embed" style="border:0;" title="Ubicación Clínica Ortodoncia Richard" width="100%">
+</iframe>
+</div>
+</div>
+</section>
+<!-- ═══════════════════════════════════════════
          FOOTER
     ═══════════════════════════════════════════ -->
-    <footer class="footer">
-        <div class="container">
-            <div class="footer-grid">
-
-                <div class="footer-brand">
-                    <img src="images/logo-png.png" alt="Ortodoncia Richard" class="footer-logo">
-                    <p>Clínica de referencia en ortodoncia y rehabilitación oral en Las Condes, Santiago.</p>
-                    <div class="footer-social">
-                        <a href="https://www.facebook.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Facebook">
-                            <i class="fab fa-facebook-f"></i>
-                        </a>
-                        <a href="https://www.instagram.com/ortodonciarichard" target="_blank" rel="noopener" aria-label="Instagram">
-                            <i class="fab fa-instagram"></i>
-                        </a>
-                        <a href="https://wa.me/56933558189" target="_blank" rel="noopener" aria-label="WhatsApp">
-                            <i class="fab fa-whatsapp"></i>
-                        </a>
-                    </div>
-                </div>
-
-                <div class="footer-links">
-                    <h4>Navegación</h4>
-                    <ul>
-                        <li><a href="#nosotros">Nosotros</a></li>
-                        <li><a href="#equipo">Equipo</a></li>
-                        <li><a href="#tratamientos">Tratamientos</a></li>
-                        <li><a href="#galeria">Clínica</a></li>
-                        <li><a href="#contacto">Contacto</a></li>
-                    </ul>
-                </div>
-
-                <div class="footer-links">
-                    <h4>Tratamientos</h4>
-                    <ul>
-                        <li><a href="#tratamientos">Ortodoncia</a></li>
-                        <li><a href="#tratamientos">Ortopedia</a></li>
-                        <li><a href="#tratamientos">Ortodoncia Lingual</a></li>
-                        <li><a href="#tratamientos">Alineadores Estéticos</a></li>
-                        <li><a href="#tratamientos">Cirugía Ortognática</a></li>
-                        <li><a href="#tratamientos">Implantología</a></li>
-                    </ul>
-                </div>
-
-                <div class="footer-contact">
-                    <h4>Contacto</h4>
-                    <p><i class="fas fa-location-dot"></i> Paul Harris 10.349, Of. 305<br>Las Condes, Santiago</p>
-                    <p><i class="fas fa-phone"></i> <a href="tel:+56222173499">+56 2 2217 3499</a></p>
-                    <p><i class="fab fa-whatsapp"></i> <a href="https://wa.me/56933558189" target="_blank" rel="noopener">+56 9 3355 8189</a></p>
-                    <p><i class="fas fa-envelope"></i> <a href="mailto:recepcion@ortodonciarichard.cl">recepcion@ortodonciarichard.cl</a></p>
-                </div>
-
-            </div>
-
-            <div class="footer-bottom">
-                <p>&copy; 2025 Clínica Ortodoncia Richard. Todos los derechos reservados.</p>
-                <p>Paul Harris 10.349, Of. 305, Las Condes, Santiago · Chile</p>
-            </div>
-        </div>
-    </footer>
-
-    <!-- MODAL DOCTOR -->
-    <div id="doctorModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalName">
-        <div class="modal-box">
-            <button class="modal-close" id="modalClose" aria-label="Cerrar">
-                <i class="fas fa-times"></i>
-            </button>
-            <div class="modal-inner">
-                <div class="modal-photo-col">
-                    <img id="modalPhoto" src="" alt="">
-                    <div class="modal-badges" id="modalBadges"></div>
-                </div>
-                <div class="modal-info-col">
-                    <p class="modal-role" id="modalRole"></p>
-                    <h3 id="modalName"></h3>
-                    <p class="modal-bio" id="modalBio"></p>
-                    <div class="modal-section" id="modalEducationWrap">
-                        <h4><i class="fas fa-graduation-cap"></i> Formación</h4>
-                        <ul id="modalEducation"></ul>
-                    </div>
-                    <div class="modal-section" id="modalSpecialtiesWrap">
-                        <h4><i class="fas fa-star"></i> Especialidades</h4>
-                        <ul id="modalSpecialties"></ul>
-                    </div>
-                    <a href="https://wa.me/56933558189?text=Hola%2C%20me%20gustar%C3%ADa%20agendar%20una%20hora" class="btn btn-primary" target="_blank" rel="noopener" style="margin-top:8px">
-                        <i class="fab fa-whatsapp"></i> Agendar hora
+<footer class="footer">
+<div class="container">
+<div class="footer-grid">
+<div class="footer-brand">
+<img alt="Ortodoncia Richard" class="footer-logo" src="images/logo-png.png"/>
+<p>Clínica de referencia en ortodoncia y rehabilitación oral en Las Condes, Santiago.</p>
+<div class="footer-social">
+<a aria-label="Facebook" href="https://www.facebook.com/ortodonciarichard" rel="noopener" target="_blank">
+<i class="fab fa-facebook-f"></i>
+</a>
+<a aria-label="Instagram" href="https://www.instagram.com/ortodonciarichard" rel="noopener" target="_blank">
+<i class="fab fa-instagram"></i>
+</a>
+<a aria-label="WhatsApp" href="https://wa.me/56933558189" rel="noopener" target="_blank">
+<i class="fab fa-whatsapp"></i>
+</a>
+</div>
+</div>
+<div class="footer-links">
+<h4>Navegación</h4>
+<ul>
+<li><a href="#nosotros">Nosotros</a></li>
+<li><a href="#equipo">Equipo</a></li>
+<li><a href="#tratamientos">Tratamientos</a></li>
+<li><a href="#galeria">Clínica</a></li>
+<li><a href="#contacto">Contacto</a></li>
+</ul>
+</div>
+<div class="footer-links">
+<h4>Tratamientos</h4>
+<ul>
+<li><a href="#tratamientos">Ortodoncia</a></li>
+<li><a href="#tratamientos">Ortopedia</a></li>
+<li><a href="#tratamientos">Ortodoncia Lingual</a></li>
+<li><a href="#tratamientos">Alineadores Estéticos</a></li>
+<li><a href="#tratamientos">Cirugía Ortognática</a></li>
+<li><a href="#tratamientos">Implantología</a></li>
+</ul>
+</div>
+<div class="footer-contact">
+<h4>Contacto</h4>
+<p><i class="fas fa-location-dot"></i> Paul Harris 10.349, Of. 305<br/>Las Condes, Santiago</p>
+<p><i class="fas fa-phone"></i> <a href="tel:+56222173499">+56 2 2217 3499</a></p>
+<p><i class="fab fa-whatsapp"></i> <a href="https://wa.me/56933558189" rel="noopener" target="_blank">+56 9 3355 8189</a></p>
+<p><i class="fas fa-envelope"></i> <a href="mailto:recepcion@ortodonciarichard.cl">recepcion@ortodonciarichard.cl</a></p>
+</div>
+</div>
+<div class="footer-bottom">
+<p>© 2025 Clínica Ortodoncia Richard. Todos los derechos reservados.</p>
+<p>Paul Harris 10.349, Of. 305, Las Condes, Santiago · Chile</p>
+</div>
+</div>
+</footer>
+<!-- MODAL DOCTOR -->
+<div aria-labelledby="modalName" aria-modal="true" class="modal-overlay" id="doctorModal" role="dialog">
+<div class="modal-box">
+<button aria-label="Cerrar" class="modal-close" id="modalClose">
+<i class="fas fa-times"></i>
+</button>
+<div class="modal-inner">
+<div class="modal-photo-col">
+<img alt="" id="modalPhoto" src=""/>
+<div class="modal-badges" id="modalBadges"></div>
+</div>
+<div class="modal-info-col">
+<p class="modal-role" id="modalRole"></p>
+<h3 id="modalName"></h3>
+<p class="modal-bio" id="modalBio"></p>
+<div class="modal-section" id="modalEducationWrap">
+<h4><i class="fas fa-graduation-cap"></i> Formación</h4>
+<ul id="modalEducation"></ul>
+</div>
+<div class="modal-section" id="modalSpecialtiesWrap">
+<h4><i class="fas fa-star"></i> Especialidades</h4>
+<ul id="modalSpecialties"></ul>
+</div>
+<a class="btn btn-primary" href="https://wa.me/56933558189?text=Hola%2C%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" style="margin-top:8px" target="_blank">
+<i class="fab fa-whatsapp"></i> Agendar hora
                     </a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="js/main.js"></script>
+</div>
+</div>
+</div>
+</div>
+<script src="js/main.js"></script>
 </body>
 </html>

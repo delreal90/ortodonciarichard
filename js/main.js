@@ -16,7 +16,11 @@ const doctorData = {
         name:        'Dr. Octavio Del Real S.',
         role:        'Ortodoncista',
         photo:       'images/dr-octavio-del-real.jpeg',
-        memberships: ['AAO', 'WFO', 'SORT Chile'],
+        memberships: [
+            'AAO',
+            'WFO',
+            'SORT Chile',
+        ],
         bio:         'Ortodoncista con práctica privada exclusiva en ortodoncia. Presidente de la Comisión de Ortodoncia de CONACEO, ex Presidente de la Sociedad de Ortodoncia de Chile (2000–2004) y conferencista nacional e internacional con numerosas publicaciones científicas.',
         education: [
             'Cirujano Dentista — Universidad de Chile (1978)',
@@ -34,7 +38,11 @@ const doctorData = {
         name:        'Dr. Rodrigo Oyonarte W.',
         role:        'Ortodoncista',
         photo:       'images/dr-rodrigo-oyonarte.jpeg',
-        memberships: ['AAO', 'WFO', 'SORT Chile'],
+        memberships: [
+            'AAO',
+            'WFO',
+            'SORT Chile',
+        ],
         bio:         'Profesor Titular de la Universidad de los Andes y Director del Programa de Especialización en Ortodoncia. Editor de la Revista Chilena de Ortodoncia, autor de publicaciones científicas nacionales e internacionales y ganador de premios en investigación en Chile y EE.UU.',
         education: [
             'Cirujano Dentista — Universidad de Chile (1996)',
@@ -52,7 +60,11 @@ const doctorData = {
         name:        'Dr. Alberto Del Real V.',
         role:        'Ortodoncista',
         photo:       'images/dr-alberto-del-real.jpeg',
-        memberships: ['AAO', 'WFO', 'SORT Chile'],
+        memberships: [
+            'AAO',
+            'WFO',
+            'SORT Chile',
+        ],
         bio:         'Ortodoncista con formación en medicina basada en la evidencia y educación en ciencias de la salud. Autor de publicaciones científicas nacionales e internacionales.',
         education: [
             'Cirujano Dentista — Universidad de los Andes (2014)',
@@ -69,7 +81,10 @@ const doctorData = {
         name:        'Dr. Patricio Vial U.',
         role:        'Rehabilitador Oral e Implantólogo',
         photo:       'images/dr-patricio-vial.png',
-        memberships: ['Implantología', 'Rehabilitación Oral'],
+        memberships: [
+            'Implantología',
+            'Rehabilitación Oral',
+        ],
         bio:         'Especialista en Rehabilitación Oral e Implantología con amplia trayectoria clínica y académica. Coordinador del área quirúrgica del Programa de Especialización en Implantología Buco Máxilo Facial de la UNAB.',
         education: [
             'Cirujano Dentista — Universidad de Chile',
@@ -83,8 +98,22 @@ const doctorData = {
             'Coordinador área quirúrgica, Programa de Especialización en Implantología Buco Máxilo Facial — UNAB',
         ],
     },
+    doc: {
+        name:        'Prueba doc',
+        role:        'DoctorTest',
+        photo:       'None',
+        memberships: [
+            ,
+        ],
+        bio:         '',
+        education: [
+            ,
+        ],
+        specialties: [
+            ,
+        ],
+    }
 };
-
 /* ═══════════════════════════════════════════
    NAV — sticky + transparent-to-solid on scroll
 ═══════════════════════════════════════════ */

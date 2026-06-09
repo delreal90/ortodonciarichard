@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel Admin — Ortodoncia Richard</title>
+<style>
+  :root {
+    --navy: #1A2E4A; --gold: #C9A84C; --white: #fff;
+    --bg: #F0F5FB; --red: #e53e3e; --green: #38a169;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: #1a2535; }
+  header { background: var(--navy); color: white; padding: 18px 32px; display: flex; align-items: center; gap: 16px; }
+  header img { height: 40px; }
+  header h1 { font-size: 1.2rem; font-weight: 600; }
+  header span { font-size: .85rem; opacity: .7; }
+  .layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 68px); }
+  nav { background: #fff; border-right: 1px solid #e2e8f0; padding: 24px 0; }
+  nav a { display: flex; align-items: center; gap: 10px; padding: 11px 24px; color: #4a5568; text-decoration: none; font-size: .9rem; cursor: pointer; transition: all .15s; border-left: 3px solid transparent; }
+  nav a:hover, nav a.active { background: var(--bg); color: var(--navy); border-left-color: var(--gold); font-weight: 500; }
+  nav a i { width: 18px; text-align: center; }
+  main { padding: 32px; max-width: 900px; }
+  .section { display: none; }
+  .section.active { display: block; }
+  h2 { font-size: 1.4rem; color: var(--navy); margin-bottom: 6px; }
+  .desc { color: #718096; font-size: .9rem; margin-bottom: 24px; }
+  .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h3 { font-size: 1rem; margin-bottom: 16px; color: var(--navy); }
+  label { display: block; font-size: .85rem; font-weight: 500; margin-bottom: 6px; color: #2d3748; }
+  input[type=text], input[type=tel], textarea, select {
+    width: 100%; padding: 9px 12px; border: 1px solid #cbd5e0; border-radius: 8px;
+    font-size: .9rem; font-family: inherit; margin-bottom: 14px;
+  }
+  textarea { min-height: 80px; resize: vertical; }
+  input[type=text]:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); }
+  .btn { padding: 9px 20px; border: none; border-radius: 8px; font-size: .9rem; font-weight: 500; cursor: pointer; transition: opacity .15s; }
+  .btn-primary { background: var(--navy); color: white; }
+  .btn-gold { background: var(--gold); color: white; }
+  .btn-danger { background: var(--red); color: white; }
+  .btn-sm { padding: 6px 14px; font-size: .82rem; }
+  .btn:hover { opacity: .85; }
+  .row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .row .btn { margin-top: 0; align-self: flex-end; margin-bottom: 14px; }
+  .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+  .photo-item { background: white; border: 2px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; transition: border-color .15s; }
+  .photo-item:hover { border-color: var(--gold); }
+  .photo-item img { width: 100%; height: 130px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; }
+  .photo-item .no-photo { width: 100%; height: 130px; background: var(--bg); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #a0aec0; font-size: 2rem; margin-bottom: 8px; }
+  .photo-item p { font-size: .82rem; color: #4a5568; margin-bottom: 8px; font-weight: 500; }
+  .upload-btn { display: inline-block; padding: 6px 14px; background: var(--bg); border: 1px dashed #cbd5e0; border-radius: 6px; font-size: .8rem; cursor: pointer; color: var(--navy); transition: all .15s; }
+  .upload-btn:hover { border-color: var(--gold); background: #fff; }
+  .tag { display: inline-block; background: var(--bg); border: 1px solid #cbd5e0; border-radius: 20px; padding: 3px 10px; font-size: .78rem; color: #4a5568; margin: 2px; }
+  .faq-list { list-style: none; }
+  .faq-list li { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .faq-list li .q { font-weight: 500; font-size: .9rem; flex: 1; }
+  .faq-list li .a { font-size: .82rem; color: #718096; margin-top: 4px; }
+  .faq-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .caso-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+  .caso-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+  .caso-card img { width: 100%; height: 120px; object-fit: cover; }
+  .caso-card-body { padding: 12px; }
+  .caso-card-body h4 { font-size: .9rem; margin-bottom: 4px; }
+  .caso-card-body p { font-size: .78rem; color: #718096; margin-bottom: 10px; }
+  .caso-card-body .actions { display: flex; gap: 6px; }
+  .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 10px; font-size: .9rem; font-weight: 500; color: white; z-index: 999; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .toast.ok { background: var(--green); }
+  .toast.err { background: var(--red); }
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; }
+  .modal-bg.open { display: flex; }
+  .modal { background: white; border-radius: 14px; padding: 28px; width: 500px; max-width: 95vw; }
+  .modal h3 { margin-bottom: 20px; color: var(--navy); }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab-bar button { padding: 7px 16px; border: 1px solid #cbd5e0; background: white; border-radius: 20px; font-size: .85rem; cursor: pointer; color: #4a5568; }
+  .tab-bar button.active { background: var(--navy); color: white; border-color: var(--navy); }
+  .publish-bar { background: white; border: 2px solid var(--gold); border-radius: 12px; padding: 20px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .publish-bar p { flex: 1; font-size: .9rem; color: #4a5568; }
+  .publish-bar strong { color: var(--navy); }
+  .changes-badge { background: var(--gold); color: white; border-radius: 20px; padding: 3px 12px; font-size: .8rem; font-weight: 600; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <img src="/images/logo-png.png" style="filter:brightness(0) invert(1)">
+  <div>
+    <h1>Panel de Administración</h1>
+    <span>Ortodoncia Richard</span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav>
+    <a class="active" onclick="show('fotos')" id="nav-fotos"><i class="fa fa-image"></i> Fotos</a>
+    <a onclick="show('info')" id="nav-info"><i class="fa fa-building"></i> Info clínica</a>
+    <a onclick="show('equipo')" id="nav-equipo"><i class="fa fa-users"></i> Equipo</a>
+    <a onclick="show('cv')" id="nav-cv"><i class="fa fa-id-card"></i> CV Doctores</a>
+    <a onclick="show('casos')" id="nav-casos"><i class="fa fa-tooth"></i> Casos clínicos</a>
+    <a onclick="show('faq')" id="nav-faq"><i class="fa fa-question-circle"></i> FAQ</a>
+    <hr style="margin:16px 24px;border-color:#e2e8f0">
+    <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
+  </nav>
+
+  <main>
+
+    <!-- ── FOTOS ─────────────────────────────────────── -->
+    <div class="section active" id="sec-fotos">
+      <h2>Fotos</h2>
+      <p class="desc">Sube o reemplaza fotos de doctores, staff y la clínica.</p>
+
+      <div class="card">
+        <h3>👨‍⚕️ Doctores</h3>
+        <div class="photo-grid" id="fotos-doctores"></div>
+      </div>
+
+      <div class="card">
+        <h3>🏥 Clínica</h3>
+        <div class="photo-grid" id="fotos-clinica"></div>
+        <button class="btn btn-primary btn-sm" onclick="addClinicPhoto()">+ Agregar foto de clínica</button>
+      </div>
+    </div>
+
+    <!-- ── INFO ─────────────────────────────────────── -->
+    <div class="section" id="sec-info">
+      <h2>Información de la clínica</h2>
+      <p class="desc">Edita los datos de contacto y horario que aparecen en el sitio.</p>
+      <div class="card">
+        <label>Teléfono</label>
+        <input type="text" id="info-telefono" placeholder="+56 2 2217 3499">
+        <label>Horario</label>
+        <input type="text" id="info-horario" placeholder="Lunes a Viernes · 9:00 a 19:30 hrs">
+        <button class="btn btn-primary" onclick="saveInfo()">Guardar cambios</button>
+      </div>
+    </div>
+
+    <!-- ── EQUIPO ─────────────────────────────────────── -->
+    <div class="section" id="sec-equipo">
+      <h2>Equipo</h2>
+      <p class="desc">Edita nombres, roles y fotos del personal.</p>
+      <div class="tab-bar" id="equipo-tabs"></div>
+      <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openModal('modal-agregar-miembro')">+ Agregar miembro</button>
+      <div id="equipo-lista"></div>
+    </div>
+
+    <!-- ── CV DOCTORES ─────────────────────────────────────── -->
+    <div class="section" id="sec-cv">
+      <h2>CV Doctores</h2>
+      <p class="desc">Edita la biografía, formación y especialidades que aparecen al hacer clic en cada doctor.</p>
+      <div class="tab-bar" id="cv-tabs"></div>
+      <div id="cv-editor"></div>
+    </div>
+
+    <!-- ── CASOS ─────────────────────────────────────── -->
+    <div class="section" id="sec-casos">
+      <h2>Casos clínicos</h2>
+      <p class="desc">Administra las fotos de tratamientos que aparecen en la sección de Tratamientos.</p>
+      <button class="btn btn-primary" style="margin-bottom:20px" onclick="openModal('modal-caso-nuevo')">+ Agregar caso</button>
+      <div class="caso-grid" id="casos-grid"></div>
+    </div>
+
+    <!-- ── FAQ ─────────────────────────────────────── -->
+    <div class="section" id="sec-faq">
+      <h2>Preguntas frecuentes</h2>
+      <p class="desc">Agrega, edita o elimina preguntas del acordeón.</p>
+      <div class="tab-bar" id="faq-tabs"></div>
+      <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openModal('modal-faq-nuevo')">+ Nueva pregunta</button>
+      <ul class="faq-list" id="faq-lista"></ul>
+    </div>
+
+    <!-- ── PUBLICAR ─────────────────────────────────────── -->
+    <div class="section" id="sec-publicar">
+      <h2>Publicar en el sitio web</h2>
+      <p class="desc">Cuando hayas terminado tus cambios, publícalos en GitHub Pages para que se vean en ortodonciarichard.cl</p>
+      <div class="publish-bar">
+        <div>
+          <strong>¿Listo para publicar?</strong>
+          <p>Los cambios se subirán a GitHub y estarán visibles en 1-2 minutos.</p>
+        </div>
+        <button class="btn btn-gold" onclick="publicar()">🚀 Publicar ahora</button>
+      </div>
+      <div class="card">
+        <label>Mensaje descriptivo (opcional)</label>
+        <input type="text" id="pub-msg" placeholder="ej: Actualizo foto staff y agrego caso de mordida cruzada">
+        <p style="font-size:.82rem;color:#718096">Este mensaje queda guardado en el historial de cambios de GitHub.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── MODALES ─────────────────────────────────── -->
+
+<div class="modal-bg" id="modal-agregar-miembro">
+  <div class="modal">
+    <h3>Agregar miembro al equipo</h3>
+    <label>Área</label>
+    <select id="nuevo-tab" onchange="toggleCVFields(this.value)">
+      <option value="especialistas">Especialistas (Doctor)</option>
+      <option value="secretaria">Secretaría</option>
+      <option value="asistentes">Asistentes Dentales</option>
+      <option value="laboratorio">Laboratorio y Aseo</option>
+    </select>
+    <label>Nombre completo</label>
+    <input type="text" id="nuevo-nombre" placeholder="Nombre Apellido">
+    <label>Rol</label>
+    <input type="text" id="nuevo-rol" placeholder="ej: Secretaria, Asistente Dental...">
+    <label>Foto (opcional)</label>
+    <input type="file" id="nuevo-foto" accept="image/*" style="margin-bottom:14px">
+    <div id="cv-aviso" style="background:#FEF9EC;border:1px solid var(--gold);border-radius:8px;padding:10px 14px;font-size:.83rem;color:#744210;margin-bottom:14px">
+      💡 Al agregar un doctor, se creará automáticamente su entrada en <strong>CV Doctores</strong> para que puedas completar su biografía y formación.
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-agregar-miembro')">Cancelar</button>
+      <button class="btn btn-primary" onclick="agregarMiembro()">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-caso-nuevo">
+  <div class="modal">
+    <h3>Agregar caso clínico</h3>
+    <label>Título del caso</label>
+    <input type="text" id="caso-titulo" placeholder="ej: Mordida Cruzada">
+    <label>Descripción</label>
+    <textarea id="caso-desc" placeholder="Breve descripción del tratamiento..."></textarea>
+    <label>Foto (sube primero la imagen)</label>
+    <input type="text" id="caso-foto" placeholder="images/ejemplo-nuevo.jpg">
+    <input type="file" id="caso-file" accept="image/*" style="margin-bottom:14px">
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-caso-nuevo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="agregarCaso()">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-faq-nuevo">
+  <div class="modal">
+    <h3>Nueva pregunta</h3>
+    <label>Categoría</label>
+    <select id="faq-tab-nuevo">
+      <option value="tab-general">General</option>
+      <option value="tab-tratamiento">Tratamiento</option>
+      <option value="tab-alineadores">Alineadores</option>
+      <option value="tab-retencion">Retención</option>
+      <option value="tab-cirugia">Cirugía</option>
+      <option value="tab-urgencias">Urgencias</option>
+    </select>
+    <label>Pregunta</label>
+    <input type="text" id="faq-preg-nuevo" placeholder="¿Tu pregunta aquí?">
+    <label>Respuesta</label>
+    <textarea id="faq-resp-nuevo" placeholder="Respuesta completa..."></textarea>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-faq-nuevo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="agregarFaq()">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-editar-faq">
+  <div class="modal">
+    <h3>Editar pregunta</h3>
+    <input type="hidden" id="edit-faq-original">
+    <label>Pregunta</label>
+    <input type="text" id="edit-faq-preg">
+    <label>Respuesta</label>
+    <textarea id="edit-faq-resp"></textarea>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-editar-faq')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarEditFaq()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+<script>
+// ── Estado ───────────────────────────────────────────
+let equipoData = [], casosData = [], faqData = [];
+let currentFaqTab = '', currentEquipoTab = '';
+
+// ── Navegación ───────────────────────────────────────
+function show(sec) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById('sec-' + sec).classList.add('active');
+  document.getElementById('nav-' + sec).classList.add('active');
+  if (sec === 'fotos') loadFotos();
+  if (sec === 'info') loadInfo();
+  if (sec === 'equipo') loadEquipo();
+  if (sec === 'casos') loadCasos();
+  if (sec === 'faq') loadFaq();
+  if (sec === 'cv') loadCV();
+}
+
+// ── Toast ────────────────────────────────────────────
+function toast(msg, ok=true) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── Modal ────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ── API helper ───────────────────────────────────────
+async function api(url, method='GET', body=null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
+// ══════════════════════════════════════════════════════
+// 1. FOTOS
+// ══════════════════════════════════════════════════════
+const DOCTORES = [
+  { nombre: 'Dr. Octavio Del Real S.', archivo: 'dr-octavio-del-real.jpeg' },
+  { nombre: 'Dr. Rodrigo Oyonarte W.', archivo: 'dr-rodrigo-oyonarte.jpeg' },
+  { nombre: 'Dr. Alberto Del Real V.', archivo: 'dr-alberto-del-real.jpeg' },
+  { nombre: 'Dr. Patricio Vial U.',    archivo: 'dr-patricio-vial.png' },
+];
+const CLINICA_FOTOS = [
+  { nombre: 'Principal', archivo: 'clinica-1.jpg' },
+  { nombre: 'Recepción', archivo: 'clinica-recepcion.jpg' },
+  { nombre: 'Box clínico', archivo: 'clinica-box.jpg' },
+  { nombre: 'Laboratorio', archivo: 'clinica-laboratorio.jpg' },
+  { nombre: 'Rayos X', archivo: 'clinica-rayos.jpg' },
+  { nombre: 'Esterilización', archivo: 'clinica-esterilizacion.jpg' },
+];
+
+function loadFotos() {
+  renderPhotoGrid('fotos-doctores', DOCTORES);
+  renderPhotoGrid('fotos-clinica', CLINICA_FOTOS);
+}
+
+function renderPhotoGrid(containerId, items) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = items.map(item => `
+    <div class="photo-item">
+      <img src="/images/${item.archivo}?t=${Date.now()}" alt="${item.nombre}"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="no-photo" style="display:none"><i class="fa fa-image"></i></div>
+      <p>${item.nombre}</p>
+      <label class="upload-btn">
+        📁 Cambiar foto
+        <input type="file" accept="image/*" style="display:none"
+               onchange="uploadFoto(this, '${item.archivo}')">
+      </label>
+    </div>
+  `).join('');
+}
+
+async function uploadFoto(input, target) {
+  const file = input.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('target', target);
+  const r = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await r.json();
+  if (data.ok) { toast('✅ Foto actualizada'); loadFotos(); }
+  else toast('❌ Error: ' + data.error, false);
+}
+
+function addClinicPhoto() {
+  const nombre = prompt('Nombre de la foto (ej: Sala de diagnóstico):');
+  if (!nombre) return;
+  const archivo = 'clinica-' + nombre.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '.jpg';
+  CLINICA_FOTOS.push({ nombre, archivo });
+  renderPhotoGrid('fotos-clinica', CLINICA_FOTOS);
+}
+
+// ══════════════════════════════════════════════════════
+// 2. INFO
+// ══════════════════════════════════════════════════════
+async function loadInfo() {
+  const data = await api('/api/info');
+  document.getElementById('info-telefono').value = data.telefono || '';
+  document.getElementById('info-horario').value = data.horario || '';
+}
+
+async function saveInfo() {
+  const data = {
+    telefono: document.getElementById('info-telefono').value,
+    horario: document.getElementById('info-horario').value,
+  };
+  const r = await api('/api/info', 'POST', data);
+  toast(r.ok ? '✅ Info guardada' : '❌ ' + r.error, r.ok);
+}
+
+// ══════════════════════════════════════════════════════
+// 3. EQUIPO
+// ══════════════════════════════════════════════════════
+async function loadEquipo() {
+  equipoData = await api('/api/equipo');
+  const tabs = [...new Set(equipoData.map(m => m.tab))];
+  currentEquipoTab = tabs[0];
+
+  document.getElementById('equipo-tabs').innerHTML = tabs.map(t => `
+    <button class="${t===currentEquipoTab?'active':''}" onclick="filterEquipo('${t}')">${t.charAt(0).toUpperCase()+t.slice(1)}</button>
+  `).join('');
+  renderEquipo();
+}
+
+function filterEquipo(tab) {
+  currentEquipoTab = tab;
+  document.querySelectorAll('#equipo-tabs button').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase()===tab));
+  renderEquipo();
+}
+
+function renderEquipo() {
+  const members = equipoData.filter(m => m.tab === currentEquipoTab);
+  document.getElementById('equipo-lista').innerHTML = members.map(m => `
+    <div class="card" style="display:flex;gap:20px;align-items:flex-start">
+      <div style="flex-shrink:0">
+        ${m.foto
+          ? `<img src="/${m.foto}?t=${Date.now()}" style="width:80px;height:80px;object-fit:cover;border-radius:50%;border:2px solid #e2e8f0">`
+          : `<div style="width:80px;height:80px;background:var(--bg);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:#a0aec0;border:2px solid #e2e8f0">${m.placeholder||'?'}</div>`
+        }
+        <label class="upload-btn" style="display:block;text-align:center;margin-top:8px;font-size:.75rem">
+          📁 Foto
+          <input type="file" accept="image/*" style="display:none"
+                 onchange="uploadFotoStaff(this, '${m.nombre}', '${m.tab}')">
+        </label>
+      </div>
+      <div style="flex:1">
+        <label>Nombre</label>
+        <input type="text" id="eq-nombre-${m.nombre.replace(/\s/g,'_')}" value="${m.nombre}">
+        <label>Rol</label>
+        <input type="text" id="eq-rol-${m.nombre.replace(/\s/g,'_')}" value="${m.rol}">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="saveEquipoMember('${m.nombre}')">Guardar</button>
+          <button class="btn btn-danger btn-sm" onclick="eliminarMiembro('${m.nombre}')">🗑️ Eliminar</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function saveEquipoMember(nombreActual) {
+  const key = nombreActual.replace(/\s/g,'_');
+  const data = {
+    tab: currentEquipoTab,
+    nombre_actual: nombreActual,
+    nombre_nuevo: document.getElementById('eq-nombre-'+key).value,
+    rol_nuevo: document.getElementById('eq-rol-'+key).value,
+  };
+  const r = await api('/api/equipo', 'POST', data);
+  if (r.ok) { toast('✅ Guardado'); loadEquipo(); }
+  else toast('❌ ' + r.error, false);
+}
+
+async function uploadFotoStaff(input, nombre, tab) {
+  const file = input.files[0];
+  if (!file) return;
+  const ext = file.name.split('.').pop();
+  const archivo = 'staff-' + nombre.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '.' + ext;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('target', archivo);
+  const r1 = await fetch('/api/upload', { method: 'POST', body: fd });
+  const d1 = await r1.json();
+  if (!d1.ok) { toast('❌ Error subiendo foto', false); return; }
+  const r2 = await api('/api/equipo', 'POST', { tab, nombre_actual: nombre, foto_nueva: d1.path });
+  if (r2.ok) { toast('✅ Foto actualizada'); loadEquipo(); }
+  else toast('❌ ' + r2.error, false);
+}
+
+// ══════════════════════════════════════════════════════
+// 4. CASOS
+// ══════════════════════════════════════════════════════
+async function loadCasos() {
+  casosData = await api('/api/casos');
+  document.getElementById('casos-grid').innerHTML = casosData.map(c => `
+    <div class="caso-card">
+      <img src="/${c.foto}?t=${Date.now()}" onerror="this.src=''">
+      <div class="caso-card-body">
+        <h4>${c.titulo}</h4>
+        <p>${c.descripcion.substring(0,80)}${c.descripcion.length>80?'...':''}</p>
+        <div class="actions">
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="editarCaso('${c.titulo.replace(/'/g,"\\'")}')">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="eliminarCaso('${c.titulo.replace(/'/g,"\\'")}')">🗑️</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function agregarCaso() {
+  const file = document.getElementById('caso-file').files[0];
+  let foto = document.getElementById('caso-foto').value;
+  if (file) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const archivo = 'ejemplo-' + document.getElementById('caso-titulo').value.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '.' + file.name.split('.').pop();
+    fd.append('target', archivo);
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) foto = d.path;
+  }
+  const r = await api('/api/casos', 'POST', {
+    accion: 'agregar',
+    titulo: document.getElementById('caso-titulo').value,
+    descripcion: document.getElementById('caso-desc').value,
+    foto,
+  });
+  if (r.ok) { toast('✅ Caso agregado'); closeModal('modal-caso-nuevo'); loadCasos(); }
+  else toast('❌ ' + r.error, false);
+}
+
+async function eliminarCaso(titulo) {
+  if (!confirm(`¿Eliminar el caso "${titulo}"?`)) return;
+  const r = await api('/api/casos', 'POST', { accion: 'eliminar', titulo });
+  if (r.ok) { toast('✅ Caso eliminado'); loadCasos(); }
+}
+
+function editarCaso(titulo) {
+  const caso = casosData.find(c => c.titulo === titulo);
+  if (!caso) return;
+  const nuevo_titulo = prompt('Título:', caso.titulo);
+  if (nuevo_titulo === null) return;
+  const nueva_desc = prompt('Descripción:', caso.descripcion);
+  if (nueva_desc === null) return;
+  api('/api/casos', 'POST', {
+    accion: 'editar',
+    titulo_actual: titulo,
+    titulo: nuevo_titulo,
+    descripcion: nueva_desc,
+  }).then(r => {
+    if (r.ok) { toast('✅ Caso actualizado'); loadCasos(); }
+    else toast('❌ ' + r.error, false);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// AGREGAR / ELIMINAR MIEMBROS DEL EQUIPO
+// ══════════════════════════════════════════════════════
+
+function toggleCVFields(tab) {
+  const aviso = document.getElementById('cv-aviso');
+  aviso.style.display = tab === 'especialistas' ? 'block' : 'none';
+}
+
+async function agregarMiembro() {
+  const file = document.getElementById('nuevo-foto').files[0];
+  let foto = null;
+  if (file) {
+    const ext = file.name.split('.').pop();
+    const nombre = document.getElementById('nuevo-nombre').value;
+    const archivo = 'staff-' + nombre.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '.' + ext;
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('target', archivo);
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) foto = d.path;
+  }
+  const r = await api('/api/equipo/agregar', 'POST', {
+    tab: document.getElementById('nuevo-tab').value,
+    nombre: document.getElementById('nuevo-nombre').value,
+    rol: document.getElementById('nuevo-rol').value,
+    foto,
+  });
+  const tab = document.getElementById('nuevo-tab').value;
+  if (r.ok) {
+    toast('✅ Miembro agregado');
+    closeModal('modal-agregar-miembro');
+    loadEquipo();
+    if (tab === 'especialistas') {
+      doctoresData = await api('/api/doctores'); // refrescar CV
+    }
+  } else toast('❌ ' + r.error, false);
+}
+
+async function eliminarMiembro(nombre) {
+  if (!confirm(`¿Eliminar a "${nombre}" del equipo?${currentEquipoTab === 'especialistas' ? '\n\nTambién se eliminará su CV.' : ''}`)) return;
+  const r = await api('/api/equipo/eliminar', 'POST', { tab: currentEquipoTab, nombre });
+  if (r.ok) {
+    toast('✅ Eliminado');
+    loadEquipo();
+    if (currentEquipoTab === 'especialistas') {
+      doctoresData = await api('/api/doctores'); // refrescar CV
+      // Si el CV editor está abierto en ese doctor, cambiar a otro
+      if (!doctoresData[currentDoctorId]) {
+        currentDoctorId = Object.keys(doctoresData)[0] || '';
+      }
+    }
+  } else toast('❌ ' + r.error, false);
+}
+
+// ══════════════════════════════════════════════════════
+// CV DOCTORES
+// ══════════════════════════════════════════════════════
+let doctoresData = {};
+let currentDoctorId = '';
+
+async function loadCV() {
+  doctoresData = await api('/api/doctores');
+  const ids = Object.keys(doctoresData);
+  currentDoctorId = ids[0];
+  document.getElementById('cv-tabs').innerHTML = ids.map(id => `
+    <button class="${id===currentDoctorId?'active':''}" onclick="selectDoctor('${id}')">${doctoresData[id].name.replace('Dr. ','Dr. ')}</button>
+  `).join('');
+  renderCV();
+}
+
+function selectDoctor(id) {
+  currentDoctorId = id;
+  document.querySelectorAll('#cv-tabs button').forEach((b,i) => {
+    b.classList.toggle('active', Object.keys(doctoresData)[i] === id);
+  });
+  renderCV();
+}
+
+function renderCV() {
+  const d = doctoresData[currentDoctorId];
+  if (!d) return;
+  document.getElementById('cv-editor').innerHTML = `
+    <div class="card">
+      <div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:20px">
+        <img src="/${d.photo}?t=${Date.now()}" style="width:90px;height:90px;object-fit:cover;border-radius:50%;border:2px solid #e2e8f0">
+        <div style="flex:1">
+          <label>Nombre</label>
+          <input type="text" id="cv-name" value="${d.name}">
+          <label>Rol / Especialidad</label>
+          <input type="text" id="cv-role" value="${d.role}">
+        </div>
+      </div>
+
+      <label>Biografía</label>
+      <textarea id="cv-bio" style="min-height:100px">${d.bio}</textarea>
+
+      <label>Membresías <span style="font-weight:400;color:#718096">(una por línea)</span></label>
+      <textarea id="cv-memberships" style="min-height:70px">${d.memberships.join('\n')}</textarea>
+
+      <label>Formación académica <span style="font-weight:400;color:#718096">(una por línea)</span></label>
+      <textarea id="cv-education" style="min-height:100px">${d.education.join('\n')}</textarea>
+
+      <label>Actividades y especialidades <span style="font-weight:400;color:#718096">(una por línea)</span></label>
+      <textarea id="cv-specialties" style="min-height:100px">${d.specialties.join('\n')}</textarea>
+
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn btn-primary" onclick="saveCV()">Guardar CV</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveCV() {
+  const updates = {
+    name:        document.getElementById('cv-name').value,
+    role:        document.getElementById('cv-role').value,
+    bio:         document.getElementById('cv-bio').value,
+    memberships: document.getElementById('cv-memberships').value.split('\n').filter(s=>s.trim()),
+    education:   document.getElementById('cv-education').value.split('\n').filter(s=>s.trim()),
+    specialties: document.getElementById('cv-specialties').value.split('\n').filter(s=>s.trim()),
+  };
+  // Guardar cada campo
+  let ok = true;
+  for (const [campo, valor] of Object.entries(updates)) {
+    const r = await api('/api/doctores', 'POST', { id: currentDoctorId, campo, valor });
+    if (!r.ok) { ok = false; toast('❌ Error guardando ' + campo, false); break; }
+  }
+  if (ok) {
+    toast('✅ CV guardado');
+    doctoresData[currentDoctorId] = { ...doctoresData[currentDoctorId], ...updates };
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 5. FAQ
+// ══════════════════════════════════════════════════════
+const FAQ_TAB_LABELS = {
+  'tab-general': 'General', 'tab-tratamiento': 'Tratamiento',
+  'tab-alineadores': 'Alineadores', 'tab-retencion': 'Retención',
+  'tab-cirugia': 'Cirugía', 'tab-urgencias': 'Urgencias',
+};
+
+async function loadFaq() {
+  faqData = await api('/api/faq');
+  const tabs = [...new Set(faqData.map(f => f.tab))];
+  currentFaqTab = tabs[0] || 'tab-general';
+
+  document.getElementById('faq-tabs').innerHTML = Object.entries(FAQ_TAB_LABELS).map(([id,label]) => `
+    <button class="${id===currentFaqTab?'active':''}" onclick="filterFaq('${id}')">${label}</button>
+  `).join('');
+  renderFaq();
+}
+
+function filterFaq(tab) {
+  currentFaqTab = tab;
+  document.querySelectorAll('#faq-tabs button').forEach(b => {
+    b.classList.toggle('active', b.textContent === FAQ_TAB_LABELS[tab]);
+  });
+  renderFaq();
+}
+
+function renderFaq() {
+  const items = faqData.filter(f => f.tab === currentFaqTab);
+  document.getElementById('faq-lista').innerHTML = items.length
+    ? items.map(f => `
+      <li>
+        <div>
+          <div class="q">${f.pregunta}</div>
+          <div class="a">${f.respuesta.substring(0,120)}${f.respuesta.length>120?'...':''}</div>
+        </div>
+        <div class="faq-actions">
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick='abrirEditFaq(${JSON.stringify(f.pregunta)}, ${JSON.stringify(f.respuesta)})'>✏️</button>
+          <button class="btn btn-danger btn-sm" onclick='eliminarFaq(${JSON.stringify(f.pregunta)})'>🗑️</button>
+        </div>
+      </li>
+    `).join('')
+    : '<li style="justify-content:center;color:#a0aec0">No hay preguntas en esta categoría</li>';
+}
+
+function abrirEditFaq(pregunta, respuesta) {
+  document.getElementById('edit-faq-original').value = pregunta;
+  document.getElementById('edit-faq-preg').value = pregunta;
+  document.getElementById('edit-faq-resp').value = respuesta;
+  openModal('modal-editar-faq');
+}
+
+async function guardarEditFaq() {
+  const r = await api('/api/faq', 'POST', {
+    accion: 'editar',
+    pregunta_actual: document.getElementById('edit-faq-original').value,
+    pregunta_nueva: document.getElementById('edit-faq-preg').value,
+    respuesta: document.getElementById('edit-faq-resp').value,
+  });
+  if (r.ok) { toast('✅ Pregunta actualizada'); closeModal('modal-editar-faq'); loadFaq(); }
+  else toast('❌ ' + r.error, false);
+}
+
+async function agregarFaq() {
+  const r = await api('/api/faq', 'POST', {
+    accion: 'agregar',
+    tab: document.getElementById('faq-tab-nuevo').value,
+    pregunta: document.getElementById('faq-preg-nuevo').value,
+    respuesta: document.getElementById('faq-resp-nuevo').value,
+  });
+  if (r.ok) { toast('✅ Pregunta agregada'); closeModal('modal-faq-nuevo'); loadFaq(); }
+  else toast('❌ ' + r.error, false);
+}
+
+async function eliminarFaq(pregunta) {
+  if (!confirm('¿Eliminar esta pregunta?')) return;
+  const r = await api('/api/faq', 'POST', { accion: 'eliminar', pregunta });
+  if (r.ok) { toast('✅ Pregunta eliminada'); loadFaq(); }
+}
+
+// ══════════════════════════════════════════════════════
+// 6. PUBLICAR
+// ══════════════════════════════════════════════════════
+async function publicar() {
+  const msg = document.getElementById('pub-msg').value || 'Actualización desde panel admin';
+  toast('⏳ Publicando...', true);
+  const r = await api('/api/publicar', 'POST', { mensaje: msg });
+  toast(r.ok ? '🚀 ' + r.detalle : '❌ ' + r.error, r.ok);
+}
+
+// Iniciar
+loadFotos();
+</script>
+</body>
+</html>
