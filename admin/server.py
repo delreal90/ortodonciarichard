@@ -450,12 +450,21 @@ def agregar_miembro():
     else:
         photo_div = f'<div class="team-photo placeholder-photo" {placeholder_attr}>{foto_html}</div>'
 
+    if data['tab'] == 'especialistas':
+        doc_id = re.sub(r'[^a-z]', '', data['nombre'].lower().split()[-1])
+        card_extra = f'doctor-card" data-doctor-id="{doc_id}" role="button" tabindex="0'
+        badges_html = '<div class="team-badges"></div>'
+    else:
+        card_extra = ''
+        badges_html = ''
+
     new_card = BeautifulSoup(f'''
-    <div class="team-card reveal">
+    <div class="team-card reveal {card_extra}">
         {photo_div}
         <div class="team-info">
             <h3>{data["nombre"]}</h3>
             <p class="team-role">{data.get("rol", TAB_ROLES.get(data["tab"], ""))}</p>
+            {badges_html}
         </div>
     </div>''', 'html.parser')
 
