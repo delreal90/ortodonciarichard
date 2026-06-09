@@ -97,21 +97,6 @@ const doctorData = {
             'Implantología',
             'Coordinador área quirúrgica, Programa de Especialización en Implantología Buco Máxilo Facial — UNAB',
         ],
-    },
-    doc: {
-        name:        'Prueba doc',
-        role:        'DoctorTest',
-        photo:       'None',
-        memberships: [
-            'pruebamembresia',
-        ],
-        bio:         'prueba',
-        education: [
-            'no lo se',
-        ],
-        specialties: [
-            'es seco',
-        ],
     }
 };
 /* ═══════════════════════════════════════════

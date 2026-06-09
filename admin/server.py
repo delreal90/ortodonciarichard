@@ -160,6 +160,22 @@ def set_equipo():
             break
 
     write_html(soup)
+
+    # Si es doctor (tab especialistas), sincronizar también en doctorData de main.js
+    tab_id = data.get('tab', '')
+    if tab_id == 'especialistas':
+        doctors = read_doctor_data()
+        nombre_buscar = data.get('nombre_nuevo') or data.get('nombre_actual', '')
+        doc = next((d for d in doctors.values() if d.get('name') == nombre_buscar), None)
+        if doc:
+            if data.get('nombre_nuevo'):
+                doc['name'] = data['nombre_nuevo']
+            if data.get('rol_nuevo'):
+                doc['role'] = data['rol_nuevo']
+            if data.get('foto_nueva'):
+                doc['photo'] = data['foto_nueva']
+            write_doctor_data(doctors)
+
     return jsonify({'ok': True})
 
 # ══════════════════════════════════════════════════════════════════════════════
