@@ -19,7 +19,7 @@ const doctorData = {
         memberships: [
             'AAO',
             'WFO',
-            'Sociedad de Ortodoncia de Chile',
+            'SORTCH',
         ],
         bio:         'Ortodoncista con práctica privada exclusiva en ortodoncia. Presidente de la Comisión de Ortodoncia de CONACEO, ex Presidente de la Sociedad de Ortodoncia de Chile (2000–2004) y conferencista nacional e internacional con numerosas publicaciones científicas.',
         education: [
@@ -41,7 +41,7 @@ const doctorData = {
         memberships: [
             'AAO',
             'WFO',
-            'Sociedad de Ortodoncia de Chile',
+            'SORTCH',
         ],
         bio:         'Profesor Titular de la Universidad de los Andes y Director del Programa de Especialización en Ortodoncia. Editor de la Revista Chilena de Ortodoncia, autor de publicaciones científicas nacionales e internacionales y ganador de premios en investigación en Chile y EE.UU.',
         education: [
@@ -63,7 +63,7 @@ const doctorData = {
         memberships: [
             'AAO',
             'WFO',
-            'Sociedad de Ortodoncia de Chile',
+            'SORTCH',
         ],
         bio:         'Ortodoncista con formación en medicina basada en la evidencia y educación en ciencias de la salud. Autor de publicaciones científicas nacionales e internacionales.',
         education: [

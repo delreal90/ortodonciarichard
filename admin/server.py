@@ -396,6 +396,21 @@ def set_doctores():
     valor = data.get('valor')
     doctors[doc_id][campo] = valor
     write_doctor_data(doctors)
+
+    # Si cambiaron membresías, sincronizar badges en index.html
+    if campo == 'memberships':
+        soup = read_html()
+        card = soup.find(attrs={'data-doctor-id': doc_id})
+        if card:
+            badges_div = card.find(class_='team-badges')
+            if badges_div:
+                badges_div.clear()
+                for m in (valor if isinstance(valor, list) else []):
+                    span = soup.new_tag('span', attrs={'class': 'team-badge'})
+                    span.string = m
+                    badges_div.append(span)
+                write_html(soup)
+
     return jsonify({'ok': True})
 
 # ══════════════════════════════════════════════════════════════════════════════
