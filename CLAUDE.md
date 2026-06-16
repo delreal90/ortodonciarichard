@@ -184,16 +184,77 @@ Los pacientes aparecen con sufijos que indican tipo de cita:
 ### Cuando esté disponible la API de DentiDesk
 Reemplazar el botón WhatsApp en `#agenda` (buscar comentario `TODO: DentiDesk` en `index.html`).
 
+### Agendamiento online — BOSQUEJO IMPLEMENTADO (modo mock)
+Ya está construido el flujo completo de agendamiento, corriendo en **modo mock**
+(datos simulados, sin token). Para pasar a producción: poner el token/credenciales
+en `admin/scheduling_config.json` y cambiar `dentidesk.enabled` a `true`.
+
+**Arquitectura (modular, reutilizable por el futuro bot de WhatsApp):**
+```
+admin/scheduling_config.json  ← config editable (NO tocar código): % ocupación por
+                                 doctor/franja, motivos, IDs DentiDesk, reglas, credenciales
+admin/scheduling.py           ← CEREBRO sin red: reglas de negocio, simulación de
+                                 ocupación (determinista), grilla horaria, .ics
+admin/dentidesk.py            ← cliente API DentiDesk (auth JWT 1-uso + availability +
+                                 create). Modo mock si enabled=false
+admin/notify.py               ← confirmación: WhatsApp (bridge :8080) + .ics, fallback email
+admin/server.py               ← rutas Flask: /api/agenda/config|disponibilidad|reservar
+                                 y /api/scheduling-config (GET/POST para el panel)
+js/agenda-dentidesk.js        ← modal de 4 pasos (motivo→doctor→fecha/hora→datos)
+index.html                    ← botón "Agendar hora online" + markup del modal
+admin/panel.html              ← sección "Agenda online" para ajustar % de ocupación
+```
+
+**Reglas implementadas:** anticipación mínima 12h (salvo Urgencia); 5 motivos;
+simulación de ocupación mínima aparente determinista y consistente
+(65-70% próximos 5 hábiles / 45-55% semana sig. / 30-40% semana posterior),
+configurable por doctor desde el panel; foto del doctor desde `doctorData` (main.js).
+
+**Pendiente para producción:**
+1. Credenciales DentiDesk en `scheduling_config.json` (email, password, basic auth).
+2. `professional_id` real de cada doctor y `id_reason` de cada motivo (los entrega
+   la clínica con las credenciales). Hoy octavio=7 es de ejemplo, el resto en 0.
+3. `enabled: true`.
+4. Hosting del backend Flask accesible desde el sitio (en GitHub Pages el front es
+   estático; el backend debe correr en un servidor con HTTPS, o mover la lógica a
+   otra función serverless). El frontend apunta a `window.AGENDA_API_BASE` (default
+   `http://localhost:5001`).
+5. Verificar el endpoint real de `getAvailableHours` (formato de respuesta) — el
+   parser en `dentidesk.py` ya contempla lista de strings o de objetos `{Hour}`.
+
 ---
+
+## Infraestructura decidida (producción)
+
+| Servicio | Rol | Costo |
+|---|---|---|
+| GitHub Pages | Sitio web estático | Gratis |
+| Cloudflare | DNS + CDN + protección DDoS + HTTPS | Gratis |
+| Render (plan Starter $7 USD/mes) | Backend Flask — siempre despierto, credenciales privadas | $7 USD/mes |
+| nic.cl | Dominio `ortodonciarichard.cl` | ~$8.500 CLP/año |
+
+Flujo: Paciente → Cloudflare → GitHub Pages → (al agendar) → Render (Flask + DentiDesk)
+
+Render se conecta al repo de GitHub: cada `git push` redespliegue automático del backend.
+Las credenciales de DentiDesk van como variables de entorno en el panel de Render (nunca en el código).
 
 ## Pendientes
 
-1. **Fotos y nombres del staff** — reemplazar placeholders de secretarias, asistentes y laboratorio
-2. **Fotos adicionales de la clínica** — recepción, 8 boxes, sala diagnóstico, laboratorio, esterilización, rayos
-3. **DNS en nic.cl** — agregar registros A y CNAME sin borrar registros MX del correo Gmail
-4. **GitHub Pages custom domain** — Settings → Pages → Custom domain → `ortodonciarichard.cl`
-5. **Integración DentiDesk API** — cuando app.dentidesk.cl entregue acceso API, reemplazar botón WhatsApp en `#agenda` (`TODO: DentiDesk` en `index.html`)
-6. **Casos de Instagram** — usar fotos de casos publicados en @ortodonciarichard para la sección de tratamientos
+### 🔴 Bloqueantes
+1. **Credenciales DentiDesk** — email, password, basic auth, `professional_id` de cada doctor, `id_reason` de cada motivo
+2. **Confirmar endpoint búsqueda paciente por RUT** — no está en la doc pública, hay que preguntarle a DentiDesk
+3. **Configurar Render** — subir backend Flask, configurar variables de entorno, conectar a GitHub
+4. **DNS en nic.cl + Cloudflare** — sin borrar registros MX del correo Gmail
+
+### 🟡 Importantes
+5. **GitHub Pages custom domain** — Settings → Pages → Custom domain → `ortodonciarichard.cl`
+6. **Rate limiting en backend** — agregar `flask-limiter` antes de publicitar el agendamiento online
+
+### 🟢 Mejoras
+7. **Fotos y nombres del staff** — reemplazar placeholders de secretarias, asistentes y laboratorio
+8. **Fotos adicionales de la clínica** — recepción, 8 boxes, sala diagnóstico, laboratorio, esterilización, rayos
+9. **Casos de Instagram** — usar fotos de casos publicados en @ortodonciarichard para la sección de tratamientos
+10. **Bot de WhatsApp** — agendar por WhatsApp usando el mismo backend Flask (infraestructura ya diseñada)
 
 ---
 
