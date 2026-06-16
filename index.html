@@ -477,12 +477,10 @@
 <h2>Agenda tu primera consulta</h2>
 <p>Da el primer paso hacia la sonrisa que siempre quisiste. Nuestro equipo te recibirá, evaluará tu caso y te explicará todas las opciones de tratamiento disponibles.</p>
 <div class="cta-buttons">
-<!-- Botón activo: WhatsApp -->
-<a class="btn btn-primary btn-lg" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20primera%20consulta" rel="noopener" target="_blank">
-<i class="fab fa-whatsapp"></i> Agendar por WhatsApp
-                    </a>
-<!-- TODO: Cuando esté disponible la integración con DentiDesk (app.dentidesk.cl),
-                         reemplazar el href por el link/iframe de agendamiento online -->
+<!-- Agendamiento online DentiDesk (abre el modal de 4 pasos en agenda-dentidesk.js) -->
+<button class="btn btn-primary btn-lg" type="button" onclick="abrirAgenda()">
+<i class="fas fa-calendar-check"></i> Agendar hora online
+                    </button>
 <a class="btn btn-outline-white btn-lg" href="tel:+56222173499">
 <i class="fas fa-phone"></i> +56 2 2217 3499
                     </a>
@@ -902,6 +900,29 @@
 </div>
 </div>
 </div>
+<!-- ═══════════════════════════════════════════
+     MODAL AGENDAMIENTO ONLINE (DentiDesk)
+═══════════════════════════════════════════ -->
+<div class="agenda-modal" id="agendaModal">
+<div class="agenda-dialog">
+<button class="agenda-close" type="button" onclick="cerrarAgenda()" aria-label="Cerrar"><i class="fas fa-times"></i></button>
+<div class="agenda-header">
+<h2>Agenda tu hora</h2>
+<div class="agenda-steps">
+<span class="agenda-step-dot active"></span>
+<span class="agenda-step-dot"></span>
+<span class="agenda-step-dot"></span>
+<span class="agenda-step-dot"></span>
+<span class="agenda-step-dot"></span>
+<span class="agenda-step-dot"></span>
+</div>
+</div>
+<div class="agenda-body" id="agendaBody"></div>
+</div>
+</div>
+
 <script src="js/main.js"></script>
+<script>window.AGENDA_API_BASE = 'https://ortodonciarichard.onrender.com';</script>
+<script src="js/agenda-dentidesk.js"></script>
 </body>
 </html>

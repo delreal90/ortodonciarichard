@@ -14,6 +14,28 @@ from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
 
 app = Flask(__name__, static_folder='.')
+
+# CORS: permitir el sitio en GitHub Pages, dominio propio y desarrollo local.
+_ALLOWED_ORIGINS = {
+    'https://delreal90.github.io',
+    'https://ortodonciarichard.cl',
+    'https://www.ortodonciarichard.cl',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+}
+@app.after_request
+def _cors(resp):
+    origin = request.headers.get('Origin', '')
+    if origin in _ALLOWED_ORIGINS:
+        resp.headers['Access-Control-Allow-Origin'] = origin
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    return resp
+
+@app.route('/api/<path:_any>', methods=['OPTIONS'])
+def _cors_preflight(_any):
+    return ('', 204)
+
 BASE = Path(__file__).parent.parent  # carpeta ortodonciarichard/
 INDEX = BASE / 'index.html'
 IMAGES = BASE / 'images'
@@ -572,6 +594,171 @@ def publicar():
             return jsonify({'ok': False, 'error': result.stderr})
     except subprocess.CalledProcessError as e:
         return jsonify({'ok': False, 'error': str(e)})
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. AGENDA DENTIDESK — disponibilidad, reserva y configuracion
+# ══════════════════════════════════════════════════════════════════════════════
+
+import scheduling
+import dentidesk
+import notify
+from datetime import date, datetime
+
+_DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
+_MESES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+          'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+
+def _fecha_legible(d):
+    return f'{_DIAS[d.weekday()]} {d.day} de {_MESES[d.month]}'
+
+@app.route('/api/agenda/config', methods=['GET'])
+def agenda_config():
+    """Datos que el frontend necesita para armar el flujo: motivos + doctores
+    (con su foto tomada de doctorData en main.js)."""
+    cfg = scheduling.load_config()
+    doctors = read_doctor_data()
+
+    # Especialidades = las que tienen al menos un doctor que atiende online.
+    activas = {dc['especialidad'] for k, dc in cfg['doctores'].items()
+               if not k.startswith('_') and isinstance(dc, dict)
+               and dc.get('atiende') and dc.get('especialidad')}
+    especialidades = [{'key': k, 'label': v['label']}
+                      for k, v in cfg['especialidades'].items()
+                      if not k.startswith('_') and isinstance(v, dict) and k in activas]
+
+    motivos = [{'key': k, 'label': v['label'], 'urgencia': v['urgencia'],
+                'especialidad': v.get('especialidad', '')}
+               for k, v in cfg['motivos'].items()
+               if not k.startswith('_') and isinstance(v, dict)]
+    doctores = []
+    for doc_id, dc in cfg['doctores'].items():
+        if doc_id.startswith('_') or not isinstance(dc, dict) or not dc.get('atiende'):
+            continue
+        info = doctors.get(doc_id, {})
+        doctores.append({
+            'key': doc_id,
+            'name': info.get('name', doc_id.title()),
+            'role': info.get('role', ''),
+            'photo': info.get('photo', ''),
+            'especialidad': dc.get('especialidad', ''),
+        })
+    return jsonify({'especialidades': especialidades, 'motivos': motivos,
+                    'doctores': doctores, 'mock': not cfg['dentidesk']['enabled']})
+
+@app.route('/api/agenda/paciente', methods=['GET'])
+def agenda_paciente():
+    """Valida el RUT y lo cruza con DentiDesk. Devuelve si existe + datos precargados."""
+    rut = request.args.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    info = dentidesk.buscar_paciente(rut)
+    return jsonify({'ok': True, 'rut': scheduling.formatear_rut(rut),
+                    'existe': info['existe'], 'datos': info['datos']})
+
+@app.route('/api/agenda/disponibilidad', methods=['GET'])
+def agenda_disponibilidad():
+    """Horas disponibles para (doctor, motivo) en los proximos dias habiles."""
+    doctor = request.args.get('doctor')
+    motivo = request.args.get('motivo')
+    cfg = scheduling.load_config()
+    if doctor not in cfg['doctores'] or motivo not in cfg['motivos']:
+        return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+
+    hoy = date.today()
+    habiles = scheduling.dias_habiles_desde(hoy, cfg['reglas']['dias_a_mostrar'], cfg)
+    dias = []
+    for d in habiles:
+        ocupadas = dentidesk.horas_ocupadas(doctor, d, motivo, cfg)
+        horas = scheduling.horas_disponibles(doctor, d, motivo, ocupadas, cfg)
+        if horas:
+            dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
+    return jsonify({'ok': True, 'dias': dias})
+
+@app.route('/api/agenda/reservar', methods=['POST'])
+def agenda_reservar():
+    """Crea la cita en DentiDesk y dispara la confirmacion (WhatsApp / email)."""
+    data = request.json or {}
+    cfg = scheduling.load_config()
+    doctor = data.get('doctor'); motivo = data.get('motivo')
+    if doctor not in cfg['doctores'] or motivo not in cfg['motivos']:
+        return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+    try:
+        fecha = datetime.strptime(data['fecha'], '%Y-%m-%d').date()
+    except (KeyError, ValueError):
+        return jsonify({'ok': False, 'error': 'Fecha invalida'}), 400
+    hora = data.get('hora', '')
+    motivo_cfg = cfg['motivos'][motivo]
+
+    # Validar RUT en backend (defensa: el frontend ya valida)
+    rut = data.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+
+    # Revalidar en backend: anticipacion + que la hora siga disponible
+    if not scheduling.cumple_anticipacion(fecha, hora, motivo_cfg, cfg):
+        return jsonify({'ok': False, 'error': 'La hora no cumple la anticipacion minima'}), 409
+    ocupadas = dentidesk.horas_ocupadas(doctor, fecha, motivo, cfg)
+    if hora not in scheduling.horas_disponibles(doctor, fecha, motivo, ocupadas, cfg):
+        return jsonify({'ok': False, 'error': 'La hora ya no esta disponible'}), 409
+
+    # Nombres/apellidos vienen separados; si no, se parte 'nombre'
+    nombre = (data.get('nombres') or '').strip()
+    apellido = (data.get('apellidos') or '').strip()
+    if not nombre:
+        partes = (data.get('nombre') or '').strip().split(' ', 1)
+        nombre, apellido = partes[0], (partes[1] if len(partes) > 1 else '')
+
+    res = dentidesk.crear_cita(
+        doc_id=doctor, motivo_key=motivo, target_date=fecha, hora=hora,
+        nombre=nombre, apellido=apellido,
+        email=data.get('email', ''), telefono=data.get('telefono', ''),
+        rut=scheduling.limpiar_rut(rut), cfg=cfg,
+    )
+    if not res.get('ok'):
+        return jsonify({'ok': False, 'error': 'No se pudo crear la cita'}), 502
+
+    doctors = read_doctor_data()
+    doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
+    confirm = notify.enviar_confirmacion({
+        'nombre': nombre, 'telefono': data.get('telefono', ''),
+        'email': data.get('email', ''), 'fecha': fecha,
+        'fecha_legible': _fecha_legible(fecha), 'hora': hora,
+        'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
+        'dur_min': motivo_cfg['duracion_min'],
+    }, cfg)
+
+    return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
+                    'confirmacion': confirm, 'mock': res.get('mock', False)})
+
+@app.route('/api/scheduling-config', methods=['GET'])
+def get_scheduling_config():
+    """Para el panel admin: devuelve doctores + sus % de ocupacion por franja."""
+    cfg = scheduling.load_config()
+    doctores = {k: v for k, v in cfg['doctores'].items()
+                if not k.startswith('_') and isinstance(v, dict)}
+    return jsonify({
+        'doctores': doctores,
+        'reglas': cfg['reglas'],
+        'dentidesk_enabled': cfg['dentidesk']['enabled'],
+    })
+
+@app.route('/api/scheduling-config', methods=['POST'])
+def set_scheduling_config():
+    """Guarda cambios de % de ocupacion por doctor/franja (sin tocar codigo)."""
+    data = request.json or {}
+    cfg = scheduling.load_config()
+    for doc_id, doc_changes in (data.get('doctores') or {}).items():
+        if doc_id not in cfg['doctores']:
+            continue
+        if 'atiende' in doc_changes:
+            cfg['doctores'][doc_id]['atiende'] = bool(doc_changes['atiende'])
+        for franja, rango in (doc_changes.get('ocupacion') or {}).items():
+            if franja in cfg['doctores'][doc_id]['ocupacion']:
+                cfg['doctores'][doc_id]['ocupacion'][franja] = {
+                    'min': int(rango['min']), 'max': int(rango['max'])
+                }
+    scheduling.save_config(cfg)
+    return jsonify({'ok': True})
 
 # ══════════════════════════════════════════════════════════════════════════════
 
