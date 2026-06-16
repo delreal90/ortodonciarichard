@@ -616,6 +616,11 @@ def publicar():
 # 9. AGENDA DENTIDESK — disponibilidad, reserva y configuracion
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Asegurar que la carpeta admin/ este en el path (gunicorn en Render
+# puede ejecutar desde otra carpeta de trabajo).
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import scheduling
 import dentidesk
 import notify
