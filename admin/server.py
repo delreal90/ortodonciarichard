@@ -41,6 +41,18 @@ INDEX = BASE / 'index.html'
 IMAGES = BASE / 'images'
 MAINJS = BASE / 'js' / 'main.js'
 
+EN_RENDER = bool(os.environ.get('RENDER'))
+
+# Rutas de administración bloqueadas en producción (Render solo expone /api/agenda/*)
+RUTAS_SOLO_LOCAL = {'/api/info', '/api/equipo', '/api/casos', '/api/faq',
+                    '/api/doctores', '/api/equipo/agregar', '/api/equipo/eliminar',
+                    '/api/publicar', '/api/scheduling-config'}
+
+@app.before_request
+def bloquear_admin_en_produccion():
+    if EN_RENDER and request.path in RUTAS_SOLO_LOCAL:
+        return jsonify({'error': 'No disponible en producción'}), 403
+
 # ── Utilidades ─────────────────────────────────────────────────────────────
 
 def read_html():
@@ -52,11 +64,16 @@ def write_html(soup):
 # ── Rutas estáticas ─────────────────────────────────────────────────────────
 
 @app.route('/')
-def panel():
+def index():
+    # En producción (Render) solo exponemos la API. El panel es solo local.
+    if os.environ.get('RENDER'):
+        return jsonify({'ok': True, 'servicio': 'Ortodoncia Richard API'}), 200
     return send_from_directory('.', 'panel.html')
 
 @app.route('/images/<path:filename>')
 def serve_image(filename):
+    if os.environ.get('RENDER'):
+        return jsonify({'error': 'No disponible en producción'}), 403
     return send_from_directory(str(IMAGES), filename)
 
 # ══════════════════════════════════════════════════════════════════════════════
