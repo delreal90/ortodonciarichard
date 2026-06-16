@@ -1,0 +1,140 @@
+{
+  "_comment": "Configuracion del agendamiento online (DentiDesk). Editable desde el panel admin o a mano. NO requiere tocar codigo.",
+  "dentidesk": {
+    "enabled": false,
+    "_comment_enabled": "false = modo MOCK (datos simulados, sin llamar a DentiDesk). Poner true cuando se tengan las credenciales reales.",
+    "base_url": "https://app.dentidesk.cl",
+    "email": "",
+    "password": "",
+    "basic_auth_user": "",
+    "basic_auth_pass": "",
+    "id_location": 6184,
+    "id_status_nueva_cita": 2664
+  },
+  "clinica": {
+    "nombre": "Ortodoncia Richard",
+    "direccion": "Paul Harris 10.349, oficina 305, piso 3, Las Condes, Santiago",
+    "telefono": "+56 2 2217 3499",
+    "whatsapp": "+56933558189"
+  },
+  "horario": {
+    "_comment": "Grilla base de la jornada. Los slots se generan cada 'slot_minutos'. AM = antes de 'corte_pm', PM = desde 'corte_pm'.",
+    "dias_habiles": [1, 2, 3, 4, 5],
+    "apertura": "09:00",
+    "cierre": "19:30",
+    "slot_minutos": 30,
+    "corte_pm": "14:00"
+  },
+  "reglas": {
+    "anticipacion_minima_horas": 12,
+    "_comment_anticipacion": "No se puede agendar con menos de 12h, salvo motivo de tipo 'urgencia'.",
+    "dias_a_mostrar": 15
+  },
+  "especialidades": {
+    "_comment": "Es lo primero que elige el paciente. El label sale de la especialidad/rol de los doctores. Para agregar una especialidad: crearla aqui y asignarla a un doctor (campo 'especialidad').",
+    "ortodoncia": { "label": "Ortodoncia" },
+    "rehabilitacion": { "label": "Rehabilitación Oral e Implantología" }
+  },
+  "motivos": {
+    "_comment": "Cada motivo pertenece a una 'especialidad'. 'id_reason' es el IdReason de DentiDesk (lo entrega la clinica). 'urgencia':true exime de la anticipacion minima.",
+    "primera_consulta": {
+      "label": "Primera Consulta",
+      "especialidad": "ortodoncia",
+      "id_reason": "83",
+      "duracion_min": 45,
+      "urgencia": false
+    },
+    "control_fijo": {
+      "label": "Control de Ortodoncia con Aparato Fijo (frenillos, disyuntor)",
+      "especialidad": "ortodoncia",
+      "id_reason": "",
+      "duracion_min": 30,
+      "urgencia": false
+    },
+    "control_alineadores": {
+      "label": "Control de Ortodoncia con Alineadores (Invisalign, Digitrack, etc.)",
+      "especialidad": "ortodoncia",
+      "id_reason": "",
+      "duracion_min": 30,
+      "urgencia": false
+    },
+    "control_removible": {
+      "label": "Control de Ortodoncia con Aparato Removible (placa)",
+      "especialidad": "ortodoncia",
+      "id_reason": "",
+      "duracion_min": 30,
+      "urgencia": false
+    },
+    "urgencia": {
+      "label": "Urgencia de Ortodoncia (bracket suelto, fierro pincha, etc.)",
+      "especialidad": "ortodoncia",
+      "id_reason": "",
+      "duracion_min": 20,
+      "urgencia": true
+    },
+    "rehab_evaluacion": {
+      "label": "Evaluación",
+      "especialidad": "rehabilitacion",
+      "id_reason": "",
+      "duracion_min": 45,
+      "urgencia": false
+    },
+    "rehab_continuar": {
+      "label": "Continuar mi tratamiento en curso",
+      "especialidad": "rehabilitacion",
+      "id_reason": "",
+      "duracion_min": 30,
+      "urgencia": false
+    },
+    "rehab_urgencia": {
+      "label": "Urgencia Dental",
+      "especialidad": "rehabilitacion",
+      "id_reason": "",
+      "duracion_min": 20,
+      "urgencia": true
+    }
+  },
+  "doctores": {
+    "_comment": "Cada doctor mapea su key (igual que doctorData en main.js) al Professional ID de DentiDesk. 'especialidad' filtra que doctores aparecen segun lo que elige el paciente. 'ocupacion' = % minimo aparente por franja temporal (min-max).",
+    "octavio": {
+      "professional_id": 7,
+      "atiende": true,
+      "especialidad": "ortodoncia",
+      "ocupacion": {
+        "proximos_5_habiles": { "min": 65, "max": 70 },
+        "semana_siguiente": { "min": 45, "max": 55 },
+        "semana_posterior": { "min": 30, "max": 40 }
+      }
+    },
+    "rodrigo": {
+      "professional_id": 0,
+      "atiende": true,
+      "especialidad": "ortodoncia",
+      "ocupacion": {
+        "proximos_5_habiles": { "min": 65, "max": 70 },
+        "semana_siguiente": { "min": 45, "max": 55 },
+        "semana_posterior": { "min": 30, "max": 40 }
+      }
+    },
+    "alberto": {
+      "professional_id": 0,
+      "atiende": true,
+      "especialidad": "ortodoncia",
+      "ocupacion": {
+        "proximos_5_habiles": { "min": 65, "max": 70 },
+        "semana_siguiente": { "min": 45, "max": 55 },
+        "semana_posterior": { "min": 30, "max": 40 }
+      }
+    },
+    "patricio": {
+      "professional_id": 0,
+      "atiende": true,
+      "especialidad": "rehabilitacion",
+      "ocupacion": {
+        "proximos_5_habiles": { "min": 65, "max": 70 },
+        "semana_siguiente": { "min": 45, "max": 55 },
+        "semana_posterior": { "min": 30, "max": 40 }
+      }
+    }
+  }
+}
