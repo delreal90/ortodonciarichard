@@ -427,43 +427,66 @@
 <h2>Una clínica diseñada para ti</h2>
 <p class="section-subtitle">Contamos con 8 boxes clínicos, sala de diagnóstico, laboratorio propio, sala de esterilización y equipo de rayos. Todo bajo un mismo techo.</p>
 </div>
-<!-- TODO: Agregar más fotos: clinica-recepcion.jpg, clinica-box.jpg, clinica-laboratorio.jpg,
-                 clinica-rayos.jpg, clinica-esterilizacion.jpg, clinica-diagnostico.jpg -->
-<div class="gallery-grid reveal">
-<div class="gallery-item gallery-item-large">
-<img alt="Clínica Ortodoncia Richard" src="images/clinica-1.jpg"/>
-<div class="gallery-caption">Clínica</div>
+<!-- Carrusel galería clínica -->
+<div class="gallery-carousel reveal" id="galleryCarousel">
+  <div class="gallery-track" id="galleryTrack">
+    <div class="gallery-slide" data-caption="Clínica Ortodoncia Richard">
+      <img alt="Clínica Ortodoncia Richard" src="images/clinica-1.jpg"/>
+    </div>
+    <div class="gallery-slide" data-caption="Recepción">
+      <img alt="Recepción" src="images/clinica-recepcion.jpg"/>
+    </div>
+    <div class="gallery-slide" data-caption="Laboratorio">
+      <img alt="Laboratorio" src="images/clinica-laboratorio.jpg"/>
+    </div>
+    <div class="gallery-slide" data-caption="Sala de diagnóstico">
+      <img alt="Sala de diagnóstico" src="images/clinica-sala-de-diagnstico.jpg"/>
+    </div>
+  </div>
+  <button class="gallery-btn gallery-prev" aria-label="Anterior" onclick="galleryMove(-1)">
+    <i class="fas fa-chevron-left"></i>
+  </button>
+  <button class="gallery-btn gallery-next" aria-label="Siguiente" onclick="galleryMove(1)">
+    <i class="fas fa-chevron-right"></i>
+  </button>
+  <div class="gallery-dots" id="galleryDots"></div>
 </div>
-<div class="gallery-placeholder">
-<i class="fas fa-image"></i>
-<span>Más fotos próximamente</span>
-</div>
-<div class="gallery-placeholder">
-<i class="fas fa-image"></i>
-<span>Más fotos próximamente</span>
-</div>
-</div>
+
+<!-- Tags clickeables — abren lightbox con la foto correspondiente -->
 <div class="clinic-features reveal">
-<div class="clinic-feature">
-<i class="fas fa-door-open"></i>
-<span>8 Boxes clínicos</span>
+  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-1.jpg','Clínica Ortodoncia Richard')">
+    <i class="fas fa-door-open"></i>
+    <span>8 Boxes clínicos</span>
+  </div>
+  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-sala-de-diagnstico.jpg','Sala de diagnóstico')">
+    <i class="fas fa-magnifying-glass"></i>
+    <span>Sala de diagnóstico</span>
+  </div>
+  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-laboratorio.jpg','Laboratorio propio')">
+    <i class="fas fa-flask"></i>
+    <span>Laboratorio propio</span>
+  </div>
+  <div class="clinic-feature">
+    <i class="fas fa-shield-virus"></i>
+    <span>Sala de esterilización</span>
+  </div>
+  <div class="clinic-feature">
+    <i class="fas fa-x-ray"></i>
+    <span>Equipo de rayos</span>
+  </div>
+  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-recepcion.jpg','Recepción')">
+    <i class="fas fa-couch"></i>
+    <span>Recepción</span>
+  </div>
 </div>
-<div class="clinic-feature">
-<i class="fas fa-x-ray"></i>
-<span>Equipo de rayos</span>
-</div>
-<div class="clinic-feature">
-<i class="fas fa-flask"></i>
-<span>Laboratorio propio</span>
-</div>
-<div class="clinic-feature">
-<i class="fas fa-shield-virus"></i>
-<span>Sala de esterilización</span>
-</div>
-<div class="clinic-feature">
-<i class="fas fa-magnifying-glass"></i>
-<span>Sala de diagnóstico</span>
-</div>
+
+<!-- Lightbox -->
+<div class="gallery-lightbox" id="galleryLightbox" onclick="cerrarLightbox()">
+  <button class="gallery-lightbox-close" onclick="cerrarLightbox()" aria-label="Cerrar">
+    <i class="fas fa-xmark"></i>
+  </button>
+  <img alt="" id="galleryLightboxImg"/>
+  <p class="gallery-lightbox-caption" id="galleryLightboxCaption"></p>
 </div>
 </div>
 </section>

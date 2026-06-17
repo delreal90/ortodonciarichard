@@ -338,3 +338,70 @@ if (contactForm) {
         }
     });
 }
+
+/* ═══════════════════════════════════════════
+   GALERÍA — carrusel automático + lightbox
+═══════════════════════════════════════════ */
+(function () {
+    const track   = document.getElementById('galleryTrack');
+    const dotsEl  = document.getElementById('galleryDots');
+    if (!track) return;
+
+    const slides  = track.querySelectorAll('.gallery-slide');
+    let current   = 0;
+    let timer;
+
+    // Crear dots
+    slides.forEach((_, i) => {
+        const d = document.createElement('button');
+        d.className = 'gallery-dot' + (i === 0 ? ' active' : '');
+        d.setAttribute('aria-label', 'Foto ' + (i + 1));
+        d.onclick = (e) => { e.stopPropagation(); galleryGo(i); };
+        dotsEl.appendChild(d);
+    });
+
+    function galleryGo(idx) {
+        current = (idx + slides.length) % slides.length;
+        track.style.transform = `translateX(-${current * 100}%)`;
+        dotsEl.querySelectorAll('.gallery-dot').forEach((d, i) =>
+            d.classList.toggle('active', i === current));
+        resetTimer();
+    }
+
+    function resetTimer() {
+        clearInterval(timer);
+        timer = setInterval(() => galleryGo(current + 1), 4500);
+    }
+
+    // Abrir lightbox al hacer clic en el carrusel
+    document.getElementById('galleryCarousel').addEventListener('click', function (e) {
+        if (e.target.closest('.gallery-btn') || e.target.closest('.gallery-dot')) return;
+        const slide = slides[current];
+        const img   = slide.querySelector('img');
+        galleryLightbox(img.src, slide.dataset.caption || '');
+    });
+
+    window.galleryMove = (dir) => galleryGo(current + dir);
+    resetTimer();
+})();
+
+function galleryLightbox(src, caption) {
+    const lb  = document.getElementById('galleryLightbox');
+    const img = document.getElementById('galleryLightboxImg');
+    const cap = document.getElementById('galleryLightboxCaption');
+    img.src       = src;
+    img.alt       = caption;
+    cap.textContent = caption;
+    lb.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+function cerrarLightbox() {
+    document.getElementById('galleryLightbox').classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+// Cerrar lightbox con Escape
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') cerrarLightbox();
+});
