@@ -429,64 +429,24 @@
 </div>
 <!-- Carrusel galería clínica -->
 <div class="gallery-carousel reveal" id="galleryCarousel">
-  <div class="gallery-track" id="galleryTrack">
-    <div class="gallery-slide" data-caption="Clínica Ortodoncia Richard">
-      <img alt="Clínica Ortodoncia Richard" src="images/clinica-1.jpg"/>
-    </div>
-    <div class="gallery-slide" data-caption="Recepción">
-      <img alt="Recepción" src="images/clinica-recepcion.jpg"/>
-    </div>
-    <div class="gallery-slide" data-caption="Laboratorio">
-      <img alt="Laboratorio" src="images/clinica-laboratorio.jpg"/>
-    </div>
-    <div class="gallery-slide" data-caption="Sala de diagnóstico">
-      <img alt="Sala de diagnóstico" src="images/clinica-sala-de-diagnstico.jpg"/>
-    </div>
-  </div>
-  <button class="gallery-btn gallery-prev" aria-label="Anterior" onclick="galleryMove(-1)">
-    <i class="fas fa-chevron-left"></i>
-  </button>
-  <button class="gallery-btn gallery-next" aria-label="Siguiente" onclick="galleryMove(1)">
-    <i class="fas fa-chevron-right"></i>
-  </button>
-  <div class="gallery-dots" id="galleryDots"></div>
+<div class="gallery-track" id="galleryTrack"><div class="gallery-slide" data-caption="Recepción"><img alt="Recepción" src="images/clinica-recepcion.jpg"/></div><div class="gallery-slide" data-caption="Laboratorio"><img alt="Laboratorio" src="images/clinica-laboratorio.jpg"/></div><div class="gallery-slide" data-caption="Sala de diagnóstico"><img alt="Sala de diagnóstico" src="images/clinica-sala-de-diagnstico.jpg"/></div></div>
+<button aria-label="Anterior" class="gallery-btn gallery-prev" onclick="galleryMove(-1)">
+<i class="fas fa-chevron-left"></i>
+</button>
+<button aria-label="Siguiente" class="gallery-btn gallery-next" onclick="galleryMove(1)">
+<i class="fas fa-chevron-right"></i>
+</button>
+<div class="gallery-dots" id="galleryDots"></div>
 </div>
-
-<!-- Tags clickeables — mueven el carrusel a la foto correspondiente -->
-<div class="clinic-features reveal">
-  <div class="clinic-feature" onclick="galleryGoTo(0)">
-    <i class="fas fa-door-open"></i>
-    <span>8 Boxes clínicos</span>
-  </div>
-  <div class="clinic-feature" onclick="galleryGoTo(3)">
-    <i class="fas fa-magnifying-glass"></i>
-    <span>Sala de diagnóstico</span>
-  </div>
-  <div class="clinic-feature" onclick="galleryGoTo(2)">
-    <i class="fas fa-flask"></i>
-    <span>Laboratorio propio</span>
-  </div>
-  <div class="clinic-feature">
-    <i class="fas fa-shield-virus"></i>
-    <span>Sala de esterilización</span>
-  </div>
-  <div class="clinic-feature">
-    <i class="fas fa-x-ray"></i>
-    <span>Equipo de rayos</span>
-  </div>
-  <div class="clinic-feature" onclick="galleryGoTo(1)">
-    <i class="fas fa-couch"></i>
-    <span>Recepción</span>
-  </div>
-</div>
-
+<!-- Tags generados dinámicamente desde las fotos del carrusel -->
+<div class="clinic-features reveal" id="galleryTags"></div>
 <!-- Lightbox -->
 <div class="gallery-lightbox" id="galleryLightbox" onclick="cerrarLightbox()">
-  <button class="gallery-lightbox-close" onclick="cerrarLightbox()" aria-label="Cerrar">
-    <i class="fas fa-xmark"></i>
-  </button>
-  <img alt="" id="galleryLightboxImg"/>
-  <p class="gallery-lightbox-caption" id="galleryLightboxCaption"></p>
+<button aria-label="Cerrar" class="gallery-lightbox-close" onclick="cerrarLightbox()">
+<i class="fas fa-xmark"></i>
+</button>
+<img alt="" id="galleryLightboxImg"/>
+<p class="gallery-lightbox-caption" id="galleryLightboxCaption"></p>
 </div>
 </div>
 </section>

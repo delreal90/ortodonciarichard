@@ -473,6 +473,7 @@ function galeriaRender() {
       <div style="display:flex;gap:6px;flex-shrink:0">
         <button class="btn btn-sm" onclick="galeriaMover(${i},-1)" title="Subir" ${i===0?'disabled':''}>↑</button>
         <button class="btn btn-sm" onclick="galeriaMover(${i},1)" title="Bajar" ${i===galeriaSlides.length-1?'disabled':''}>↓</button>
+        <button class="btn btn-sm btn-gold" onclick="galeriaRenombrar(${i})" title="Renombrar">✎</button>
         <button class="btn btn-danger btn-sm" onclick="galeriaEliminar(${i})">✕</button>
       </div>
     </div>
@@ -513,6 +514,15 @@ function galeriaMover(idx, dir) {
 async function galeriaGuardarOrden(orden) {
   const r = await api('/api/galeria/reordenar', 'POST', { orden });
   if (r.ok) { galeriaSlides = r.slides; galeriaRender(); toast('✅ Orden guardado'); }
+  else toast('❌ ' + r.error, false);
+}
+
+async function galeriaRenombrar(idx) {
+  const actual = galeriaSlides[idx].caption;
+  const nuevo = prompt('Nuevo nombre para esta foto:', actual);
+  if (!nuevo || nuevo.trim() === actual) return;
+  const r = await api('/api/galeria/renombrar', 'POST', { idx, caption: nuevo.trim() });
+  if (r.ok) { galeriaSlides = r.slides; galeriaRender(); toast('✅ Nombre actualizado'); }
   else toast('❌ ' + r.error, false);
 }
 

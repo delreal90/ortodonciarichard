@@ -873,6 +873,24 @@ def eliminar_foto_galeria():
     write_html(soup)
     return jsonify({'ok': True, 'slides': slides})
 
+@app.route('/api/galeria/renombrar', methods=['POST'])
+def renombrar_foto_galeria():
+    if EN_RENDER:
+        return jsonify({'error': 'No disponible en producción'}), 403
+    data    = request.json
+    idx     = data.get('idx')
+    caption = (data.get('caption') or '').strip()
+    if idx is None or not caption:
+        return jsonify({'ok': False, 'error': 'Faltan datos'})
+    soup   = read_html()
+    slides = _gallery_slides(soup)
+    if not (0 <= idx < len(slides)):
+        return jsonify({'ok': False, 'error': 'Índice inválido'})
+    slides[idx]['caption'] = caption
+    _gallery_write(soup, slides)
+    write_html(soup)
+    return jsonify({'ok': True, 'slides': slides})
+
 @app.route('/api/galeria/reordenar', methods=['POST'])
 def reordenar_galeria():
     if EN_RENDER:

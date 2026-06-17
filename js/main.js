@@ -387,6 +387,17 @@ if (contactForm) {
         document.getElementById('galleryCarousel')
             .scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
+
+    // Generar tags desde los slides (siempre sincronizados con las fotos)
+    const tagsEl = document.getElementById('galleryTags');
+    if (tagsEl) {
+        tagsEl.innerHTML = Array.from(slides).map((slide, i) => `
+            <div class="clinic-feature" onclick="galleryGoTo(${i})" style="cursor:pointer">
+                <i class="fas fa-image"></i>
+                <span>${slide.dataset.caption || ''}</span>
+            </div>`).join('');
+    }
+
     resetTimer();
 })();
 
