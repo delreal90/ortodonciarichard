@@ -57,6 +57,9 @@
   .faq-list li .a { font-size: .82rem; color: #718096; margin-top: 4px; }
   .faq-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .caso-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+  .galeria-item { display:flex; align-items:center; justify-content:space-between; gap:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 14px; transition:background .15s, box-shadow .15s; }
+  .galeria-item:hover { background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.07); }
+  .galeria-item[draggable]:active { opacity:.7; }
   .caso-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
   .caso-card img { width: 100%; height: 120px; object-fit: cover; }
   .caso-card-body { padding: 12px; }
@@ -118,9 +121,19 @@
       </div>
 
       <div class="card">
-        <h3>🏥 Clínica</h3>
-        <div class="photo-grid" id="fotos-clinica"></div>
-        <button class="btn btn-primary btn-sm" onclick="addClinicPhoto()">+ Agregar foto de clínica</button>
+        <h3>🏥 Galería de la clínica</h3>
+        <p style="font-size:.85rem;color:#718096;margin-bottom:16px">
+          Arrastra para reordenar. El orden aquí es el orden del carrusel en el sitio.
+        </p>
+        <div id="galeria-lista" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px"></div>
+        <div style="border:2px dashed #cbd5e0;border-radius:10px;padding:20px;text-align:center">
+          <label style="cursor:pointer;display:block">
+            <i class="fas fa-plus-circle" style="font-size:1.5rem;color:var(--gold);margin-bottom:8px;display:block"></i>
+            <strong>Agregar foto</strong><br>
+            <span style="font-size:.82rem;color:#718096">Haz clic para elegir una imagen</span>
+            <input type="file" accept="image/*" style="display:none" onchange="galeriaAgregar(this)">
+          </label>
+        </div>
       </div>
     </div>
 
@@ -399,7 +412,7 @@ const CLINICA_FOTOS = [
 
 function loadFotos() {
   renderPhotoGrid('fotos-doctores', DOCTORES);
-  renderPhotoGrid('fotos-clinica', CLINICA_FOTOS);
+  galeriaCargar();
 }
 
 function renderPhotoGrid(containerId, items) {
@@ -431,12 +444,99 @@ async function uploadFoto(input, target) {
   else toast('❌ Error: ' + data.error, false);
 }
 
-function addClinicPhoto() {
-  const nombre = prompt('Nombre de la foto (ej: Sala de diagnóstico):');
-  if (!nombre) return;
-  const archivo = 'clinica-' + nombre.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '.jpg';
-  CLINICA_FOTOS.push({ nombre, archivo });
-  renderPhotoGrid('fotos-clinica', CLINICA_FOTOS);
+// ── Galería clínica ─────────────────────────────────────────────────────────
+
+let galeriaSlides = [];
+let galeriaDrag = null;
+
+async function galeriaCargar() {
+  const slides = await api('/api/galeria');
+  galeriaSlides = slides;
+  galeriaRender();
+}
+
+function galeriaRender() {
+  const lista = document.getElementById('galeria-lista');
+  lista.innerHTML = galeriaSlides.map((s, i) => `
+    <div class="galeria-item" draggable="true" data-idx="${i}"
+         ondragstart="galeriaDragStart(event,${i})"
+         ondragover="galeriaDragOver(event,${i})"
+         ondrop="galeriaDrop(event,${i})"
+         ondragend="galeriaDragEnd()">
+      <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
+        <i class="fas fa-grip-vertical" style="color:#a0aec0;cursor:grab;flex-shrink:0"></i>
+        <img src="/${s.src}?t=${Date.now()}" alt="${s.caption}"
+             style="width:72px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0"
+             onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2272%22 height=%2252%22><rect width=%2272%22 height=%2252%22 fill=%22%23e2e8f0%22/></svg>'">
+        <span style="font-size:.9rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.caption}</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-sm" onclick="galeriaMover(${i},-1)" title="Subir" ${i===0?'disabled':''}>↑</button>
+        <button class="btn btn-sm" onclick="galeriaMover(${i},1)" title="Bajar" ${i===galeriaSlides.length-1?'disabled':''}>↓</button>
+        <button class="btn btn-danger btn-sm" onclick="galeriaEliminar(${i})">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// Drag and drop
+function galeriaDragStart(e, idx) {
+  galeriaDrag = idx;
+  e.dataTransfer.effectAllowed = 'move';
+}
+function galeriaDragOver(e, idx) {
+  e.preventDefault();
+  document.querySelectorAll('.galeria-item').forEach((el,i) =>
+    el.style.opacity = i === idx && idx !== galeriaDrag ? '0.5' : '1');
+}
+function galeriaDrop(e, targetIdx) {
+  e.preventDefault();
+  if (galeriaDrag === null || galeriaDrag === targetIdx) return;
+  const orden = galeriaSlides.map((_,i) => i);
+  orden.splice(targetIdx, 0, orden.splice(galeriaDrag, 1)[0]);
+  galeriaGuardarOrden(orden);
+}
+function galeriaDragEnd() {
+  galeriaDrag = null;
+  document.querySelectorAll('.galeria-item').forEach(el => el.style.opacity = '1');
+}
+
+// Botones ↑↓
+function galeriaMover(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= galeriaSlides.length) return;
+  const orden = galeriaSlides.map((_,i) => i);
+  orden.splice(newIdx, 0, orden.splice(idx, 1)[0]);
+  galeriaGuardarOrden(orden);
+}
+
+async function galeriaGuardarOrden(orden) {
+  const r = await api('/api/galeria/reordenar', 'POST', { orden });
+  if (r.ok) { galeriaSlides = r.slides; galeriaRender(); toast('✅ Orden guardado'); }
+  else toast('❌ ' + r.error, false);
+}
+
+async function galeriaEliminar(idx) {
+  if (!confirm(`¿Eliminar "${galeriaSlides[idx].caption}" del carrusel?`)) return;
+  const r = await api('/api/galeria/eliminar', 'POST', { idx });
+  if (r.ok) { galeriaSlides = r.slides; galeriaRender(); toast('✅ Foto eliminada'); }
+  else toast('❌ ' + r.error, false);
+}
+
+async function galeriaAgregar(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const caption = prompt('Nombre de esta foto (ej: Sala de esterilización):');
+  if (!caption) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('caption', caption);
+  toast('⏳ Subiendo foto…');
+  const r = await fetch('/api/galeria/agregar', { method: 'POST', body: fd });
+  const data = await r.json();
+  if (data.ok) { galeriaSlides = data.slides; galeriaRender(); toast('✅ Foto agregada al carrusel'); }
+  else toast('❌ ' + data.error, false);
+  input.value = '';
 }
 
 // ══════════════════════════════════════════════════════

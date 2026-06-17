@@ -784,6 +784,112 @@ def set_scheduling_config():
 
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════════════
+# GALERÍA CLÍNICA — leer, agregar, eliminar, reordenar
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _gallery_slides(soup):
+    """Devuelve lista de {src, caption} de los slides del carrusel."""
+    track = soup.find(id='galleryTrack')
+    if not track:
+        return []
+    slides = []
+    for slide in track.find_all(class_='gallery-slide'):
+        img = slide.find('img')
+        slides.append({
+            'src':     img['src'] if img else '',
+            'caption': slide.get('data-caption', ''),
+        })
+    return slides
+
+def _gallery_write(soup, slides):
+    """Reescribe los slides del carrusel y los onclick de los tags en index.html."""
+    track = soup.find(id='galleryTrack')
+    if not track:
+        return
+    track.clear()
+    for i, s in enumerate(slides):
+        slide_tag = soup.new_tag('div', attrs={'class': 'gallery-slide', 'data-caption': s['caption']})
+        img_tag   = soup.new_tag('img', attrs={'src': s['src'], 'alt': s['caption']})
+        slide_tag.append(img_tag)
+        track.append(slide_tag)
+
+    # Actualizar onclick de los tags que tenían galleryGoTo(...)
+    # Buscamos divs clinic-feature que tengan onclick con galleryGoTo
+    features = soup.select('.clinic-features .clinic-feature[onclick]')
+    # Mapear caption → índice nuevo
+    caption_to_idx = {s['caption']: i for i, s in enumerate(slides)}
+    for feat in features:
+        onclick = feat.get('onclick', '')
+        # Extraer la caption que tenía este tag buscando el span
+        span = feat.find('span')
+        label = span.get_text(strip=True) if span else ''
+        # Buscar si algún slide tiene caption que coincida con el label
+        new_idx = next((caption_to_idx[c] for c in caption_to_idx
+                        if label.lower() in c.lower() or c.lower() in label.lower()), None)
+        if new_idx is not None:
+            feat['onclick'] = f'galleryGoTo({new_idx})'
+
+@app.route('/api/galeria', methods=['GET'])
+def get_galeria():
+    if EN_RENDER:
+        return jsonify({'error': 'No disponible en producción'}), 403
+    soup = read_html()
+    return jsonify(_gallery_slides(soup))
+
+@app.route('/api/galeria/agregar', methods=['POST'])
+def agregar_foto_galeria():
+    if EN_RENDER:
+        return jsonify({'error': 'No disponible en producción'}), 403
+    # Sube el archivo y lo inserta en el carrusel
+    f       = request.files.get('file')
+    caption = request.form.get('caption', '').strip()
+    if not f or not caption:
+        return jsonify({'ok': False, 'error': 'Faltan datos'})
+    # Nombre de archivo seguro
+    ext      = os.path.splitext(f.filename)[1].lower() or '.jpg'
+    slug     = re.sub(r'[^a-z0-9-]', '', caption.lower().replace(' ', '-'))
+    filename = f'clinica-{slug}{ext}'
+    f.save(str(IMAGES / filename))
+    soup   = read_html()
+    slides = _gallery_slides(soup)
+    slides.append({'src': f'images/{filename}', 'caption': caption})
+    _gallery_write(soup, slides)
+    write_html(soup)
+    return jsonify({'ok': True, 'slides': slides})
+
+@app.route('/api/galeria/eliminar', methods=['POST'])
+def eliminar_foto_galeria():
+    if EN_RENDER:
+        return jsonify({'error': 'No disponible en producción'}), 403
+    data  = request.json
+    idx   = data.get('idx')
+    soup  = read_html()
+    slides = _gallery_slides(soup)
+    if idx is None or not (0 <= idx < len(slides)):
+        return jsonify({'ok': False, 'error': 'Índice inválido'})
+    slides.pop(idx)
+    _gallery_write(soup, slides)
+    write_html(soup)
+    return jsonify({'ok': True, 'slides': slides})
+
+@app.route('/api/galeria/reordenar', methods=['POST'])
+def reordenar_galeria():
+    if EN_RENDER:
+        return jsonify({'error': 'No disponible en producción'}), 403
+    data   = request.json        # {'orden': [2, 0, 1, 3, ...]}
+    orden  = data.get('orden', [])
+    soup   = read_html()
+    slides = _gallery_slides(soup)
+    if sorted(orden) != list(range(len(slides))):
+        return jsonify({'ok': False, 'error': 'Orden inválido'})
+    slides = [slides[i] for i in orden]
+    _gallery_write(soup, slides)
+    write_html(soup)
+    return jsonify({'ok': True, 'slides': slides})
+
+# ══════════════════════════════════════════════════════════════════════════════
+
 if __name__ == '__main__':
     print("\nPanel de administracion iniciado")
     print("Abre tu navegador en: http://localhost:5001\n")
