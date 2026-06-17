@@ -184,10 +184,31 @@ Los pacientes aparecen con sufijos que indican tipo de cita:
 ### Cuando esté disponible la API de DentiDesk
 Reemplazar el botón WhatsApp en `#agenda` (buscar comentario `TODO: DentiDesk` en `index.html`).
 
-### Agendamiento online — BOSQUEJO IMPLEMENTADO (modo mock)
-Ya está construido el flujo completo de agendamiento, corriendo en **modo mock**
-(datos simulados, sin token). Para pasar a producción: poner el token/credenciales
-en `admin/scheduling_config.json` y cambiar `dentidesk.enabled` a `true`.
+### Agendamiento online — INTEGRACIÓN REAL CABLEADA (probada en vivo)
+Flujo completo construido y **probado en vivo contra DentiDesk** (auth + disponibilidad).
+Datos reales (diccionario API 375): IdLocation **408**, IdStatus nueva cita **2120**,
+profesionales Octavio 9412 / Rodrigo 8452 / Alberto 639 / Patricio 9308.
+
+**Credenciales (NUNCA en git):**
+- Local: `admin/scheduling_secrets.json` (gitignored) con email/password + `enabled:true`.
+- Render (producción): variables de entorno `DENTIDESK_EMAIL`, `DENTIDESK_PASSWORD`,
+  `DENTIDESK_ENABLED=true`. `load_config()` las superpone (env > secrets > config).
+- El config versionado queda con `enabled:false` y credenciales vacías (seguro por defecto).
+- ⚠️ La password entregada es TEMPORAL — rotar en DentiDesk y actualizar env var.
+
+**Quirks de la API DentiDesk (importantes):**
+- `getAvailableHours` responde **401** cuando el profesional NO tiene horas ese día
+  (NO es error de auth). Formato OK: `{"data":{"YYYY-MM-DD":["10:00","11:30",...]}}`.
+- Granularidad real **15 min** (config `slot_minutos:15`).
+- **NO existe endpoint de búsqueda de paciente por RUT** → el paciente siempre ingresa
+  sus datos; el RUT se valida y se envía en `createAgenda` (RutPatient).
+- Solo 6 endpoints: authentication, getAgendaDay, updateAgenda, getAgendaStatus,
+  createAgenda, getAvailableHours.
+- Disponibilidad: server.py consulta los 15 días en paralelo (ThreadPool) + cache 90s
+  (1ª carga ~4s, navegación posterior instantánea).
+
+**Pendiente para ir 100% live:** setear las 3 env vars en Render + una reserva de prueba
+real (createAgenda no probado en vivo aún) y cancelarla en DentiDesk.
 
 **Arquitectura (modular, reutilizable por el futuro bot de WhatsApp):**
 ```
