@@ -207,8 +207,27 @@ profesionales Octavio 9412 / Rodrigo 8452 / Alberto 639 / Patricio 9308.
 - Disponibilidad: server.py consulta los 15 días en paralelo (ThreadPool) + cache 90s
   (1ª carga ~4s, navegación posterior instantánea).
 
-**Pendiente para ir 100% live:** setear las 3 env vars en Render + una reserva de prueba
-real (createAgenda no probado en vivo aún) y cancelarla en DentiDesk.
+**createAgenda probado en vivo** ✅ (cita de prueba creada y verificada). Aprendizajes:
+- `EmailPatient` es OBLIGATORIO (sin email → 401 "Faltan datos obligatorios").
+- **DEDUPLICACIÓN: DentiDesk asocia la cita a la ficha existente solo si coinciden
+  RUT + EMAIL.** Si el email no coincide con el de la ficha → crea paciente DUPLICADO.
+
+**Solución anti-duplicados (implementada) — `admin/pacientes.py`:**
+- Base local `patient_index.json` (gitignored, datos personales) `{RUT → nombres,
+  apellidos, email, telefono}`. Sembrada con el export Excel del panel (~4.000 pacientes)
+  y refrescada 2×/día barriendo `getAgendaDay` (`admin/actualizar_pacientes.py`).
+- Al agendar: si el RUT está en la base, el backend usa SU email registrado → DentiDesk
+  reconoce al paciente y NO duplica. Paciente nuevo (no en base) → ingresa su email.
+- PRIVACIDAD: al frontend solo va enmascarado (`ma***@gm***.cl`, `*****1234`); el email
+  real nunca sale del backend (evita cosechar datos probando RUTs).
+- DentiDesk NO expone IdPatient ni endpoint de pacientes → este es el único camino.
+- Ruta de la base configurable por env `PATIENT_INDEX_PATH` (para disco persistente).
+
+**Pendiente para ir 100% live:**
+1. Setear env vars en Render: `DENTIDESK_EMAIL`, `DENTIDESK_PASSWORD`, `DENTIDESK_ENABLED=true`.
+2. DECIDIR dónde vive la base de pacientes en producción (Render tiene disco efímero):
+   (a) backend en el PC siempre-encendido de la clínica (persiste + co-ubicado con
+   WhatsApp), o (b) Render con disco persistente + seed por upload. PENDIENTE definir.
 
 **Arquitectura (modular, reutilizable por el futuro bot de WhatsApp):**
 ```
