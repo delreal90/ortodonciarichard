@@ -741,6 +741,11 @@ def agenda_reservar():
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
 
+    # Email es OBLIGATORIO para DentiDesk (createAgenda lo exige)
+    email = (data.get('email') or '').strip()
+    if '@' not in email or '.' not in email:
+        return jsonify({'ok': False, 'error': 'El email es obligatorio'}), 400
+
     # Revalidar en backend: anticipacion + que la hora siga disponible
     if not scheduling.cumple_anticipacion(fecha, hora, motivo_cfg, cfg):
         return jsonify({'ok': False, 'error': 'La hora no cumple la anticipacion minima'}), 409
@@ -758,7 +763,7 @@ def agenda_reservar():
     res = dentidesk.crear_cita(
         doc_id=doctor, motivo_key=motivo, target_date=fecha, hora=hora,
         nombre=nombre, apellido=apellido,
-        email=data.get('email', ''), telefono=data.get('telefono', ''),
+        email=email, telefono=data.get('telefono', ''),
         rut=scheduling.limpiar_rut(rut), cfg=cfg,
     )
     if not res.get('ok'):

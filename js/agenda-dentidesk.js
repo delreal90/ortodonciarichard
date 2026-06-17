@@ -171,7 +171,7 @@ function pasoDatos() {
       <label class="agenda-label">Fecha de nacimiento</label>
       <input name="fecha_nacimiento" type="date" value="${d.fecha_nacimiento || ''}" required>
       <input name="telefono_movil" placeholder="Celular (ej: +56 9 1234 5678)" value="${d.telefono_movil || ''}" required>
-      <input name="email" type="email" placeholder="Email" value="${d.email || ''}">
+      <input name="email" type="email" placeholder="Email" value="${d.email || ''}" required>
       <button type="submit" class="btn btn-primary btn-lg agenda-submit">Continuar</button>
     </form>`);
 }
