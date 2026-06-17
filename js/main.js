@@ -381,7 +381,12 @@ if (contactForm) {
         galleryLightbox(img.src, slide.dataset.caption || '');
     });
 
-    window.galleryMove = (dir) => galleryGo(current + dir);
+    window.galleryMove  = (dir) => galleryGo(current + dir);
+    window.galleryGoTo  = (idx) => {
+        galleryGo(idx);
+        document.getElementById('galleryCarousel')
+            .scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
     resetTimer();
 })();
 

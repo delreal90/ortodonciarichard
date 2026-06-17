@@ -452,17 +452,17 @@
   <div class="gallery-dots" id="galleryDots"></div>
 </div>
 
-<!-- Tags clickeables — abren lightbox con la foto correspondiente -->
+<!-- Tags clickeables — mueven el carrusel a la foto correspondiente -->
 <div class="clinic-features reveal">
-  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-1.jpg','Clínica Ortodoncia Richard')">
+  <div class="clinic-feature" onclick="galleryGoTo(0)">
     <i class="fas fa-door-open"></i>
     <span>8 Boxes clínicos</span>
   </div>
-  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-sala-de-diagnstico.jpg','Sala de diagnóstico')">
+  <div class="clinic-feature" onclick="galleryGoTo(3)">
     <i class="fas fa-magnifying-glass"></i>
     <span>Sala de diagnóstico</span>
   </div>
-  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-laboratorio.jpg','Laboratorio propio')">
+  <div class="clinic-feature" onclick="galleryGoTo(2)">
     <i class="fas fa-flask"></i>
     <span>Laboratorio propio</span>
   </div>
@@ -474,7 +474,7 @@
     <i class="fas fa-x-ray"></i>
     <span>Equipo de rayos</span>
   </div>
-  <div class="clinic-feature" onclick="galleryLightbox('images/clinica-recepcion.jpg','Recepción')">
+  <div class="clinic-feature" onclick="galleryGoTo(1)">
     <i class="fas fa-couch"></i>
     <span>Recepción</span>
   </div>
