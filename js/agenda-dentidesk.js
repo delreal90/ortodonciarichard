@@ -160,7 +160,7 @@ function pasoDatos() {
   const d = agenda.sel.datos;
   const aviso = agenda.sel.existe
     ? `<div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> ¡Te reconocimos! Revisa que tus datos estén correctos.</div>`
-    : `<div class="agenda-aviso"><i class="fas fa-user-plus"></i> No te encontramos en el sistema. Completa tus datos para registrarte.</div>`;
+    : `<div class="agenda-aviso"><i class="fas fa-user-pen"></i> Completa tus datos para confirmar la reserva.</div>`;
   setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
     <h3 class="agenda-q">Tus datos</h3>
     <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>

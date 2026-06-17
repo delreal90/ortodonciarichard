@@ -677,9 +677,28 @@ def agenda_paciente():
     return jsonify({'ok': True, 'rut': scheduling.formatear_rut(rut),
                     'existe': info['existe'], 'datos': info['datos']})
 
+# Cache corto de disponibilidad por dia: evita re-consultar DentiDesk si el
+# paciente navega adelante/atras. Clave (doctor, motivo, fecha) -> (ts, horas).
+_DISPO_CACHE = {}
+_DISPO_TTL = 90  # segundos
+
+def _horas_de_dia(doctor, motivo, d, cfg):
+    import time as _t
+    key = (doctor, motivo, d.isoformat())
+    hit = _DISPO_CACHE.get(key)
+    if hit and (_t.time() - hit[0]) < _DISPO_TTL:
+        return hit[1]
+    ocupadas = dentidesk.horas_ocupadas(doctor, d, motivo, cfg)
+    horas = scheduling.horas_disponibles(doctor, d, motivo, ocupadas, cfg)
+    _DISPO_CACHE[key] = (_t.time(), horas)
+    return horas
+
 @app.route('/api/agenda/disponibilidad', methods=['GET'])
 def agenda_disponibilidad():
-    """Horas disponibles para (doctor, motivo) en los proximos dias habiles."""
+    """Horas disponibles para (doctor, motivo) en los proximos dias habiles.
+    Consulta los dias en paralelo (cada dia es una llamada a DentiDesk)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     doctor = request.args.get('doctor')
     motivo = request.args.get('motivo')
     cfg = scheduling.load_config()
@@ -688,12 +707,18 @@ def agenda_disponibilidad():
 
     hoy = date.today()
     habiles = scheduling.dias_habiles_desde(hoy, cfg['reglas']['dias_a_mostrar'], cfg)
+
+    def trabajo(d):
+        try:
+            return d, _horas_de_dia(doctor, motivo, d, cfg)
+        except Exception:
+            return d, []
+
     dias = []
-    for d in habiles:
-        ocupadas = dentidesk.horas_ocupadas(doctor, d, motivo, cfg)
-        horas = scheduling.horas_disponibles(doctor, d, motivo, ocupadas, cfg)
-        if horas:
-            dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for d, horas in sorted(pool.map(trabajo, habiles), key=lambda x: x[0]):
+            if horas:
+                dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
     return jsonify({'ok': True, 'dias': dias})
 
 @app.route('/api/agenda/reservar', methods=['POST'])

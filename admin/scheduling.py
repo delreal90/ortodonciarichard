@@ -15,22 +15,61 @@ Asi el mismo cerebro se reutiliza desde:
 Nada de I/O de red aqui. dentidesk.py es quien habla con la API.
 """
 
+import os
 import json
 import hashlib
 from pathlib import Path
 from datetime import datetime, date, time, timedelta
 
-CONFIG_PATH = Path(__file__).parent / 'scheduling_config.json'
+CONFIG_PATH  = Path(__file__).parent / 'scheduling_config.json'
+SECRETS_PATH = Path(__file__).parent / 'scheduling_secrets.json'  # gitignored, solo local
 
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
 def load_config():
-    return json.loads(CONFIG_PATH.read_text(encoding='utf-8'))
+    """Carga el config público y le superpone las credenciales (que NUNCA se
+    commitean). Prioridad: variables de entorno (Render) > archivo local
+    scheduling_secrets.json (desarrollo) > config (vacío por defecto = mock)."""
+    cfg = json.loads(CONFIG_PATH.read_text(encoding='utf-8'))
+    dd = cfg['dentidesk']
+
+    # 1) Archivo local de secretos (gitignored) — para probar en vivo desde el PC
+    if SECRETS_PATH.exists():
+        try:
+            sec = json.loads(SECRETS_PATH.read_text(encoding='utf-8'))
+            dd.update({k: v for k, v in sec.items() if v not in (None, '')})
+        except (ValueError, OSError):
+            pass
+
+    # 2) Variables de entorno (producción en Render) — máxima prioridad
+    env_map = {
+        'email':           'DENTIDESK_EMAIL',
+        'password':        'DENTIDESK_PASSWORD',
+        'basic_auth_user': 'DENTIDESK_BASIC_USER',
+        'basic_auth_pass': 'DENTIDESK_BASIC_PASS',
+    }
+    for key, env in env_map.items():
+        if os.environ.get(env):
+            dd[key] = os.environ[env]
+    if os.environ.get('DENTIDESK_ENABLED'):
+        dd['enabled'] = os.environ['DENTIDESK_ENABLED'].strip().lower() in ('1', 'true', 'yes', 'on')
+
+    return cfg
 
 
 def save_config(cfg):
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding='utf-8')
+    """Guarda el config público SIN credenciales (las credenciales viven solo en
+    variables de entorno o en scheduling_secrets.json, nunca en el archivo
+    versionado)."""
+    import copy
+    out = copy.deepcopy(cfg)
+    dd = out.get('dentidesk', {})
+    for secret in ('email', 'password', 'basic_auth_user', 'basic_auth_pass'):
+        dd[secret] = ''
+    # 'enabled' real puede venir de env; en el archivo lo dejamos en false por seguridad
+    dd['enabled'] = False
+    CONFIG_PATH.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding='utf-8')
 
 
 # ── Grilla horaria ───────────────────────────────────────────────────────────

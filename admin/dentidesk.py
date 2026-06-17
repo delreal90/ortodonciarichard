@@ -57,27 +57,17 @@ def _basic_auth(cfg):
 
 # ── Horas ocupadas reales ────────────────────────────────────────────────────
 
-def horas_ocupadas(doc_id, target_date, motivo_key, cfg=None):
+def horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo):
     """
-    Devuelve el set de horas 'HH:MM' REALMENTE ocupadas para (doctor, fecha).
+    Llama a getAvailableHours y devuelve el set de horas 'HH:MM' REALMENTE
+    disponibles para (doctor, fecha, motivo) segun DentiDesk.
 
-    getAvailableHours devuelve las DISPONIBLES; las ocupadas = grilla - disponibles.
-    En modo mock genera ocupaciones reales deterministas (ademas de las simuladas
-    que agrega scheduling.py encima).
+    Formato real de respuesta:
+      200 -> {"message":"OK.","data":{"2026-06-23":["10:00","11:30",...]}}
+      401 -> {"message":"Access denied.","description":"[API_DD] No existen
+              horarios disponibles para este profesional en este dia."}
+              => ese dia el profesional no tiene horas (NO es error de auth).
     """
-    cfg = cfg or load_config()
-    motivo = cfg['motivos'][motivo_key]
-    grilla = generar_grilla(cfg, motivo['duracion_min'])
-
-    if not cfg['dentidesk']['enabled']:
-        # MOCK: ~20-30% ocupacion real determinista por doctor+fecha+hora
-        ocupadas = set()
-        for h in grilla:
-            if _hash01(doc_id, target_date.isoformat(), h, 'real') < 0.25:
-                ocupadas.add(h)
-        return ocupadas
-
-    # REAL
     if requests is None:
         raise DentiDeskError("Falta 'requests' (pip install requests)")
     dd = cfg['dentidesk']
@@ -92,12 +82,48 @@ def horas_ocupadas(doc_id, target_date, motivo_key, cfg=None):
         'Token': token,
     }
     resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
+
+    if resp.status_code == 401:
+        # Distinguir "sin horas ese dia" (normal) de un fallo real de credenciales
+        try:
+            desc = (resp.json() or {}).get('description', '')
+        except ValueError:
+            desc = resp.text
+        if 'No existen horarios' in desc or 'horarios disponibles' in desc:
+            return set()
+        raise DentiDeskError(f'Auth/permiso rechazado por DentiDesk: {desc[:200]}')
+
     resp.raise_for_status()
-    data = resp.json()
-    # normalizar: la API puede devolver ['09:00', ...] o [{'Hour': '09:00'}, ...]
-    disponibles = set()
-    for item in (data if isinstance(data, list) else data.get('hours', [])):
-        disponibles.add(item if isinstance(item, str) else item.get('Hour', ''))
+    data = resp.json() or {}
+    horas = set()
+    for lista in (data.get('data') or {}).values():
+        for h in lista:
+            horas.add(h if isinstance(h, str) else h.get('Hour', ''))
+    return horas
+
+
+def horas_ocupadas(doc_id, target_date, motivo_key, cfg=None):
+    """
+    Devuelve el set de horas 'HH:MM' ocupadas para (doctor, fecha) respecto de la
+    grilla teorica. ocupadas = grilla - disponibles_reales.
+
+    Asi scheduling.py puede aplicar encima la ocupacion simulada (anti-agenda-vacia)
+    usando una grilla estable como denominador.
+    """
+    cfg = cfg or load_config()
+    motivo = cfg['motivos'][motivo_key]
+    grilla = generar_grilla(cfg, motivo['duracion_min'])
+
+    if not cfg['dentidesk']['enabled']:
+        # MOCK: ~20-30% ocupacion real determinista por doctor+fecha+hora
+        ocupadas = set()
+        for h in grilla:
+            if _hash01(doc_id, target_date.isoformat(), h, 'real') < 0.25:
+                ocupadas.add(h)
+        return ocupadas
+
+    # REAL
+    disponibles = horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo)
     return set(grilla) - disponibles
 
 
@@ -111,10 +137,14 @@ def buscar_paciente(rut, cfg=None):
       {'existe': True,  'datos': {nombres, apellidos, email, fecha_nacimiento, telefono_movil}}
       {'existe': False, 'datos': {}}
 
-    NOTA: la doc publica de la API no detalla el endpoint de busqueda por RUT.
-    Cuando la clinica confirme el endpoint real (p.ej. /api/pacientes/getByRut.php),
-    se ajusta SOLO la rama REAL de abajo. La firma y el contrato no cambian, asi
-    que el frontend y el bot de WhatsApp no se tocan.
+    IMPORTANTE: la API de DentiDesk (diccionario 375) NO expone un endpoint de
+    busqueda de paciente por RUT. Los unicos endpoints son: authentication,
+    getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours.
+    Por eso, en modo REAL siempre devolvemos existe=False (el paciente ingresa sus
+    datos). El RUT igual se valida y se envia en createAgenda (RutPatient).
+
+    Si la clinica habilita mas adelante un endpoint de pacientes, se ajusta SOLO
+    la rama REAL de abajo; el contrato no cambia y el frontend/WhatsApp no se tocan.
     """
     cfg = cfg or load_config()
     limpio = limpiar_rut(rut)
@@ -137,27 +167,8 @@ def buscar_paciente(rut, cfg=None):
             'telefono_movil': movil,
         }}
 
-    # REAL — endpoint por confirmar con la clinica
-    if requests is None:
-        raise DentiDeskError("Falta 'requests' (pip install requests)")
-    dd = cfg['dentidesk']
-    token = _auth_token(cfg)
-    url = f"{dd['base_url'].rstrip('/')}/api/pacientes/getByRut.php"  # TODO: confirmar ruta
-    resp = requests.post(url, json={'Rut': limpio, 'IdLocation': dd['id_location'], 'Token': token},
-                         auth=_basic_auth(cfg), timeout=20)
-    if resp.status_code == 404:
-        return {'existe': False, 'datos': {}}
-    resp.raise_for_status()
-    data = resp.json() or {}
-    if not data or not (data.get('Name') or data.get('nombres')):
-        return {'existe': False, 'datos': {}}
-    return {'existe': True, 'datos': {
-        'nombres': data.get('Name') or data.get('nombres', ''),
-        'apellidos': data.get('Lastname') or data.get('apellidos', ''),
-        'email': data.get('Email') or data.get('email', ''),
-        'fecha_nacimiento': data.get('Birthdate') or data.get('fecha_nacimiento', ''),
-        'telefono_movil': data.get('Phone') or data.get('telefono_movil', ''),
-    }}
+    # REAL — DentiDesk no tiene endpoint de pacientes; el paciente ingresa sus datos.
+    return {'existe': False, 'datos': {}}
 
 
 # ── Crear cita ───────────────────────────────────────────────────────────────
