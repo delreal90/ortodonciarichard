@@ -33,10 +33,10 @@
 <li><a class="nav-link" href="#pacientes">Pacientes</a></li>
 <li><a class="nav-link" href="#contacto">Contacto</a></li>
 </ul>
-<a class="btn-nav-cta" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" target="_blank">
-<i class="fab fa-whatsapp"></i>
-<span>Agenda tu hora</span>
-</a>
+<button class="btn-nav-cta" onclick="abrirAgenda()">
+<i class="fas fa-calendar-check"></i>
+<span>Reservar hora</span>
+</button>
 <button aria-label="Abrir menú" class="nav-toggle" id="navToggle">
 <span></span>
 <span></span>
@@ -59,9 +59,9 @@
 <h1>Experiencia y<br/><span class="text-gold">Excelencia</span></h1>
 <p class="hero-subtitle">La tranquilidad que se siente al contar<br/>con el apoyo de todo un equipo</p>
 <div class="hero-ctas">
-<a class="btn btn-primary" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" target="_blank">
-<i class="fab fa-whatsapp"></i> Agenda por WhatsApp
-                </a>
+<button class="btn btn-primary" onclick="abrirAgenda()">
+<i class="fas fa-calendar-check"></i> Reservar hora online
+</button>
 <a class="btn btn-outline-white" href="#nosotros">
                     Conoce nuestra clínica
                 </a>
@@ -924,5 +924,10 @@
 <script src="js/main.js"></script>
 <script>window.AGENDA_API_BASE = 'https://ortodonciarichard.onrender.com';</script>
 <script src="js/agenda-dentidesk.js"></script>
+
+<!-- Botón flotante WhatsApp -->
+<a class="whatsapp-fab" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" target="_blank" aria-label="Contactar por WhatsApp">
+  <i class="fab fa-whatsapp"></i>
+</a>
 </body>
 </html>
