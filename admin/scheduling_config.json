@@ -52,7 +52,7 @@
       "especialidad": "ortodoncia",
       "id_reason": "18152",
       "_id_reason_nombre": "Primera Consulta",
-      "duracion_min": 30,
+      "duracion_min": 15,
       "urgencia": false
     },
     "control_fijo": {
@@ -66,8 +66,8 @@
     "control_alineadores": {
       "label": "Control de Ortodoncia con Alineadores (Invisalign, Digitrack, etc.)",
       "especialidad": "ortodoncia",
-      "id_reason": "20070",
-      "_id_reason_nombre": "Control Invisalign (REVISAR: tambien existe Control Digitrack 20071)",
+      "id_reason": "20071",
+      "_id_reason_nombre": "Control Digitrack",
       "duracion_min": 15,
       "urgencia": false
     },
@@ -83,7 +83,7 @@
       "label": "Urgencia de Ortodoncia (bracket suelto, fierro pincha, etc.)",
       "especialidad": "ortodoncia",
       "id_reason": "20066",
-      "_id_reason_nombre": "Bracket Suelto (REVISAR: urgencia generica; otras: Fierro Pincha 20083, Dolor/Molestia 20082)",
+      "_id_reason_nombre": "Bracket Suelto",
       "duracion_min": 15,
       "urgencia": true
     },
@@ -99,16 +99,16 @@
       "label": "Continuar mi tratamiento en curso",
       "especialidad": "rehabilitacion",
       "id_reason": "24798",
-      "_id_reason_nombre": "Control / Evaluacion PV (REVISAR: no hay un motivo de control rehab distinto en la lista)",
-      "duracion_min": 30,
+      "_id_reason_nombre": "Control / Evaluacion PV (continuar tratamiento)",
+      "duracion_min": 60,
       "urgencia": false
     },
     "rehab_urgencia": {
       "label": "Urgencia Dental",
       "especialidad": "rehabilitacion",
       "id_reason": "20082",
-      "_id_reason_nombre": "Dolor / Molestia (REVISAR)",
-      "duracion_min": 15,
+      "_id_reason_nombre": "Dolor / Molestia",
+      "duracion_min": 30,
       "urgencia": true
     }
   },
