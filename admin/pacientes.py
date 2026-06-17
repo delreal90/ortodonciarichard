@@ -19,12 +19,16 @@ en .gitignore (datos personales, nunca se versiona).
 Modular: el bot de WhatsApp puede usar las mismas funciones (lookup, display).
 """
 
+import os
 import re
 import json
 from pathlib import Path
 from datetime import date, timedelta
 
-INDEX_PATH = Path(__file__).parent / 'patient_index.json'
+# Ruta de la base. Configurable por env para producción (p.ej. un disco
+# persistente en Render): PATIENT_INDEX_PATH=/var/data/patient_index.json
+INDEX_PATH = Path(os.environ.get('PATIENT_INDEX_PATH',
+                                 Path(__file__).parent / 'patient_index.json'))
 
 
 # ── Almacen ──────────────────────────────────────────────────────────────────
@@ -104,6 +108,63 @@ def display(rec):
         'email_masked':    enmascarar_email(rec.get('email', '')),
         'telefono_masked': enmascarar_telefono(rec.get('telefono', '')),
     }
+
+
+# ── Importar export completo de pacientes (Excel del panel DentiDesk) ─────────
+
+def _split_nombre_export(full):
+    """Formato export: 'Apellido1 Apellido2 <ficha> Nombres'.
+    Ej: 'Abalos Lira 5106A D Jose Pedro' -> ('Jose Pedro', 'Abalos Lira').
+    Devuelve (nombres, apellidos)."""
+    toks = (full or '').split()
+    # ubicar el token de ficha (empieza con digito)
+    idx = next((i for i, t in enumerate(toks) if t and t[0].isdigit()), None)
+    if idx is None:
+        # sin ficha: heuristica -> primeros 2 = apellidos
+        if len(toks) <= 2:
+            return (toks[-1] if toks else ''), (toks[0] if len(toks) > 1 else '')
+        return ' '.join(toks[2:]), ' '.join(toks[:2])
+    apellidos = toks[:idx]
+    resto = toks[idx + 1:]
+    # saltar sufijos de ficha tras el numero (cortos en mayuscula: D, DD, DE, -D)
+    while resto and re.fullmatch(r'-?[A-Z]{1,3}', resto[0]):
+        resto = resto[1:]
+    return ' '.join(resto), ' '.join(apellidos)
+
+
+def importar_export_excel(path):
+    """Siembra/actualiza la base desde el Excel 'Listado de Pacientes Totales'.
+    Columnas esperadas: Nombre Paciente, RUT, Edad, Genero, Telefono, Correo, ..."""
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=True)
+    ws = wb.active
+    rows = ws.iter_rows(values_only=True)
+    header = [str(h or '').strip().lower() for h in next(rows)]
+
+    def col(*nombres):
+        for n in nombres:
+            for i, h in enumerate(header):
+                if n in h:
+                    return i
+        return None
+
+    c_nom = col('nombre'); c_rut = col('rut')
+    c_tel = col('tel');    c_mail = col('correo', 'email', 'mail')
+
+    idx = _load_index()
+    agregados = 0
+    for r in rows:
+        rut = _limpiar_rut(str(r[c_rut]) if c_rut is not None and r[c_rut] else '')
+        email = (str(r[c_mail]).strip() if c_mail is not None and r[c_mail] else '')
+        if not rut or not email or '@' not in email:
+            continue
+        nombres, apellidos = _split_nombre_export(str(r[c_nom]) if c_nom is not None and r[c_nom] else '')
+        tel = str(r[c_tel]).strip() if c_tel is not None and r[c_tel] else ''
+        if rut not in idx:
+            agregados += 1
+        idx[rut] = {'nombres': nombres, 'apellidos': apellidos, 'email': email, 'telefono': tel}
+    _save_index(idx)
+    return {'total': len(idx), 'nuevos': agregados}
 
 
 # ── Construccion de la base desde la agenda (getAgendaDay) ────────────────────
