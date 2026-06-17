@@ -20,7 +20,7 @@ const agenda = {
   sel: {
     especialidad: null, especialidadLabel: '',
     rut: '', rutFmt: '',
-    existe: false, datos: { nombres: '', apellidos: '', email: '', fecha_nacimiento: '', telefono_movil: '' },
+    existe: false, datos: { nombres: '', apellidos: '', email: '', telefono: '' },
     doctor: null, doctorNombre: '', doctorFoto: '',
     motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
@@ -79,7 +79,7 @@ function cerrarAgenda() {
   document.body.style.overflow = '';
   agenda.sel = {
     especialidad: null, especialidadLabel: '', rut: '', rutFmt: '',
-    existe: false, datos: { nombres: '', apellidos: '', email: '', fecha_nacimiento: '', telefono_movil: '' },
+    existe: false, datos: { nombres: '', apellidos: '', email: '', telefono: '' },
     doctor: null, doctorNombre: '', doctorFoto: '', motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
   };
@@ -158,30 +158,56 @@ async function continuarRut(e) {
 function pasoDatos() {
   setPaso(3);
   const d = agenda.sel.datos;
-  const aviso = agenda.sel.existe
-    ? `<div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> ¡Te reconocimos! Revisa que tus datos estén correctos.</div>`
-    : `<div class="agenda-aviso"><i class="fas fa-user-pen"></i> Completa tus datos para confirmar la reserva.</div>`;
+
+  // Paciente RECONOCIDO: mostramos datos enmascarados, no pedimos email
+  // (se usa el registrado para que DentiDesk no duplique la ficha).
+  if (agenda.sel.existe) {
+    setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
+      <h3 class="agenda-q">¿Eres tú?</h3>
+      <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
+      <div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> Te reconocimos. Confirma que eres tú para continuar.</div>
+      <ul class="agenda-detalle">
+        <li><span>Nombre</span><b>${d.nombres || ''} ${d.apellidos || ''}</b></li>
+        <li><span>Email</span><b>${d.email_masked || '—'}</b></li>
+        <li><span>Teléfono</span><b>${d.telefono_masked || '—'}</b></li>
+      </ul>
+      <button class="btn btn-primary btn-lg agenda-submit" onclick="confirmarReconocido()">Sí, soy yo · Continuar</button>
+      <p class="agenda-mini"><a href="#" onclick="noSoyYo(event)">No soy yo / usar otros datos</a></p>`);
+    return;
+  }
+
+  // Paciente NUEVO: formulario completo (email obligatorio).
   setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
     <h3 class="agenda-q">Tus datos</h3>
     <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
-    ${aviso}
+    <div class="agenda-aviso"><i class="fas fa-user-pen"></i> Completa tus datos para confirmar la reserva.</div>
     <form class="agenda-form" onsubmit="return continuarDatos(event)">
       <input name="nombres"   placeholder="Nombres" value="${d.nombres || ''}" required>
       <input name="apellidos" placeholder="Apellidos" value="${d.apellidos || ''}" required>
-      <label class="agenda-label">Fecha de nacimiento</label>
-      <input name="fecha_nacimiento" type="date" value="${d.fecha_nacimiento || ''}" required>
-      <input name="telefono_movil" placeholder="Celular (ej: +56 9 1234 5678)" value="${d.telefono_movil || ''}" required>
+      <input name="telefono" placeholder="Celular (ej: +56 9 1234 5678)" value="${d.telefono || ''}" required>
       <input name="email" type="email" placeholder="Email" value="${d.email || ''}" required>
       <button type="submit" class="btn btn-primary btn-lg agenda-submit">Continuar</button>
     </form>`);
 }
+
+function confirmarReconocido() {
+  // No tocamos email/telefono: el backend usa los registrados (dedup por RUT+email).
+  pasoProfesional();
+}
+
+function noSoyYo(e) {
+  e.preventDefault();
+  agenda.sel.existe = false;
+  agenda.sel.datos = { nombres: '', apellidos: '', email: '', telefono: '' };
+  pasoDatos();
+}
+
 function continuarDatos(e) {
   e.preventDefault();
   const f = e.target;
   agenda.sel.datos = {
     nombres: f.nombres.value.trim(), apellidos: f.apellidos.value.trim(),
-    fecha_nacimiento: f.fecha_nacimiento.value, telefono_movil: f.telefono_movil.value.trim(),
-    email: f.email.value.trim(),
+    telefono: f.telefono.value.trim(), email: f.email.value.trim(),
   };
   pasoProfesional();
   return false;
@@ -291,7 +317,7 @@ function pasoResumen() {
       <li><span>Paciente</span><b>${s.datos.nombres} ${s.datos.apellidos}</b></li>
       <li><span>RUT</span><b>${s.rutFmt}</b></li>
       <li><span>Especialidad</span><b>${s.especialidadLabel}</b></li>
-      <li><span>Celular</span><b>${s.datos.telefono_movil}</b></li>
+      <li><span>Celular</span><b>${s.datos.telefono_masked || s.datos.telefono || '—'}</b></li>
     </ul>
     <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReserva()">
       <i class="fas fa-check"></i> Confirmar hora
@@ -310,8 +336,7 @@ async function confirmarReserva() {
         especialidad: s.especialidad, doctor: s.doctor, motivo: s.motivo,
         fecha: s.fecha, hora: s.hora, rut: s.rut,
         nombres: s.datos.nombres, apellidos: s.datos.apellidos,
-        email: s.datos.email, telefono: s.datos.telefono_movil,
-        fecha_nacimiento: s.datos.fecha_nacimiento,
+        email: s.datos.email || '', telefono: s.datos.telefono || '',
       }),
     });
     if (r.ok) pasoExito(r); else pasoError(r.error || 'No se pudo agendar.');

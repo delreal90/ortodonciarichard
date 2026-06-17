@@ -150,25 +150,27 @@ def buscar_paciente(rut, cfg=None):
     limpio = limpiar_rut(rut)
 
     if not cfg['dentidesk']['enabled']:
-        # MOCK: ~50% de los RUT "existen", determinista por RUT.
+        # MOCK: ~50% de los RUT "existen", determinista por RUT. Devuelve la misma
+        # forma ENMASCARADA que el modo real (para probar la UI de reconocido).
+        import pacientes
         existe = _hash01(limpio, 'paciente') < 0.5
         if not existe:
             return {'existe': False, 'datos': {}}
         nombres = ['Maria Jose', 'Juan Pablo', 'Camila', 'Ignacio', 'Valentina'][int(_hash01(limpio,'n')*5)]
         apellidos = ['Gonzalez Soto', 'Perez Rojas', 'Munoz Diaz', 'Vergara Lillo'][int(_hash01(limpio,'a')*4)]
-        anio = 1965 + int(_hash01(limpio, 'y') * 45)
-        mes = 1 + int(_hash01(limpio, 'm') * 12)
-        dia = 1 + int(_hash01(limpio, 'd') * 27)
         movil = '+569' + str(10000000 + int(_hash01(limpio, 'tel') * 89999999))
-        return {'existe': True, 'datos': {
-            'nombres': nombres, 'apellidos': apellidos,
-            'email': f'{limpio}@correo.cl',
-            'fecha_nacimiento': f'{anio:04d}-{mes:02d}-{dia:02d}',
-            'telefono_movil': movil,
-        }}
+        rec = {'nombres': nombres, 'apellidos': apellidos,
+               'email': f'{limpio}@correo.cl', 'telefono': movil}
+        return {'existe': True, 'datos': pacientes.display(rec)}
 
-    # REAL — DentiDesk no tiene endpoint de pacientes; el paciente ingresa sus datos.
-    return {'existe': False, 'datos': {}}
+    # REAL — DentiDesk no tiene endpoint de pacientes. Buscamos en nuestra base
+    # local (construida por barrido de getAgendaDay). Devolvemos datos ENMASCARADOS
+    # (el email/telefono reales no salen del backend).
+    import pacientes
+    rec = pacientes.lookup(limpio)
+    if not rec:
+        return {'existe': False, 'datos': {}}
+    return {'existe': True, 'datos': pacientes.display(rec)}
 
 
 # ── Crear cita ───────────────────────────────────────────────────────────────

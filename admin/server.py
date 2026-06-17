@@ -721,6 +721,27 @@ def agenda_disponibilidad():
                 dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
     return jsonify({'ok': True, 'dias': dias})
 
+@app.route('/api/pacientes/actualizar', methods=['POST'])
+def pacientes_actualizar():
+    """Reconstruye la base local de pacientes barriendo la agenda de DentiDesk.
+    Pensado para correr 2x/dia (job programado). Requiere modo real (credenciales)."""
+    import pacientes
+    cfg = scheduling.load_config()
+    if not cfg['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk'}), 400
+    data = request.json or {}
+    res = pacientes.construir_desde_agenda(
+        cfg,
+        dias_atras=int(data.get('dias_atras', 180)),
+        dias_adelante=int(data.get('dias_adelante', 120)),
+    )
+    return jsonify({'ok': True, **res})
+
+@app.route('/api/pacientes/estado', methods=['GET'])
+def pacientes_estado():
+    import pacientes
+    return jsonify({'ok': True, 'total': pacientes.total()})
+
 @app.route('/api/agenda/reservar', methods=['POST'])
 def agenda_reservar():
     """Crea la cita en DentiDesk y dispara la confirmacion (WhatsApp / email)."""
@@ -741,8 +762,16 @@ def agenda_reservar():
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
 
-    # Email es OBLIGATORIO para DentiDesk (createAgenda lo exige)
-    email = (data.get('email') or '').strip()
+    # Email es OBLIGATORIO para DentiDesk (createAgenda lo exige).
+    # DEDUP: DentiDesk reconoce al paciente solo si RUT + email coinciden con su
+    # ficha. Si el RUT esta en nuestra base local, usamos SU email registrado
+    # (no el que escriba) para que NO se duplique la ficha.
+    import pacientes
+    rec = pacientes.lookup(rut) if cfg['dentidesk']['enabled'] else None
+    if rec and rec.get('email'):
+        email = rec['email']
+    else:
+        email = (data.get('email') or '').strip()
     if '@' not in email or '.' not in email:
         return jsonify({'ok': False, 'error': 'El email es obligatorio'}), 400
 
@@ -760,10 +789,16 @@ def agenda_reservar():
         partes = (data.get('nombre') or '').strip().split(' ', 1)
         nombre, apellido = partes[0], (partes[1] if len(partes) > 1 else '')
 
+    # Telefono: si reconocimos al paciente, usamos el suyo registrado
+    telefono = (rec.get('telefono') if rec else '') or data.get('telefono', '')
+    # Nombre/apellido: si vienen vacios pero hay ficha, usamos los de la base
+    if not nombre and rec:
+        nombre, apellido = rec.get('nombres', ''), rec.get('apellidos', '')
+
     res = dentidesk.crear_cita(
         doc_id=doctor, motivo_key=motivo, target_date=fecha, hora=hora,
         nombre=nombre, apellido=apellido,
-        email=email, telefono=data.get('telefono', ''),
+        email=email, telefono=telefono,
         rut=scheduling.limpiar_rut(rut), cfg=cfg,
     )
     if not res.get('ok'):

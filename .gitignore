@@ -6,3 +6,11 @@ venv/
 
 # Credenciales DentiDesk — NUNCA subir a git
 admin/scheduling_secrets.json
+
+# Base local de pacientes (datos personales) — NUNCA subir a git
+admin/patient_index.json
+# Exports de pacientes (datos personales) — NUNCA subir a git
+*.xlsx
+*.xls
+*.csv
+Listado de Pacientes*
