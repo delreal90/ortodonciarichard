@@ -224,8 +224,8 @@ def construir_desde_agenda(cfg, dias_atras=120, dias_adelante=120, max_workers=6
         except Exception:
             return []
 
-    idx = _load_index()
-    agregados = 0
+    # Recolectar primero (el escaneo tarda minutos), SIN tocar el archivo.
+    recolectado = {}
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         for citas in pool.map(scan, dias):
             for c in citas:
@@ -234,13 +234,16 @@ def construir_desde_agenda(cfg, dias_atras=120, dias_adelante=120, max_workers=6
                 if not rut or not email or '@' not in email:
                     continue
                 nombres, apellidos = _split_nombre(c.get('PatientName', ''))
-                if rut not in idx:
-                    agregados += 1
-                idx[rut] = {
+                recolectado[rut] = {
                     'nombres': nombres,
                     'apellidos': apellidos,
                     'email': email,
                     'telefono': (c.get('Phone') or '').strip(),
                 }
+    # Merge atomico al FINAL: recargar lo ultimo (por si entro una importacion u
+    # otra reserva durante el escaneo) y combinar SIN pisar. Nunca borra la semilla.
+    idx = _load_index()
+    agregados = sum(1 for r in recolectado if r not in idx)
+    idx.update(recolectado)
     _save_index(idx)
     return {'total': len(idx), 'nuevos': agregados, 'dias': len(dias)}
