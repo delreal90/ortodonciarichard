@@ -15,6 +15,23 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__, static_folder='.')
 
+# Rate limiting: frena abusos/bots que podrian disparar el trafico (y el costo).
+# Limite global por IP + limites mas estrictos en endpoints que llaman a DentiDesk.
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(get_remote_address, app=app,
+                      default_limits=["600 per hour", "60 per minute"],
+                      storage_uri="memory://")
+except ImportError:
+    limiter = None
+
+def rate_limit(spec):
+    """Decorador de limite por endpoint (no-op si flask-limiter no esta)."""
+    def deco(f):
+        return limiter.limit(spec)(f) if limiter else f
+    return deco
+
 # CORS: permitir el sitio en GitHub Pages, dominio propio y desarrollo local.
 _ALLOWED_ORIGINS = {
     'https://delreal90.github.io',
@@ -667,6 +684,7 @@ def agenda_config():
     return jsonify({'especialidades': especialidades, 'motivos': motivos,
                     'doctores': doctores, 'mock': not cfg['dentidesk']['enabled']})
 
+@rate_limit('40 per minute')
 @app.route('/api/agenda/paciente', methods=['GET'])
 def agenda_paciente():
     """Valida el RUT y lo cruza con DentiDesk. Devuelve si existe + datos precargados."""
@@ -693,6 +711,7 @@ def _horas_de_dia(doctor, motivo, d, cfg):
     _DISPO_CACHE[key] = (_t.time(), horas)
     return horas
 
+@rate_limit('30 per minute')
 @app.route('/api/agenda/disponibilidad', methods=['GET'])
 def agenda_disponibilidad():
     """Horas disponibles para (doctor, motivo) en los proximos dias habiles.
@@ -775,6 +794,7 @@ def pacientes_estado():
     import pacientes
     return jsonify({'ok': True, 'total': pacientes.total()})
 
+@rate_limit('10 per minute')
 @app.route('/api/agenda/reservar', methods=['POST'])
 def agenda_reservar():
     """Crea la cita en DentiDesk y dispara la confirmacion (WhatsApp / email)."""
