@@ -721,10 +721,21 @@ def agenda_disponibilidad():
                 dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
     return jsonify({'ok': True, 'dias': dias})
 
+def _check_admin_token():
+    """Protege endpoints sensibles. En produccion se define ADMIN_TOKEN (env var);
+    el llamador debe mandar header 'X-Admin-Token' o ?token=. Sin ADMIN_TOKEN
+    configurado (desarrollo local) se permite."""
+    tok = os.environ.get('ADMIN_TOKEN')
+    if not tok:
+        return True
+    provisto = request.headers.get('X-Admin-Token') or request.args.get('token')
+    return provisto == tok
+
 @app.route('/api/pacientes/actualizar', methods=['POST'])
 def pacientes_actualizar():
-    """Reconstruye la base local de pacientes barriendo la agenda de DentiDesk.
-    Pensado para correr 2x/dia (job programado). Requiere modo real (credenciales)."""
+    """Reconstruye la base de pacientes barriendo la agenda de DentiDesk (2x/dia)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     import pacientes
     cfg = scheduling.load_config()
     if not cfg['dentidesk']['enabled']:
@@ -735,6 +746,28 @@ def pacientes_actualizar():
         dias_atras=int(data.get('dias_atras', 180)),
         dias_adelante=int(data.get('dias_adelante', 120)),
     )
+    return jsonify({'ok': True, **res})
+
+@app.route('/api/pacientes/importar', methods=['POST'])
+def pacientes_importar():
+    """Siembra la base desde el Excel del panel DentiDesk (multipart 'file').
+    Se usa UNA vez para sembrar produccion. Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import pacientes, tempfile
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'Falta el archivo'}), 400
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
+        f.save(tmp.name)
+        ruta = tmp.name
+    try:
+        res = pacientes.importar_export_excel(ruta)
+    finally:
+        try:
+            os.remove(ruta)
+        except OSError:
+            pass
     return jsonify({'ok': True, **res})
 
 @app.route('/api/pacientes/estado', methods=['GET'])
@@ -972,6 +1005,45 @@ def reordenar_galeria():
     return jsonify({'ok': True, 'slides': slides})
 
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REFRESCO AUTOMATICO DE PACIENTES (2x/dia, en proceso)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SCHEDULER_INICIADO = False
+
+def _loop_refresco_pacientes():
+    import time, pacientes
+    primera = True
+    while True:
+        try:
+            cfg = scheduling.load_config()
+            if cfg['dentidesk']['enabled']:
+                # En el primer ciclo solo construye si la base esta vacia
+                # (evita un barrido completo en cada redeploy si ya hay datos).
+                if not primera or pacientes.total() == 0:
+                    pacientes.construir_desde_agenda(cfg, dias_atras=180, dias_adelante=120)
+        except Exception as e:
+            print('[refresco pacientes] error:', e)
+        primera = False
+        time.sleep(12 * 3600)  # cada 12 horas
+
+def _iniciar_scheduler():
+    """Arranca el refresco en segundo plano. Activo en Render (o si se define
+    RUN_PATIENT_SYNC=true). En local no corre salvo que se pida explicitamente."""
+    global _SCHEDULER_INICIADO
+    if _SCHEDULER_INICIADO:
+        return
+    activar = bool(os.environ.get('RENDER')) or \
+        os.environ.get('RUN_PATIENT_SYNC', '').strip().lower() in ('1', 'true', 'yes', 'on')
+    if not activar:
+        return
+    import threading
+    _SCHEDULER_INICIADO = True
+    threading.Thread(target=_loop_refresco_pacientes, daemon=True).start()
+    print('[refresco pacientes] scheduler iniciado (cada 12h)')
+
+_iniciar_scheduler()
 
 if __name__ == '__main__':
     print("\nPanel de administracion iniciado")

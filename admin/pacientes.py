@@ -43,7 +43,12 @@ def _load_index():
 
 
 def _save_index(idx):
-    INDEX_PATH.write_text(json.dumps(idx, ensure_ascii=False), encoding='utf-8')
+    # Escritura atomica: escribe a un temporal y renombra. Asi, si el refresco
+    # corre mientras alguien agenda, nadie lee un archivo a medio escribir.
+    INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = INDEX_PATH.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(idx, ensure_ascii=False), encoding='utf-8')
+    os.replace(tmp, INDEX_PATH)
 
 
 def _limpiar_rut(rut):
