@@ -121,11 +121,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "dia_0_5": 85,
-        "dia_6_10": 75,
-        "dia_11_20": 65,
-        "dia_21_30": 50,
-        "dia_31_60": 40
+        "dia_0_5": 90,
+        "dia_6_10": 80,
+        "dia_11_20": 70,
+        "dia_21_30": 60,
+        "dia_31_60": 50
       },
       "professional_name": "Octavio Del Real"
     },
@@ -134,11 +134,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "dia_0_5": 85,
-        "dia_6_10": 75,
-        "dia_11_20": 65,
-        "dia_21_30": 50,
-        "dia_31_60": 40
+        "dia_0_5": 90,
+        "dia_6_10": 80,
+        "dia_11_20": 70,
+        "dia_21_30": 60,
+        "dia_31_60": 50
       },
       "professional_name": "Rodrigo Oyonarte"
     },
@@ -147,11 +147,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "dia_0_5": 85,
-        "dia_6_10": 75,
-        "dia_11_20": 65,
-        "dia_21_30": 50,
-        "dia_31_60": 40
+        "dia_0_5": 90,
+        "dia_6_10": 80,
+        "dia_11_20": 70,
+        "dia_21_30": 60,
+        "dia_31_60": 50
       },
       "professional_name": "Alberto Del Real"
     },
@@ -160,11 +160,11 @@
       "atiende": true,
       "especialidad": "rehabilitacion",
       "ocupacion": {
-        "dia_0_5": 85,
-        "dia_6_10": 75,
-        "dia_11_20": 65,
-        "dia_21_30": 50,
-        "dia_31_60": 40
+        "dia_0_5": 90,
+        "dia_6_10": 80,
+        "dia_11_20": 70,
+        "dia_21_30": 60,
+        "dia_31_60": 50
       },
       "professional_name": "Patricio Vial"
     }
