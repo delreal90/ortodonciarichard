@@ -112,24 +112,49 @@ def display(rec):
 
 # ── Importar export completo de pacientes (Excel del panel DentiDesk) ─────────
 
+_DEV_CODE = re.compile(r'^-?[A-Z]{1,3}$')  # codigos de dispositivo: D, DD, DE, -D, -DE
+
+
+def _es_codigo(tok):
+    """True si el token es un codigo interno de la clinica (no parte del nombre):
+    ficha numerica (5106A), letras de dispositivo (D/DD/DE/-D), 's/c', o simbolos."""
+    t = (tok or '').strip()
+    if not t:
+        return True
+    if t[0].isdigit():
+        return True                                  # ficha: 5106A, 3189G-D
+    if t.lower() == 's/c':
+        return True
+    if _DEV_CODE.match(t) and t.upper() == t:
+        return True                                  # D, DD, DE, -DE (mayusculas)
+    if all(not c.isalnum() for c in t):
+        return True                                  # simbolos sueltos (▲, -)
+    return False
+
+
 def _split_nombre_export(full):
-    """Formato export: 'Apellido1 Apellido2 <ficha> Nombres'.
-    Ej: 'Abalos Lira 5106A D Jose Pedro' -> ('Jose Pedro', 'Abalos Lira').
-    Devuelve (nombres, apellidos)."""
-    toks = (full or '').split()
-    # ubicar el token de ficha (empieza con digito)
-    idx = next((i for i, t in enumerate(toks) if t and t[0].isdigit()), None)
-    if idx is None:
-        # sin ficha: heuristica -> primeros 2 = apellidos
-        if len(toks) <= 2:
-            return (toks[-1] if toks else ''), (toks[0] if len(toks) > 1 else '')
-        return ' '.join(toks[2:]), ' '.join(toks[:2])
-    apellidos = toks[:idx]
-    resto = toks[idx + 1:]
-    # saltar sufijos de ficha tras el numero (cortos en mayuscula: D, DD, DE, -D)
-    while resto and re.fullmatch(r'-?[A-Z]{1,3}', resto[0]):
-        resto = resto[1:]
-    return ' '.join(resto), ' '.join(apellidos)
+    """Formato export: 'Apellidos <codigos internos> Nombres'.
+    Usa el bloque de codigos como separador (respeta apellidos compuestos y
+    nombres de 2 palabras). Devuelve (nombres, apellidos), ambos SIN codigos.
+    Ej: 'Abalos Lira 5106A D Jose Pedro'      -> ('Jose Pedro', 'Abalos Lira')
+        'Abalos Perez de Arce Lucia'          -> ('Lucia', 'Abalos Perez de Arce')
+        'Abarca Esparza-DD▲ Macarena'         -> ('Macarena', 'Abarca Esparza')"""
+    # quitar simbolos y codigos pegados por guion: 'Esparza-DD' -> 'Esparza'
+    s = (full or '').replace('▲', ' ')
+    s = re.sub(r'-[A-Za-z]{1,3}\b', '', s)
+    toks = s.split()
+
+    apellidos, i = [], 0
+    while i < len(toks) and not _es_codigo(toks[i]):
+        apellidos.append(toks[i]); i += 1
+    while i < len(toks) and _es_codigo(toks[i]):        # saltar el bloque de codigos
+        i += 1
+    nombres = [t for t in toks[i:] if not _es_codigo(t)]
+
+    if not nombres and apellidos:
+        # sin codigo separador: el ultimo token es el nombre
+        nombres = [apellidos.pop()]
+    return ' '.join(nombres), ' '.join(apellidos)
 
 
 def importar_export_excel(path):
