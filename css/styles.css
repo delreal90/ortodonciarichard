@@ -1683,3 +1683,64 @@ h4 { font-size: 1rem; font-weight: 600; }
     transition: background 0.2s;
 }
 .gallery-lightbox-close:hover { background: rgba(255,255,255,0.25); }
+
+/* Aviso de urgencia en el agendamiento */
+.agenda-urgencia {
+    background: #FFF7ED;
+    border: 1px solid #FDBA74;
+    border-left: 4px solid #EA580C;
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 20px;
+}
+.agenda-urgencia h4 {
+    color: #C2410C;
+    font-size: 1rem;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.agenda-urgencia p {
+    font-size: .9rem;
+    color: var(--text-mid);
+    margin: 0 0 12px;
+    line-height: 1.5;
+}
+.agenda-urgencia-btns {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.btn-urg {
+    flex: 1 1 0;
+    min-width: 150px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 16px;
+    border-radius: 10px;
+    font-size: .9rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity .15s, transform .15s;
+}
+.btn-urg:hover { opacity: .9; transform: translateY(-1px); }
+.btn-urg-call { background: var(--navy); color: #fff; }
+.btn-urg-wa { background: #25D366; color: #fff; }
+.agenda-urgencia-note {
+    font-size: .85rem !important;
+    color: #9A3412 !important;
+    margin-bottom: 8px !important;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.agenda-urgencia-or {
+    font-size: .88rem !important;
+    color: var(--text-dark) !important;
+    font-weight: 500;
+    margin: 4px 0 0 !important;
+}

@@ -257,7 +257,25 @@ function pasoMotivo() {
 function elegirMotivo(key, el) {
   agenda.sel.motivo = key;
   agenda.sel.motivoLabel = el.querySelector('span').textContent;
+  const m = (agenda.config.motivos || []).find(x => x.key === key);
+  agenda.sel.motivoUrgencia = !!(m && m.urgencia);
   pasoFechaHora();
+}
+
+// Aviso destacado para motivos de Urgencia (se muestra sobre la grilla de horas)
+function avisoUrgenciaHTML() {
+  if (!agenda.sel.motivoUrgencia) return '';
+  return `<div class="agenda-urgencia">
+    <h4><i class="fas fa-heart-pulse"></i> Las urgencias son nuestra prioridad</h4>
+    <p>Queremos asegurarnos de que estés bien y resolver tu urgencia a la brevedad.
+       Para atenderte lo antes posible, te recomendamos contactarnos directamente:</p>
+    <div class="agenda-urgencia-btns">
+      <a class="btn-urg btn-urg-call" href="tel:+56222173499"><i class="fas fa-phone"></i> Llamar a la clínica</a>
+      <a class="btn-urg btn-urg-wa" href="https://wa.me/56933558189?text=Hola,%20tengo%20una%20urgencia%20de%20ortodoncia" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i> Escribir por WhatsApp</a>
+    </div>
+    <p class="agenda-urgencia-note"><i class="fas fa-clock"></i> De lunes a viernes, de 9:00 a 19:00, siempre hay alguien en la clínica para resolver urgencias.</p>
+    <p class="agenda-urgencia-or">También puedes reservar una hora online aquí abajo:</p>
+  </div>`;
 }
 
 /* ── Paso 6: fecha y hora ────────────────────────────────────────────────── */
@@ -289,6 +307,7 @@ async function pasoFechaHora() {
       <img src="${agenda.sel.doctorFoto}" alt="">
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.motivoLabel}</span></div>
     </div>
+    ${avisoUrgenciaHTML()}
     <h3 class="agenda-q">Elige día y hora</h3>
     <div class="agenda-dias">${diasHtml}</div>`);
 }
