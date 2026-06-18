@@ -32,8 +32,8 @@
     "corte_pm": "14:00"
   },
   "reglas": {
-    "anticipacion_minima_horas": 12,
-    "_comment_anticipacion": "No se puede agendar con menos de 12h, salvo motivo de tipo 'urgencia'.",
+    "anticipacion_minima_horas": 16,
+    "_comment_anticipacion": "Anticipacion minima para TODOS los motivos (incluidas urgencias). Ajustable en el panel.",
     "anticipacion_maxima_dias": 60,
     "_comment_maxima": "No se puede agendar con mas de 60 dias de anticipacion."
   },

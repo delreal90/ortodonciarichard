@@ -189,6 +189,7 @@
       <h2>Agenda online (DentiDesk)</h2>
       <p class="desc">Ajusta el % mínimo de ocupación <em>aparente</em> de cada doctor por franja temporal. Sirve para que la agenda nunca se vea demasiado vacía. No afecta las horas realmente ocupadas.</p>
       <div class="card" id="agenda-estado" style="margin-bottom:18px"></div>
+      <div class="card" id="agenda-global" style="margin-bottom:18px"></div>
       <div id="agenda-doctores"></div>
       <button class="btn btn-primary" style="margin-top:8px" onclick="saveAgenda()">Guardar configuración</button>
     </div>
@@ -336,9 +337,24 @@ let AGENDA_CFG = null;
 async function loadAgenda() {
   AGENDA_CFG = await api('/api/scheduling-config');
   const estado = document.getElementById('agenda-estado');
-  estado.innerHTML = AGENDA_CFG.dentidesk_enabled
-    ? '<strong style="color:#27AE60">● Conectado a DentiDesk</strong>'
-    : '<strong style="color:#C9A84C">● Modo demo</strong> — aún sin credenciales de DentiDesk. El flujo funciona con datos simulados.';
+  // El mensaje de "modo demo" solo aparece si NO hay credenciales (no conectado).
+  if (AGENDA_CFG.dentidesk_enabled) {
+    estado.style.display = 'none';
+    estado.innerHTML = '';
+  } else {
+    estado.style.display = '';
+    estado.innerHTML = '<strong style="color:#C9A84C">● Modo demo</strong> — aún sin credenciales de DentiDesk. El flujo funciona con datos simulados.';
+  }
+
+  // Parámetro global: anticipación mínima (horas), aplica a TODOS los motivos.
+  const anti = (AGENDA_CFG.reglas && AGENDA_CFG.reglas.anticipacion_minima_horas) || 16;
+  document.getElementById('agenda-global').innerHTML = `
+    <h3>Anticipación mínima</h3>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="flex:1;font-size:.9rem">Horas mínimas de anticipación para reservar (todos los motivos, incluidas urgencias)</span>
+      <input type="number" min="0" max="168" id="ag-anticipacion" value="${anti}" style="width:80px;padding:6px;border:1px solid #cbd5e0;border-radius:6px"> hrs
+    </div>`;
+
   const cont = document.getElementById('agenda-doctores');
   cont.innerHTML = Object.entries(AGENDA_CFG.doctores).map(([id, d]) => `
     <div class="card" data-doc="${id}">
@@ -366,7 +382,8 @@ async function saveAgenda() {
     });
     doctores[id] = { atiende: card.querySelector('.ag-atiende').checked, ocupacion };
   });
-  const r = await api('/api/scheduling-config', 'POST', { doctores });
+  const anticipacion = +document.getElementById('ag-anticipacion').value;
+  const r = await api('/api/scheduling-config', 'POST', { doctores, anticipacion_minima_horas: anticipacion });
   toast(r.ok ? 'Configuración guardada ✓' : 'Error al guardar', r.ok);
 }
 

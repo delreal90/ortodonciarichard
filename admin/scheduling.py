@@ -224,9 +224,8 @@ def aplicar_ocupacion_simulada(doc_id, target_date, slots_grilla, ocupados_reale
 # ── Reglas de negocio ────────────────────────────────────────────────────────
 
 def cumple_anticipacion(target_date, hhmm, motivo_cfg, cfg, ahora=None):
-    """True si la hora respeta la anticipacion minima (o es urgencia)."""
-    if motivo_cfg.get('urgencia'):
-        return True
+    """True si la hora respeta la anticipacion minima. Aplica a TODOS los motivos
+    (incluidas urgencias)."""
     ahora = ahora or datetime.now()
     inicio = datetime.combine(target_date, _parse_hhmm(hhmm))
     min_horas = cfg['reglas']['anticipacion_minima_horas']

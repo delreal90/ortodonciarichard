@@ -906,6 +906,9 @@ def set_scheduling_config():
     """Guarda cambios de % de ocupacion por doctor/franja (sin tocar codigo)."""
     data = request.json or {}
     cfg = scheduling.load_config()
+    # Parametro global: anticipacion minima (horas), aplica a todos los motivos.
+    if 'anticipacion_minima_horas' in data:
+        cfg['reglas']['anticipacion_minima_horas'] = max(0, int(data['anticipacion_minima_horas']))
     for doc_id, doc_changes in (data.get('doctores') or {}).items():
         if doc_id not in cfg['doctores']:
             continue
