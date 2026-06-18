@@ -9,7 +9,8 @@
     "basic_auth_user": "",
     "basic_auth_pass": "",
     "id_location": 408,
-    "id_status_nueva_cita": 2120
+    "id_status_nueva_cita": 2120,
+    "_comment": "Credenciales reales de DentiDesk. NUNCA se sube a git (esta en .gitignore). Solo para probar en vivo desde tu PC. En produccion (Render) van como variables de entorno."
   },
   "clinica": {
     "nombre": "Ortodoncia Richard",
@@ -120,11 +121,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "dia_0_5": 70,
-        "dia_6_10": 60,
-        "dia_11_20": 50,
-        "dia_21_30": 40,
-        "dia_31_60": 30
+        "dia_0_5": 85,
+        "dia_6_10": 75,
+        "dia_11_20": 65,
+        "dia_21_30": 50,
+        "dia_31_60": 40
       },
       "professional_name": "Octavio Del Real"
     },
@@ -133,11 +134,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "dia_0_5": 70,
-        "dia_6_10": 60,
-        "dia_11_20": 50,
-        "dia_21_30": 40,
-        "dia_31_60": 30
+        "dia_0_5": 85,
+        "dia_6_10": 75,
+        "dia_11_20": 65,
+        "dia_21_30": 50,
+        "dia_31_60": 40
       },
       "professional_name": "Rodrigo Oyonarte"
     },
@@ -146,11 +147,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "dia_0_5": 70,
-        "dia_6_10": 60,
-        "dia_11_20": 50,
-        "dia_21_30": 40,
-        "dia_31_60": 30
+        "dia_0_5": 85,
+        "dia_6_10": 75,
+        "dia_11_20": 65,
+        "dia_21_30": 50,
+        "dia_31_60": 40
       },
       "professional_name": "Alberto Del Real"
     },
@@ -159,11 +160,11 @@
       "atiende": true,
       "especialidad": "rehabilitacion",
       "ocupacion": {
-        "dia_0_5": 70,
-        "dia_6_10": 60,
-        "dia_11_20": 50,
-        "dia_21_30": 40,
-        "dia_31_60": 30
+        "dia_0_5": 85,
+        "dia_6_10": 75,
+        "dia_11_20": 65,
+        "dia_21_30": 50,
+        "dia_31_60": 40
       },
       "professional_name": "Patricio Vial"
     }
