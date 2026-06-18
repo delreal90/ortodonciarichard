@@ -16,11 +16,14 @@ Variables de entorno requeridas (configurar en Render):
 import os
 import ssl
 import smtplib
+import logging
 import tempfile
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 try:
     import requests
@@ -162,11 +165,15 @@ def _enviar_email_smtp(cita, ics):
 
     try:
         ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=ctx) as s:
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo()
+            s.starttls(context=ctx)
             s.login(smtp_user, smtp_pass)
             s.sendmail(smtp_user, [dest], msg.as_bytes())
+        log.info('Email enviado a %s', dest)
         return True
-    except Exception:
+    except Exception as e:
+        log.error('SMTP error: %s', e)
         return False
 
 

@@ -880,7 +880,7 @@ def agenda_reservar():
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
     confirm = notify.enviar_confirmacion({
         'nombre': nombre, 'telefono': data.get('telefono', ''),
-        'email': data.get('email', ''), 'fecha': fecha,
+        'email': email, 'fecha': fecha,
         'fecha_legible': _fecha_legible(fecha), 'hora': hora,
         'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
         'dur_min': motivo_cfg['duracion_min'],
