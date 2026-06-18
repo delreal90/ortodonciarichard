@@ -64,6 +64,12 @@ def total():
     return len(_load_index())
 
 
+def vaciar():
+    """Deja la base completamente vacia (para resembrar desde cero)."""
+    _save_index({})
+    return 0
+
+
 # ── Limpieza de nombres ──────────────────────────────────────────────────────
 
 def _split_nombre(full):
@@ -162,9 +168,10 @@ def _split_nombre_export(full):
     return ' '.join(nombres), ' '.join(apellidos)
 
 
-def importar_export_excel(path):
+def importar_export_excel(path, reemplazar=False):
     """Siembra/actualiza la base desde el Excel 'Listado de Pacientes Totales'.
-    Columnas esperadas: Nombre Paciente, RUT, Edad, Genero, Telefono, Correo, ..."""
+    Columnas esperadas: Nombre Paciente, RUT, Edad, Genero, Telefono, Correo, ...
+    reemplazar=True -> parte de cero (borra la base anterior antes de cargar)."""
     import openpyxl
     wb = openpyxl.load_workbook(path, read_only=True)
     ws = wb.active
@@ -181,7 +188,7 @@ def importar_export_excel(path):
     c_nom = col('nombre'); c_rut = col('rut')
     c_tel = col('tel');    c_mail = col('correo', 'email', 'mail')
 
-    idx = _load_index()
+    idx = {} if reemplazar else _load_index()
     agregados = 0
     for r in rows:
         rut = _limpiar_rut(str(r[c_rut]) if c_rut is not None and r[c_rut] else '')

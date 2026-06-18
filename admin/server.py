@@ -777,17 +777,27 @@ def pacientes_importar():
     f = request.files.get('file')
     if not f:
         return jsonify({'ok': False, 'error': 'Falta el archivo'}), 400
+    reemplazar = str(request.form.get('reemplazar', '')).lower() in ('1', 'true', 'yes', 'on')
     with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
         f.save(tmp.name)
         ruta = tmp.name
     try:
-        res = pacientes.importar_export_excel(ruta)
+        res = pacientes.importar_export_excel(ruta, reemplazar=reemplazar)
     finally:
         try:
             os.remove(ruta)
         except OSError:
             pass
     return jsonify({'ok': True, **res})
+
+@app.route('/api/pacientes/reset', methods=['POST'])
+def pacientes_reset():
+    """Vacia la base de pacientes (para resembrar desde cero). Protegido."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import pacientes
+    pacientes.vaciar()
+    return jsonify({'ok': True, 'total': 0})
 
 @app.route('/api/pacientes/estado', methods=['GET'])
 def pacientes_estado():
