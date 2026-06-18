@@ -879,12 +879,16 @@ def agenda_reservar():
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
 
-    # "No soy yo": el paciente está en la BD pero usó datos distintos.
-    # DentiDesk recibe el email registrado (dedup). La notificacion va al email nuevo.
-    es_no_soy_yo = bool(data.get('es_no_soy_yo')) and rec is not None
-    email_nuevo   = (data.get('email_nuevo') or data.get('email') or '').strip()
-    telefono_nuevo = (data.get('telefono_nuevo') or data.get('telefono') or '').strip()
-    email_notif   = email_nuevo if (es_no_soy_yo and '@' in email_nuevo) else email
+    # "No soy yo": el paciente está en la BD pero dice que esos datos no son suyos.
+    #   DentiDesk recibe el email registrado (dedup); la confirmacion va al email nuevo.
+    # "Completar datos": el paciente está en la BD pero SIN email en ficha (antiguo);
+    #   aporta su contacto -> se agenda con su RUT y se avisa a recepción para
+    #   actualizar la ficha (y así evitar duplicados en futuras reservas).
+    es_no_soy_yo    = bool(data.get('es_no_soy_yo')) and rec is not None
+    es_completar    = bool(data.get('es_completar_datos')) and rec is not None and not es_no_soy_yo
+    email_nuevo     = (data.get('email_nuevo') or data.get('email') or '').strip()
+    telefono_nuevo  = (data.get('telefono_nuevo') or data.get('telefono') or '').strip()
+    email_notif     = email_nuevo if ((es_no_soy_yo or es_completar) and '@' in email_nuevo) else email
 
     confirm = notify.enviar_confirmacion({
         'nombre': nombre, 'telefono': telefono_nuevo or data.get('telefono', ''),
@@ -894,9 +898,9 @@ def agenda_reservar():
         'dur_min': motivo_cfg['duracion_min'],
     }, cfg)
 
-    if es_no_soy_yo:
+    if es_no_soy_yo or es_completar:
         notify.enviar_solicitud_cambio_datos({
-            'nombre': f"{rec.get('nombres','')} {rec.get('apellidos','')}".strip(),
+            'nombre': f"{rec.get('nombres','')} {rec.get('apellidos','')}".strip() or nombre,
             'rut_fmt': scheduling.formatear_rut(rut),
             'email_antiguo': rec.get('email', ''),
             'email_nuevo': email_nuevo,
@@ -908,7 +912,7 @@ def agenda_reservar():
 
     return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
                     'confirmacion': confirm, 'mock': res.get('mock', False),
-                    'solicitud_cambio': es_no_soy_yo})
+                    'solicitud_cambio': es_no_soy_yo or es_completar})
 
 @app.route('/api/scheduling-config', methods=['GET'])
 def get_scheduling_config():

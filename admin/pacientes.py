@@ -110,14 +110,20 @@ def enmascarar_telefono(tel):
 
 
 def display(rec):
-    """Version segura para el frontend: nombres/apellidos + contacto enmascarado."""
+    """Version segura para el frontend: nombres/apellidos + contacto enmascarado.
+    Incluye flags tiene_email/tiene_telefono para que el frontend sepa si debe
+    pedirle al paciente esos datos (pacientes antiguos sin correo en ficha)."""
     if not rec:
         return {}
+    email = rec.get('email', '')
+    telefono = rec.get('telefono', '')
     return {
         'nombres':   rec.get('nombres', ''),
         'apellidos': rec.get('apellidos', ''),
-        'email_masked':    enmascarar_email(rec.get('email', '')),
-        'telefono_masked': enmascarar_telefono(rec.get('telefono', '')),
+        'email_masked':    enmascarar_email(email),
+        'telefono_masked': enmascarar_telefono(telefono),
+        'tiene_email':    bool(email and '@' in email),
+        'tiene_telefono': bool(telefono),
     }
 
 
@@ -192,9 +198,14 @@ def importar_export_excel(path, reemplazar=False):
     agregados = 0
     for r in rows:
         rut = _limpiar_rut(str(r[c_rut]) if c_rut is not None and r[c_rut] else '')
-        email = (str(r[c_mail]).strip() if c_mail is not None and r[c_mail] else '')
-        if not rut or not email or '@' not in email:
+        if not rut:
             continue
+        # El email puede faltar (pacientes antiguos sin correo en ficha): igual los
+        # guardamos para reconocerlos por RUT y precargar su nombre. Al agendar, si
+        # no hay email registrado, el paciente lo ingresa.
+        email = (str(r[c_mail]).strip() if c_mail is not None and r[c_mail] else '')
+        if email and '@' not in email:
+            email = ''
         nombres, apellidos = _split_nombre_export(str(r[c_nom]) if c_nom is not None and r[c_nom] else '')
         tel = str(r[c_tel]).strip() if c_tel is not None and r[c_tel] else ''
         if rut not in idx:

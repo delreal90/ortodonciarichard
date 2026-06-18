@@ -24,7 +24,7 @@ const agenda = {
     doctor: null, doctorNombre: '', doctorFoto: '',
     motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
-    esNoSoyYo: false, datosOriginales: null,
+    esNoSoyYo: false, datosOriginales: null, completarDatos: false,
   },
   dias: [],
 };
@@ -98,7 +98,7 @@ function cerrarAgenda() {
     existe: false, datos: { nombres: '', apellidos: '', email: '', telefono: '' },
     doctor: null, doctorNombre: '', doctorFoto: '', motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
-    esNoSoyYo: false, datosOriginales: null,
+    esNoSoyYo: false, datosOriginales: null, completarDatos: false,
   };
 }
 
@@ -176,9 +176,9 @@ function pasoDatos() {
   setPaso(3);
   const d = agenda.sel.datos;
 
-  // Paciente RECONOCIDO: mostramos datos enmascarados, no pedimos email
-  // (se usa el registrado para que DentiDesk no duplique la ficha).
-  if (agenda.sel.existe) {
+  // Paciente RECONOCIDO con email en ficha: mostramos datos enmascarados, no
+  // pedimos email (se usa el registrado para que DentiDesk no duplique la ficha).
+  if (agenda.sel.existe && d.tiene_email) {
     setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
       <h3 class="agenda-q">¿Eres tú?</h3>
       <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
@@ -189,6 +189,26 @@ function pasoDatos() {
         <li><span>Teléfono</span><b>${d.telefono_masked || '—'}</b></li>
       </ul>
       <button class="btn btn-primary btn-lg agenda-submit" onclick="confirmarReconocido()">Sí, soy yo · Continuar</button>
+      <p class="agenda-mini"><a href="#" onclick="noSoyYo(event)">No soy yo / usar otros datos</a></p>`);
+    return;
+  }
+
+  // Paciente RECONOCIDO pero SIN email en ficha (paciente antiguo): confirmamos su
+  // nombre y le pedimos email/teléfono para enviarle la confirmación. Al agendar se
+  // usa su RUT (DentiDesk lo asocia a su ficha) y avisamos a recepción del contacto.
+  if (agenda.sel.existe && !d.tiene_email) {
+    agenda.sel.completarDatos = true;
+    setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
+      <h3 class="agenda-q">¡Hola, ${d.nombres || ''}!</h3>
+      <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
+      <div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> Te reconocimos como <strong>${d.nombres || ''} ${d.apellidos || ''}</strong>. Solo necesitamos tus datos de contacto para enviarte la confirmación.</div>
+      <form class="agenda-form" onsubmit="return continuarDatos(event)">
+        <input name="nombres"   type="hidden" value="${d.nombres || ''}">
+        <input name="apellidos" type="hidden" value="${d.apellidos || ''}">
+        <input name="telefono" placeholder="Celular (ej: +56 9 1234 5678)" value="${d.telefono || ''}" required>
+        <input name="email" type="email" placeholder="Email" value="" required>
+        <button type="submit" class="btn btn-primary btn-lg agenda-submit">Continuar</button>
+      </form>
       <p class="agenda-mini"><a href="#" onclick="noSoyYo(event)">No soy yo / usar otros datos</a></p>`);
     return;
   }
@@ -218,6 +238,7 @@ function confirmarReconocido() {
 function noSoyYo(e) {
   e.preventDefault();
   agenda.sel.esNoSoyYo = true;
+  agenda.sel.completarDatos = false;
   agenda.sel.datosOriginales = { ...agenda.sel.datos };
   agenda.sel.existe = false;
   // Conserva nombre (ya visible y no sensible); limpia contacto para que lo ingrese
@@ -426,6 +447,7 @@ async function confirmarReserva() {
           email_nuevo: s.datos.email || '',
           telefono_nuevo: s.datos.telefono || '',
         }),
+        ...(s.completarDatos && { es_completar_datos: true }),
       }),
     });
     if (r.ok) pasoExito(r); else pasoError(r.error || 'No se pudo agendar.');
