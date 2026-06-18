@@ -706,8 +706,8 @@ def _horas_de_dia(doctor, motivo, d, cfg):
     hit = _DISPO_CACHE.get(key)
     if hit and (_t.time() - hit[0]) < _DISPO_TTL:
         return hit[1]
-    ocupadas = dentidesk.horas_ocupadas(doctor, d, motivo, cfg)
-    horas = scheduling.horas_disponibles(doctor, d, motivo, ocupadas, cfg)
+    libres, ocupados = dentidesk.disponibilidad_real(doctor, d, motivo, cfg)
+    horas = scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
     _DISPO_CACHE[key] = (_t.time(), horas)
     return horas
 
@@ -841,8 +841,8 @@ def agenda_reservar():
     # Revalidar en backend: anticipacion + que la hora siga disponible
     if not scheduling.cumple_anticipacion(fecha, hora, motivo_cfg, cfg):
         return jsonify({'ok': False, 'error': 'La hora no cumple la anticipacion minima'}), 409
-    ocupadas = dentidesk.horas_ocupadas(doctor, fecha, motivo, cfg)
-    if hora not in scheduling.horas_disponibles(doctor, fecha, motivo, ocupadas, cfg):
+    libres_d, ocupados_d = dentidesk.disponibilidad_real(doctor, fecha, motivo, cfg)
+    if hora not in scheduling.horas_disponibles(doctor, fecha, motivo, libres_d, ocupados_d, cfg):
         return jsonify({'ok': False, 'error': 'La hora ya no esta disponible'}), 409
 
     # Nombres/apellidos vienen separados; si no, se parte 'nombre'

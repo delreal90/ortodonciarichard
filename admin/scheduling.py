@@ -218,18 +218,24 @@ def cumple_anticipacion(target_date, hhmm, motivo_cfg, cfg, ahora=None):
     return inicio - ahora >= timedelta(hours=min_horas)
 
 
-def horas_disponibles(doc_id, target_date, motivo_key, ocupados_reales, cfg, ahora=None):
+def horas_disponibles(doc_id, target_date, motivo_key, libres, ocupados, cfg, ahora=None):
     """
     Punto de entrada principal: devuelve la lista final de horas que el paciente
-    puede elegir para (doctor, fecha, motivo). Combina:
-      grilla -> ocupacion real -> ocupacion simulada -> filtro de anticipacion.
+    puede elegir para (doctor, fecha, motivo).
+
+    'libres'   = horas realmente disponibles en DentiDesk.
+    'ocupados' = bloques con citas ya agendadas del doctor.
+    La UNION (libres+ocupados) = jornada REAL del doctor ese dia = denominador
+    correcto para la ocupacion aparente (no una grilla fija).
+
+    Flujo: capacidad real -> ocupacion simulada (anti-vacia) -> filtro anticipacion.
     """
     ahora = ahora or datetime.now()
     motivo_cfg = cfg['motivos'][motivo_key]
-    grilla = generar_grilla(cfg, motivo_cfg['duracion_min'])
+    worked = sorted(set(libres) | set(ocupados))   # capacidad real del dia
 
     disponibles = aplicar_ocupacion_simulada(
-        doc_id, target_date, grilla, set(ocupados_reales), cfg, hoy=ahora.date()
+        doc_id, target_date, worked, set(ocupados), cfg, hoy=ahora.date()
     )
     return [h for h in disponibles
             if cumple_anticipacion(target_date, h, motivo_cfg, cfg, ahora)]

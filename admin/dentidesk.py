@@ -19,7 +19,7 @@ Docs API: https://documentation-api-dd-...run.app/documentacion_api_dd_chile.php
 """
 
 import hashlib
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 try:
     import requests
@@ -102,29 +102,74 @@ def horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo):
     return horas
 
 
-def horas_ocupadas(doc_id, target_date, motivo_key, cfg=None):
-    """
-    Devuelve el set de horas 'HH:MM' ocupadas para (doctor, fecha) respecto de la
-    grilla teorica. ocupadas = grilla - disponibles_reales.
+# Cache de getAgendaDay por fecha (una sola llamada cubre a todos los doctores).
+_AGENDA_DIA_CACHE = {}
+_AGENDA_DIA_TTL = 90  # segundos
 
-    Asi scheduling.py puede aplicar encima la ocupacion simulada (anti-agenda-vacia)
-    usando una grilla estable como denominador.
+
+def _get_agenda_day(cfg, target_date):
+    """Lista de citas del dia (todos los profesionales). Cacheada."""
+    import time as _t
+    key = target_date.isoformat()
+    hit = _AGENDA_DIA_CACHE.get(key)
+    if hit and (_t.time() - hit[0]) < _AGENDA_DIA_TTL:
+        return hit[1]
+    dd = cfg['dentidesk']
+    token = _auth_token(cfg)
+    url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
+    resp = requests.post(url, json={'IdLocation': dd['id_location'],
+                                    'Date': target_date.isoformat(), 'Token': token}, timeout=25)
+    data = (resp.json() or {}).get('data', []) if resp.status_code == 200 else []
+    _AGENDA_DIA_CACHE[key] = (_t.time(), data)
+    return data
+
+
+def _expandir_bloques(hhmmss, dur_min, paso=15):
+    """'10:00:00' dur 30 -> ['10:00','10:15'] (bloques de 15 min)."""
+    h, m = int(hhmmss[:2]), int(hhmmss[3:5])
+    base = datetime.combine(date.today(), time(h, m))
+    n = max(1, (int(dur_min) + paso - 1) // paso)
+    return [(base + timedelta(minutes=paso * k)).strftime('%H:%M') for k in range(n)]
+
+
+def bloques_ocupados(cfg, doc_id, target_date):
+    """Bloques de 15 min realmente ocupados (citas existentes) del doctor ese dia."""
+    nombre = cfg['doctores'][doc_id].get('professional_name', '')
+    ocupados = set()
+    for c in _get_agenda_day(cfg, target_date):
+        if (c.get('ProfessionalName') or '').strip() != nombre:
+            continue
+        t = (c.get('time') or '')[:8]
+        if len(t) < 5:
+            continue
+        ocupados.update(_expandir_bloques(t, c.get('duration') or 15))
+    return ocupados
+
+
+def disponibilidad_real(doc_id, target_date, motivo_key, cfg=None):
+    """
+    Devuelve (libres, ocupados) en bloques 'HH:MM' para (doctor, fecha):
+      - libres   = getAvailableHours (horas que el paciente puede tomar)
+      - ocupados = citas ya agendadas del doctor (getAgendaDay)
+    La UNION libres+ocupados = capacidad REAL del doctor ese dia (su jornada real),
+    que es el denominador correcto para la ocupacion aparente.
     """
     cfg = cfg or load_config()
     motivo = cfg['motivos'][motivo_key]
-    grilla = generar_grilla(cfg, motivo['duracion_min'])
 
     if not cfg['dentidesk']['enabled']:
-        # MOCK: ~20-30% ocupacion real determinista por doctor+fecha+hora
-        ocupadas = set()
-        for h in grilla:
-            if _hash01(doc_id, target_date.isoformat(), h, 'real') < 0.25:
-                ocupadas.add(h)
-        return ocupadas
+        # MOCK: jornada tipica (9-13 y 15-19) con ~25% ocupado determinista.
+        manana = [f'{h:02d}:{m:02d}' for h in range(9, 13) for m in (0, 15, 30, 45)]
+        tarde  = [f'{h:02d}:{m:02d}' for h in range(15, 19) for m in (0, 15, 30, 45)]
+        worked = manana + tarde
+        ocupados = {h for h in worked if _hash01(doc_id, target_date.isoformat(), h, 'real') < 0.25}
+        libres = [h for h in worked if h not in ocupados]
+        return set(libres), ocupados
 
     # REAL
-    disponibles = horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo)
-    return set(grilla) - disponibles
+    libres = horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo)
+    ocupados = bloques_ocupados(cfg, doc_id, target_date)
+    return libres, ocupados
 
 
 # ── Buscar paciente por RUT ──────────────────────────────────────────────────

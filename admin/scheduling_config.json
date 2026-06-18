@@ -131,7 +131,8 @@
           "min": 30,
           "max": 40
         }
-      }
+      },
+      "professional_name": "Octavio Del Real"
     },
     "rodrigo": {
       "professional_id": 8452,
@@ -150,7 +151,8 @@
           "min": 30,
           "max": 40
         }
-      }
+      },
+      "professional_name": "Rodrigo Oyonarte"
     },
     "alberto": {
       "professional_id": 639,
@@ -169,7 +171,8 @@
           "min": 30,
           "max": 40
         }
-      }
+      },
+      "professional_name": "Alberto Del Real"
     },
     "patricio": {
       "professional_id": 9308,
@@ -188,7 +191,8 @@
           "min": 30,
           "max": 40
         }
-      }
+      },
+      "professional_name": "Patricio Vial"
     }
   }
 }
