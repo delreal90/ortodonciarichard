@@ -325,9 +325,11 @@ function show(sec) {
 // AGENDA ONLINE — % de ocupación por doctor/franja
 // ══════════════════════════════════════════════════════
 const FRANJAS = [
-  ['proximos_5_habiles', 'Próximos 5 días hábiles'],
-  ['semana_siguiente',   'Semana siguiente'],
-  ['semana_posterior',   'La semana posterior'],
+  ['dia_0_5',   'Hoy a 5 días'],
+  ['dia_6_10',  'Días 6 a 10'],
+  ['dia_11_20', 'Días 11 a 20'],
+  ['dia_21_30', 'Días 21 a 30'],
+  ['dia_31_60', 'Días 31 a 60'],
 ];
 let AGENDA_CFG = null;
 
@@ -349,9 +351,7 @@ async function loadAgenda() {
       ${FRANJAS.map(([key, label]) => `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <span style="flex:1;font-size:.88rem">${label}</span>
-          <input type="number" min="0" max="100" class="ag-min" data-franja="${key}" value="${d.ocupacion[key].min}" style="width:64px;padding:6px;border:1px solid #cbd5e0;border-radius:6px"> %
-          <span>a</span>
-          <input type="number" min="0" max="100" class="ag-max" data-franja="${key}" value="${d.ocupacion[key].max}" style="width:64px;padding:6px;border:1px solid #cbd5e0;border-radius:6px"> %
+          <input type="number" min="0" max="100" class="ag-val" data-franja="${key}" value="${d.ocupacion[key]}" style="width:72px;padding:6px;border:1px solid #cbd5e0;border-radius:6px"> % ocupado
         </div>`).join('')}
     </div>`).join('');
 }
@@ -361,10 +361,8 @@ async function saveAgenda() {
   document.querySelectorAll('#agenda-doctores .card').forEach(card => {
     const id = card.dataset.doc;
     const ocupacion = {};
-    card.querySelectorAll('.ag-min').forEach(inp => {
-      const f = inp.dataset.franja;
-      const max = card.querySelector(`.ag-max[data-franja="${f}"]`);
-      ocupacion[f] = { min: +inp.value, max: +max.value };
+    card.querySelectorAll('.ag-val').forEach(inp => {
+      ocupacion[inp.dataset.franja] = +inp.value;
     });
     doctores[id] = { atiende: card.querySelector('.ag-atiende').checked, ocupacion };
   });

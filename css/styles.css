@@ -1744,3 +1744,21 @@ h4 { font-size: 1rem; font-weight: 600; }
     font-weight: 500;
     margin: 4px 0 0 !important;
 }
+
+/* Botón "Ver más fechas" en el agendamiento */
+.agenda-vermas {
+    display: block;
+    width: 100%;
+    margin-top: 14px;
+    padding: 11px;
+    background: var(--light-bg);
+    border: 1px solid #cbd5e0;
+    border-radius: 10px;
+    color: var(--navy);
+    font-size: .9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s;
+}
+.agenda-vermas:hover { background: #e6eef7; }
+.agenda-vermas:disabled { opacity: .7; cursor: default; }

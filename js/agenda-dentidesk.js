@@ -266,7 +266,7 @@ function elegirMotivo(key, el) {
 function avisoUrgenciaHTML() {
   if (!agenda.sel.motivoUrgencia) return '';
   return `<div class="agenda-urgencia">
-    <h4><i class="fas fa-heart-pulse"></i> Las urgencias son nuestra prioridad</h4>
+    <h4><i class="fas fa-staff-snake"></i> Las urgencias son nuestra prioridad</h4>
     <p>Queremos asegurarnos de que estés bien y resolver tu urgencia a la brevedad.
        Para atenderte lo antes posible, te recomendamos contactarnos directamente:</p>
     <div class="agenda-urgencia-btns">
@@ -282,19 +282,36 @@ function avisoUrgenciaHTML() {
 
 async function pasoFechaHora() {
   setPaso(6);
+  agenda.dias = [];
+  agenda.diasOffset = 0;
+  agenda.diasHayMas = false;
   setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
     <div class="agenda-doctor-head">
       <img src="${agenda.sel.doctorFoto}" alt="">
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.motivoLabel}</span></div>
     </div>
     <div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>`);
+  let r;
   try {
-    const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}`);
-    agenda.dias = r.dias || [];
+    r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=0`);
   } catch (e) { return pasoError('No pudimos cargar la disponibilidad.'); }
+  agenda.dias = r.dias || [];
+  agenda.diasOffset = r.offset_siguiente || 0;
+  agenda.diasHayMas = !!r.hay_mas;
+  // Si la primera pagina vino vacia pero hay mas, seguir cargando
+  while (!agenda.dias.length && agenda.diasHayMas) {
+    const r2 = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
+    agenda.dias = agenda.dias.concat(r2.dias || []);
+    agenda.diasOffset = r2.offset_siguiente || agenda.diasOffset;
+    agenda.diasHayMas = !!r2.hay_mas;
+  }
   if (!agenda.dias.length) {
     return pasoError('No hay horas disponibles en este momento. Escríbenos por WhatsApp y te ayudamos.');
   }
+  renderFechaHora();
+}
+
+function renderFechaHora() {
   const diasHtml = agenda.dias.map((d, i) => `
     <div class="agenda-dia">
       <h4>${d.legible}</h4>
@@ -302,6 +319,9 @@ async function pasoFechaHora() {
         ${d.horas.map(h => `<button class="agenda-hora" onclick="elegirHora(${i}, '${h}')">${h}</button>`).join('')}
       </div>
     </div>`).join('');
+  const masBtn = agenda.diasHayMas
+    ? `<button class="agenda-vermas" id="agendaVerMas" onclick="cargarMasFechas()">Ver más fechas <i class="fas fa-chevron-down"></i></button>`
+    : '';
   setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
     <div class="agenda-doctor-head">
       <img src="${agenda.sel.doctorFoto}" alt="">
@@ -309,8 +329,26 @@ async function pasoFechaHora() {
     </div>
     ${avisoUrgenciaHTML()}
     <h3 class="agenda-q">Elige día y hora</h3>
-    <div class="agenda-dias">${diasHtml}</div>`);
+    <div class="agenda-dias">${diasHtml}</div>
+    ${masBtn}`);
 }
+
+async function cargarMasFechas() {
+  const btn = document.getElementById('agendaVerMas');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cargando…'; }
+  try {
+    let cargo = false;
+    // Cargar paginas hasta encontrar al menos un dia con horas o agotar la ventana
+    while (!cargo && agenda.diasHayMas) {
+      const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
+      agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
+      agenda.diasHayMas = !!r.hay_mas;
+      if ((r.dias || []).length) { agenda.dias = agenda.dias.concat(r.dias); cargo = true; }
+    }
+  } catch (e) { /* deja el boton */ }
+  renderFechaHora();
+}
+
 function elegirHora(diaIdx, hora) {
   agenda.sel.fecha = agenda.dias[diaIdx].fecha;
   agenda.sel.fechaLegible = agenda.dias[diaIdx].legible;

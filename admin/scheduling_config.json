@@ -34,7 +34,8 @@
   "reglas": {
     "anticipacion_minima_horas": 12,
     "_comment_anticipacion": "No se puede agendar con menos de 12h, salvo motivo de tipo 'urgencia'.",
-    "dias_a_mostrar": 15
+    "anticipacion_maxima_dias": 60,
+    "_comment_maxima": "No se puede agendar con mas de 60 dias de anticipacion."
   },
   "especialidades": {
     "_comment": "Es lo primero que elige el paciente. El label sale de la especialidad/rol de los doctores. Para agregar una especialidad: crearla aqui y asignarla a un doctor (campo 'especialidad').",
@@ -100,7 +101,7 @@
       "especialidad": "rehabilitacion",
       "id_reason": "24798",
       "_id_reason_nombre": "Control / Evaluacion PV (continuar tratamiento)",
-      "duracion_min": 60,
+      "duracion_min": 30,
       "urgencia": false
     },
     "rehab_urgencia": {
@@ -119,18 +120,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "proximos_5_habiles": {
-          "min": 65,
-          "max": 70
-        },
-        "semana_siguiente": {
-          "min": 45,
-          "max": 55
-        },
-        "semana_posterior": {
-          "min": 30,
-          "max": 40
-        }
+        "dia_0_5": 70,
+        "dia_6_10": 60,
+        "dia_11_20": 50,
+        "dia_21_30": 40,
+        "dia_31_60": 30
       },
       "professional_name": "Octavio Del Real"
     },
@@ -139,18 +133,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "proximos_5_habiles": {
-          "min": 65,
-          "max": 70
-        },
-        "semana_siguiente": {
-          "min": 45,
-          "max": 55
-        },
-        "semana_posterior": {
-          "min": 30,
-          "max": 40
-        }
+        "dia_0_5": 70,
+        "dia_6_10": 60,
+        "dia_11_20": 50,
+        "dia_21_30": 40,
+        "dia_31_60": 30
       },
       "professional_name": "Rodrigo Oyonarte"
     },
@@ -159,18 +146,11 @@
       "atiende": true,
       "especialidad": "ortodoncia",
       "ocupacion": {
-        "proximos_5_habiles": {
-          "min": 65,
-          "max": 70
-        },
-        "semana_siguiente": {
-          "min": 45,
-          "max": 55
-        },
-        "semana_posterior": {
-          "min": 30,
-          "max": 40
-        }
+        "dia_0_5": 70,
+        "dia_6_10": 60,
+        "dia_11_20": 50,
+        "dia_21_30": 40,
+        "dia_31_60": 30
       },
       "professional_name": "Alberto Del Real"
     },
@@ -179,18 +159,11 @@
       "atiende": true,
       "especialidad": "rehabilitacion",
       "ocupacion": {
-        "proximos_5_habiles": {
-          "min": 65,
-          "max": 70
-        },
-        "semana_siguiente": {
-          "min": 45,
-          "max": 55
-        },
-        "semana_posterior": {
-          "min": 30,
-          "max": 40
-        }
+        "dia_0_5": 70,
+        "dia_6_10": 60,
+        "dia_11_20": 50,
+        "dia_21_30": 40,
+        "dia_31_60": 30
       },
       "professional_name": "Patricio Vial"
     }

@@ -121,18 +121,38 @@ def dias_habiles_desde(d0, cantidad, cfg):
     return out
 
 
+# Franjas temporales por dias de CALENDARIO desde hoy (inclusive).
+_BANDAS = [
+    ('dia_0_5',    0,  5),
+    ('dia_6_10',   6, 10),
+    ('dia_11_20', 11, 20),
+    ('dia_21_30', 21, 30),
+    ('dia_31_60', 31, 60),
+]
+
 def banda_temporal(target_date, hoy, cfg):
-    """Clasifica una fecha en una de las 3 bandas de ocupacion segun cuantos
-    dias habiles la separan de hoy. Devuelve la key de config o None."""
-    habiles = dias_habiles_desde(hoy, 15, cfg)
-    if target_date not in habiles:
-        return None
-    idx = habiles.index(target_date)  # 0-based
-    if idx < 5:
-        return 'proximos_5_habiles'
-    if idx < 10:
-        return 'semana_siguiente'
-    return 'semana_posterior'
+    """Clasifica una fecha en una franja segun cuantos dias de calendario la
+    separan de hoy. Devuelve la key de config o None (fuera de las franjas)."""
+    diff = (target_date - hoy).days
+    for key, lo, hi in _BANDAS:
+        if lo <= diff <= hi:
+            return key
+    return None
+
+
+def dentro_de_ventana(target_date, cfg, hoy=None):
+    """True si la fecha esta dentro de la ventana agendable (0..max dias)."""
+    hoy = hoy or date.today()
+    diff = (target_date - hoy).days
+    maxd = cfg['reglas'].get('anticipacion_maxima_dias', 60)
+    return 0 <= diff <= maxd
+
+
+def dias_habiles_ventana(hoy, cfg):
+    """Dias habiles dentro de la ventana de anticipacion maxima (calendario)."""
+    maxd = cfg['reglas'].get('anticipacion_maxima_dias', 60)
+    return [hoy + timedelta(days=k) for k in range(0, maxd + 1)
+            if es_habil(hoy + timedelta(days=k), cfg)]
 
 
 # ── Simulacion de ocupacion (determinista) ───────────────────────────────────
@@ -145,12 +165,6 @@ def _hash01(*parts):
     return int(h[:8], 16) / 0xFFFFFFFF
 
 
-def _target_ocupacion(doc_id, target_date, jornada, banda_cfg):
-    """% objetivo dentro del rango [min,max], determinista por doctor+fecha+jornada.
-    Asi cada jornada tiene un % estable pero variado (se ve natural)."""
-    lo, hi = banda_cfg['min'], banda_cfg['max']
-    r = _hash01(doc_id, target_date.isoformat(), jornada, 'target')
-    return lo + r * (hi - lo)
 
 
 def aplicar_ocupacion_simulada(doc_id, target_date, slots_grilla, ocupados_reales, cfg, hoy=None):
@@ -185,12 +199,13 @@ def aplicar_ocupacion_simulada(doc_id, target_date, slots_grilla, ocupados_reale
         libres = [s for s in de_jornada if s not in ocupados_reales]
         ocupados_count = len(de_jornada) - len(libres)
 
-        # objetivo solo aplica dentro de las 3 bandas; fuera de eso no se simula
+        # objetivo solo aplica dentro de las franjas; fuera de eso no se simula.
+        # Cada franja tiene UN porcentaje; el sistema busca la cantidad de horas
+        # que mejor se acomode a ese porcentaje (redondeo al entero mas cercano).
         objetivo_frac = 0.0
-        if banda_key and banda_key in doc_cfg.get('ocupacion', {}):
-            objetivo_frac = _target_ocupacion(
-                doc_id, target_date, jornada, doc_cfg['ocupacion'][banda_key]
-            ) / 100.0
+        val = doc_cfg.get('ocupacion', {}).get(banda_key) if banda_key else None
+        if isinstance(val, (int, float)):
+            objetivo_frac = float(val) / 100.0
 
         objetivo_ocupados = int(round(objetivo_frac * len(de_jornada)))
         faltan = max(0, objetivo_ocupados - ocupados_count)

@@ -725,7 +725,12 @@ def agenda_disponibilidad():
         return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
 
     hoy = date.today()
-    habiles = scheduling.dias_habiles_desde(hoy, cfg['reglas']['dias_a_mostrar'], cfg)
+    todos = scheduling.dias_habiles_ventana(hoy, cfg)
+    # Paginacion: se cargan de a PAGE dias habiles (evita decenas de llamadas
+    # a DentiDesk de una sola vez). El frontend pide mas con 'offset'.
+    PAGE = 10
+    offset = max(0, int(request.args.get('offset', 0) or 0))
+    pagina = todos[offset:offset + PAGE]
 
     def trabajo(d):
         try:
@@ -734,11 +739,13 @@ def agenda_disponibilidad():
             return d, []
 
     dias = []
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        for d, horas in sorted(pool.map(trabajo, habiles), key=lambda x: x[0]):
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for d, horas in sorted(pool.map(trabajo, pagina), key=lambda x: x[0]):
             if horas:
                 dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
-    return jsonify({'ok': True, 'dias': dias})
+    return jsonify({'ok': True, 'dias': dias,
+                    'offset_siguiente': offset + PAGE,
+                    'hay_mas': (offset + PAGE) < len(todos)})
 
 def _check_admin_token():
     """Protege endpoints sensibles. En produccion se define ADMIN_TOKEN (env var);
@@ -838,7 +845,9 @@ def agenda_reservar():
     if '@' not in email or '.' not in email:
         return jsonify({'ok': False, 'error': 'El email es obligatorio'}), 400
 
-    # Revalidar en backend: anticipacion + que la hora siga disponible
+    # Revalidar en backend: ventana (max 60 dias) + anticipacion + disponibilidad
+    if not scheduling.dentro_de_ventana(fecha, cfg):
+        return jsonify({'ok': False, 'error': 'No se puede agendar con mas de 60 dias de anticipacion'}), 409
     if not scheduling.cumple_anticipacion(fecha, hora, motivo_cfg, cfg):
         return jsonify({'ok': False, 'error': 'La hora no cumple la anticipacion minima'}), 409
     libres_d, ocupados_d = dentidesk.disponibilidad_real(doctor, fecha, motivo, cfg)
@@ -902,11 +911,10 @@ def set_scheduling_config():
             continue
         if 'atiende' in doc_changes:
             cfg['doctores'][doc_id]['atiende'] = bool(doc_changes['atiende'])
-        for franja, rango in (doc_changes.get('ocupacion') or {}).items():
+        for franja, valor in (doc_changes.get('ocupacion') or {}).items():
             if franja in cfg['doctores'][doc_id]['ocupacion']:
-                cfg['doctores'][doc_id]['ocupacion'][franja] = {
-                    'min': int(rango['min']), 'max': int(rango['max'])
-                }
+                # un solo porcentaje por franja (0-100)
+                cfg['doctores'][doc_id]['ocupacion'][franja] = max(0, min(100, int(valor)))
     scheduling.save_config(cfg)
     return jsonify({'ok': True})
 
