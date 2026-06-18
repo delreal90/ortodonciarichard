@@ -878,37 +878,73 @@ def agenda_reservar():
 
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
+
+    # "No soy yo": el paciente está en la BD pero usó datos distintos.
+    # DentiDesk recibe el email registrado (dedup). La notificacion va al email nuevo.
+    es_no_soy_yo = bool(data.get('es_no_soy_yo')) and rec is not None
+    email_nuevo   = (data.get('email_nuevo') or data.get('email') or '').strip()
+    telefono_nuevo = (data.get('telefono_nuevo') or data.get('telefono') or '').strip()
+    email_notif   = email_nuevo if (es_no_soy_yo and '@' in email_nuevo) else email
+
     confirm = notify.enviar_confirmacion({
-        'nombre': nombre, 'telefono': data.get('telefono', ''),
-        'email': email, 'fecha': fecha,
+        'nombre': nombre, 'telefono': telefono_nuevo or data.get('telefono', ''),
+        'email': email_notif, 'fecha': fecha,
         'fecha_legible': _fecha_legible(fecha), 'hora': hora,
         'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
         'dur_min': motivo_cfg['duracion_min'],
     }, cfg)
 
+    if es_no_soy_yo:
+        notify.enviar_solicitud_cambio_datos({
+            'nombre': f"{rec.get('nombres','')} {rec.get('apellidos','')}".strip(),
+            'rut_fmt': scheduling.formatear_rut(rut),
+            'email_antiguo': rec.get('email', ''),
+            'email_nuevo': email_nuevo,
+            'telefono_antiguo': rec.get('telefono', ''),
+            'telefono_nuevo': telefono_nuevo,
+            'fecha_legible': _fecha_legible(fecha), 'hora': hora,
+            'doctor_nombre': doctor_nombre,
+        }, cfg)
+
     return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
-                    'confirmacion': confirm, 'mock': res.get('mock', False)})
+                    'confirmacion': confirm, 'mock': res.get('mock', False),
+                    'solicitud_cambio': es_no_soy_yo})
 
 @app.route('/api/scheduling-config', methods=['GET'])
 def get_scheduling_config():
-    """Para el panel admin: devuelve doctores + sus % de ocupacion por franja."""
+    """Para el panel admin: devuelve doctores, motivos, especialidades y reglas."""
     cfg = scheduling.load_config()
     doctores = {k: v for k, v in cfg['doctores'].items()
                 if not k.startswith('_') and isinstance(v, dict)}
+    motivos = [
+        {'key': k, 'label': v.get('label',''), 'especialidad': v.get('especialidad',''),
+         'duracion_min': v.get('duracion_min', 15), 'urgencia': bool(v.get('urgencia')),
+         'id_reason': v.get('id_reason', '')}
+        for k, v in cfg['motivos'].items()
+        if not k.startswith('_') and isinstance(v, dict)
+    ]
+    especialidades = [
+        {'key': k, 'label': v.get('label', '')}
+        for k, v in cfg['especialidades'].items()
+        if not k.startswith('_') and isinstance(v, dict)
+    ]
     return jsonify({
         'doctores': doctores,
+        'motivos': motivos,
+        'especialidades': especialidades,
         'reglas': cfg['reglas'],
         'dentidesk_enabled': cfg['dentidesk']['enabled'],
     })
 
 @app.route('/api/scheduling-config', methods=['POST'])
 def set_scheduling_config():
-    """Guarda cambios de % de ocupacion por doctor/franja (sin tocar codigo)."""
+    """Guarda cambios de doctores, motivos, especialidades y reglas (sin tocar codigo)."""
     data = request.json or {}
     cfg = scheduling.load_config()
-    # Parametro global: anticipacion minima (horas), aplica a todos los motivos.
+
     if 'anticipacion_minima_horas' in data:
         cfg['reglas']['anticipacion_minima_horas'] = max(0, int(data['anticipacion_minima_horas']))
+
     for doc_id, doc_changes in (data.get('doctores') or {}).items():
         if doc_id not in cfg['doctores']:
             continue
@@ -916,8 +952,40 @@ def set_scheduling_config():
             cfg['doctores'][doc_id]['atiende'] = bool(doc_changes['atiende'])
         for franja, valor in (doc_changes.get('ocupacion') or {}).items():
             if franja in cfg['doctores'][doc_id]['ocupacion']:
-                # un solo porcentaje por franja (0-100)
                 cfg['doctores'][doc_id]['ocupacion'][franja] = max(0, min(100, int(valor)))
+
+    # Motivos: reemplazar por la lista completa recibida del panel.
+    if 'motivos' in data:
+        comment = cfg['motivos'].get('_comment', '')
+        new_motivos = {}
+        if comment:
+            new_motivos['_comment'] = comment
+        for m in (data['motivos'] or []):
+            key = (m.get('key') or '').strip()
+            if not key:
+                continue
+            new_motivos[key] = {
+                'label':        m.get('label', ''),
+                'especialidad': m.get('especialidad', 'ortodoncia'),
+                'id_reason':    str(m.get('id_reason', '')),
+                'duracion_min': max(5, int(m.get('duracion_min') or 15)),
+                'urgencia':     bool(m.get('urgencia')),
+            }
+        cfg['motivos'] = new_motivos
+
+    # Especialidades: reemplazar por la lista recibida del panel.
+    if 'especialidades' in data:
+        comment = cfg['especialidades'].get('_comment', '')
+        new_esp = {}
+        if comment:
+            new_esp['_comment'] = comment
+        for e in (data['especialidades'] or []):
+            key = (e.get('key') or '').strip()
+            if not key:
+                continue
+            new_esp[key] = {'label': e.get('label', '')}
+        cfg['especialidades'] = new_esp
+
     scheduling.save_config(cfg)
     return jsonify({'ok': True})
 

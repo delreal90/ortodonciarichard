@@ -218,6 +218,93 @@ def _enviar_whatsapp(cita, ics):
     return False
 
 
+# ── Solicitud de cambio de datos ─────────────────────────────────────────────
+
+def enviar_solicitud_cambio_datos(datos, cfg=None):
+    """
+    Notifica a recepcion que el paciente agendó pero quiere actualizar sus datos.
+    datos: nombre, rut_fmt, email_antiguo, email_nuevo, telefono_antiguo,
+           telefono_nuevo, fecha_legible, hora, doctor_nombre.
+    """
+    cfg = cfg or load_config()
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    if not smtp_user or not smtp_pass:
+        return False
+
+    nombre   = datos.get('nombre', 'Paciente')
+    rut      = datos.get('rut_fmt', '')
+
+    # Solo incluir los campos que realmente cambian
+    cambios = []
+    if datos.get('email_nuevo') and datos.get('email_nuevo') != datos.get('email_antiguo'):
+        cambios.append(('Email', datos.get('email_antiguo') or '(sin registro)', datos['email_nuevo']))
+    if datos.get('telefono_nuevo') and datos.get('telefono_nuevo') != datos.get('telefono_antiguo'):
+        cambios.append(('Teléfono', datos.get('telefono_antiguo') or '(sin registro)', datos['telefono_nuevo']))
+    if not cambios:
+        return True  # sin cambios reales, no enviar
+
+    cambios_html = ''.join(f"""
+      <tr>
+        <td style="padding:10px 12px;font-weight:700;color:#1A2E4A;white-space:nowrap">{campo}</td>
+        <td style="padding:10px 12px;color:#718096;text-decoration:line-through">{antiguo}</td>
+        <td style="padding:10px 12px;color:#2D3748">→</td>
+        <td style="padding:10px 12px;color:#1A2E4A;font-weight:600">{nuevo}</td>
+      </tr>""" for campo, antiguo, nuevo in cambios)
+
+    html = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
+  <tr><td style="background:#1A2E4A;padding:24px 32px;">
+    <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase">Agenda Online — Aviso</p>
+    <h1 style="margin:6px 0 0;color:#fff;font-size:20px">Solicitud de actualización de datos</h1>
+  </td></tr>
+  <tr><td style="padding:28px 32px;">
+    <p style="margin:0 0 16px;color:#4A5568;font-size:15px">
+      El paciente <strong>{nombre}</strong> (RUT {rut}) agendó hora el
+      <strong>{datos.get('fecha_legible','')} a las {datos.get('hora','')} hrs</strong>
+      con <strong>{datos.get('doctor_nombre','')}</strong> y está solicitando actualizar sus datos de contacto:
+    </p>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+      <thead><tr style="background:#f8fafc">
+        <th style="padding:10px 12px;text-align:left;color:#4A5568;font-size:12px;text-transform:uppercase">Campo</th>
+        <th style="padding:10px 12px;text-align:left;color:#4A5568;font-size:12px;text-transform:uppercase">Dato actual</th>
+        <th></th>
+        <th style="padding:10px 12px;text-align:left;color:#4A5568;font-size:12px;text-transform:uppercase">Dato solicitado</th>
+      </tr></thead>
+      <tbody>{cambios_html}</tbody>
+    </table>
+    <p style="margin:20px 0 0;color:#718096;font-size:13px">
+      Si los datos son correctos, puedes actualizar la ficha del paciente en DentiDesk.
+    </p>
+  </td></tr>
+  <tr><td style="background:#1A2E4A;padding:16px 32px;text-align:center;">
+    <p style="margin:0;color:#8fa8c8;font-size:12px">Ortodoncia Richard · Sistema de agendamiento online</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
+
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Agenda Ortodoncia Richard <{smtp_user}>'
+    msg['To']   = smtp_user
+    msg['Subject'] = f'Paciente solicita cambio de datos — {nombre} (RUT {rut})'
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [smtp_user], msg.as_bytes())
+        return True
+    except Exception as e:
+        log.error('SMTP cambio_datos error: %s', e)
+        return False
+
+
 # ── Punto de entrada ─────────────────────────────────────────────────────────
 
 def enviar_confirmacion(cita, cfg=None):

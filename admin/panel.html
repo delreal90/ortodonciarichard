@@ -190,6 +190,7 @@
       <p class="desc">Ajusta el % mínimo de ocupación <em>aparente</em> de cada doctor por franja temporal. Sirve para que la agenda nunca se vea demasiado vacía. No afecta las horas realmente ocupadas.</p>
       <div class="card" id="agenda-estado" style="margin-bottom:18px"></div>
       <div class="card" id="agenda-global" style="margin-bottom:18px"></div>
+      <div class="card" id="agenda-motivos" style="margin-bottom:18px"></div>
       <div id="agenda-doctores"></div>
       <button class="btn btn-primary" style="margin-top:8px" onclick="saveAgenda()">Guardar configuración</button>
     </div>
@@ -346,7 +347,7 @@ async function loadAgenda() {
     estado.innerHTML = '<strong style="color:#C9A84C">● Modo demo</strong> — aún sin credenciales de DentiDesk. El flujo funciona con datos simulados.';
   }
 
-  // Parámetro global: anticipación mínima (horas), aplica a TODOS los motivos.
+  // Anticipación mínima global
   const anti = (AGENDA_CFG.reglas && AGENDA_CFG.reglas.anticipacion_minima_horas) || 16;
   document.getElementById('agenda-global').innerHTML = `
     <h3>Anticipación mínima</h3>
@@ -354,6 +355,9 @@ async function loadAgenda() {
       <span style="flex:1;font-size:.9rem">Horas mínimas de anticipación para reservar (todos los motivos, incluidas urgencias)</span>
       <input type="number" min="0" max="168" id="ag-anticipacion" value="${anti}" style="width:80px;padding:6px;border:1px solid #cbd5e0;border-radius:6px"> hrs
     </div>`;
+
+  // Motivos y especialidades
+  renderMotivoPanel();
 
   const cont = document.getElementById('agenda-doctores');
   cont.innerHTML = Object.entries(AGENDA_CFG.doctores).map(([id, d]) => `
@@ -372,18 +376,147 @@ async function loadAgenda() {
     </div>`).join('');
 }
 
+function _slugify(s) {
+  return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40) || ('m_'+Date.now());
+}
+
+function renderMotivoPanel() {
+  const esps   = AGENDA_CFG.especialidades || [];
+  const motivos = AGENDA_CFG.motivos || [];
+
+  const espOpts = esps.map(e=>`<option value="${e.key}">${e.label}</option>`).join('');
+  const espRows = esps.map(e=>`
+    <tr data-espkey="${e.key}">
+      <td style="padding:6px 8px"><code style="font-size:.82rem">${e.key}</code></td>
+      <td style="padding:6px 8px"><input class="esp-label" value="${e.label}" style="width:100%;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px"></td>
+      <td style="padding:6px 8px;text-align:center"><button onclick="eliminarEsp('${e.key}')" style="background:none;border:none;color:#e53e3e;cursor:pointer;font-size:1rem">✕</button></td>
+    </tr>`).join('');
+
+  const motRows = motivos.map(m=>`
+    <tr data-motkey="${m.key}">
+      <td style="padding:6px 8px"><input class="mot-label" value="${(m.label||'').replace(/"/g,'&quot;')}" style="width:100%;min-width:160px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px"></td>
+      <td style="padding:6px 8px"><select class="mot-esp" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px">${esps.map(e=>`<option value="${e.key}"${m.especialidad===e.key?' selected':''}>${e.label}</option>`).join('')}</select></td>
+      <td style="padding:6px 8px"><input type="number" class="mot-dur" min="5" max="180" step="5" value="${m.duracion_min||15}" style="width:64px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px"> min</td>
+      <td style="padding:6px 8px;text-align:center"><input type="checkbox" class="mot-urg" ${m.urgencia?'checked':''}></td>
+      <td style="padding:6px 8px"><input class="mot-id" value="${m.id_reason||''}" placeholder="ID DentiDesk" style="width:90px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:.82rem"></td>
+      <td style="padding:6px 8px;text-align:center"><button onclick="eliminarMotivo('${m.key}')" style="background:none;border:none;color:#e53e3e;cursor:pointer;font-size:1rem">✕</button></td>
+    </tr>`).join('');
+
+  document.getElementById('agenda-motivos').innerHTML = `
+    <h3 style="margin-bottom:14px">Motivos de consulta</h3>
+
+    <h4 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;color:#4A5568;margin-bottom:6px">Especialidades</h4>
+    <div style="overflow-x:auto;margin-bottom:8px">
+      <table style="width:100%;border-collapse:collapse" id="ag-esp-tbody-wrap">
+        <thead><tr style="background:#f8fafc">
+          <th style="padding:6px 8px;text-align:left;font-size:.8rem;color:#718096">Key</th>
+          <th style="padding:6px 8px;text-align:left;font-size:.8rem;color:#718096">Etiqueta visible</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="ag-esp-tbody">${espRows}</tbody>
+      </table>
+    </div>
+    <button onclick="agregarEsp()" class="btn btn-sm" style="font-size:.82rem;padding:4px 12px;margin-bottom:18px">+ Especialidad</button>
+
+    <h4 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;color:#4A5568;margin-bottom:6px">Motivos</h4>
+    <div style="overflow-x:auto;margin-bottom:8px">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:#f8fafc">
+          <th style="padding:6px 8px;text-align:left;font-size:.8rem;color:#718096">Etiqueta</th>
+          <th style="padding:6px 8px;text-align:left;font-size:.8rem;color:#718096">Especialidad</th>
+          <th style="padding:6px 8px;text-align:left;font-size:.8rem;color:#718096">Duración</th>
+          <th style="padding:6px 8px;text-align:center;font-size:.8rem;color:#718096">Urgencia</th>
+          <th style="padding:6px 8px;text-align:left;font-size:.8rem;color:#718096">ID DentiDesk</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="ag-mot-tbody">${motRows}</tbody>
+      </table>
+    </div>
+    <button onclick="agregarMotivo()" class="btn btn-sm" style="font-size:.82rem;padding:4px 12px">+ Motivo</button>`;
+}
+
+function agregarEsp() {
+  const key = prompt('Key interno (sin espacios, ej: implantologia):');
+  if (!key) return;
+  const label = prompt('Etiqueta visible para el paciente:');
+  if (!label) return;
+  const tr = document.createElement('tr');
+  tr.dataset.espkey = key.trim().toLowerCase().replace(/\s+/g,'_');
+  tr.innerHTML = `
+    <td style="padding:6px 8px"><code style="font-size:.82rem">${tr.dataset.espkey}</code></td>
+    <td style="padding:6px 8px"><input class="esp-label" value="${label}" style="width:100%;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px"></td>
+    <td style="padding:6px 8px;text-align:center"><button onclick="eliminarEsp('${tr.dataset.espkey}')" style="background:none;border:none;color:#e53e3e;cursor:pointer;font-size:1rem">✕</button></td>`;
+  document.getElementById('ag-esp-tbody').appendChild(tr);
+}
+function eliminarEsp(key) {
+  if (!confirm(`¿Eliminar especialidad "${key}"? Asegúrate de que no haya motivos que la usen.`)) return;
+  document.querySelector(`#ag-esp-tbody tr[data-espkey="${key}"]`)?.remove();
+}
+
+function agregarMotivo() {
+  const esps = AGENDA_CFG.especialidades || [];
+  const espOpts = esps.map(e=>`<option value="${e.key}">${e.label}</option>`).join('');
+  const key = 'motivo_' + Date.now();
+  const tr = document.createElement('tr');
+  tr.dataset.motkey = key;
+  tr.innerHTML = `
+    <td style="padding:6px 8px"><input class="mot-label" value="" placeholder="Etiqueta" style="width:100%;min-width:160px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px"></td>
+    <td style="padding:6px 8px"><select class="mot-esp" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px">${espOpts}</select></td>
+    <td style="padding:6px 8px"><input type="number" class="mot-dur" min="5" max="180" step="5" value="15" style="width:64px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px"> min</td>
+    <td style="padding:6px 8px;text-align:center"><input type="checkbox" class="mot-urg"></td>
+    <td style="padding:6px 8px"><input class="mot-id" value="" placeholder="ID DentiDesk" style="width:90px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:.82rem"></td>
+    <td style="padding:6px 8px;text-align:center"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:#e53e3e;cursor:pointer;font-size:1rem">✕</button></td>`;
+  document.getElementById('ag-mot-tbody').appendChild(tr);
+}
+function eliminarMotivo(key) {
+  if (!confirm('¿Eliminar este motivo?')) return;
+  document.querySelector(`#ag-mot-tbody tr[data-motkey="${key}"]`)?.remove();
+}
+
 async function saveAgenda() {
+  // Doctores
   const doctores = {};
   document.querySelectorAll('#agenda-doctores .card').forEach(card => {
     const id = card.dataset.doc;
     const ocupacion = {};
-    card.querySelectorAll('.ag-val').forEach(inp => {
-      ocupacion[inp.dataset.franja] = +inp.value;
-    });
+    card.querySelectorAll('.ag-val').forEach(inp => { ocupacion[inp.dataset.franja] = +inp.value; });
     doctores[id] = { atiende: card.querySelector('.ag-atiende').checked, ocupacion };
   });
+
+  // Especialidades
+  const especialidades = [];
+  document.querySelectorAll('#ag-esp-tbody tr[data-espkey]').forEach(tr => {
+    const key   = tr.dataset.espkey;
+    const label = tr.querySelector('.esp-label')?.value.trim();
+    if (key && label) especialidades.push({ key, label });
+  });
+
+  // Motivos
+  const motivos = [];
+  document.querySelectorAll('#ag-mot-tbody tr[data-motkey]').forEach(tr => {
+    const label = tr.querySelector('.mot-label')?.value.trim();
+    if (!label) return;
+    const rawKey = tr.dataset.motkey;
+    const key = rawKey.startsWith('motivo_') ? _slugify(label) + '_' + rawKey.split('_').pop() : rawKey;
+    motivos.push({
+      key,
+      label,
+      especialidad: tr.querySelector('.mot-esp')?.value || 'ortodoncia',
+      duracion_min: +(tr.querySelector('.mot-dur')?.value || 15),
+      urgencia:     tr.querySelector('.mot-urg')?.checked || false,
+      id_reason:    tr.querySelector('.mot-id')?.value.trim() || '',
+    });
+  });
+
   const anticipacion = +document.getElementById('ag-anticipacion').value;
-  const r = await api('/api/scheduling-config', 'POST', { doctores, anticipacion_minima_horas: anticipacion });
+  const r = await api('/api/scheduling-config', 'POST', {
+    doctores, anticipacion_minima_horas: anticipacion, motivos, especialidades,
+  });
+  if (r.ok) {
+    AGENDA_CFG = await api('/api/scheduling-config');
+    renderMotivoPanel();
+  }
   toast(r.ok ? 'Configuración guardada ✓' : 'Error al guardar', r.ok);
 }
 

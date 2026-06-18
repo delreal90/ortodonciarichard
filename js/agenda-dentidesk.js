@@ -24,6 +24,7 @@ const agenda = {
     doctor: null, doctorNombre: '', doctorFoto: '',
     motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
+    esNoSoyYo: false, datosOriginales: null,
   },
   dias: [],
 };
@@ -82,6 +83,7 @@ function cerrarAgenda() {
     existe: false, datos: { nombres: '', apellidos: '', email: '', telefono: '' },
     doctor: null, doctorNombre: '', doctorFoto: '', motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
+    esNoSoyYo: false, datosOriginales: null,
   };
 }
 
@@ -176,11 +178,14 @@ function pasoDatos() {
     return;
   }
 
-  // Paciente NUEVO: formulario completo (email obligatorio).
+  // Paciente NUEVO o "no soy yo": formulario completo (email obligatorio).
+  const aviso = agenda.sel.esNoSoyYo
+    ? `<div class="agenda-aviso"><i class="fas fa-user-pen"></i> Te reconocemos como <strong>${d.nombres} ${d.apellidos}</strong>. Ingresa tus datos de contacto actualizados — tu hora quedará agendada y notificaremos a la clínica para actualizar tu ficha.</div>`
+    : `<div class="agenda-aviso"><i class="fas fa-user-pen"></i> Completa tus datos para confirmar la reserva.</div>`;
   setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
     <h3 class="agenda-q">Tus datos</h3>
     <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
-    <div class="agenda-aviso"><i class="fas fa-user-pen"></i> Completa tus datos para confirmar la reserva.</div>
+    ${aviso}
     <form class="agenda-form" onsubmit="return continuarDatos(event)">
       <input name="nombres"   placeholder="Nombres" value="${d.nombres || ''}" required>
       <input name="apellidos" placeholder="Apellidos" value="${d.apellidos || ''}" required>
@@ -197,8 +202,15 @@ function confirmarReconocido() {
 
 function noSoyYo(e) {
   e.preventDefault();
+  agenda.sel.esNoSoyYo = true;
+  agenda.sel.datosOriginales = { ...agenda.sel.datos };
   agenda.sel.existe = false;
-  agenda.sel.datos = { nombres: '', apellidos: '', email: '', telefono: '' };
+  // Conserva nombre (ya visible y no sensible); limpia contacto para que lo ingrese
+  agenda.sel.datos = {
+    nombres: agenda.sel.datos.nombres,
+    apellidos: agenda.sel.datos.apellidos,
+    email: '', telefono: '',
+  };
   pasoDatos();
 }
 
@@ -394,6 +406,11 @@ async function confirmarReserva() {
         fecha: s.fecha, hora: s.hora, rut: s.rut,
         nombres: s.datos.nombres, apellidos: s.datos.apellidos,
         email: s.datos.email || '', telefono: s.datos.telefono || '',
+        ...(s.esNoSoyYo && {
+          es_no_soy_yo: true,
+          email_nuevo: s.datos.email || '',
+          telefono_nuevo: s.datos.telefono || '',
+        }),
       }),
     });
     if (r.ok) pasoExito(r); else pasoError(r.error || 'No se pudo agendar.');
@@ -406,11 +423,14 @@ async function confirmarReserva() {
 
 function pasoExito(r) {
   const s = agenda.sel;
+  const extraMsg = r.solicitud_cambio
+    ? ' También notificamos a la clínica tu solicitud de actualizar tus datos de contacto.'
+    : '';
   setBody(`<div class="agenda-final ok">
     <i class="fas fa-circle-check"></i>
     <h3>¡Tu hora quedó agendada!</h3>
     <p>${s.doctorNombre}<br>${s.fechaLegible} · ${s.hora} hrs</p>
-    <p class="agenda-mini">Te enviamos un email de confirmación con un archivo para agregar la cita a tu calendario${r.mock ? ' (modo demo)' : ''}.</p>
+    <p class="agenda-mini">Te enviamos un email de confirmación con un archivo para agregar la cita a tu calendario${r.mock ? ' (modo demo)' : ''}.${extraMsg}</p>
     <button class="btn btn-primary" onclick="cerrarAgenda()">Listo</button>
   </div>`);
 }
