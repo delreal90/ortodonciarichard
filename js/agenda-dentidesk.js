@@ -62,6 +62,20 @@ function rutValido(rut) {
   return dvCalc === dv;
 }
 
+/* ── Precarga de config (para que el modal abra instantáneo) ─────────────── */
+
+// Se dispara apenas carga la página (en segundo plano). Cuando el paciente
+// hace click en "Agendar", la config ya suele estar lista -> aparece al instante.
+let _configPromise = null;
+function precargarConfig() {
+  if (!_configPromise) {
+    _configPromise = agendaApi('/api/agenda/config')
+      .then(cfg => { agenda.config = cfg; return cfg; })
+      .catch(err => { _configPromise = null; throw err; });  // reintentar al abrir
+  }
+  return _configPromise;
+}
+
 /* ── Apertura / cierre del modal ─────────────────────────────────────────── */
 
 async function abrirAgenda() {
@@ -69,7 +83,8 @@ async function abrirAgenda() {
   modal.classList.add('open');
   document.body.style.overflow = 'hidden';
   if (!agenda.config) {
-    try { agenda.config = await agendaApi('/api/agenda/config'); }
+    setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando…</div>');
+    try { await precargarConfig(); }
     catch (e) { return pasoError('No pudimos conectar con la agenda online. Te recomendamos agendar por WhatsApp.'); }
   }
   pasoEspecialidad();
@@ -448,3 +463,11 @@ function pasoError(msg) {
 
 window.abrirAgenda = abrirAgenda;
 window.cerrarAgenda = cerrarAgenda;
+
+// Precargar la config en segundo plano (sin bloquear la carga de la página).
+// Asi el modal abre instantaneo cuando el paciente hace click en "Agendar".
+(function () {
+  const warm = () => precargarConfig().catch(() => {});
+  if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 3000 });
+  else setTimeout(warm, 1500);
+})();
