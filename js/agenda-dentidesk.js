@@ -379,7 +379,7 @@ function pasoResumen() {
     <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReserva()">
       <i class="fas fa-check"></i> Confirmar hora
     </button>
-    <p class="agenda-mini">Recibirás la confirmación por WhatsApp con un archivo para tu calendario.</p>`);
+    <p class="agenda-mini">Recibirás un email de confirmación con un archivo para agregar la cita a tu calendario.</p>`);
 }
 
 async function confirmarReserva() {
@@ -406,12 +406,11 @@ async function confirmarReserva() {
 
 function pasoExito(r) {
   const s = agenda.sel;
-  const canal = r.confirmacion && r.confirmacion.canal === 'email' ? 'tu email' : 'WhatsApp';
   setBody(`<div class="agenda-final ok">
     <i class="fas fa-circle-check"></i>
     <h3>¡Tu hora quedó agendada!</h3>
     <p>${s.doctorNombre}<br>${s.fechaLegible} · ${s.hora} hrs</p>
-    <p class="agenda-mini">Te enviamos la confirmación por ${canal}${r.mock ? ' (modo demo)' : ''}.</p>
+    <p class="agenda-mini">Te enviamos un email de confirmación con un archivo para agregar la cita a tu calendario${r.mock ? ' (modo demo)' : ''}.</p>
     <button class="btn btn-primary" onclick="cerrarAgenda()">Listo</button>
   </div>`);
 }
