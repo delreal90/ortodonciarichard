@@ -109,17 +109,18 @@ def resumen(desde=None, hasta=None):
         por_motivo[e.get('motivo_label', '—')] = por_motivo.get(e.get('motivo_label', '—'), 0) + 1
         por_doctor[e.get('doctor_nombre', '—')] = por_doctor.get(e.get('doctor_nombre', '—'), 0) + 1
         por_esp[e.get('especialidad', '—')] = por_esp.get(e.get('especialidad', '—'), 0) + 1
-        por_hora[_hora_franja(e.get('hora', ''))] = por_hora.get(_hora_franja(e.get('hora', '')), 0) + 1
-        # dia de semana de la cita
+        # Dia de semana y hora EN QUE SE HIZO EL AGENDAMIENTO (momento de la reserva,
+        # del campo ts), no de la cita. Asi se ve cuando suelen agendar los pacientes.
+        ts = (e.get('ts') or '')
         try:
-            f = datetime.strptime(e.get('fecha', ''), '%Y-%m-%d').date()
-            por_dia_semana[_DIAS[f.weekday()]] += 1
+            dt = datetime.fromisoformat(ts)
+            por_dia_semana[_DIAS[dt.weekday()]] += 1
+            por_hora[f'{dt.hour:02d}:00'] = por_hora.get(f'{dt.hour:02d}:00', 0) + 1
         except (ValueError, IndexError):
             pass
-        # cuando se hizo la reserva (fecha del ts)
-        ts = (e.get('ts') or '')[:10]
-        if ts:
-            por_fecha_reserva[ts] = por_fecha_reserva.get(ts, 0) + 1
+        # cuando se hizo la reserva (fecha del ts) — para el timeline
+        if ts[:10]:
+            por_fecha_reserva[ts[:10]] = por_fecha_reserva.get(ts[:10], 0) + 1
         if e.get('paciente_conocido'):
             conocidos += 1
         else:

@@ -445,8 +445,8 @@ function renderStats(d) {
     <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Motivos más pedidos</h3>${_barras(d.por_motivo, navy)}</div>
     <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por doctor</h3>${_barras(d.por_doctor, navy)}</div>
     <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por especialidad</h3>${_barras(d.por_especialidad, gold)}</div>
-    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por día de la semana</h3>${_barras(d.por_dia_semana, navy)}</div>
-    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por hora del día</h3>${_barras(d.por_hora, gold)}</div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:4px">Día en que agendan</h3><p style="font-size:.78rem;color:#718096;margin-bottom:12px">Día de la semana en que el paciente hizo la reserva online.</p>${_barras(d.por_dia_semana, navy)}</div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:4px">Hora en que agendan</h3><p style="font-size:.78rem;color:#718096;margin-bottom:12px">Hora del día en que el paciente hizo la reserva online.</p>${_barras(d.por_hora, gold)}</div>
     <div class="card"><h3 style="margin-bottom:14px">Reservas últimos 30 días</h3>${_barras(d.timeline_30d.filter(x=>x.total>0).map(x=>({label:x.fecha.slice(5),total:x.total})), navy)}</div>`;
 }
 
