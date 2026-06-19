@@ -698,19 +698,49 @@ def agenda_paciente():
     return jsonify({'ok': True, 'rut': scheduling.formatear_rut(rut),
                     'existe': info['existe'], 'datos': info['datos']})
 
-# Cache corto de disponibilidad por dia: evita re-consultar DentiDesk si el
-# paciente navega adelante/atras. Clave (doctor, motivo, fecha) -> (ts, horas).
+import threading as _threading
+
+# Cache de disponibilidad por dia. Clave (doctor, motivo, fecha) -> (ts, horas).
+# Estrategia "stale-while-revalidate": si el cache esta algo viejo (> TTL) pero no
+# demasiado (< MAX_STALE), se devuelve al instante y se refresca en segundo plano.
+# Asi el paciente casi nunca espera los ~3s de una consulta en frio a DentiDesk.
+# (La reserva SIEMPRE valida contra datos frescos, no contra este cache.)
 _DISPO_CACHE = {}
-_DISPO_TTL = 90  # segundos
+_DISPO_TTL = 300          # 5 min: las horas a futuro cambian lento
+_DISPO_MAX_STALE = 1800   # 30 min: mas alla de esto NO servir viejo (traer sincrono)
+_DISPO_INFLIGHT = set()
+_DISPO_LOCK = _threading.Lock()
+
+def _fetch_horas(doctor, motivo, d, cfg):
+    libres, ocupados = dentidesk.disponibilidad_real(doctor, d, motivo, cfg)
+    return scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
+
+def _refrescar_async(doctor, motivo, d, cfg, key):
+    """Refresca una entrada del cache en segundo plano (evita duplicar trabajo)."""
+    import time as _t
+    def job():
+        try:
+            _DISPO_CACHE[key] = (_t.time(), _fetch_horas(doctor, motivo, d, cfg))
+        except Exception:
+            pass
+        finally:
+            _DISPO_INFLIGHT.discard(key)
+    _threading.Thread(target=job, daemon=True).start()
 
 def _horas_de_dia(doctor, motivo, d, cfg):
     import time as _t
     key = (doctor, motivo, d.isoformat())
     hit = _DISPO_CACHE.get(key)
-    if hit and (_t.time() - hit[0]) < _DISPO_TTL:
+    if hit and (_t.time() - hit[0]) < _DISPO_MAX_STALE:
+        # Cache utilizable. Si paso el TTL, refrescar en segundo plano (sin esperar).
+        if (_t.time() - hit[0]) >= _DISPO_TTL:
+            with _DISPO_LOCK:
+                if key not in _DISPO_INFLIGHT:
+                    _DISPO_INFLIGHT.add(key)
+                    _refrescar_async(doctor, motivo, d, cfg, key)
         return hit[1]
-    libres, ocupados = dentidesk.disponibilidad_real(doctor, d, motivo, cfg)
-    horas = scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
+    # Sin cache (o demasiado viejo): traer sincrono.
+    horas = _fetch_horas(doctor, motivo, d, cfg)
     _DISPO_CACHE[key] = (_t.time(), horas)
     return horas
 
