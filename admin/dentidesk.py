@@ -26,7 +26,7 @@ try:
 except ImportError:  # el bosquejo no rompe si requests no esta instalado
     requests = None
 
-from scheduling import load_config, generar_grilla, _hash01, limpiar_rut
+from scheduling import load_config, generar_grilla, _hash01, limpiar_rut, grilla_horario_doctor
 
 
 class DentiDeskError(Exception):
@@ -168,8 +168,17 @@ def disponibilidad_real(doc_id, target_date, motivo_key, cfg=None):
 
     # REAL
     libres = horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo)
-    ocupados = bloques_ocupados(cfg, doc_id, target_date)
-    return libres, ocupados
+
+    # Denominador de la ocupacion aparente: si el doctor tiene horario configurado
+    # en el panel, lo usamos (grilla = jornada del dia) y NO consultamos getAgendaDay
+    # (menos carga a DentiDesk, mas rapido). Si no hay horario configurado, caemos al
+    # comportamiento anterior (getAgendaDay con las citas reales).
+    grid = grilla_horario_doctor(cfg['doctores'].get(doc_id, {}), target_date, cfg)
+    if grid is not None:
+        ocupados = set(grid) - set(libres)
+    else:
+        ocupados = bloques_ocupados(cfg, doc_id, target_date)
+    return set(libres), ocupados
 
 
 # ── Buscar paciente por RUT ──────────────────────────────────────────────────

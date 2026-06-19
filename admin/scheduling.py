@@ -103,6 +103,32 @@ def jornada_de(hhmm, cfg):
     return 'AM' if _parse_hhmm(hhmm) < corte else 'PM'
 
 
+def grilla_horario_doctor(doc_cfg, target_date, cfg):
+    """Slots 'HH:MM' del doctor ese dia segun su 'horario_semanal' configurado en
+    el panel. Sirve como DENOMINADOR de la ocupacion aparente, evitando consultar
+    getAgendaDay. Estructura: {'1': ['09:00','19:30'], ...} (isoweekday 1..7).
+
+    Devuelve:
+      - lista de slots  -> el doctor atiende ese dia (rango configurado)
+      - []              -> configurado, pero NO atiende ese dia
+      - None            -> sin horario configurado (usar fallback getAgendaDay)
+    """
+    horario = (doc_cfg or {}).get('horario_semanal')
+    if not horario:
+        return None
+    rango = horario.get(str(target_date.isoweekday()))
+    if not rango or len(rango) != 2:
+        return []
+    paso = timedelta(minutes=cfg['horario']['slot_minutos'])
+    cursor = datetime.combine(target_date, _parse_hhmm(rango[0]))
+    fin = datetime.combine(target_date, _parse_hhmm(rango[1]))
+    slots = []
+    while cursor < fin:
+        slots.append(cursor.strftime('%H:%M'))
+        cursor += paso
+    return slots
+
+
 # ── Dias habiles / bandas temporales ─────────────────────────────────────────
 
 def es_habil(d, cfg):
