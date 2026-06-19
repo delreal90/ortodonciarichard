@@ -933,6 +933,14 @@ def agenda_reservar():
     if not res.get('ok'):
         return jsonify({'ok': False, 'error': 'No se pudo crear la cita'}), 502
 
+    # Registrar esta cita online como "ya confirmada" para que el barrido de
+    # confirmaciones (citas presenciales/telefono) no le reenvie el correo.
+    try:
+        import confirmaciones
+        confirmaciones.marcar_enviada(res.get('id_cita'))
+    except Exception:
+        pass
+
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
 
@@ -994,6 +1002,20 @@ def agenda_reservar():
     return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'solicitud_cambio': es_no_soy_yo or es_completar})
+
+@app.route('/api/agenda/confirmaciones/run', methods=['POST'])
+def confirmaciones_run():
+    """Dispara el barrido de confirmaciones manualmente (protegido por ADMIN_TOKEN).
+    La 1a corrida SIEMBRA (registra lo existente sin enviar). Util para sembrar al
+    activar el sistema y para probar. ?dias=90 ajusta la ventana."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import confirmaciones
+    try:
+        dias = max(1, min(180, int(request.args.get('dias', 90))))
+    except (TypeError, ValueError):
+        dias = 90
+    return jsonify(confirmaciones.barrer_y_confirmar(dias_adelante=dias))
 
 @rate_limit('20 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
@@ -1277,9 +1299,37 @@ def _loop_refresco_pacientes():
         primera = False
         time.sleep(12 * 3600)  # cada 12 horas
 
+_HORARIOS_CONFIRMACION = ['11:00', '13:30', '17:00', '19:45']  # hora de Chile
+
+def _loop_confirmaciones():
+    """Dispara el barrido de confirmaciones a horas fijas (Chile). La 1a corrida
+    siembra sin enviar; luego solo envia a citas nuevas (presenciales/telefono)."""
+    import time
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('America/Santiago')
+    except Exception:
+        tz = None
+    ya_corrio = {}
+    while True:
+        try:
+            ahora = datetime.now(tz) if tz else datetime.now()
+            slot = ahora.strftime('%H:%M')
+            if slot in _HORARIOS_CONFIRMACION and ya_corrio.get(slot) != ahora.date():
+                ya_corrio[slot] = ahora.date()
+                cfg = scheduling.load_config()
+                if cfg['dentidesk']['enabled']:
+                    import confirmaciones
+                    r = confirmaciones.barrer_y_confirmar(cfg)
+                    print('[confirmaciones]', slot, r)
+        except Exception as e:
+            print('[confirmaciones] error:', e)
+        time.sleep(40)
+
 def _iniciar_scheduler():
-    """Arranca el refresco en segundo plano. Activo en Render (o si se define
-    RUN_PATIENT_SYNC=true). En local no corre salvo que se pida explicitamente."""
+    """Arranca el refresco de pacientes + el barrido de confirmaciones en segundo
+    plano. Activo en Render (o si se define RUN_PATIENT_SYNC=true). En local no
+    corre salvo que se pida explicitamente."""
     global _SCHEDULER_INICIADO
     if _SCHEDULER_INICIADO:
         return
@@ -1290,7 +1340,9 @@ def _iniciar_scheduler():
     import threading
     _SCHEDULER_INICIADO = True
     threading.Thread(target=_loop_refresco_pacientes, daemon=True).start()
+    threading.Thread(target=_loop_confirmaciones, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
+    print('[confirmaciones] scheduler iniciado (11:00, 13:30, 17:00, 19:45)')
 
 _iniciar_scheduler()
 
