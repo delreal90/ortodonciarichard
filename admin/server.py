@@ -898,6 +898,17 @@ def agenda_reservar():
         'dur_min': motivo_cfg['duracion_min'],
     }, cfg)
 
+    # Aviso a recepción cuando el motivo lo tiene activado en el panel (ticket
+    # "Avisar a recepción"). Independiente de la confirmación al paciente.
+    if motivo_cfg.get('notificar_agenda'):
+        notify.enviar_aviso_agendamiento({
+            'nombre': f"{nombre} {apellido}".strip(),
+            'rut_fmt': scheduling.formatear_rut(rut),
+            'email': email_notif, 'telefono': telefono_nuevo or telefono,
+            'fecha_legible': _fecha_legible(fecha), 'hora': hora,
+            'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
+        }, cfg)
+
     if es_no_soy_yo or es_completar:
         notify.enviar_solicitud_cambio_datos({
             'nombre': f"{rec.get('nombres','')} {rec.get('apellidos','')}".strip() or nombre,
@@ -923,6 +934,7 @@ def get_scheduling_config():
     motivos = [
         {'key': k, 'label': v.get('label',''), 'especialidad': v.get('especialidad',''),
          'duracion_min': v.get('duracion_min', 15), 'urgencia': bool(v.get('urgencia')),
+         'notificar_agenda': bool(v.get('notificar_agenda')),
          'id_reason': v.get('id_reason', '')}
         for k, v in cfg['motivos'].items()
         if not k.startswith('_') and isinstance(v, dict)
@@ -969,11 +981,12 @@ def set_scheduling_config():
             if not key:
                 continue
             new_motivos[key] = {
-                'label':        m.get('label', ''),
-                'especialidad': m.get('especialidad', 'ortodoncia'),
-                'id_reason':    str(m.get('id_reason', '')),
-                'duracion_min': max(5, int(m.get('duracion_min') or 15)),
-                'urgencia':     bool(m.get('urgencia')),
+                'label':           m.get('label', ''),
+                'especialidad':    m.get('especialidad', 'ortodoncia'),
+                'id_reason':       str(m.get('id_reason', '')),
+                'duracion_min':    max(5, int(m.get('duracion_min') or 15)),
+                'urgencia':        bool(m.get('urgencia')),
+                'notificar_agenda': bool(m.get('notificar_agenda')),
             }
         cfg['motivos'] = new_motivos
 

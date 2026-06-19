@@ -305,6 +305,79 @@ def enviar_solicitud_cambio_datos(datos, cfg=None):
         return False
 
 
+# ── Aviso a recepción de un nuevo agendamiento ───────────────────────────────
+
+def enviar_aviso_agendamiento(datos, cfg=None):
+    """
+    Avisa a recepción que un paciente agendó (se activa por motivo desde el panel).
+    datos: nombre, rut_fmt, email, telefono, fecha_legible, hora, doctor_nombre,
+           motivo_label.
+    """
+    cfg = cfg or load_config()
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    if not smtp_user or not smtp_pass:
+        return False
+
+    def fila(label, valor):
+        return f"""
+      <tr>
+        <td style="padding:10px 14px;font-weight:700;color:#1A2E4A;white-space:nowrap;border-top:1px solid #e2e8f0">{label}</td>
+        <td style="padding:10px 14px;color:#1A2535;border-top:1px solid #e2e8f0">{valor or '—'}</td>
+      </tr>"""
+
+    filas = (
+        fila('Paciente', datos.get('nombre', '')) +
+        fila('RUT', datos.get('rut_fmt', '')) +
+        fila('Motivo', datos.get('motivo_label', '')) +
+        fila('Doctor', datos.get('doctor_nombre', '')) +
+        fila('Fecha', datos.get('fecha_legible', '')) +
+        fila('Hora', f"{datos.get('hora','')} hrs") +
+        fila('Email', datos.get('email', '')) +
+        fila('Teléfono', datos.get('telefono', ''))
+    )
+
+    html = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
+  <tr><td style="background:#1A2E4A;padding:24px 32px;">
+    <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase">Agenda Online — Aviso</p>
+    <h1 style="margin:6px 0 0;color:#fff;font-size:20px">Nuevo agendamiento</h1>
+  </td></tr>
+  <tr><td style="padding:24px 32px;">
+    <p style="margin:0 0 16px;color:#4A5568;font-size:15px">Se agendó una nueva hora a través del sitio web:</p>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+      <tbody>{filas}</tbody>
+    </table>
+  </td></tr>
+  <tr><td style="background:#1A2E4A;padding:16px 32px;text-align:center;">
+    <p style="margin:0;color:#8fa8c8;font-size:12px">Ortodoncia Richard · Sistema de agendamiento online</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
+
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Agenda Ortodoncia Richard <{smtp_user}>'
+    msg['To']   = smtp_user
+    msg['Subject'] = (f"Nuevo agendamiento — {datos.get('nombre','')} · "
+                      f"{datos.get('motivo_label','')} · {datos.get('fecha_legible','')} {datos.get('hora','')}")
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [smtp_user], msg.as_bytes())
+        return True
+    except Exception as e:
+        log.error('SMTP aviso_agendamiento error: %s', e)
+        return False
+
+
 # ── Punto de entrada ─────────────────────────────────────────────────────────
 
 def enviar_confirmacion(cita, cfg=None):

@@ -27,6 +27,7 @@ const agenda = {
     esNoSoyYo: false, datosOriginales: null, completarDatos: false,
   },
   dias: [],
+  prefetch: {},   // cache de promesas de disponibilidad por doctor|motivo
 };
 
 async function agendaApi(path, opts) {
@@ -100,6 +101,7 @@ function cerrarAgenda() {
     fecha: null, fechaLegible: '', hora: null,
     esNoSoyYo: false, datosOriginales: null, completarDatos: false,
   };
+  agenda.prefetch = {};   // descartar disponibilidad precargada (puede quedar obsoleta)
 }
 
 function setBody(html) { document.getElementById('agendaBody').innerHTML = html; }
@@ -301,6 +303,25 @@ function pasoMotivo() {
     </div>
     <h3 class="agenda-q">¿Cuál es el motivo de tu consulta?</h3>
     <div class="agenda-options">${items}</div>`);
+
+  // Precarga: mientras el paciente lee y elige el motivo, vamos pidiendo en
+  // segundo plano la disponibilidad del doctor para cada motivo. Cuando elija,
+  // las horas ya suelen estar listas -> aparecen al instante.
+  motivos.forEach(m => prefetchDisponibilidad(agenda.sel.doctor, m.key));
+}
+
+/* ── Precarga de disponibilidad ──────────────────────────────────────────── */
+
+function _dispoKey(doctor, motivo) { return doctor + '|' + motivo; }
+
+function prefetchDisponibilidad(doctor, motivo) {
+  const key = _dispoKey(doctor, motivo);
+  if (!agenda.prefetch[key]) {
+    agenda.prefetch[key] = agendaApi(
+      `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${motivo}&offset=0`
+    ).catch(err => { delete agenda.prefetch[key]; throw err; });  // permitir reintento
+  }
+  return agenda.prefetch[key];
 }
 function elegirMotivo(key, el) {
   agenda.sel.motivo = key;
@@ -341,7 +362,8 @@ async function pasoFechaHora() {
     <div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>`);
   let r;
   try {
-    r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=0`);
+    // Usa la precarga iniciada en pasoMotivo (suele estar lista -> instantáneo).
+    r = await prefetchDisponibilidad(agenda.sel.doctor, agenda.sel.motivo);
   } catch (e) { return pasoError('No pudimos cargar la disponibilidad.'); }
   agenda.dias = r.dias || [];
   agenda.diasOffset = r.offset_siguiente || 0;
