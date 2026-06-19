@@ -106,27 +106,35 @@ def jornada_de(hhmm, cfg):
 def grilla_horario_doctor(doc_cfg, target_date, cfg):
     """Slots 'HH:MM' del doctor ese dia segun su 'horario_semanal' configurado en
     el panel. Sirve como DENOMINADOR de la ocupacion aparente, evitando consultar
-    getAgendaDay. Estructura: {'1': ['09:00','19:30'], ...} (isoweekday 1..7).
+    getAgendaDay. Cada dia es una LISTA de rangos (AM y PM por separado, porque el
+    almuerzo cambia por doctor): {'1': [['09:00','13:30'], ['15:00','19:30']], ...}
+    (isoweekday 1..7).
 
     Devuelve:
-      - lista de slots  -> el doctor atiende ese dia (rango configurado)
+      - lista de slots  -> el doctor atiende ese dia (rangos configurados)
       - []              -> configurado, pero NO atiende ese dia
       - None            -> sin horario configurado (usar fallback getAgendaDay)
     """
     horario = (doc_cfg or {}).get('horario_semanal')
     if not horario:
         return None
-    rango = horario.get(str(target_date.isoweekday()))
-    if not rango or len(rango) != 2:
+    rangos = horario.get(str(target_date.isoweekday()))
+    if rangos is None:
         return []
+    # Compatibilidad: aceptar formato antiguo plano ['09:00','19:30'].
+    if rangos and isinstance(rangos[0], str):
+        rangos = [rangos]
     paso = timedelta(minutes=cfg['horario']['slot_minutos'])
-    cursor = datetime.combine(target_date, _parse_hhmm(rango[0]))
-    fin = datetime.combine(target_date, _parse_hhmm(rango[1]))
-    slots = []
-    while cursor < fin:
-        slots.append(cursor.strftime('%H:%M'))
-        cursor += paso
-    return slots
+    slots = set()
+    for r in rangos:
+        if not isinstance(r, (list, tuple)) or len(r) != 2:
+            continue
+        cursor = datetime.combine(target_date, _parse_hhmm(r[0]))
+        fin = datetime.combine(target_date, _parse_hhmm(r[1]))
+        while cursor < fin:
+            slots.add(cursor.strftime('%H:%M'))
+            cursor += paso
+    return sorted(slots)
 
 
 # ── Dias habiles / bandas temporales ─────────────────────────────────────────

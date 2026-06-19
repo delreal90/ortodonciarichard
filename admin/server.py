@@ -1108,11 +1108,17 @@ def set_scheduling_config():
                 cfg['doctores'][doc_id]['ocupacion'][franja] = max(0, min(100, int(valor)))
         if 'horario_semanal' in doc_changes:
             hs = {}
-            for dia, rango in (doc_changes['horario_semanal'] or {}).items():
-                if str(dia) in ('1','2','3','4','5','6','7') and isinstance(rango, list) and len(rango) == 2:
-                    a, b = str(rango[0])[:5], str(rango[1])[:5]
-                    if a < b:
-                        hs[str(dia)] = [a, b]
+            for dia, rangos in (doc_changes['horario_semanal'] or {}).items():
+                if str(dia) not in ('1','2','3','4','5','6','7') or not isinstance(rangos, list):
+                    continue
+                limpios = []
+                for r in rangos:
+                    if isinstance(r, list) and len(r) == 2:
+                        a, b = str(r[0])[:5], str(r[1])[:5]
+                        if a < b:
+                            limpios.append([a, b])
+                if limpios:
+                    hs[str(dia)] = limpios
             cfg['doctores'][doc_id]['horario_semanal'] = hs
 
     # Motivos: reemplazar por la lista completa recibida del panel.

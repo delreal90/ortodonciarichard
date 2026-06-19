@@ -78,10 +78,22 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
     if not cfg['dentidesk']['enabled'] or requests is None:
         return {'ok': False, 'motivo': 'demo'}
 
+    ahora = datetime.now()
     with _LOCK:
         idx = _load()
         primera_vez = idx is None
         idx = idx or {}
+
+    # Solo se ENVIA a citas creadas recientemente (desde el ultimo barrido, con 1
+    # dia de margen). Asi, cuando la ventana de 90 dias avanza y aparece un dia
+    # "nuevo" con citas viejas, esas NO se mailean: se adoptan en silencio.
+    ultima_raw = idx.get('_ultima_corrida')
+    try:
+        cutoff = datetime.fromisoformat(ultima_raw) - timedelta(days=1) if ultima_raw else None
+    except (ValueError, TypeError):
+        cutoff = None
+    if primera_vez:
+        cutoff = None   # 1a corrida: no enviar nada, solo sembrar
 
     dd = cfg['dentidesk']
     url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
@@ -103,8 +115,16 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
         for res in pool.map(scan, dias):
             citas.extend(res)
 
+    def _parse_create(s):
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                return datetime.strptime((s or '').strip()[:19], fmt)
+            except ValueError:
+                continue
+        return None
+
     import pacientes
-    enviadas = 0
+    enviadas = adoptadas = 0
     nuevos = {}
     for c in citas:
         ida = str(c.get('IdAgenda') or '')
@@ -116,8 +136,12 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
         email = (c.get('PatientEmail') or '').strip()
         if '@' not in email:
             continue
-        if primera_vez:
-            nuevos[ida] = 'seed'          # solo registrar, NO enviar
+        # ¿Enviar? Solo si la cita fue CREADA recientemente (no en la 1a corrida).
+        creada = _parse_create(c.get('CreateDate'))
+        enviar = (cutoff is not None) and (creada is not None) and (creada >= cutoff)
+        if not enviar:
+            nuevos[ida] = 'adopt'          # vieja o 1a corrida: registrar sin enviar
+            adoptadas += 1
             continue
         try:
             nombres, _ = pacientes._split_nombre(c.get('PatientName', ''))
@@ -135,6 +159,7 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
             if r.get('ok'):
                 nuevos[ida] = datetime.now().isoformat(timespec='seconds')
                 enviadas += 1
+            # si falla el envio, NO se registra -> se reintenta en el proximo barrido
         except Exception:
             pass
 
@@ -142,7 +167,9 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
     with _LOCK:
         actual = _load() or {}
         actual.update(nuevos)
+        actual['_ultima_corrida'] = ahora.isoformat(timespec='seconds')
         _save(actual)
 
     return {'ok': True, 'primera_vez': primera_vez, 'citas': len(citas),
-            'enviadas': enviadas, 'registradas': len(actual)}
+            'enviadas': enviadas, 'adoptadas': adoptadas,
+            'registradas': len([k for k in actual if not k.startswith('_')])}

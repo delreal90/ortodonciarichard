@@ -515,17 +515,26 @@ async function loadAgenda() {
 }
 
 const DIAS_SEM = [[1,'Lunes'],[2,'Martes'],[3,'Miércoles'],[4,'Jueves'],[5,'Viernes'],[6,'Sábado']];
+function _bloqueHorario(cls, rango, defDesde, defHasta) {
+  const on = Array.isArray(rango) && rango.length === 2;
+  const desde = on ? rango[0] : defDesde, hasta = on ? rango[1] : defHasta;
+  return `<label style="font-size:.8rem;display:inline-flex;align-items:center;gap:4px"><input type="checkbox" class="hs-on-${cls}" ${on?'checked':''}> ${cls.toUpperCase()}</label>
+    <input type="time" class="hs-${cls}-desde" value="${desde}" style="padding:3px 5px;border:1px solid #cbd5e0;border-radius:4px;font-size:.82rem">
+    <span style="color:#718096;font-size:.8rem">a</span>
+    <input type="time" class="hs-${cls}-hasta" value="${hasta}" style="padding:3px 5px;border:1px solid #cbd5e0;border-radius:4px;font-size:.82rem">`;
+}
 function _horarioRows(h) {
   h = h || {};
   return DIAS_SEM.map(([n, lbl]) => {
-    const r = h[String(n)];
-    const on = Array.isArray(r) && r.length === 2;
-    const desde = on ? r[0] : '09:00', hasta = on ? r[1] : '19:30';
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px" data-dia="${n}">
-      <label style="width:96px;font-size:.85rem"><input type="checkbox" class="hs-on" ${on?'checked':''}> ${lbl}</label>
-      <input type="time" class="hs-desde" value="${desde}" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px">
-      <span style="color:#718096;font-size:.85rem">a</span>
-      <input type="time" class="hs-hasta" value="${hasta}" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px">
+    let rangos = h[String(n)];
+    if (rangos && typeof rangos[0] === 'string') rangos = [rangos];   // formato antiguo
+    rangos = Array.isArray(rangos) ? rangos : [];
+    const am = rangos[0], pm = rangos[1];
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap" data-dia="${n}">
+      <span style="width:80px;font-size:.85rem;font-weight:500">${lbl}</span>
+      ${_bloqueHorario('am', am, '09:00', '14:00')}
+      <span style="width:8px"></span>
+      ${_bloqueHorario('pm', pm, '15:00', '19:30')}
     </div>`;
   }).join('');
 }
@@ -640,9 +649,13 @@ async function saveAgenda() {
     card.querySelectorAll('.ag-val').forEach(inp => { ocupacion[inp.dataset.franja] = +inp.value; });
     const horario_semanal = {};
     card.querySelectorAll('.ag-horario [data-dia]').forEach(row => {
-      if (row.querySelector('.hs-on').checked) {
-        horario_semanal[row.dataset.dia] = [row.querySelector('.hs-desde').value, row.querySelector('.hs-hasta').value];
-      }
+      const rangos = [];
+      ['am','pm'].forEach(b => {
+        if (row.querySelector('.hs-on-'+b).checked) {
+          rangos.push([row.querySelector('.hs-'+b+'-desde').value, row.querySelector('.hs-'+b+'-hasta').value]);
+        }
+      });
+      if (rangos.length) horario_semanal[row.dataset.dia] = rangos;
     });
     doctores[id] = { atiende: card.querySelector('.ag-atiende').checked, ocupacion, horario_semanal };
   });
