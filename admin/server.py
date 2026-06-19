@@ -39,13 +39,15 @@ _ALLOWED_ORIGINS = {
     'https://www.ortodonciarichard.cl',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://localhost:5001',   # panel admin local (consulta stats en produccion)
+    'http://127.0.0.1:5001',
 }
 @app.after_request
 def _cors(resp):
     origin = request.headers.get('Origin', '')
     if origin in _ALLOWED_ORIGINS:
         resp.headers['Access-Control-Allow-Origin'] = origin
-    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Admin-Token'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
 
@@ -682,7 +684,8 @@ def agenda_config():
             'especialidad': dc.get('especialidad', ''),
         })
     return jsonify({'especialidades': especialidades, 'motivos': motivos,
-                    'doctores': doctores, 'mock': not cfg['dentidesk']['enabled']})
+                    'doctores': doctores, 'mock': not cfg['dentidesk']['enabled'],
+                    'turnstile_sitekey': os.environ.get('TURNSTILE_SITEKEY', '')})
 
 @rate_limit('40 per minute')
 @app.route('/api/agenda/paciente', methods=['GET'])
@@ -811,12 +814,36 @@ def pacientes_estado():
     import pacientes
     return jsonify({'ok': True, 'total': pacientes.total()})
 
+def _verificar_turnstile(token):
+    """Valida el token de Cloudflare Turnstile contra siteverify.
+    Si no hay TURNSTILE_SECRET configurado, devuelve True (captcha desactivado)."""
+    secret = os.environ.get('TURNSTILE_SECRET', '').strip()
+    if not secret:
+        return True  # captcha no configurado aun -> no bloquear
+    if not token:
+        return False
+    try:
+        import requests
+        r = requests.post('https://challenges.cloudflare.com/turnstile/v0/siteverify',
+                          data={'secret': secret, 'response': token,
+                                'remoteip': request.headers.get('CF-Connecting-IP', '')},
+                          timeout=10)
+        return bool((r.json() or {}).get('success'))
+    except Exception:
+        return False  # ante error de verificacion, mejor rechazar
+
 @rate_limit('10 per minute')
 @app.route('/api/agenda/reservar', methods=['POST'])
 def agenda_reservar():
     """Crea la cita en DentiDesk y dispara la confirmacion (WhatsApp / email)."""
     data = request.json or {}
     cfg = scheduling.load_config()
+
+    # Captcha Cloudflare Turnstile (anti-bot). Solo se valida si esta configurado
+    # el secreto en el entorno; si no, se omite (no rompe antes de activarlo).
+    if not _verificar_turnstile(data.get('captcha_token', '')):
+        return jsonify({'ok': False, 'error': 'Verificación de seguridad fallida. Recarga e intenta de nuevo.'}), 403
+
     doctor = data.get('doctor'); motivo = data.get('motivo')
     if doctor not in cfg['doctores'] or motivo not in cfg['motivos']:
         return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
@@ -879,6 +906,19 @@ def agenda_reservar():
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
 
+    # Registrar el agendamiento para estadisticas (sin datos personales sensibles).
+    try:
+        import stats
+        stats.registrar({
+            'fecha': fecha.isoformat(), 'hora': hora,
+            'doctor': doctor, 'doctor_nombre': doctor_nombre,
+            'motivo': motivo, 'motivo_label': motivo_cfg['label'],
+            'especialidad': cfg['especialidades'].get(motivo_cfg.get('especialidad', ''), {}).get('label', motivo_cfg.get('especialidad', '')),
+            'paciente_conocido': bool(rec),
+        })
+    except Exception:
+        pass
+
     # "No soy yo": el paciente está en la BD pero dice que esos datos no son suyos.
     #   DentiDesk recibe el email registrado (dedup); la confirmacion va al email nuevo.
     # "Completar datos": el paciente está en la BD pero SIN email en ficha (antiguo);
@@ -924,6 +964,23 @@ def agenda_reservar():
     return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'solicitud_cambio': es_no_soy_yo or es_completar})
+
+@app.route('/api/agenda/stats', methods=['GET'])
+def agenda_stats():
+    """Estadisticas de agendamiento (para el panel). Protegido por ADMIN_TOKEN.
+    Funciona en produccion (Render) porque la data vive en el disco persistente.
+    Filtros opcionales: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD (por fecha de la cita)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import stats as _stats
+    def _parse(s):
+        try:
+            return datetime.strptime(s, '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return None
+    desde = _parse(request.args.get('desde'))
+    hasta = _parse(request.args.get('hasta'))
+    return jsonify({'ok': True, **_stats.resumen(desde=desde, hasta=hasta)})
 
 @app.route('/api/scheduling-config', methods=['GET'])
 def get_scheduling_config():

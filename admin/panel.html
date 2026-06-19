@@ -104,6 +104,7 @@
     <a onclick="show('casos')" id="nav-casos"><i class="fa fa-tooth"></i> Casos clínicos</a>
     <a onclick="show('faq')" id="nav-faq"><i class="fa fa-question-circle"></i> FAQ</a>
     <a onclick="show('agenda')" id="nav-agenda"><i class="fa fa-calendar-check"></i> Agenda online</a>
+    <a onclick="show('estadisticas')" id="nav-estadisticas"><i class="fa fa-chart-column"></i> Estadísticas</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
   </nav>
@@ -193,6 +194,30 @@
       <div class="card" id="agenda-motivos" style="margin-bottom:18px"></div>
       <div id="agenda-doctores"></div>
       <button class="btn btn-primary" style="margin-top:8px" onclick="saveAgenda()">Guardar configuración</button>
+    </div>
+
+    <!-- ── ESTADÍSTICAS ─────────────────────────────────────── -->
+    <div class="section" id="sec-estadisticas">
+      <h2>Estadísticas de agendamiento</h2>
+      <p class="desc">Reservas hechas a través del sitio web: motivos más pedidos, distribución por día y hora, por doctor, y pacientes nuevos vs. conocidos.</p>
+
+      <div class="card" id="stats-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="stats-url" value="https://ortodonciarichard.onrender.com" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="stats-token" type="password" placeholder="ADMIN_TOKEN" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <button class="btn btn-primary" onclick="loadStats()">Cargar</button>
+        </div>
+        <p style="font-size:.78rem;color:#718096;margin-top:8px">El token se guarda solo en este navegador (no se publica). Es el mismo <code>ADMIN_TOKEN</code> de Render.</p>
+      </div>
+
+      <div id="stats-resultado"></div>
     </div>
 
     <!-- ── PUBLICAR ─────────────────────────────────────── -->
@@ -321,6 +346,77 @@ function show(sec) {
   if (sec === 'faq') loadFaq();
   if (sec === 'cv') loadCV();
   if (sec === 'agenda') loadAgenda();
+  if (sec === 'estadisticas') initStats();
+}
+
+// ══════════════════════════════════════════════════════
+// ESTADÍSTICAS DE AGENDAMIENTO
+// ══════════════════════════════════════════════════════
+function initStats() {
+  // Restaurar token/URL guardados y cargar si hay token.
+  const t = localStorage.getItem('stats_token') || '';
+  const u = localStorage.getItem('stats_url') || 'https://ortodonciarichard.onrender.com';
+  document.getElementById('stats-token').value = t;
+  document.getElementById('stats-url').value = u;
+  if (t) loadStats();
+}
+
+async function loadStats() {
+  const url   = document.getElementById('stats-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('stats-token').value.trim();
+  const cont  = document.getElementById('stats-resultado');
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  localStorage.setItem('stats_token', token);
+  localStorage.setItem('stats_url', url);
+  cont.innerHTML = '<div class="card">Cargando…</div>';
+  let d;
+  try {
+    const r = await fetch(url + '/api/agenda/stats', { headers: { 'X-Admin-Token': token } });
+    if (r.status === 403) { cont.innerHTML = '<div class="card" style="color:#e53e3e">Token incorrecto.</div>'; return; }
+    d = await r.json();
+  } catch (e) {
+    cont.innerHTML = '<div class="card" style="color:#e53e3e">No se pudo conectar con el backend.</div>';
+    return;
+  }
+  if (!d.ok) { cont.innerHTML = '<div class="card" style="color:#e53e3e">Error al cargar las estadísticas.</div>'; return; }
+  renderStats(d);
+}
+
+function _barras(items, color) {
+  if (!items || !items.length) return '<p style="color:#718096;font-size:.85rem">Sin datos aún.</p>';
+  const max = Math.max(...items.map(i => i.total), 1);
+  return items.map(i => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="width:140px;font-size:.82rem;color:#2D3748;text-align:right;flex-shrink:0">${i.label}</div>
+      <div style="flex:1;background:#edf2f7;border-radius:4px;overflow:hidden">
+        <div style="width:${Math.round(i.total/max*100)}%;min-width:${i.total?'2px':'0'};background:${color};height:18px"></div>
+      </div>
+      <div style="width:32px;font-size:.82rem;color:#1A2E4A;font-weight:600">${i.total}</div>
+    </div>`).join('');
+}
+
+function renderStats(d) {
+  const cont = document.getElementById('stats-resultado');
+  const navy = '#1A2E4A', gold = '#C9A84C';
+  cont.innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      ${_statCard('Total reservas', d.total, navy)}
+      ${_statCard('Pacientes conocidos', d.conocidos, '#2f855a')}
+      ${_statCard('Pacientes nuevos', d.nuevos, gold)}
+    </div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Motivos más pedidos</h3>${_barras(d.por_motivo, navy)}</div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por doctor</h3>${_barras(d.por_doctor, navy)}</div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por especialidad</h3>${_barras(d.por_especialidad, gold)}</div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por día de la semana</h3>${_barras(d.por_dia_semana, navy)}</div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">Por hora del día</h3>${_barras(d.por_hora, gold)}</div>
+    <div class="card"><h3 style="margin-bottom:14px">Reservas últimos 30 días</h3>${_barras(d.timeline_30d.filter(x=>x.total>0).map(x=>({label:x.fecha.slice(5),total:x.total})), navy)}</div>`;
+}
+
+function _statCard(label, valor, color) {
+  return `<div class="card" style="flex:1;min-width:160px;text-align:center;border-top:3px solid ${color}">
+    <div style="font-size:2rem;font-weight:700;color:${color}">${valor}</div>
+    <div style="font-size:.82rem;color:#718096">${label}</div>
+  </div>`;
 }
 
 // ══════════════════════════════════════════════════════

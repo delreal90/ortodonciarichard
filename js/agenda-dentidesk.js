@@ -446,10 +446,43 @@ function pasoResumen() {
       <li><span>Especialidad</span><b>${s.especialidadLabel}</b></li>
       <li><span>Celular</span><b>${s.datos.telefono_masked || s.datos.telefono || '—'}</b></li>
     </ul>
-    <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReserva()">
+    ${agenda.config.turnstile_sitekey ? '<div id="agenda-captcha" style="margin:14px 0;display:flex;justify-content:center"></div>' : ''}
+    <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReserva()"${agenda.config.turnstile_sitekey ? ' disabled' : ''}>
       <i class="fas fa-check"></i> Confirmar hora
     </button>
     <p class="agenda-mini">Recibirás un email de confirmación con un archivo para agregar la cita a tu calendario.</p>`);
+  montarCaptcha();
+}
+
+/* ── Captcha Cloudflare Turnstile (anti-bot) ─────────────────────────────── */
+
+agenda.captchaToken = '';
+
+function montarCaptcha() {
+  const sitekey = agenda.config.turnstile_sitekey;
+  if (!sitekey) return;
+  agenda.captchaToken = '';
+  const render = () => {
+    const el = document.getElementById('agenda-captcha');
+    if (!el || !window.turnstile) return;
+    window.turnstile.render(el, {
+      sitekey,
+      callback: (tok) => {
+        agenda.captchaToken = tok;
+        const btn = document.getElementById('agendaConfirmBtn');
+        if (btn) btn.disabled = false;
+      },
+      'expired-callback': () => { agenda.captchaToken = ''; },
+    });
+  };
+  if (window.turnstile) render();
+  else {
+    // El script puede no haber cargado aún: reintentar brevemente.
+    let intentos = 0;
+    const iv = setInterval(() => {
+      if (window.turnstile || intentos++ > 40) { clearInterval(iv); render(); }
+    }, 100);
+  }
 }
 
 async function confirmarReserva() {
@@ -470,6 +503,7 @@ async function confirmarReserva() {
           telefono_nuevo: s.datos.telefono || '',
         }),
         ...(s.completarDatos && { es_completar_datos: true }),
+        captcha_token: agenda.captchaToken || '',
       }),
     });
     if (r.ok) pasoExito(r); else pasoError(r.error || 'No se pudo agendar.');
