@@ -53,7 +53,6 @@
       "label": "Primera Consulta",
       "especialidad": "ortodoncia",
       "id_reason": "18152",
-      "_id_reason_nombre": "Primera Consulta",
       "duracion_min": 15,
       "urgencia": false
     },
@@ -61,7 +60,6 @@
       "label": "Control de Ortodoncia con Aparato Fijo (frenillos, disyuntor)",
       "especialidad": "ortodoncia",
       "id_reason": "16073",
-      "_id_reason_nombre": "Control Fijo",
       "duracion_min": 15,
       "urgencia": false
     },
@@ -69,7 +67,6 @@
       "label": "Control de Ortodoncia con Alineadores (Invisalign, Digitrack, etc.)",
       "especialidad": "ortodoncia",
       "id_reason": "20071",
-      "_id_reason_nombre": "Control Digitrack",
       "duracion_min": 15,
       "urgencia": false
     },
@@ -77,7 +74,6 @@
       "label": "Control de Ortodoncia con Aparato Removible (placa)",
       "especialidad": "ortodoncia",
       "id_reason": "20013",
-      "_id_reason_nombre": "Control Removible",
       "duracion_min": 15,
       "urgencia": false
     },
@@ -85,7 +81,6 @@
       "label": "Urgencia de Ortodoncia (bracket suelto, fierro pincha, etc.)",
       "especialidad": "ortodoncia",
       "id_reason": "20066",
-      "_id_reason_nombre": "Bracket Suelto",
       "duracion_min": 15,
       "urgencia": true
     },
@@ -93,7 +88,6 @@
       "label": "Evaluación",
       "especialidad": "rehabilitacion",
       "id_reason": "24798",
-      "_id_reason_nombre": "Control / Evaluacion PV",
       "duracion_min": 30,
       "urgencia": false
     },
@@ -101,7 +95,6 @@
       "label": "Continuar mi tratamiento en curso",
       "especialidad": "rehabilitacion",
       "id_reason": "24798",
-      "_id_reason_nombre": "Control / Evaluacion PV (continuar tratamiento)",
       "duracion_min": 30,
       "urgencia": false
     },
@@ -109,7 +102,6 @@
       "label": "Urgencia Dental",
       "especialidad": "rehabilitacion",
       "id_reason": "20082",
-      "_id_reason_nombre": "Dolor / Molestia",
       "duracion_min": 30,
       "urgencia": true
     }
