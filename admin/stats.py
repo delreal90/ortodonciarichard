@@ -16,11 +16,26 @@ from pathlib import Path
 from datetime import datetime, date, timedelta
 
 # Por defecto, junto a la base de pacientes (mismo disco persistente).
-_DEFAULT = Path(os.environ.get('PATIENT_INDEX_PATH',
-                               Path(__file__).parent / 'patient_index.json')).parent / 'agendamientos.jsonl'
-STATS_PATH = Path(os.environ.get('STATS_PATH', _DEFAULT))
+_BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
+                                Path(__file__).parent / 'patient_index.json')).parent
+STATS_PATH = Path(os.environ.get('STATS_PATH', _BASE_DIR / 'agendamientos.jsonl'))
+EVENTOS_PATH = Path(os.environ.get('EVENTOS_PATH', _BASE_DIR / 'eventos.jsonl'))
 
 _DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+# Embudo de agendamiento: pasos en orden. Un paciente "avanza" por estos pasos;
+# medir cuántos llegan a cada uno revela dónde abandonan.
+_PASOS = ['abrir', 'especialidad', 'rut', 'datos', 'profesional', 'motivo', 'horas', 'reservado']
+_PASOS_LABEL = {
+    'abrir':        'Abrió la agenda',
+    'especialidad': 'Eligió especialidad',
+    'rut':          'Ingresó su RUT',
+    'datos':        'Completó sus datos',
+    'profesional':  'Eligió profesional',
+    'motivo':       'Eligió motivo',
+    'horas':        'Vio horas disponibles',
+    'reservado':    'Confirmó la reserva',
+}
 
 
 def registrar(evento):
@@ -35,12 +50,13 @@ def registrar(evento):
         return False
 
 
-def _leer():
-    if not STATS_PATH.exists():
+def _leer(path=None):
+    path = path or STATS_PATH
+    if not path.exists():
         return []
     out = []
     try:
-        with open(STATS_PATH, encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             for linea in f:
                 linea = linea.strip()
                 if not linea:
@@ -129,4 +145,95 @@ def resumen(desde=None, hasta=None):
         'por_dia_semana': [{'label': d, 'total': por_dia_semana[d]} for d in _DIAS],
         'por_hora': [{'label': h, 'total': por_hora[h]} for h in sorted(por_hora)],
         'timeline_30d': timeline,
+    }
+
+
+# ── Embudo de agendamiento (dónde abandonan los pacientes) ────────────────────
+
+def registrar_evento(sesion, paso, latency_ms=None):
+    """Registra un paso del flujo de agendamiento (telemetria, sin datos personales).
+    'sesion' identifica una visita (anonima); 'paso' debe estar en _PASOS."""
+    if paso not in _PASOS:
+        return False
+    try:
+        ev = {'s': str(sesion)[:40], 'p': paso,
+              'ts': datetime.now().isoformat(timespec='seconds')}
+        if latency_ms is not None:
+            ev['ms'] = max(0, int(latency_ms))
+        EVENTOS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(EVENTOS_PATH, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(ev, ensure_ascii=False) + '\n')
+        return True
+    except Exception:
+        return False
+
+
+def resumen_funnel(desde=None, hasta=None):
+    """Agrega los eventos en un embudo: cuantas sesiones llegan a cada paso, donde
+    abandonan, y la latencia promedio de carga de horas. Filtra por fecha del evento."""
+    eventos = _leer(EVENTOS_PATH)
+
+    def en_rango(e):
+        if not (desde or hasta):
+            return True
+        f = (e.get('ts') or '')[:10]
+        if desde and f < desde.isoformat():
+            return False
+        if hasta and f > hasta.isoformat():
+            return False
+        return True
+
+    eventos = [e for e in eventos if en_rango(e)]
+    idx = {p: i for i, p in enumerate(_PASOS)}
+
+    # Por sesion: el paso mas avanzado alcanzado + latencias de "horas".
+    max_paso = {}
+    latencias = []
+    for e in eventos:
+        s, p = e.get('s'), e.get('p')
+        if not s or p not in idx:
+            continue
+        max_paso[s] = max(max_paso.get(s, -1), idx[p])
+        if p == 'horas' and isinstance(e.get('ms'), int):
+            latencias.append(e['ms'])
+
+    total_sesiones = len(max_paso)
+    # Embudo monotono: llegaron al paso i = sesiones cuyo max_paso >= i
+    funnel = []
+    base = None
+    prev = None
+    for i, p in enumerate(_PASOS):
+        n = sum(1 for v in max_paso.values() if v >= i)
+        if base is None:
+            base = n or 1
+        funnel.append({
+            'paso': p, 'label': _PASOS_LABEL[p], 'sesiones': n,
+            'pct_inicio': round(n / base * 100),
+            'pct_anterior': round(n / prev * 100) if prev else 100,
+        })
+        prev = n if n else prev
+
+    # Donde abandonan: ultimo paso alcanzado por sesion (los que NO reservaron)
+    abandono = {}
+    for v in max_paso.values():
+        if v < idx['reservado']:
+            p = _PASOS[v]
+            abandono[_PASOS_LABEL[p]] = abandono.get(_PASOS_LABEL[p], 0) + 1
+    abandono_list = sorted(({'label': k, 'total': v} for k, v in abandono.items()),
+                           key=lambda x: -x['total'])
+
+    latencias.sort()
+    lat_prom = round(sum(latencias) / len(latencias)) if latencias else 0
+    lat_med = latencias[len(latencias) // 2] if latencias else 0
+    reservaron = sum(1 for v in max_paso.values() if v >= idx['reservado'])
+
+    return {
+        'total_sesiones': total_sesiones,
+        'reservaron': reservaron,
+        'conversion_pct': round(reservaron / total_sesiones * 100) if total_sesiones else 0,
+        'funnel': funnel,
+        'abandono': abandono_list,
+        'latencia_horas_ms_prom': lat_prom,
+        'latencia_horas_ms_mediana': lat_med,
+        'latencia_muestras': len(latencias),
     }

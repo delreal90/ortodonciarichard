@@ -395,10 +395,48 @@ function _barras(items, color) {
     </div>`).join('');
 }
 
+function _embudoHTML(f) {
+  if (!f || !f.total_sesiones) return '<div class="card"><h3>Embudo de agendamiento</h3><p style="color:#718096;font-size:.85rem">Aún no hay visitas registradas en el flujo.</p></div>';
+  const navy = '#1A2E4A', gold = '#C9A84C';
+  const filas = f.funnel.map((p, i) => {
+    const drop = i > 0 ? 100 - p.pct_anterior : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="width:150px;font-size:.82rem;color:#2D3748;text-align:right;flex-shrink:0">${p.label}</div>
+      <div style="flex:1;background:#edf2f7;border-radius:4px;overflow:hidden">
+        <div style="width:${p.pct_inicio}%;min-width:${p.sesiones?'2px':'0'};background:${navy};height:20px;display:flex;align-items:center;padding-left:6px;color:#fff;font-size:.72rem">${p.pct_inicio}%</div>
+      </div>
+      <div style="width:44px;font-size:.82rem;color:#1A2E4A;font-weight:600">${p.sesiones}</div>
+      <div style="width:64px;font-size:.74rem;color:${drop>=40?'#e53e3e':'#a0aec0'}">${i>0?('−'+drop+'%'):''}</div>
+    </div>`;
+  }).join('');
+  const lat = f.latencia_horas_ms_prom;
+  const latTxt = f.latencia_muestras ? `${(lat/1000).toFixed(1)}s prom · ${(f.latencia_horas_ms_mediana/1000).toFixed(1)}s mediana (${f.latencia_muestras} cargas)` : 'sin datos aún';
+  return `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      ${_statCard('Visitas al flujo', f.total_sesiones, navy)}
+      ${_statCard('Llegaron a reservar', f.reservaron, '#2f855a')}
+      ${_statCard('Conversión', f.conversion_pct + '%', gold)}
+    </div>
+    <div class="card" style="margin-bottom:18px">
+      <h3 style="margin-bottom:6px">Embudo de agendamiento</h3>
+      <p style="font-size:.8rem;color:#718096;margin-bottom:14px">% respecto al inicio · la última columna marca cuánto se cae respecto al paso anterior (rojo = caída grande).</p>
+      ${filas}
+    </div>
+    <div class="card" style="margin-bottom:18px">
+      <h3 style="margin-bottom:6px">⏱️ Tiempo de carga de horas</h3>
+      <p style="font-size:1.1rem;color:#1A2E4A;font-weight:600">${latTxt}</p>
+      <p style="font-size:.78rem;color:#718096">Cuánto espera el paciente entre elegir el motivo y ver las horas.</p>
+    </div>
+    <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:14px">¿Dónde abandonan? (último paso de quienes no reservaron)</h3>${_barras(f.abandono, '#e53e3e')}</div>`;
+}
+
 function renderStats(d) {
   const cont = document.getElementById('stats-resultado');
   const navy = '#1A2E4A', gold = '#C9A84C';
   cont.innerHTML = `
+    <h3 style="margin:4px 0 14px;color:#1A2E4A">Recorrido del paciente</h3>
+    ${_embudoHTML(d.funnel)}
+    <h3 style="margin:24px 0 14px;color:#1A2E4A">Reservas concretadas</h3>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
       ${_statCard('Total reservas', d.total, navy)}
       ${_statCard('Pacientes conocidos', d.conocidos, '#2f855a')}

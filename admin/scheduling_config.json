@@ -53,7 +53,7 @@
       "label": "Primera Consulta",
       "especialidad": "ortodoncia",
       "id_reason": "18152",
-      "duracion_min": 15,
+      "duracion_min": 30,
       "urgencia": false
     },
     "control_fijo": {

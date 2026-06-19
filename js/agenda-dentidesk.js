@@ -37,6 +37,17 @@ async function agendaApi(path, opts) {
   return data;
 }
 
+/* ── Telemetría del embudo (anónima, para ver dónde abandonan) ────────────── */
+function track(paso, ms) {
+  try {
+    const body = JSON.stringify({ sesion: agenda.sessionId, paso, ms });
+    fetch(AGENDA_API + '/api/agenda/evento', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body, keepalive: true,
+    }).catch(() => {});
+  } catch (e) { /* la telemetría nunca debe romper el flujo */ }
+}
+
 /* ── RUT: formato + validación (módulo 11) ───────────────────────────────── */
 
 function limpiarRut(rut) {
@@ -83,11 +94,13 @@ async function abrirAgenda() {
   const modal = document.getElementById('agendaModal');
   modal.classList.add('open');
   document.body.style.overflow = 'hidden';
+  agenda.sessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
   if (!agenda.config) {
     setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando…</div>');
     try { await precargarConfig(); }
     catch (e) { return pasoError('No pudimos conectar con la agenda online. Te recomendamos agendar por WhatsApp.'); }
   }
+  track('abrir');
   pasoEspecialidad();
 }
 
@@ -126,6 +139,7 @@ function pasoEspecialidad() {
 function elegirEspecialidad(key, el) {
   agenda.sel.especialidad = key;
   agenda.sel.especialidadLabel = el.querySelector('span').textContent;
+  track('especialidad');
   pasoRut();
 }
 
@@ -169,6 +183,7 @@ async function continuarRut(e) {
     agenda.sel.existe = r.existe;
     agenda.sel.datos = Object.assign(agenda.sel.datos, r.datos || {});
   } catch (err) { agenda.sel.existe = false; }
+  track('rut');
   pasoDatos();
 }
 
@@ -234,6 +249,7 @@ function pasoDatos() {
 
 function confirmarReconocido() {
   // No tocamos email/telefono: el backend usa los registrados (dedup por RUT+email).
+  track('datos');
   pasoProfesional();
 }
 
@@ -259,6 +275,7 @@ function continuarDatos(e) {
     nombres: f.nombres.value.trim(), apellidos: f.apellidos.value.trim(),
     telefono: f.telefono.value.trim(), email: f.email.value.trim(),
   };
+  track('datos');
   pasoProfesional();
   return false;
 }
@@ -282,6 +299,7 @@ function elegirDoctor(key, el) {
   agenda.sel.doctor = key;
   agenda.sel.doctorNombre = el.querySelector('strong').textContent;
   agenda.sel.doctorFoto = el.querySelector('img').src;
+  track('profesional');
   pasoMotivo();
 }
 
@@ -328,6 +346,8 @@ function elegirMotivo(key, el) {
   agenda.sel.motivoLabel = el.querySelector('span').textContent;
   const m = (agenda.config.motivos || []).find(x => x.key === key);
   agenda.sel.motivoUrgencia = !!(m && m.urgencia);
+  track('motivo');
+  agenda._horasT0 = Date.now();   // para medir cuánto tarda en cargar las horas
   pasoFechaHora();
 }
 
@@ -378,6 +398,7 @@ async function pasoFechaHora() {
   if (!agenda.dias.length) {
     return pasoError('No hay horas disponibles en este momento. Escríbenos por WhatsApp y te ayudamos.');
   }
+  track('horas', agenda._horasT0 ? Date.now() - agenda._horasT0 : undefined);
   renderFechaHora();
 }
 
@@ -506,7 +527,7 @@ async function confirmarReserva() {
         captcha_token: agenda.captchaToken || '',
       }),
     });
-    if (r.ok) pasoExito(r); else pasoError(r.error || 'No se pudo agendar.');
+    if (r.ok) { track('reservado'); pasoExito(r); } else pasoError(r.error || 'No se pudo agendar.');
   } catch (err) {
     pasoError((err.data && err.data.error) || 'Ocurrió un problema al agendar. Intenta por WhatsApp.');
   }

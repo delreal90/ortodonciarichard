@@ -995,6 +995,17 @@ def agenda_reservar():
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'solicitud_cambio': es_no_soy_yo or es_completar})
 
+@rate_limit('120 per minute')
+@app.route('/api/agenda/evento', methods=['POST'])
+def agenda_evento():
+    """Telemetria anonima del flujo de agendamiento (para el embudo). Sin datos
+    personales: solo un id de sesion anonimo, el paso, y latencia opcional."""
+    data = request.json or {}
+    import stats as _stats
+    ok = _stats.registrar_evento(data.get('sesion', ''), data.get('paso', ''),
+                                 data.get('ms'))
+    return jsonify({'ok': bool(ok)})
+
 @app.route('/api/agenda/stats', methods=['GET'])
 def agenda_stats():
     """Estadisticas de agendamiento (para el panel). Protegido por ADMIN_TOKEN.
@@ -1010,7 +1021,9 @@ def agenda_stats():
             return None
     desde = _parse(request.args.get('desde'))
     hasta = _parse(request.args.get('hasta'))
-    return jsonify({'ok': True, **_stats.resumen(desde=desde, hasta=hasta)})
+    return jsonify({'ok': True,
+                    **_stats.resumen(desde=desde, hasta=hasta),
+                    'funnel': _stats.resumen_funnel(desde=desde, hasta=hasta)})
 
 @app.route('/api/scheduling-config', methods=['GET'])
 def get_scheduling_config():
