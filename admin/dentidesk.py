@@ -218,6 +218,63 @@ def buscar_paciente(rut, cfg=None):
     return {'existe': True, 'datos': pacientes.display(rec)}
 
 
+# ── Citas futuras del paciente (para avisar de doble agendamiento) ────────────
+
+# Estados que indican que la cita NO esta activa (no hay que avisar de ellas).
+_ESTADOS_INACTIVOS = ('cancel', 'no llega', 'no seguir', 'reagend', 're-agend', 'atendid')
+
+
+def citas_futuras_paciente(rut, cfg=None, dias_adelante=60, max_workers=12):
+    """Busca las citas ACTIVAS futuras del paciente (por RUT) escaneando getAgendaDay
+    en una ventana de dias. Devuelve lista [{fecha, hora, profesional, motivo, estado}].
+    DentiDesk no tiene busqueda por paciente, por eso se barre dia a dia (en paralelo)."""
+    from concurrent.futures import ThreadPoolExecutor
+    cfg = cfg or load_config()
+    if not cfg['dentidesk']['enabled']:
+        return []
+    objetivo = limpiar_rut(rut)
+    if not objetivo:
+        return []
+
+    dd = cfg['dentidesk']
+    url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
+    hoy = date.today()
+    dias = [hoy + timedelta(days=k) for k in range(0, dias_adelante + 1)
+            if (hoy + timedelta(days=k)).weekday() < 5]
+
+    def scan(d):
+        try:
+            token = _auth_token(cfg)
+            r = requests.post(url, json={'IdLocation': dd['id_location'],
+                                         'Date': d.isoformat(), 'Token': token}, timeout=20)
+            if r.status_code != 200:
+                return []
+            out = []
+            for c in (r.json() or {}).get('data', []):
+                if limpiar_rut(str(c.get('PatientDocument', ''))) != objetivo:
+                    continue
+                estado = (c.get('Status') or '').lower()
+                if any(s in estado for s in _ESTADOS_INACTIVOS):
+                    continue
+                out.append({
+                    'fecha':       c.get('Date', d.isoformat()),
+                    'hora':        (c.get('time') or '')[:5],
+                    'profesional': (c.get('ProfessionalName') or '').strip(),
+                    'motivo':      (c.get('Reason') or '').strip(),
+                    'estado':      (c.get('Status') or '').strip(),
+                })
+            return out
+        except Exception:
+            return []
+
+    citas = []
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for res in pool.map(scan, dias):
+            citas.extend(res)
+    citas.sort(key=lambda c: (c['fecha'], c['hora']))
+    return citas
+
+
 # ── Crear cita ───────────────────────────────────────────────────────────────
 
 def crear_cita(*, doc_id, motivo_key, target_date, hora,

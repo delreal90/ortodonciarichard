@@ -995,6 +995,21 @@ def agenda_reservar():
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'solicitud_cambio': es_no_soy_yo or es_completar})
 
+@rate_limit('20 per minute')
+@app.route('/api/agenda/citas-futuras', methods=['GET'])
+def agenda_citas_futuras():
+    """Citas activas futuras del paciente (por RUT), para avisar de doble
+    agendamiento. Escaneo en segundo plano desde el frontend (tarda unos segundos)."""
+    rut = request.args.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    cfg = scheduling.load_config()
+    try:
+        citas = dentidesk.citas_futuras_paciente(rut, cfg)
+    except Exception:
+        citas = []
+    return jsonify({'ok': True, 'citas': citas})
+
 @rate_limit('120 per minute')
 @app.route('/api/agenda/evento', methods=['POST'])
 def agenda_evento():

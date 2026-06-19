@@ -115,6 +115,8 @@ function cerrarAgenda() {
     esNoSoyYo: false, datosOriginales: null, completarDatos: false,
   };
   agenda.prefetch = {};   // descartar disponibilidad precargada (puede quedar obsoleta)
+  agenda.citasPreviasPromise = null;
+  agenda.citaPreviaAck = false;
 }
 
 function setBody(html) { document.getElementById('agendaBody').innerHTML = html; }
@@ -184,6 +186,11 @@ async function continuarRut(e) {
     agenda.sel.datos = Object.assign(agenda.sel.datos, r.datos || {});
   } catch (err) { agenda.sel.existe = false; }
   track('rut');
+  // En segundo plano (sin bloquear): buscar si ya tiene citas activas futuras.
+  // El aviso se muestra antes de confirmar (paso resumen), cuando ya está listo.
+  agenda.citaPreviaAck = false;
+  agenda.citasPreviasPromise = agendaApi('/api/agenda/citas-futuras?rut=' + encodeURIComponent(agenda.sel.rut))
+    .then(r => r.citas || []).catch(() => []);
   pasoDatos();
 }
 
@@ -444,6 +451,48 @@ function elegirHora(diaIdx, hora) {
   agenda.sel.fecha = agenda.dias[diaIdx].fecha;
   agenda.sel.fechaLegible = agenda.dias[diaIdx].legible;
   agenda.sel.hora = hora;
+  irAResumen();
+}
+
+/* ── Aviso de cita previa (evita doble agendamiento) ─────────────────────── */
+
+async function irAResumen() {
+  // Si el paciente ya tiene una cita activa futura y no lo ha reconocido, avisar.
+  if (!agenda.citaPreviaAck && agenda.citasPreviasPromise) {
+    let citas = [];
+    setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Un momento…</div>');
+    try { citas = await agenda.citasPreviasPromise; } catch (e) { citas = []; }
+    if (citas && citas.length) return pasoAvisoCitaPrevia(citas);
+  }
+  pasoResumen();
+}
+
+function _fechaCitaLegible(f) {
+  const p = (f || '').split('-');
+  if (p.length !== 3) return f;
+  const dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const dt = new Date(+p[0], +p[1]-1, +p[2]);
+  return `${dias[dt.getDay()]} ${+p[2]} de ${meses[+p[1]-1]}`;
+}
+
+function pasoAvisoCitaPrevia(citas) {
+  const varias = citas.length > 1;
+  const items = citas.map(c => `
+    <li><span>${_fechaCitaLegible(c.fecha)} · ${c.hora} hrs</span><b>${c.profesional}${c.motivo ? ' — ' + c.motivo : ''}</b></li>`).join('');
+  setBody(`
+    <div class="agenda-aviso" style="background:#fff7e6;border-color:#C9A84C;color:#7a5b00">
+      <i class="fas fa-triangle-exclamation"></i> ${varias ? 'Ya tienes horas agendadas' : 'Ya tienes una hora agendada'}
+    </div>
+    <p class="agenda-sub">Encontramos ${varias ? 'estas reservas activas' : 'esta reserva activa'} a tu nombre:</p>
+    <ul class="agenda-detalle">${items}</ul>
+    <p class="agenda-sub" style="margin-top:14px">¿Seguro que quieres agendar una hora <strong>nueva</strong> además de ${varias ? 'estas' : 'esta'}?</p>
+    <button class="btn btn-primary btn-lg agenda-submit" onclick="confirmarCitaNueva()">Sí, agendar otra hora</button>
+    <p class="agenda-mini"><a href="#" onclick="cerrarAgenda();return false;">No, mantener solo la que tengo</a></p>`);
+}
+
+function confirmarCitaNueva() {
+  agenda.citaPreviaAck = true;   // no volver a preguntar en esta sesión
   pasoResumen();
 }
 
