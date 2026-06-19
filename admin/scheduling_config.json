@@ -114,8 +114,8 @@
       "especialidad": "ortodoncia",
       "ocupacion": {
         "dia_0_5": 90,
-        "dia_6_10": 80,
-        "dia_11_20": 70,
+        "dia_6_10": 85,
+        "dia_11_20": 75,
         "dia_21_30": 60,
         "dia_31_60": 50
       },
@@ -127,8 +127,8 @@
       "especialidad": "ortodoncia",
       "ocupacion": {
         "dia_0_5": 90,
-        "dia_6_10": 80,
-        "dia_11_20": 70,
+        "dia_6_10": 85,
+        "dia_11_20": 75,
         "dia_21_30": 60,
         "dia_31_60": 50
       },
@@ -140,8 +140,8 @@
       "especialidad": "ortodoncia",
       "ocupacion": {
         "dia_0_5": 90,
-        "dia_6_10": 80,
-        "dia_11_20": 70,
+        "dia_6_10": 85,
+        "dia_11_20": 75,
         "dia_21_30": 60,
         "dia_31_60": 50
       },
@@ -153,8 +153,8 @@
       "especialidad": "rehabilitacion",
       "ocupacion": {
         "dia_0_5": 90,
-        "dia_6_10": 80,
-        "dia_11_20": 70,
+        "dia_6_10": 85,
+        "dia_11_20": 75,
         "dia_21_30": 60,
         "dia_31_60": 50
       },
