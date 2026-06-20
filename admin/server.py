@@ -711,8 +711,15 @@ _DISPO_MAX_STALE = 1800   # 30 min: mas alla de esto NO servir viejo (traer sinc
 _DISPO_INFLIGHT = set()
 _DISPO_LOCK = _threading.Lock()
 
+# Límite GLOBAL de consultas simultáneas a DentiDesk. Sin esto, varios pacientes
+# (o la precarga) disparan decenas de llamadas a la vez y la instancia 0.5 CPU +
+# DentiDesk se saturan: cada request frío salta de ~6s a ~16s. Con el tope, las
+# llamadas se ordenan y ninguna se ahoga.
+_DENTI_SEM = _threading.BoundedSemaphore(10)
+
 def _fetch_horas(doctor, motivo, d, cfg):
-    libres, ocupados = dentidesk.disponibilidad_real(doctor, d, motivo, cfg)
+    with _DENTI_SEM:
+        libres, ocupados = dentidesk.disponibilidad_real(doctor, d, motivo, cfg)
     return scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
 
 def _refrescar_async(doctor, motivo, d, cfg, key):
@@ -760,8 +767,9 @@ def agenda_disponibilidad():
     hoy = date.today()
     todos = scheduling.dias_habiles_ventana(hoy, cfg)
     # Paginacion: se cargan de a PAGE dias habiles (evita decenas de llamadas
-    # a DentiDesk de una sola vez). El frontend pide mas con 'offset'.
-    PAGE = 10
+    # a DentiDesk de una sola vez). Pagina chica = carga inicial mas rapida; el
+    # frontend pide mas con 'offset'.
+    PAGE = 6
     offset = max(0, int(request.args.get('offset', 0) or 0))
     pagina = todos[offset:offset + PAGE]
 

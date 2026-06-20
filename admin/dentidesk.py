@@ -228,7 +228,7 @@ def buscar_paciente(rut, cfg=None):
 _ESTADOS_INACTIVOS = ('cancel', 'no llega', 'no seguir', 'reagend', 're-agend', 'atendid')
 
 
-def citas_futuras_paciente(rut, cfg=None, dias_adelante=60, max_workers=12):
+def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
     """Busca las citas ACTIVAS futuras del paciente (por RUT) escaneando getAgendaDay
     en una ventana de dias. Devuelve lista [{fecha, hora, profesional, motivo, estado}].
     DentiDesk no tiene busqueda por paciente, por eso se barre dia a dia (en paralelo)."""

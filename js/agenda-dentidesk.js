@@ -328,11 +328,9 @@ function pasoMotivo() {
     </div>
     <h3 class="agenda-q">¿Cuál es el motivo de tu consulta?</h3>
     <div class="agenda-options">${items}</div>`);
-
-  // Precarga: mientras el paciente lee y elige el motivo, vamos pidiendo en
-  // segundo plano la disponibilidad del doctor para cada motivo. Cuando elija,
-  // las horas ya suelen estar listas -> aparecen al instante.
-  motivos.forEach(m => prefetchDisponibilidad(agenda.sel.doctor, m.key));
+  // (Sin precarga masiva acá: disparar varios motivos a la vez saturaba el
+  //  servidor. La disponibilidad se pide al elegir el motivo, y el calentador
+  //  del servidor mantiene el caché tibio.)
 }
 
 /* ── Precarga de disponibilidad ──────────────────────────────────────────── */
@@ -347,29 +345,6 @@ function prefetchDisponibilidad(doctor, motivo) {
     ).catch(err => { delete agenda.prefetch[key]; throw err; });  // permitir reintento
   }
   return agenda.prefetch[key];
-}
-
-// Apenas carga la página: precargar los primeros días de TODOS los doctores que
-// atienden (un motivo por doctor). Calienta el caché del servidor para que la
-// 1a consulta de cualquier doctor sea instantánea.
-function warmDoctores() {
-  if (!agenda.config) return;
-  (agenda.config.doctores || []).forEach(d => {
-    const m = (agenda.config.motivos || []).find(x => x.especialidad === d.especialidad);
-    if (m) prefetchDisponibilidad(d.key, m.key);
-  });
-}
-
-// Al elegir un doctor+motivo: calentar en segundo plano las páginas más lejanas
-// (hasta ~60 días) para que "ver más fechas" y el calendario salgan al instante.
-const _warmProfundoHecho = new Set();
-function warmProfundo(doctor, motivo) {
-  for (let off = 10; off <= 50; off += 10) {
-    const k = doctor + '|' + motivo + '|' + off;
-    if (_warmProfundoHecho.has(k)) continue;
-    _warmProfundoHecho.add(k);
-    fetch(AGENDA_API + `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${motivo}&offset=${off}`, { keepalive: true }).catch(() => {});
-  }
 }
 
 function elegirMotivo(key, el) {
@@ -433,7 +408,6 @@ async function pasoFechaHora() {
     return pasoError('No hay horas disponibles en este momento. Escríbenos por WhatsApp y te ayudamos.');
   }
   track('horas', agenda._horasT0 ? Date.now() - agenda._horasT0 : undefined);
-  warmProfundo(agenda.sel.doctor, agenda.sel.motivo);   // calentar 60 días en 2do plano
   renderFechaHora();
 }
 
@@ -752,7 +726,7 @@ window.cerrarAgenda = cerrarAgenda;
 // (sin bloquear la carga de la página). Así el modal abre instantáneo y la 1a
 // consulta de cualquier doctor ya está caliente.
 (function () {
-  const warm = () => precargarConfig().then(() => warmDoctores()).catch(() => {});
+  const warm = () => precargarConfig().catch(() => {});
   if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 3000 });
   else setTimeout(warm, 1500);
 })();
