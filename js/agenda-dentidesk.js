@@ -379,6 +379,8 @@ function avisoUrgenciaHTML() {
 async function pasoFechaHora() {
   setPaso(6);
   agenda.dias = [];
+  agenda.diaSel = 0;
+  agenda.vistaCal = false;
   agenda.diasOffset = 0;
   agenda.diasHayMas = false;
   setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
@@ -409,26 +411,115 @@ async function pasoFechaHora() {
   renderFechaHora();
 }
 
-function renderFechaHora() {
-  const diasHtml = agenda.dias.map((d, i) => `
-    <div class="agenda-dia">
-      <h4>${d.legible}</h4>
-      <div class="agenda-horas">
-        ${d.horas.map(h => `<button class="agenda-hora" onclick="elegirHora(${i}, '${h}')">${h}</button>`).join('')}
-      </div>
-    </div>`).join('');
-  const masBtn = agenda.diasHayMas
-    ? `<button class="agenda-vermas" id="agendaVerMas" onclick="cargarMasFechas()">Ver más fechas <i class="fas fa-chevron-down"></i></button>`
-    : '';
-  setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
+/* Selector híbrido: tira de días (por defecto) + calendario mensual (opcional).
+   Las horas del día elegido se agrupan en Mañana / Tarde. */
+
+const _DOW_ABBR = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const _MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+function _fechaPartes(fecha) {
+  const p = (fecha || '').split('-');
+  const dt = new Date(+p[0], +p[1] - 1, +p[2]);
+  return { abbr: _DOW_ABBR[dt.getDay()], num: +p[2] };
+}
+function _jornada(h) { return h < '14:00' ? 'AM' : 'PM'; }   // HH:MM con cero -> compara bien
+
+function _horasJornadaHTML(d, diaIdx) {
+  const chips = hs => hs.map(h => `<button class="agenda-hora" onclick="elegirHora(${diaIdx}, '${h}')">${h}</button>`).join('');
+  const am = d.horas.filter(h => _jornada(h) === 'AM');
+  const pm = d.horas.filter(h => _jornada(h) === 'PM');
+  let out = '';
+  if (am.length) out += `<p class="agenda-jornada"><i class="fas fa-sun"></i> Mañana</p><div class="agenda-horas">${chips(am)}</div>`;
+  if (pm.length) out += `<p class="agenda-jornada"><i class="fas fa-cloud-sun"></i> Tarde</p><div class="agenda-horas">${chips(pm)}</div>`;
+  return out || '<p class="agenda-sub">No hay horas este día.</p>';
+}
+
+function _cabeceraFechaHora() {
+  return `<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
     <div class="agenda-doctor-head">
       <img src="${agenda.sel.doctorFoto}" alt="">
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.motivoLabel}</span></div>
     </div>
     ${avisoUrgenciaHTML()}
-    <h3 class="agenda-q">Elige día y hora</h3>
-    <div class="agenda-dias">${diasHtml}</div>
-    ${masBtn}`);
+    <h3 class="agenda-q">Elige día y hora</h3>`;
+}
+
+function renderFechaHora() {
+  if (agenda.diaSel == null || agenda.diaSel >= agenda.dias.length) agenda.diaSel = 0;
+  if (agenda.vistaCal) { setBody(_cabeceraFechaHora() + renderCalendarioHTML()); return; }
+
+  const pills = agenda.dias.map((d, i) => {
+    const fp = _fechaPartes(d.fecha);
+    return `<button class="agenda-daypill ${i === agenda.diaSel ? 'sel' : ''}" onclick="seleccionarDia(${i})">
+      <span class="dp-dow">${fp.abbr}</span><span class="dp-num">${fp.num}</span></button>`;
+  }).join('');
+  const masPill = agenda.diasHayMas
+    ? `<button class="agenda-daypill mas" id="agendaVerMas" onclick="cargarMasFechas()"><span class="dp-num"><i class="fas fa-chevron-right"></i></span><span class="dp-dow">más</span></button>`
+    : '';
+  const d = agenda.dias[agenda.diaSel];
+  setBody(_cabeceraFechaHora() + `
+    <div class="agenda-tira">${pills}${masPill}</div>
+    <p class="agenda-sub2">${d ? d.legible : ''}</p>
+    <div class="agenda-horas-wrap">${d ? _horasJornadaHTML(d, agenda.diaSel) : ''}</div>
+    <p class="agenda-cal-link"><a href="#" onclick="abrirCalendario(event)"><i class="far fa-calendar"></i> Ver calendario</a></p>`);
+}
+
+function seleccionarDia(i) { agenda.diaSel = i; renderFechaHora(); }
+
+async function abrirCalendario(e) {
+  if (e) e.preventDefault();
+  if (agenda.diasHayMas) {
+    setBody(_cabeceraFechaHora() + '<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando calendario…</div>');
+    try {
+      while (agenda.diasHayMas) {
+        const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
+        agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
+        agenda.diasHayMas = !!r.hay_mas;
+        if ((r.dias || []).length) agenda.dias = agenda.dias.concat(r.dias);
+      }
+    } catch (err) { /* seguimos con lo cargado */ }
+  }
+  agenda.vistaCal = true;
+  renderFechaHora();
+}
+function cerrarCalendario(e) { if (e) e.preventDefault(); agenda.vistaCal = false; renderFechaHora(); }
+function seleccionarDiaCal(i) { agenda.diaSel = i; renderFechaHora(); }   // permanece en vista calendario
+
+function renderCalendarioHTML() {
+  const idxPorFecha = {};
+  agenda.dias.forEach((d, i) => { idxPorFecha[d.fecha] = i; });
+  const fechas = agenda.dias.map(d => d.fecha).sort();
+  if (!fechas.length) return '';
+  const dow = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const first = fechas[0].split('-').map(Number);
+  const last = fechas[fechas.length - 1].split('-').map(Number);
+  let y = first[0], m = first[1], html = '';
+  while (y < last[0] || (y === last[0] && m <= last[1])) {
+    const startCol = (new Date(y, m - 1, 1).getDay() + 6) % 7;   // lunes = 0
+    const diasMes = new Date(y, m, 0).getDate();
+    let cells = '';
+    for (let k = 0; k < startCol; k++) cells += '<span class="cal-cell empty"></span>';
+    for (let dn = 1; dn <= diasMes; dn++) {
+      const f = `${y}-${String(m).padStart(2, '0')}-${String(dn).padStart(2, '0')}`;
+      if (f in idxPorFecha) {
+        const i = idxPorFecha[f];
+        cells += `<button class="cal-cell avail ${i === agenda.diaSel ? 'sel' : ''}" onclick="seleccionarDiaCal(${i})">${dn}<span class="cal-dot"></span></button>`;
+      } else {
+        cells += `<span class="cal-cell off">${dn}</span>`;
+      }
+    }
+    html += `<div class="agenda-cal">
+      <p class="agenda-cal-month">${_MESES[m - 1]} ${y}</p>
+      <div class="agenda-cal-dow">${dow.map(x => `<span>${x}</span>`).join('')}</div>
+      <div class="agenda-cal-grid">${cells}</div>
+    </div>`;
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  const d = agenda.dias[agenda.diaSel];
+  html += `<p class="agenda-sub2">${d ? d.legible : ''}</p>
+    <div class="agenda-horas-wrap">${d ? _horasJornadaHTML(d, agenda.diaSel) : ''}</div>
+    <p class="agenda-cal-link"><a href="#" onclick="cerrarCalendario(event)"><i class="fas fa-list"></i> Ver como lista</a></p>`;
+  return html;
 }
 
 async function cargarMasFechas() {

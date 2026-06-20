@@ -1484,6 +1484,45 @@ h4 { font-size: 1rem; font-weight: 600; }
 }
 .agenda-hora:hover { border-color: var(--gold); background: var(--gold); color: var(--white); }
 
+/* Selector híbrido: tira de días + horas Mañana/Tarde */
+.agenda-tira { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; -webkit-overflow-scrolling: touch; }
+.agenda-tira::-webkit-scrollbar { height: 5px; }
+.agenda-tira::-webkit-scrollbar-thumb { background: #d6deea; border-radius: 3px; }
+.agenda-daypill {
+    flex: 0 0 auto; width: 56px; padding: 9px 0; border: 1.5px solid var(--light-bg); border-radius: 12px;
+    background: var(--white); color: var(--navy); cursor: pointer; transition: all .15s;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.agenda-daypill .dp-dow { font-size: .72rem; color: var(--text-mid); text-transform: capitalize; }
+.agenda-daypill .dp-num { font-size: 1.15rem; font-weight: 700; }
+.agenda-daypill:hover:not(.sel) { border-color: var(--gold); }
+.agenda-daypill.sel { border-color: var(--navy); background: var(--navy); color: var(--white); }
+.agenda-daypill.sel .dp-dow { color: #c8d9f0; }
+.agenda-daypill.mas { justify-content: center; color: var(--text-mid); }
+.agenda-sub2 { color: var(--navy); font-weight: 600; font-size: .92rem; text-transform: capitalize; margin: 6px 0 12px; }
+.agenda-jornada { font-size: .76rem; color: var(--text-mid); margin: 16px 0 9px; text-transform: uppercase; letter-spacing: .5px; }
+.agenda-jornada i { color: var(--gold); margin-right: 5px; }
+.agenda-cal-link { text-align: center; margin-top: 18px; }
+.agenda-cal-link a { color: var(--navy); font-size: .88rem; text-decoration: none; border-bottom: 1px dashed var(--gold); padding-bottom: 1px; }
+.agenda-cal-link a i { margin-right: 5px; color: var(--gold); }
+
+/* Calendario mensual */
+.agenda-cal { margin-bottom: 16px; }
+.agenda-cal-month { text-align: center; color: var(--navy); font-weight: 700; text-transform: capitalize; margin: 6px 0 12px; }
+.agenda-cal-dow { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; text-align: center; font-size: .72rem; color: var(--text-mid); margin-bottom: 6px; }
+.agenda-cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; }
+.cal-cell {
+    aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; position: relative;
+    font-size: .9rem; border-radius: 10px; border: none; background: none; color: var(--text-dark); padding: 0;
+}
+.cal-cell.off { color: #c2cad6; }
+.cal-cell.empty { visibility: hidden; }
+.cal-cell.avail { cursor: pointer; border: 1.5px solid var(--light-bg); color: var(--navy); font-weight: 600; }
+.cal-cell.avail:hover { border-color: var(--gold); }
+.cal-cell.avail .cal-dot { position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+.cal-cell.avail.sel { background: var(--navy); border-color: var(--navy); color: var(--white); }
+.cal-cell.avail.sel .cal-dot { background: var(--white); }
+
 /* Datos + resumen */
 .agenda-resumen {
     display: flex; gap: 14px; align-items: center; padding: 16px;
