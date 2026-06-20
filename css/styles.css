@@ -1508,7 +1508,14 @@ h4 { font-size: 1rem; font-weight: 600; }
 
 /* Calendario mensual */
 .agenda-cal { margin-bottom: 16px; }
-.agenda-cal-month { text-align: center; color: var(--navy); font-weight: 700; text-transform: capitalize; margin: 6px 0 12px; }
+.agenda-cal-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 12px; }
+.agenda-cal-month { text-align: center; color: var(--navy); font-weight: 700; text-transform: capitalize; margin: 0; flex: 1; }
+.cal-nav {
+    width: 36px; height: 36px; flex: 0 0 36px; border: 1.5px solid var(--light-bg); border-radius: 50%;
+    background: var(--white); color: var(--navy); cursor: pointer; font-size: .85rem; transition: all .15s;
+}
+.cal-nav:hover { border-color: var(--gold); background: var(--gold); color: var(--white); }
+.cal-nav.off { visibility: hidden; }
 .agenda-cal-dow { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; text-align: center; font-size: .72rem; color: var(--text-mid); margin-bottom: 6px; }
 .agenda-cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; }
 .cal-cell {

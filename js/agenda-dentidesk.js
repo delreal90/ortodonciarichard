@@ -381,6 +381,7 @@ async function pasoFechaHora() {
   agenda.dias = [];
   agenda.diaSel = 0;
   agenda.vistaCal = false;
+  agenda.calM = null;
   agenda.diasOffset = 0;
   agenda.diasHayMas = false;
   setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
@@ -479,47 +480,66 @@ async function abrirCalendario(e) {
       }
     } catch (err) { /* seguimos con lo cargado */ }
   }
+  // El calendario abre en el mes del día seleccionado.
+  const d = agenda.dias[agenda.diaSel] || agenda.dias[0];
+  if (d) { const p = d.fecha.split('-').map(Number); agenda.calY = p[0]; agenda.calM = p[1]; }
   agenda.vistaCal = true;
   renderFechaHora();
 }
 function cerrarCalendario(e) { if (e) e.preventDefault(); agenda.vistaCal = false; renderFechaHora(); }
 function seleccionarDiaCal(i) { agenda.diaSel = i; renderFechaHora(); }   // permanece en vista calendario
 
+function _rangoMeses() {
+  const fechas = agenda.dias.map(d => d.fecha).sort();
+  const f = fechas[0].split('-').map(Number), l = fechas[fechas.length - 1].split('-').map(Number);
+  return { lo: f[0] * 12 + (f[1] - 1), hi: l[0] * 12 + (l[1] - 1) };
+}
+function calNavMes(delta) {
+  const r = _rangoMeses();
+  let idx = agenda.calY * 12 + (agenda.calM - 1) + delta;
+  if (idx < r.lo || idx > r.hi) return;
+  agenda.calY = Math.floor(idx / 12); agenda.calM = (idx % 12) + 1;
+  renderFechaHora();
+}
+
 function renderCalendarioHTML() {
   const idxPorFecha = {};
   agenda.dias.forEach((d, i) => { idxPorFecha[d.fecha] = i; });
-  const fechas = agenda.dias.map(d => d.fecha).sort();
-  if (!fechas.length) return '';
+  if (!agenda.dias.length) return '';
+  if (agenda.calM == null) { const p = agenda.dias[0].fecha.split('-').map(Number); agenda.calY = p[0]; agenda.calM = p[1]; }
+
+  const r = _rangoMeses();
+  const cur = agenda.calY * 12 + (agenda.calM - 1);
+  const y = agenda.calY, m = agenda.calM;
   const dow = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-  const first = fechas[0].split('-').map(Number);
-  const last = fechas[fechas.length - 1].split('-').map(Number);
-  let y = first[0], m = first[1], html = '';
-  while (y < last[0] || (y === last[0] && m <= last[1])) {
-    const startCol = (new Date(y, m - 1, 1).getDay() + 6) % 7;   // lunes = 0
-    const diasMes = new Date(y, m, 0).getDate();
-    let cells = '';
-    for (let k = 0; k < startCol; k++) cells += '<span class="cal-cell empty"></span>';
-    for (let dn = 1; dn <= diasMes; dn++) {
-      const f = `${y}-${String(m).padStart(2, '0')}-${String(dn).padStart(2, '0')}`;
-      if (f in idxPorFecha) {
-        const i = idxPorFecha[f];
-        cells += `<button class="cal-cell avail ${i === agenda.diaSel ? 'sel' : ''}" onclick="seleccionarDiaCal(${i})">${dn}<span class="cal-dot"></span></button>`;
-      } else {
-        cells += `<span class="cal-cell off">${dn}</span>`;
-      }
+  const startCol = (new Date(y, m - 1, 1).getDay() + 6) % 7;   // lunes = 0
+  const diasMes = new Date(y, m, 0).getDate();
+  let cells = '';
+  for (let k = 0; k < startCol; k++) cells += '<span class="cal-cell empty"></span>';
+  for (let dn = 1; dn <= diasMes; dn++) {
+    const f = `${y}-${String(m).padStart(2, '0')}-${String(dn).padStart(2, '0')}`;
+    if (f in idxPorFecha) {
+      const i = idxPorFecha[f];
+      cells += `<button class="cal-cell avail ${i === agenda.diaSel ? 'sel' : ''}" onclick="seleccionarDiaCal(${i})">${dn}<span class="cal-dot"></span></button>`;
+    } else {
+      cells += `<span class="cal-cell off">${dn}</span>`;
     }
-    html += `<div class="agenda-cal">
-      <p class="agenda-cal-month">${_MESES[m - 1]} ${y}</p>
+  }
+  const prev = cur > r.lo
+    ? `<button class="cal-nav" onclick="calNavMes(-1)" aria-label="Mes anterior"><i class="fas fa-chevron-left"></i></button>`
+    : `<span class="cal-nav off"></span>`;
+  const next = cur < r.hi
+    ? `<button class="cal-nav" onclick="calNavMes(1)" aria-label="Mes siguiente"><i class="fas fa-chevron-right"></i></button>`
+    : `<span class="cal-nav off"></span>`;
+  const d = agenda.dias[agenda.diaSel];
+  return `<div class="agenda-cal">
+      <div class="agenda-cal-head">${prev}<p class="agenda-cal-month">${_MESES[m - 1]} ${y}</p>${next}</div>
       <div class="agenda-cal-dow">${dow.map(x => `<span>${x}</span>`).join('')}</div>
       <div class="agenda-cal-grid">${cells}</div>
-    </div>`;
-    m++; if (m > 12) { m = 1; y++; }
-  }
-  const d = agenda.dias[agenda.diaSel];
-  html += `<p class="agenda-sub2">${d ? d.legible : ''}</p>
+    </div>
+    <p class="agenda-sub2">${d ? d.legible : ''}</p>
     <div class="agenda-horas-wrap">${d ? _horasJornadaHTML(d, agenda.diaSel) : ''}</div>
     <p class="agenda-cal-link"><a href="#" onclick="cerrarCalendario(event)"><i class="fas fa-list"></i> Ver como lista</a></p>`;
-  return html;
 }
 
 async function cargarMasFechas() {
