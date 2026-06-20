@@ -1106,20 +1106,6 @@ def set_scheduling_config():
         for franja, valor in (doc_changes.get('ocupacion') or {}).items():
             if franja in cfg['doctores'][doc_id]['ocupacion']:
                 cfg['doctores'][doc_id]['ocupacion'][franja] = max(0, min(100, int(valor)))
-        if 'horario_semanal' in doc_changes:
-            hs = {}
-            for dia, rangos in (doc_changes['horario_semanal'] or {}).items():
-                if str(dia) not in ('1','2','3','4','5','6','7') or not isinstance(rangos, list):
-                    continue
-                limpios = []
-                for r in rangos:
-                    if isinstance(r, list) and len(r) == 2:
-                        a, b = str(r[0])[:5], str(r[1])[:5]
-                        if a < b:
-                            limpios.append([a, b])
-                if limpios:
-                    hs[str(dia)] = limpios
-            cfg['doctores'][doc_id]['horario_semanal'] = hs
 
     # Motivos: reemplazar por la lista completa recibida del panel.
     if 'motivos' in data:

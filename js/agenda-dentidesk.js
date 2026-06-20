@@ -348,6 +348,30 @@ function prefetchDisponibilidad(doctor, motivo) {
   }
   return agenda.prefetch[key];
 }
+
+// Apenas carga la página: precargar los primeros días de TODOS los doctores que
+// atienden (un motivo por doctor). Calienta el caché del servidor para que la
+// 1a consulta de cualquier doctor sea instantánea.
+function warmDoctores() {
+  if (!agenda.config) return;
+  (agenda.config.doctores || []).forEach(d => {
+    const m = (agenda.config.motivos || []).find(x => x.especialidad === d.especialidad);
+    if (m) prefetchDisponibilidad(d.key, m.key);
+  });
+}
+
+// Al elegir un doctor+motivo: calentar en segundo plano las páginas más lejanas
+// (hasta ~60 días) para que "ver más fechas" y el calendario salgan al instante.
+const _warmProfundoHecho = new Set();
+function warmProfundo(doctor, motivo) {
+  for (let off = 10; off <= 50; off += 10) {
+    const k = doctor + '|' + motivo + '|' + off;
+    if (_warmProfundoHecho.has(k)) continue;
+    _warmProfundoHecho.add(k);
+    fetch(AGENDA_API + `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${motivo}&offset=${off}`, { keepalive: true }).catch(() => {});
+  }
+}
+
 function elegirMotivo(key, el) {
   agenda.sel.motivo = key;
   agenda.sel.motivoLabel = el.querySelector('span').textContent;
@@ -409,6 +433,7 @@ async function pasoFechaHora() {
     return pasoError('No hay horas disponibles en este momento. Escríbenos por WhatsApp y te ayudamos.');
   }
   track('horas', agenda._horasT0 ? Date.now() - agenda._horasT0 : undefined);
+  warmProfundo(agenda.sel.doctor, agenda.sel.motivo);   // calentar 60 días en 2do plano
   renderFechaHora();
 }
 
@@ -723,10 +748,11 @@ function pasoError(msg) {
 window.abrirAgenda = abrirAgenda;
 window.cerrarAgenda = cerrarAgenda;
 
-// Precargar la config en segundo plano (sin bloquear la carga de la página).
-// Asi el modal abre instantaneo cuando el paciente hace click en "Agendar".
+// Precargar la config + los primeros días de todos los doctores en segundo plano
+// (sin bloquear la carga de la página). Así el modal abre instantáneo y la 1a
+// consulta de cualquier doctor ya está caliente.
 (function () {
-  const warm = () => precargarConfig().catch(() => {});
+  const warm = () => precargarConfig().then(() => warmDoctores()).catch(() => {});
   if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 3000 });
   else setTimeout(warm, 1500);
 })();
