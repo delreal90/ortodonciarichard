@@ -328,9 +328,9 @@ function pasoMotivo() {
     </div>
     <h3 class="agenda-q">¿Cuál es el motivo de tu consulta?</h3>
     <div class="agenda-options">${items}</div>`);
-  // (Sin precarga masiva acá: disparar varios motivos a la vez saturaba el
-  //  servidor. La disponibilidad se pide al elegir el motivo, y el calentador
-  //  del servidor mantiene el caché tibio.)
+  // Precarga SECUENCIAL (no en ráfaga) de los motivos del doctor mientras el
+  // paciente lee: deja tibio para que elegir/cambiar de motivo sea instantáneo.
+  calentarMotivos(agenda.sel.doctor, motivos);
 }
 
 /* ── Precarga de disponibilidad ──────────────────────────────────────────── */
@@ -345,6 +345,16 @@ function prefetchDisponibilidad(doctor, motivo) {
     ).catch(err => { delete agenda.prefetch[key]; throw err; });  // permitir reintento
   }
   return agenda.prefetch[key];
+}
+
+// Precarga SECUENCIAL (uno a uno) de los motivos de un doctor. Secuencial =
+// sin ráfagas que saturen el servidor. Cada solicitud deja tibio el motivo para
+// el siguiente clic del paciente (cambiar de motivo se vuelve instantáneo).
+async function calentarMotivos(doctor, motivos) {
+  for (const m of motivos) {
+    if (agenda.prefetch[_dispoKey(doctor, m.key)]) continue;   // ya pedido
+    try { await prefetchDisponibilidad(doctor, m.key); } catch (e) { /* sigue */ }
+  }
 }
 
 function elegirMotivo(key, el) {

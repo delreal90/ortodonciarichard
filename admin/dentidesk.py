@@ -104,7 +104,9 @@ def horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo):
 
 # Cache de getAgendaDay por fecha (una sola llamada cubre a todos los doctores).
 _AGENDA_DIA_CACHE = {}
-_AGENDA_DIA_TTL = 90  # segundos
+_AGENDA_DIA_TTL = 600  # 10 min: la agenda del dia se comparte entre motivos del
+# mismo doctor; con 90s expiraba mientras el paciente navegaba y el siguiente
+# motivo volvia a frio. La reserva valida igual contra getAvailableHours en vivo.
 
 
 def _get_agenda_day(cfg, target_date):
