@@ -385,6 +385,32 @@ function avisoUrgenciaHTML() {
 
 /* ── Paso 6: fecha y hora ────────────────────────────────────────────────── */
 
+const TIRA_MIN_DIAS = 5;   // intentar mostrar al menos 5 días en la tira
+
+// Pantalla de carga con "¿Sabías qué?" rotando (frases configurables en el panel).
+function _loadingFechaHTML() {
+  const frases = (agenda.config && agenda.config.sabias_que) || [];
+  const extra = frases.length ? `
+    <div class="agenda-sabias">
+      <p class="sq-titulo">¿Sabías qué?</p>
+      <p class="sq-frase" id="sqFrase">${frases[0]}</p>
+    </div>` : '';
+  return `<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>${extra}`;
+}
+function _iniciarSabias() {
+  clearInterval(agenda._sqIv);
+  const frases = (agenda.config && agenda.config.sabias_que) || [];
+  if (frases.length < 2) return;
+  let i = 0;
+  agenda._sqIv = setInterval(() => {
+    const el = document.getElementById('sqFrase');
+    if (!el) { clearInterval(agenda._sqIv); return; }   // ya cargó -> se autolimpia
+    i = (i + 1) % frases.length;
+    el.style.opacity = '0';
+    setTimeout(() => { el.textContent = frases[i]; el.style.opacity = '1'; }, 250);
+  }, 3800);
+}
+
 async function pasoFechaHora() {
   setPaso(6);
   agenda.dias = [];
@@ -398,7 +424,8 @@ async function pasoFechaHora() {
       <img src="${agenda.sel.doctorFoto}" alt="">
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.motivoLabel}</span></div>
     </div>
-    <div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>`);
+    ${_loadingFechaHTML()}`);
+  _iniciarSabias();
   let r;
   try {
     // Usa la precarga iniciada en pasoMotivo (suele estar lista -> instantáneo).
@@ -407,8 +434,8 @@ async function pasoFechaHora() {
   agenda.dias = r.dias || [];
   agenda.diasOffset = r.offset_siguiente || 0;
   agenda.diasHayMas = !!r.hay_mas;
-  // Si la primera pagina vino vacia pero hay mas, seguir cargando
-  while (!agenda.dias.length && agenda.diasHayMas) {
+  // Cargar páginas hasta juntar al menos TIRA_MIN_DIAS días con horas (o agotar).
+  while (agenda.dias.length < TIRA_MIN_DIAS && agenda.diasHayMas) {
     const r2 = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
     agenda.dias = agenda.dias.concat(r2.dias || []);
     agenda.diasOffset = r2.offset_siguiente || agenda.diasOffset;

@@ -192,6 +192,7 @@
       <div class="card" id="agenda-estado" style="margin-bottom:18px"></div>
       <div class="card" id="agenda-global" style="margin-bottom:18px"></div>
       <div class="card" id="agenda-motivos" style="margin-bottom:18px"></div>
+      <div class="card" id="agenda-sabias" style="margin-bottom:18px"></div>
       <div id="agenda-doctores"></div>
       <button class="btn btn-primary" style="margin-top:8px" onclick="saveAgenda()">Guardar configuración</button>
     </div>
@@ -493,6 +494,13 @@ async function loadAgenda() {
   // Motivos y especialidades
   renderMotivoPanel();
 
+  // Frases "¿Sabías qué?" (rotan mientras el paciente espera las horas)
+  const frases = (AGENDA_CFG.sabias_que || []).join('\n');
+  document.getElementById('agenda-sabias').innerHTML = `
+    <h3 style="margin-bottom:6px">"¿Sabías qué?" mientras carga</h3>
+    <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Una frase por línea. Rotan mientras el paciente espera las horas disponibles. Déjalo vacío para ocultarlo.</p>
+    <textarea id="ag-sabias" rows="6" style="width:100%;padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:.88rem;line-height:1.5;resize:vertical">${frases.replace(/</g,'&lt;')}</textarea>`;
+
   const cont = document.getElementById('agenda-doctores');
   cont.innerHTML = Object.entries(AGENDA_CFG.doctores).map(([id, d]) => `
     <div class="card" data-doc="${id}">
@@ -649,8 +657,10 @@ async function saveAgenda() {
   });
 
   const anticipacion = +document.getElementById('ag-anticipacion').value;
+  const sabias_que = (document.getElementById('ag-sabias')?.value || '')
+    .split('\n').map(s => s.trim()).filter(Boolean);
   const r = await api('/api/scheduling-config', 'POST', {
-    doctores, anticipacion_minima_horas: anticipacion, motivos, especialidades,
+    doctores, anticipacion_minima_horas: anticipacion, motivos, especialidades, sabias_que,
   });
   if (r.ok) {
     AGENDA_CFG = await api('/api/scheduling-config');

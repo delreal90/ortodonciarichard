@@ -38,6 +38,14 @@
     "anticipacion_maxima_dias": 60,
     "_comment_maxima": "No se puede agendar con mas de 60 dias de anticipacion."
   },
+  "_comment_sabias_que": "Frases '¿Sabías qué?' que rotan mientras se cargan las horas. Editables desde el panel (Agenda online).",
+  "sabias_que": [
+    "Somos miembros de la American Association of Orthodontists (AAO), la WFO y SORT Chile.",
+    "La primera consulta incluye una evaluación completa de tu sonrisa.",
+    "Atendemos urgencias de ortodoncia de lunes a viernes, de 9:00 a 19:30.",
+    "Ofrecemos ortodoncia con alineadores invisibles (Invisalign, Digitrack y más).",
+    "Estamos en Las Condes: Paul Harris 10.349, oficina 305."
+  ],
   "especialidades": {
     "_comment": "Es lo primero que elige el paciente. El label sale de la especialidad/rol de los doctores. Para agregar una especialidad: crearla aqui y asignarla a un doctor (campo 'especialidad').",
     "ortodoncia": {

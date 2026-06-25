@@ -685,7 +685,8 @@ def agenda_config():
         })
     return jsonify({'especialidades': especialidades, 'motivos': motivos,
                     'doctores': doctores, 'mock': not cfg['dentidesk']['enabled'],
-                    'turnstile_sitekey': os.environ.get('TURNSTILE_SITEKEY', '')})
+                    'turnstile_sitekey': os.environ.get('TURNSTILE_SITEKEY', ''),
+                    'sabias_que': [s for s in (cfg.get('sabias_que') or []) if isinstance(s, str) and s.strip()]})
 
 @rate_limit('40 per minute')
 @app.route('/api/agenda/paciente', methods=['GET'])
@@ -1094,6 +1095,7 @@ def get_scheduling_config():
         'motivos': motivos,
         'especialidades': especialidades,
         'reglas': cfg['reglas'],
+        'sabias_que': [s for s in (cfg.get('sabias_que') or []) if isinstance(s, str)],
         'dentidesk_enabled': cfg['dentidesk']['enabled'],
     })
 
@@ -1105,6 +1107,10 @@ def set_scheduling_config():
 
     if 'anticipacion_minima_horas' in data:
         cfg['reglas']['anticipacion_minima_horas'] = max(0, int(data['anticipacion_minima_horas']))
+
+    if 'sabias_que' in data:
+        cfg['sabias_que'] = [str(s).strip() for s in (data['sabias_que'] or [])
+                             if str(s).strip()][:30]
 
     for doc_id, doc_changes in (data.get('doctores') or {}).items():
         if doc_id not in cfg['doctores']:
