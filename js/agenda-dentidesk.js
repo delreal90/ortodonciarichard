@@ -740,3 +740,11 @@ window.cerrarAgenda = cerrarAgenda;
   if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 3000 });
   else setTimeout(warm, 1500);
 })();
+
+// Link directo: ortodonciarichard.cl/#reservar (o #agendar) abre el agendamiento
+// al instante. Ideal para el sticker de link de historias o el link de la bio.
+function _abrirDesdeHash() {
+  if (/^#(reservar|agendar)/i.test(location.hash || '')) abrirAgenda();
+}
+window.addEventListener('load', _abrirDesdeHash);
+window.addEventListener('hashchange', _abrirDesdeHash);
