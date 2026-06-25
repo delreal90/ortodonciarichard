@@ -40,11 +40,15 @@
   },
   "_comment_sabias_que": "Frases '¿Sabías qué?' que rotan mientras se cargan las horas. Editables desde el panel (Agenda online).",
   "sabias_que": [
-    "Somos miembros de la American Association of Orthodontists (AAO), la WFO y SORT Chile.",
-    "La primera consulta incluye una evaluación completa de tu sonrisa.",
-    "Atendemos urgencias de ortodoncia de lunes a viernes, de 9:00 a 19:30.",
-    "Ofrecemos ortodoncia con alineadores invisibles (Invisalign, Digitrack y más).",
-    "Estamos en Las Condes: Paul Harris 10.349, oficina 305."
+    "Somos miembros de la American Association of Orthodontists (AAO), la World Federation of Orthodontists (WFO) y la Sociedad de Ortodoncia de Chile (SORTCH).",
+    "Atendemos urgencias de ortodoncia de lunes a viernes, entre las 9:00 y las 19:30 horas.",
+    "Ofrecemos tratamientos con alineadores transparentes de las principales marcas, incluyendo Invisalign, Digitrack y otras alternativas.",
+    "Hace más de 50 años, el Dr. Richard fue pionero en la incorporación de la Ortopedia Funcional de los Maxilares en el Hospital Sótero del Río.",
+    "Desde hace más de 50 años, nuestra clínica entrega tratamientos de ortodoncia con un enfoque basado en la excelencia, la experiencia y la cercanía con nuestros pacientes.",
+    "Nuestra clínica fue una de las pioneras en Chile en incorporar los alineadores Invisalign, hace más de 20 años.",
+    "El Dr. Octavio Del Real ha sido Presidente de la Sociedad de Ortodoncia de Chile en cuatro períodos.",
+    "El Dr. Rodrigo Oyonarte fue pionero en Chile y el mundo en la incorporación de los microtornillos como herramienta de tratamiento en ortodoncia.",
+    "El Dr. Alberto Del Real fue uno de los pioneros en la aplicación de inteligencia artificial a la ortodoncia, desarrollando y publicando uno de los primeros modelos del mundo capaces de predecir la necesidad de extracciones dentales."
   ],
   "especialidades": {
     "_comment": "Es lo primero que elige el paciente. El label sale de la especialidad/rol de los doctores. Para agregar una especialidad: crearla aqui y asignarla a un doctor (campo 'especialidad').",
@@ -62,56 +66,64 @@
       "especialidad": "ortodoncia",
       "id_reason": "18152",
       "duracion_min": 30,
-      "urgencia": false
+      "urgencia": false,
+      "notificar_agenda": false
     },
     "control_fijo": {
       "label": "Control de Ortodoncia con Aparato Fijo (frenillos, disyuntor)",
       "especialidad": "ortodoncia",
       "id_reason": "16073",
       "duracion_min": 15,
-      "urgencia": false
+      "urgencia": false,
+      "notificar_agenda": false
     },
     "control_alineadores": {
       "label": "Control de Ortodoncia con Alineadores (Invisalign, Digitrack, etc.)",
       "especialidad": "ortodoncia",
       "id_reason": "20071",
       "duracion_min": 15,
-      "urgencia": false
+      "urgencia": false,
+      "notificar_agenda": false
     },
     "control_removible": {
       "label": "Control de Ortodoncia con Aparato Removible (placa)",
       "especialidad": "ortodoncia",
       "id_reason": "20013",
       "duracion_min": 15,
-      "urgencia": false
+      "urgencia": false,
+      "notificar_agenda": false
     },
     "urgencia": {
       "label": "Urgencia de Ortodoncia (bracket suelto, fierro pincha, etc.)",
       "especialidad": "ortodoncia",
       "id_reason": "20066",
       "duracion_min": 15,
-      "urgencia": true
+      "urgencia": true,
+      "notificar_agenda": false
     },
     "rehab_evaluacion": {
       "label": "Evaluación",
       "especialidad": "rehabilitacion",
       "id_reason": "24798",
       "duracion_min": 30,
-      "urgencia": false
+      "urgencia": false,
+      "notificar_agenda": false
     },
     "rehab_continuar": {
       "label": "Continuar mi tratamiento en curso",
       "especialidad": "rehabilitacion",
       "id_reason": "24798",
       "duracion_min": 30,
-      "urgencia": false
+      "urgencia": false,
+      "notificar_agenda": false
     },
     "rehab_urgencia": {
       "label": "Urgencia Dental",
       "especialidad": "rehabilitacion",
       "id_reason": "20082",
       "duracion_min": 30,
-      "urgencia": true
+      "urgencia": true,
+      "notificar_agenda": false
     }
   },
   "doctores": {
