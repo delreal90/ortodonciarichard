@@ -387,21 +387,23 @@ function avisoUrgenciaHTML() {
 
 const TIRA_MIN_DIAS = 5;   // intentar mostrar al menos 5 días en la tira
 
-// Pantalla de carga con "¿Sabías qué?" rotando (frases configurables en el panel).
-function _loadingFechaHTML() {
+// "¿Sabías qué?" rotando mientras se espera (frases configurables en el panel).
+// Se usa al cargar las horas y al cargar el calendario.
+let _sqIdx = 0;
+function _sabiasHTML() {
   const frases = (agenda.config && agenda.config.sabias_que) || [];
-  const extra = frases.length ? `
-    <div class="agenda-sabias">
-      <p class="sq-titulo">¿Sabías qué?</p>
-      <p class="sq-frase" id="sqFrase">${frases[0]}</p>
-    </div>` : '';
-  return `<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>${extra}`;
+  if (!frases.length) return '';
+  _sqIdx = Math.floor(Math.random() * frases.length);   // arranca en una al azar
+  return `<div class="agenda-sabias"><p class="sq-titulo">¿Sabías qué?</p><p class="sq-frase" id="sqFrase">${frases[_sqIdx]}</p></div>`;
+}
+function _loadingFechaHTML() {
+  return `<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>${_sabiasHTML()}`;
 }
 function _iniciarSabias() {
   clearInterval(agenda._sqIv);
   const frases = (agenda.config && agenda.config.sabias_que) || [];
   if (frases.length < 2) return;
-  let i = 0;
+  let i = _sqIdx;
   agenda._sqIv = setInterval(() => {
     const el = document.getElementById('sqFrase');
     if (!el) { clearInterval(agenda._sqIv); return; }   // ya cargó -> se autolimpia
@@ -506,7 +508,8 @@ function seleccionarDia(i) { agenda.diaSel = i; renderFechaHora(); }
 async function abrirCalendario(e) {
   if (e) e.preventDefault();
   if (agenda.diasHayMas) {
-    setBody(_cabeceraFechaHora() + '<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando calendario…</div>');
+    setBody(_cabeceraFechaHora() + '<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando calendario…</div>' + _sabiasHTML());
+    _iniciarSabias();
     try {
       while (agenda.diasHayMas) {
         const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
