@@ -237,12 +237,18 @@ admin/scheduling.py           ← CEREBRO sin red: reglas de negocio, simulació
                                  ocupación (determinista), grilla horaria, .ics
 admin/dentidesk.py            ← cliente API DentiDesk (auth JWT 1-uso + availability +
                                  create). Modo mock si enabled=false
-admin/notify.py               ← confirmación: WhatsApp (bridge :8080) + .ics, fallback email
-admin/server.py               ← rutas Flask: /api/agenda/config|disponibilidad|reservar
-                                 y /api/scheduling-config (GET/POST para el panel)
+admin/notify.py               ← confirmación: email SMTP + .ics, fallback WhatsApp (bridge :8080)
+admin/confirmaciones.py       ← barrido de citas presenciales/teléfono (4 ciclos diarios);
+                                 marcar_enviada() para no duplicar con online/F2
+admin/server.py               ← rutas Flask: /api/agenda/config|disponibilidad|reservar,
+                                 /api/scheduling-config, /api/asistente/confirmar-cita (F2),
+                                 y el scheduler (_loop_confirmaciones + refresco pacientes)
 js/agenda-dentidesk.js        ← modal de 4 pasos (motivo→doctor→fecha/hora→datos)
 index.html                    ← botón "Agendar hora online" + markup del modal
 admin/panel.html              ← sección "Agenda online" para ajustar % de ocupación
+
+dentidesk-assistant/          ← extensión F2 (proyecto SEPARADO, a comercializar)
+  manifest.json, config.js, content.js, background.js, INSTALAR.md
 ```
 
 **Reglas implementadas:** anticipación mínima 12h (salvo Urgencia); 5 motivos;
@@ -261,6 +267,92 @@ configurable por doctor desde el panel; foto del doctor desde `doctorData` (main
    `http://localhost:5001`).
 5. Verificar el endpoint real de `getAvailableHours` (formato de respuesta) — el
    parser en `dentidesk.py` ya contempla lista de strings o de objetos `{Hour}`.
+
+---
+
+## Confirmaciones de cita — online, automáticas (4 ciclos) y manuales (F2)
+
+Hay TRES formas en que un paciente recibe el correo de confirmación (mismo HTML +
+`.ics`, generado por `notify.enviar_confirmacion()`):
+
+1. **Online** — quien agenda por el sitio recibe la confirmación al instante dentro
+   de `/api/agenda/reservar`. Esa cita se registra como enviada (`marcar_enviada`)
+   para que el barrido no la duplique.
+2. **Automática (barrido)** — `confirmaciones.barrer_y_confirmar()` corre en 4 ciclos
+   diarios: `_HORARIOS_CONFIRMACION = ['11:00','13:30','17:00','19:45']` (hora Chile,
+   en `server.py` → `_loop_confirmaciones`). Recorre `getAgendaDay`, detecta citas
+   NUEVAS con email (agendadas presencial/teléfono) y les envía la confirmación.
+   - **Anti-spam:** la PRIMERA corrida solo SIEMBRA (registra lo existente sin enviar).
+     Si no, le llegaría correo a cientos de pacientes que ya tenían hora.
+   - Solo envía a citas creadas desde el último barrido (con 1 día de margen).
+   - Registro en `confirmaciones_enviadas.json` (`{IdAgenda: timestamp}`, gitignored).
+3. **Manual (asistente F2)** — la secretaria fuerza el envío inmediato desde la
+   extensión de navegador (ver sección siguiente). Endpoint
+   `POST /api/asistente/confirmar-cita`.
+
+### Regla clave: asimetría manual vs automático
+- **F2 (manual) envía SIEMPRE, sin condiciones** — no consulta el registro antes de
+  enviar. Si la secretaria lo aprieta es porque alguien lo pidió (aunque ya se haya
+  enviado antes, por automático o por otro F2). Después de enviar, marca la cita.
+- **El barrido automático NO reenvía** lo que ya está en el registro (`ida in idx`
+  → skip). Así, lo que F2 ya mandó, los ciclos de las 11/13:30/17/19:45 lo saltan.
+- En resumen: el envío manual es "el jefe" (manda sin preguntar); el automático es
+  "tímido" (solo manda lo que nunca se tocó). Esto NO requiere código extra: emerge
+  del diseño (F2 no chequea registro + barrido sí lo chequea).
+
+---
+
+## Asistente F2 — extensión de navegador (`dentidesk-assistant/`)
+
+Producto SEPARADO del sitio (se comercializará; ver `HANDOFF` en Desktop/Borrame).
+Extensión Manifest V3 para Chrome/Edge/Firefox que la secretaria invoca con **F2**
+mientras tiene abierta una cita en `app.dentidesk.cl`.
+
+**Carpeta:** `C:\Users\ESTUDIO3D\Claude Code Playground\dentidesk-assistant\`
+```
+manifest.json   ← MV3; content_scripts = [config.js, content.js]; host_permissions
+                  incluye app.dentidesk.cl + el backend (onrender + localhost:5001)
+config.js       ← valores PRECARGADOS (apiBase + adminToken). Editar aquí para dejar
+                  la extensión lista en un PC nuevo sin escribir nada en el panel ⚙.
+                  ⚠️ Contiene el ADMIN_TOKEN en texto plano → NO subir a repo público.
+content.js      ← F2 lee el modal (#id_agenda, #email, #motivo, …), muestra panel
+                  flotante en Shadow DOM, llama al backend vía background.js.
+background.js   ← service worker: hace el fetch al endpoint (evita CORS del content).
+INSTALAR.md     ← cómo cargar la extensión descomprimida + configurar.
+```
+
+**Cómo lee la cita:** del DOM del modal abierto (no de la API). IDs clave:
+`#id_agenda`, `#id_paciente`, `#nombre`, `#apellido`, `#email`, `#diacita/#mescita/
+#aniocita`, `#horac/#minutos`, `#dentista_cita`, `#motivo` (value=id, text=label).
+
+**Flujo del botón "Enviar confirmación":**
+```
+F2 → content.js lee idAgenda + email del modal
+   → background.js → POST {apiBase}/api/asistente/confirmar-cita
+        body: { id_agenda, fecha, email }   header: X-Admin-Token
+   → backend trae la agenda FRESCA (getAgendaDay force=True, sin caché)
+   → valida estado activo + email (respaldo: el email del modal si DentiDesk no lo tiene)
+   → notify.enviar_confirmacion()  →  marcar_enviada()
+   → panel muestra "✅ Confirmación enviada a co***@gm***.cl"
+```
+
+**Dos quirks resueltos (importantes si se retoma):**
+1. **Bootstrap `enforceFocus`** — el modal de DentiDesk roba el foco a cualquier
+   elemento fuera de `#modal_cita`. Por eso el panel se cuelga DENTRO de `#modal_cita`
+   (no de `<body>`); así Bootstrap lo considera "parte del modal" y deja escribir en
+   los inputs (p.ej. el campo del token). Hay además un interceptor de `focusin` en
+   captura como defensa adicional.
+2. **Caché de agenda** — el endpoint usa `force=True` para no leer datos viejos: el
+   asistente se usa justo después de editar/guardar la cita en DentiDesk.
+
+**Config / multi-PC:** el token y la URL se guardan por navegador en
+`chrome.storage.local` (panel ⚙). Para un PC nuevo, lo más simple es precargar el
+token en `config.js`. Para producto multi-clínica habrá que pasar a token por
+instalación (no compartido) — ver HANDOFF.
+
+**Endpoint backend** (`server.py` → `asistente_confirmar_cita`):
+`POST /api/asistente/confirmar-cita`, body `{id_agenda, fecha, email?}`, protegido por
+`ADMIN_TOKEN` (header `X-Admin-Token`). Funciona también en modo mock (enabled=false).
 
 ---
 
