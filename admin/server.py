@@ -1343,9 +1343,11 @@ def asistente_confirmar_cita():
             'mensaje': 'Modo demo: sin credenciales DentiDesk (enabled=false)',
         })
 
-    # Traer la agenda del día desde DentiDesk (cacheada 10 min)
+    # Traer la agenda del día FRESCA (sin caché). El asistente F2 se usa justo
+    # después de editar/guardar la cita en DentiDesk; con caché podríamos leer
+    # datos viejos (sin el email recién agregado) o no ver una cita recién creada.
     try:
-        citas_dia = dentidesk._get_agenda_day(cfg, fecha)
+        citas_dia = dentidesk._get_agenda_day(cfg, fecha, force=True)
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Error al consultar DentiDesk: {e}'}), 502
 
@@ -1362,10 +1364,15 @@ def asistente_confirmar_cita():
     if any(s in estado for s in dentidesk._ESTADOS_INACTIVOS):
         return jsonify({'ok': False, 'error': f'La cita está en estado "{cita_raw.get("Status")}" — no se envía confirmación'}), 409
 
-    # Validar email
+    # Validar email. Prioridad: el de DentiDesk (recién guardado); si la cita no
+    # lo tiene, usar el que el asistente leyó del modal (data['email']) como
+    # respaldo. Esto cubre el caso de una cita antigua a la que recién se le
+    # agregó el email en el modal y el cambio aún no se refleja del lado servidor.
     email = (cita_raw.get('PatientEmail') or '').strip()
     if '@' not in email:
-        return jsonify({'ok': False, 'error': 'La cita no tiene email registrado — no se puede enviar confirmación'}), 409
+        email = (data.get('email') or '').strip()
+    if '@' not in email or '.' not in email:
+        return jsonify({'ok': False, 'error': 'La cita no tiene email registrado. Agrégalo en DentiDesk, guarda, y vuelve a intentar.'}), 409
 
     # Armar el dict para notify.enviar_confirmacion()
     import pacientes as _pacientes

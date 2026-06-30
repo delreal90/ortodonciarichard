@@ -109,12 +109,14 @@ _AGENDA_DIA_TTL = 600  # 10 min: la agenda del dia se comparte entre motivos del
 # motivo volvia a frio. La reserva valida igual contra getAvailableHours en vivo.
 
 
-def _get_agenda_day(cfg, target_date):
-    """Lista de citas del dia (todos los profesionales). Cacheada."""
+def _get_agenda_day(cfg, target_date, force=False):
+    """Lista de citas del dia (todos los profesionales). Cacheada.
+    force=True ignora el cache y trae datos frescos de DentiDesk (lo usa el
+    asistente F2: tras editar/guardar una cita el cache puede estar viejo)."""
     import time as _t
     key = target_date.isoformat()
     hit = _AGENDA_DIA_CACHE.get(key)
-    if hit and (_t.time() - hit[0]) < _AGENDA_DIA_TTL:
+    if not force and hit and (_t.time() - hit[0]) < _AGENDA_DIA_TTL:
         return hit[1]
     dd = cfg['dentidesk']
     token = _auth_token(cfg)
