@@ -1284,7 +1284,136 @@ def reordenar_galeria():
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════════════════════
-# REFRESCO AUTOMATICO DE PACIENTES (2x/dia, en proceso)
+# ASISTENTE F2 — confirmar una cita puntual al instante
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _enmascarar_email(email):
+    """ma***@gm***.cl — mismo criterio que pacientes.display()."""
+    if not email or '@' not in email:
+        return email or ''
+    local, domain = email.split('@', 1)
+    def mask(s, keep=2):
+        return s[:keep] + '***' if len(s) > keep else s
+    parts = domain.rsplit('.', 1)
+    dom_masked = mask(parts[0], 2) + ('.' + parts[1] if len(parts) > 1 else '')
+    return mask(local, 2) + '@' + dom_masked
+
+
+@app.route('/api/asistente/confirmar-cita', methods=['POST'])
+def asistente_confirmar_cita():
+    """
+    Envía la confirmación de una cita puntual al instante (sin esperar el barrido).
+    Llamado por el asistente F2 desde el navegador de la secretaria.
+
+    Body JSON: { "id_agenda": "13350327", "fecha": "2026-06-26" }
+    Protegido por ADMIN_TOKEN (mismo patrón que el resto de endpoints sensibles).
+
+    Flujo:
+      1. Trae las citas del día desde DentiDesk (getAgendaDay, con caché).
+      2. Localiza la cita por IdAgenda.
+      3. Valida que tenga email y no esté inactiva (cancelada, atendida, etc.).
+      4. Llama a notify.enviar_confirmacion() — mismo correo que el agendamiento online.
+      5. Marca la cita como enviada (marcar_enviada) para que el barrido no la reenvíe.
+      6. Devuelve { ok, canal, email_enmascarado } o { ok: false, error }.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+
+    data = request.json or {}
+    id_agenda = str(data.get('id_agenda', '')).strip()
+    fecha_str  = (data.get('fecha') or '').strip()
+
+    if not id_agenda:
+        return jsonify({'ok': False, 'error': 'Falta id_agenda'}), 400
+    try:
+        fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Fecha inválida (esperado YYYY-MM-DD)'}), 400
+
+    cfg = scheduling.load_config()
+
+    # Modo mock (sin credenciales DentiDesk): confirmar con datos simulados
+    if not cfg['dentidesk']['enabled']:
+        import confirmaciones
+        confirmaciones.marcar_enviada(id_agenda)
+        return jsonify({
+            'ok': True, 'mock': True,
+            'canal': 'email',
+            'email_enmascarado': 'pa***@co***.cl',
+            'mensaje': 'Modo demo: sin credenciales DentiDesk (enabled=false)',
+        })
+
+    # Traer la agenda del día desde DentiDesk (cacheada 10 min)
+    try:
+        citas_dia = dentidesk._get_agenda_day(cfg, fecha)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Error al consultar DentiDesk: {e}'}), 502
+
+    # Buscar la cita por IdAgenda
+    cita_raw = next(
+        (c for c in citas_dia if str(c.get('IdAgenda', '')) == id_agenda),
+        None
+    )
+    if not cita_raw:
+        return jsonify({'ok': False, 'error': f'No se encontró la cita {id_agenda} en la agenda del {fecha_str}'}), 404
+
+    # Validar que no esté inactiva (cancelada, atendida, etc.)
+    estado = (cita_raw.get('Status') or '').lower()
+    if any(s in estado for s in dentidesk._ESTADOS_INACTIVOS):
+        return jsonify({'ok': False, 'error': f'La cita está en estado "{cita_raw.get("Status")}" — no se envía confirmación'}), 409
+
+    # Validar email
+    email = (cita_raw.get('PatientEmail') or '').strip()
+    if '@' not in email:
+        return jsonify({'ok': False, 'error': 'La cita no tiene email registrado — no se puede enviar confirmación'}), 409
+
+    # Armar el dict para notify.enviar_confirmacion()
+    import pacientes as _pacientes
+    nombres_raw, _ = _pacientes._split_nombre(cita_raw.get('PatientName', ''))
+    nombre = nombres_raw or 'Paciente'
+
+    try:
+        fch = datetime.strptime(cita_raw.get('Date', fecha_str), '%Y-%m-%d').date()
+    except ValueError:
+        fch = fecha
+
+    cita_dict = {
+        'nombre':        nombre,
+        'telefono':      (cita_raw.get('Phone') or '').strip(),
+        'email':         email,
+        'fecha':         fch,
+        'fecha_legible': _fecha_legible(fch),
+        'hora':          (cita_raw.get('time') or '')[:5],
+        'doctor_nombre': (cita_raw.get('ProfessionalName') or '').strip(),
+        'motivo_label':  (cita_raw.get('Reason') or 'Cita').strip(),
+        'dur_min':       int(cita_raw.get('duration') or 30),
+    }
+
+    # Enviar — mismo canal y mismo formato que el agendamiento online
+    resultado = notify.enviar_confirmacion(cita_dict, cfg)
+
+    # Marcar como enviada para que el barrido de 4 ciclos no la reenvíe
+    if resultado.get('ok'):
+        import confirmaciones
+        confirmaciones.marcar_enviada(id_agenda)
+
+    return jsonify({
+        'ok':               resultado.get('ok', False),
+        'canal':            resultado.get('canal'),
+        'email_enmascarado': _enmascarar_email(email),
+        'error':            resultado.get('error'),
+        'cita': {
+            'nombre':   nombre,
+            'fecha':    fch.isoformat(),
+            'hora':     cita_dict['hora'],
+            'doctor':   cita_dict['doctor_nombre'],
+            'motivo':   cita_dict['motivo_label'],
+        }
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REFRESCO AUTOMÁTICO DE PACIENTES (2x/día) + BARRIDO DE CONFIRMACIONES (4 ciclos)
 # ══════════════════════════════════════════════════════════════════════════════
 
 _SCHEDULER_INICIADO = False
