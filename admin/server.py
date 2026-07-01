@@ -1553,6 +1553,10 @@ def consentimiento_firmar():
     if not datos_pac:
         return jsonify({'ok': False, 'error': 'Paciente no encontrado'}), 404
 
+    # IP real del firmante — considera el proxy de Render (X-Forwarded-For)
+    ip_origen = (request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+                or request.remote_addr or '')
+
     pdf_datos = {
         **datos_pac, 'tipo': tipo,
         'tratamiento':       (data.get('tratamiento') or '').strip(),
@@ -1562,6 +1566,8 @@ def consentimiento_firmar():
         'apoderado_rut':     (data.get('apoderado_rut') or '').strip(),
         'fecha':             data.get('fecha') or date.today().isoformat(),
         'firma_png':         data.get('firma_png') or '',
+        'consent_id':        consent_id,
+        'ip':                ip_origen,
     }
     try:
         ruta_pdf = consentimientos.generar_pdf(pdf_datos)

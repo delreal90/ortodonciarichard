@@ -27,6 +27,7 @@ import re
 import json
 import uuid
 import base64
+import hashlib
 import threading
 from pathlib import Path
 from datetime import datetime, date
@@ -219,73 +220,227 @@ def datos_paciente(rut):
 
 
 # ── Generacion del PDF firmado ───────────────────────────────────────────────
-# El texto de cada seccion debe reflejar el mismo contenido mostrado en
-# consentimiento.html (Sección I a VII, basadas en el consentimiento v2).
+# Texto TEXTUAL del "CONSENTIMIENTO INFORMADO PARA TRATAMIENTO DE ORTODONCIA"
+# v2 (Word) — debe ser una copia EXACTA (no resumen) de lo que el paciente lee
+# en consentimiento.html antes de firmar; ambos deben mantenerse sincronizados
+# palabra por palabra. Estructura: (título de sección, [(subtítulo|None, texto)]).
 
 SECCIONES = [
-    ("Sección I — Datos del tratamiento",
-     "Mi ortodoncista me ha explicado de manera detallada, considerando mis "
-     "características y necesidades, cuál es el tratamiento ideal para mi caso. "
-     "Tras haber aclarado todas mis alternativas, resuelto mis dudas y evaluado "
-     "los beneficios y riesgos de cada opción, he decidido que el tratamiento a "
-     "realizar será: {tratamiento}. Sé cuál es el tiempo estimado de tratamiento "
-     "que me ha indicado mi doctor y reconozco que es solo una estimación. "
-     "Confirmo que mi dentista actual es: {dentista_actual}, y que mi último "
-     "control se realizó hace menos de 6 meses o se realizará antes de iniciar "
-     "el tratamiento."),
-    ("Sección II — Cooperación y resultados",
-     "Entiendo que mi asistencia regular a los controles de ortodoncia y el "
-     "estricto seguimiento de las indicaciones del profesional son esenciales "
-     "para el éxito del tratamiento. Entiendo que no es posible garantizar "
-     "resultados absolutamente perfectos o definitivos."),
-    ("Sección III — Riesgos y efectos potenciales",
-     "Entiendo los riesgos asociados al tratamiento de ortodoncia: aumento de "
-     "caries/gingivitis, factores individuales y genéticos, movimiento dentario "
-     "posterior al tratamiento activo, síntomas de TTM, eventual cirugía bucal o "
-     "maxilofacial, manejo de caninos impactados, hueso atrofiado, extracciones "
-     "dentarias, uso de microtornillos/miniplacas y acortamiento de raíces."),
-    ("Sección IV — Procedimientos complementarios y costos",
-     "Entiendo que podrían requerirse procedimientos complementarios (extracciones, "
-     "minitornillos/miniplacas, rehabilitaciones con prótesis) con costo adicional "
-     "a mi cargo."),
-    ("Sección V — Biomateriales e instrumental clínico",
-     "Comprendo que se emplean biomateriales e instrumental clínico que, en raras "
-     "ocasiones, pueden provocar reacciones alérgicas o leves lesiones."),
-    ("Sección VI — Condiciones médicas",
-     "Declaro haber informado de manera completa mis condiciones médicas, "
-     "alergias, tratamientos actuales o medicamentos que consumo."),
-    ("Sección VII — Confirmación de entendimiento",
-     "Confirmo que he leído y comprendido detalladamente el contenido de este "
-     "consentimiento informado, que todas mis dudas han sido aclaradas y que "
-     "autorizo de manera voluntaria el inicio del tratamiento de ortodoncia."),
+    ("Sección I. Introducción y Objetivos del Tratamiento", [
+        (None,
+         "El presente documento tiene como finalidad informar al paciente acerca "
+         "del tratamiento de ortodoncia propuesto, sus beneficios, las posibles "
+         "complicaciones y las responsabilidades compartidas durante el proceso. "
+         "Este tratamiento busca, además de lograr una sonrisa estéticamente "
+         "agradable, mejorar la función masticatoria, la higiene bucal y, en "
+         "consecuencia, la salud general del aparato estomatognático (dientes, "
+         "encías y articulaciones temporomandibulares – ATM)."),
+        (None,
+         "Al firmar este consentimiento, el paciente declara que ha recibido y "
+         "comprendido toda la información pertinente y que acepta participar de "
+         "forma activa y colaborativa en su tratamiento."),
+    ]),
+    ("Sección II. Datos del Tratamiento y Requisitos para su Éxito", [
+        (None,
+         "Esta sección detalla aspectos clave del tratamiento y el rol "
+         "fundamental que desempeña el paciente para lograr los mejores "
+         "resultados:"),
+        ("Elección del Enfoque Terapéutico",
+         "Mi ortodoncista me ha explicado de manera detallada, considerando mis "
+         "características y necesidades, cuál es el tratamiento ideal para mi "
+         "caso. Tras haber aclarado todas mis alternativas, resuelto mis dudas y "
+         "evaluado los beneficios y riesgos de cada opción, he decidido que el "
+         "tratamiento a realizar será: {tratamiento}."),
+        ("Duración del Tratamiento",
+         "Sé cual es el tiempo estimado de tratamiento que me ha indicado mi "
+         "doctor. Reconozco que este plazo es solo una estimación y puede variar "
+         "en función de mi crecimiento facial, la respuesta biológica, mi "
+         "asistencia a los controles, mi higiene y el cuidado personal de los "
+         "aparatos."),
+        ("Higiene Oral y Asistencia a Controles",
+         "Sé que durante el tratamiento de ortodoncia mantener una higiene oral "
+         "óptima es más desafiante, lo que puede aumentar el riesgo de caries, "
+         "gingivitis y manchas blancas. Me comprometo a asistir a controles "
+         "periódicos con mi dentista general, al menos cada 6 meses o según lo "
+         "indique mi ortodoncista."),
+        ("Información sobre el Dentista Actual",
+         "Confirmo que mi dentista actual (no el ortodoncista, sino quien ve "
+         "limpieza, caries, etc.) se llama: {dentista_actual} y que mi último "
+         "control se realizó hace menos de 6 meses o se realizará antes de "
+         "iniciar el tratamiento."),
+        ("Cooperación y Cumplimiento",
+         "Entiendo que mi asistencia regular a los controles de ortodoncia y el "
+         "estricto seguimiento de las indicaciones del profesional son "
+         "esenciales para el éxito del tratamiento. La falta de cooperación "
+         "puede prolongar o complicar el proceso."),
+        ("Resultados del Tratamiento",
+         "Entiendo que, aunque mi tratamiento de ortodoncia se orienta a obtener "
+         "el resultado estético y funcional más óptimo, la naturaleza misma de "
+         "los procedimientos médicos implica que no es posible garantizar "
+         "resultados absolutamente perfectos o definitivos. Reconozco que "
+         "existen factores individuales e impredecibles —como las respuestas "
+         "biológicas únicas, el crecimiento residual y otras variables— que "
+         "pueden influir en el resultado final. Mi ortodoncista podrá "
+         "explicarme cuándo se habrá alcanzado el mejor resultado posible "
+         "según mi caso particular y, en algunas circunstancias, recomendar "
+         "concluir el tratamiento en ese punto, ya que limitarlo a lo logrado "
+         "puede ser la opción más segura y beneficiosa para mi salud general a "
+         "largo plazo."),
+    ]),
+    ("Sección III. Riesgos y Efectos Potenciales del Tratamiento", [
+        (None,
+         "Es fundamental conocer los posibles riesgos y efectos secundarios "
+         "asociados al tratamiento:"),
+        ("Riesgos Relacionados con la Higiene Oral y la Salud Dental",
+         "Entiendo que el uso de aparatos ortodóncicos puede aumentar el riesgo "
+         "de desarrollar caries, gingivitis y manchas blancas, especialmente si "
+         "no se mantiene una higiene oral adecuada. Entiendo que, en caso de "
+         "mantenerse una higiene no adecuada, mi ortodoncista podría indicar el "
+         "término anticipado del tratamiento, buscando mi mejor cuidado y "
+         "evitando lesiones como caries o enfermedad a las encías."),
+        ("Factores Individuales y Genéticos",
+         "Acepto que existen factores individuales —como la forma de las "
+         "raíces, la densidad ósea o predisposiciones genéticas— que pueden "
+         "influir en la respuesta al tratamiento y en la duración o resultados "
+         "finales."),
+        ("Cambios Posteriores al Tratamiento Activo",
+         "Soy consciente de que, una vez finalizado el periodo activo del "
+         "tratamiento de ortodoncia, es posible que los dientes tiendan a "
+         "moverse con el tiempo. El uso adecuado y continuo de retenedores es "
+         "esencial para mantener los resultados obtenidos."),
+        ("Síntomas de Trastornos Temporomandibulares (TTM)",
+         "Entiendo que, si bien el tratamiento de ortodoncia en sí no causa "
+         "disfunción temporomandibular, en algunos casos puede ocurrir que "
+         "justo coincida el desarrollo de síntomas como dolor o alteración "
+         "funcional en la ATM y músculos de la masticación durante el "
+         "tratamiento de ortodoncia. Estos síntomas, de manifestarse, serán "
+         "evaluados por el especialista."),
+        ("Cirugía Bucal y Maxilofacial",
+         "Estoy informado de que, en situaciones específicas, podría ser "
+         "necesaria la realización de procedimientos quirúrgicos "
+         "complementarios, tales como cirugía bucal o maxilofacial (incluyendo "
+         "extracciones dentarias u otros procedimientos invasivos). Reconozco "
+         "que los riesgos quirúrgicos y, eventualmente, el de anestesia local o "
+         "general, deben ser discutidos con su dentista y/o cirujano "
+         "maxilofacial, con anticipación al procedimiento quirúrgico."),
+        ("Caninos Impactados",
+         "Conozco que, en tratamientos orientados a solucionar problemas de "
+         "caninos impactados o incluidos, el resultado puede no ser predecible "
+         "en su totalidad. En algunos casos, podría ser necesaria la extracción "
+         "del canino, lo que demandaría procedimientos adicionales y podría "
+         "implicar costos extras."),
+        ("Hueso Atrofiado o Insuficiencia Ósea",
+         "Entiendo que en casos en los que exista un hueso atrofiado o "
+         "insuficiencia de hueso alveolar, podría requerirse la realización de "
+         "procedimientos adicionales (por ejemplo, una corticotomía) para "
+         "permitir el adecuado movimiento de los dientes. Estos procedimientos "
+         "conllevan riesgos adicionales y costos que serán de mi "
+         "responsabilidad."),
+        ("Casos con Extracciones Dentarias",
+         "Acepto que, en función de discrepancias en el tamaño de los dientes o "
+         "la necesidad de alinear la mordida, puede ser necesario extraer uno o "
+         "más dientes. Estos procedimientos, que son complementarios al "
+         "tratamiento de ortodoncia, tienen riesgos propios y no están "
+         "incluidos en el costo base del tratamiento."),
+        ("Uso de microtornillos/miniplacas",
+         "Comprendo que para optimizar ciertos movimientos dentales pueden "
+         "utilizarse microtornillos o miniplacas. Reconozco que aproximadamente "
+         "en un 20% de los casos estos dispositivos pueden presentar "
+         "complicaciones leves, que podrían requerir su retirada o "
+         "reinstalación, con costos y riesgos adicionales."),
+        ("Acortamiento de Raíces",
+         "Estoy informado que es común que durante el tratamiento se puede "
+         "producir un remodelado de las raíces (acortamiento o redondeamiento), "
+         "lo cual, en la mayoría de los casos es leve y sin mayor relevancia. En "
+         "situaciones excepcionales, este acortamiento puede resultar "
+         "significativo, y su magnitud dependerá de factores individuales y "
+         "genéticos, y será objeto de monitoreo durante el proceso "
+         "terapéutico."),
+    ]),
+    ("Sección IV. Procedimientos Complementarios y Costos Adicionales", [
+        (None,
+         "Algunos casos pueden requerir procedimientos extras que no están "
+         "incluidos en el costo base del tratamiento:"),
+        (None,
+         "Entiendo que en determinadas situaciones podría requerirse la "
+         "realización de procedimientos complementarios, como extracciones, la "
+         "instalación de minitornillos/miniplacas o rehabilitaciones con "
+         "prótesis dentales. Estos procedimientos, de considerarse necesarios, "
+         "tendrán un costo adicional que correrá por mi cuenta."),
+    ]),
+    ("Sección V. Uso de Biomateriales e Instrumental Clínico", [
+        (None,
+         "Durante el tratamiento se utilizarán diversos biomateriales y equipos "
+         "especializados:"),
+        (None,
+         "Comprendo que se emplean biomateriales e instrumental clínico durante "
+         "el tratamiento. Aunque estos productos y dispositivos son generalmente "
+         "seguros, en raras ocasiones pueden provocar reacciones alérgicas, "
+         "irritaciones o leves lesiones en las mucosas o la piel de la región "
+         "bucal."),
+    ]),
+    ("Sección VI. Registro de Condiciones Médicas y Tratamientos Actuales", [
+        (None,
+         "La conocida seguridad y la personalización del tratamiento requieren "
+         "conocer el estado de salud del paciente:"),
+        (None,
+         "Declaro haber informado de manera completa sobre mis condiciones "
+         "médicas, alergias, tratamientos actuales o medicamentos que consumo "
+         "(por ejemplo: utilización de bisfosfonatos, tratamientos hormonales, "
+         "etc.), sabiendo que estos datos pueden influir en la evolución y "
+         "resultado del tratamiento de ortodoncia."),
+    ]),
+    ("Sección VII. Confirmación de Entendimiento y Autorización", [
+        (None,
+         "Este es el compromiso final en el que el paciente confirma que ha "
+         "entendido y acepta las condiciones expuestas:"),
+        (None,
+         "Confirmo que he leído y comprendido detalladamente el contenido de "
+         "este consentimiento informado, que todas mis dudas han sido "
+         "aclaradas y que autorizo de manera voluntaria el inicio del "
+         "tratamiento de ortodoncia según lo explicado por mi especialista."),
+    ]),
 ]
+
+
+def _hash_firma(datos):
+    """SHA-256 sobre los datos firmados (integridad — cambia si algo se altera)."""
+    canon = '|'.join(str(datos.get(k, '')) for k in (
+        'rut_fmt', 'nombre', 'tipo', 'tratamiento', 'dentista_actual',
+        'quien_firma', 'apoderado_nombre', 'apoderado_rut', 'fecha', 'firma_png',
+    ))
+    return hashlib.sha256(canon.encode('utf-8')).hexdigest()
 
 
 def generar_pdf(datos):
     """
     datos: dict con nombre, rut_fmt, tipo, tratamiento, dentista_actual,
            quien_firma, apoderado_nombre, apoderado_rut, fecha, firma_png
-           (data URL 'data:image/png;base64,...' del canvas de firma).
+           (data URL 'data:image/png;base64,...' del canvas de firma), y
+           opcionalmente consent_id, ip (para el sello de firma electrónica).
     Devuelve la ruta (Path) del PDF generado.
     """
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import cm
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
     from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib import colors
     import io
 
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     rut_archivo = _limpiar_rut(datos.get('rut_fmt', ''))
     tipo = datos.get('tipo', 'ortodoncia')
-    marca_tiempo = datetime.now().strftime('%Y%m%d-%H%M%S')
-    ruta = PDF_DIR / f"{rut_archivo}_{tipo}_{marca_tiempo}.pdf"
+    marca_tiempo = datetime.now()
+    ruta = PDF_DIR / f"{rut_archivo}_{tipo}_{marca_tiempo.strftime('%Y%m%d-%H%M%S')}.pdf"
 
     styles = getSampleStyleSheet()
     titulo = ParagraphStyle('titulo', parent=styles['Title'], fontSize=14)
     seccion = ParagraphStyle('seccion', parent=styles['Heading2'], fontSize=11, spaceBefore=10)
+    subtitulo = ParagraphStyle('subtitulo', parent=styles['Heading4'], fontSize=9.5, spaceBefore=6, spaceAfter=2)
     cuerpo = ParagraphStyle('cuerpo', parent=styles['BodyText'], fontSize=9.5,
                             alignment=TA_JUSTIFY, leading=13)
+    sello_txt = ParagraphStyle('sello', parent=styles['BodyText'], fontSize=8, leading=11, textColor=colors.HexColor('#1A2E4A'))
 
     doc = SimpleDocTemplate(str(ruta), pagesize=letter,
                             topMargin=2 * cm, bottomMargin=2 * cm,
@@ -295,29 +450,58 @@ def generar_pdf(datos):
         Paragraph(TIPOS_DOCUMENTO.get(tipo, 'Consentimiento Informado'), styles['Heading3']),
         Spacer(1, 10),
     ]
-    for titulo_sec, texto in SECCIONES:
-        texto_fmt = texto.format(
-            tratamiento=datos.get('tratamiento') or '(no especificado)',
-            dentista_actual=datos.get('dentista_actual') or '(no especificado)',
-        )
+    fmt_kwargs = {
+        'tratamiento': datos.get('tratamiento') or '(no especificado)',
+        'dentista_actual': datos.get('dentista_actual') or '(no especificado)',
+    }
+    for titulo_sec, bloques in SECCIONES:
         story.append(Paragraph(titulo_sec, seccion))
-        story.append(Paragraph(texto_fmt, cuerpo))
+        for sub, texto in bloques:
+            if sub:
+                story.append(Paragraph(sub, subtitulo))
+            story.append(Paragraph(texto.format(**fmt_kwargs), cuerpo))
 
-    story.append(Spacer(1, 16))
-    story.append(Paragraph('Datos del firmante', seccion))
-    story.append(Paragraph(f"Paciente: {datos.get('nombre', '')} — RUT {datos.get('rut_fmt', '')}", cuerpo))
+    story.append(Spacer(1, 14))
+    story.append(Paragraph('Sección Final: Firma y Datos de Confirmación', seccion))
+    story.append(Paragraph(f"Nombre del Paciente: {datos.get('nombre', '')}", cuerpo))
+    story.append(Paragraph(f"RUT del Paciente: {datos.get('rut_fmt', '')}", cuerpo))
     if datos.get('quien_firma') == 'apoderado':
         story.append(Paragraph(
-            f"Firma en calidad de apoderado/representante legal: "
-            f"{datos.get('apoderado_nombre', '')} — RUT {datos.get('apoderado_rut', '')}", cuerpo))
+            f"Nombre del Apoderado que firma: {datos.get('apoderado_nombre', '')} "
+            f"(RUT {datos.get('apoderado_rut', '')}) — solo para pacientes menores de 18 años", cuerpo))
     story.append(Paragraph(f"Fecha: {datos.get('fecha', '')}", cuerpo))
 
     firma_png = datos.get('firma_png', '') or ''
     if firma_png.startswith('data:image'):
         img_bytes = base64.b64decode(firma_png.split(',', 1)[1])
-        story.append(Spacer(1, 10))
-        story.append(Paragraph('Firma:', cuerpo))
+        story.append(Spacer(1, 8))
+        story.append(Paragraph('Firma del Paciente/Apoderado:', cuerpo))
         story.append(RLImage(io.BytesIO(img_bytes), width=6 * cm, height=2.5 * cm))
+
+    # ── Sello de firma electrónica (trazabilidad e integridad) ───────────────
+    consent_id = datos.get('consent_id') or '(sin id)'
+    hash_doc = _hash_firma(datos)[:32]
+    ip = datos.get('ip') or '(no registrada)'
+    sello_html = (
+        '<b>FIRMA ELECTRÓNICA</b><br/>'
+        f'Este documento fue firmado electrónicamente el '
+        f'{marca_tiempo.strftime("%d-%m-%Y")} a las {marca_tiempo.strftime("%H:%M:%S")} '
+        f'(hora de Chile).<br/>'
+        f'ID de verificación: {consent_id}<br/>'
+        f'Hash de integridad (SHA-256): {hash_doc}<br/>'
+        f'Dirección IP de origen: {ip}'
+    )
+    sello = Table([[Paragraph(sello_html, sello_txt)]], colWidths=[16.5 * cm])
+    sello.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor('#C9A84C')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F0F5FB')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(Spacer(1, 14))
+    story.append(sello)
 
     doc.build(story)
     return ruta
