@@ -227,7 +227,13 @@
 </div>
 
 <script>
-const API_BASE = window.CONSENT_API_BASE || 'http://localhost:5001';
+// El backend siempre sirve esta página en el mismo origen (Flask la expone en
+// /consentimiento, tanto local como en Render) — usar location.origin evita que
+// el celular del paciente intente conectarse a su propio "localhost". La única
+// excepción es cuando se abre suelta desde un servidor estático de preview
+// (puertos 3000/3050 en este proyecto), donde sí apunta al Flask local.
+const API_BASE = window.CONSENT_API_BASE
+  || (['3000', '3050'].includes(location.port) ? 'http://localhost:5001' : location.origin);
 
 const params = new URLSearchParams(location.search);
 const modo = params.get('modo') === 'kiosco' ? 'kiosco' : 'celular';
