@@ -356,6 +356,79 @@ instalación (no compartido) — ver HANDOFF.
 
 ---
 
+## Consentimientos informados — firma digital + respaldo Drive
+
+Sistema para que el paciente (o apoderado) firme el consentimiento informado de
+ortodoncia digitalmente, quede respaldado y se archive en su ficha DentiDesk.
+
+**Documento base:** versión v2 del consentimiento (Word), 7 secciones en 1ª persona.
+El screening de antecedentes médicos NO va en este formulario (se levanta en la
+pestaña "Anamnesis general" de DentiDesk).
+
+**Flujo completo:**
+1. La secretaria, desde el asistente **F2** (con la cita abierta en DentiDesk), aprieta
+   una de 3 opciones en la sección "Consentimiento informado": 📧 Mail · 💬 WhatsApp ·
+   📋 Tablet de recepción. F2 lee el `#rut` del modal y llama al backend.
+2. **Celular (mail/WhatsApp):** el backend genera un token firmado (itsdangerous, 30 días)
+   y envía un link. El paciente abre `consentimiento.html?token=…`, que prellena su
+   nombre/RUT vía `pacientes.lookup(rut)` y firma en un canvas.
+3. **Tablet:** el backend deja el `{rut,tipo,id}` en una cola de 1 ítem; la tablet
+   (`consentimiento.html?modo=kiosco`) hace polling cada 4s y salta a una pantalla de
+   **confirmación de identidad** ("¿Eres tú? [nombre]") antes de firmar. También permite
+   búsqueda manual por RUT (walk-up).
+4. Al firmar: se genera el **PDF** (reportlab, 7 secciones + firma + datos del firmante),
+   se registra el estado, y se **sube automáticamente a Google Drive** (respaldo).
+
+**Archivos:**
+```
+admin/consentimiento.html      ← página de firma (celular + kiosco/tablet), canvas vanilla
+admin/consentimientos.py       ← tokens, registro de estado, cola tablet, generación de PDF
+admin/drive_backup.py          ← subida a Google Drive (cuenta de servicio)
+admin/drive_service_account.json ← credenciales cuenta servicio (GITIGNORED)
+dentidesk-assistant/content.js ← botón "Consentimiento informado" en F2 (3 canales)
+admin/panel.html               ← pestaña "Consentimientos" (worklist + estados)
+```
+
+**Endpoints** (`server.py`, todos body JSON):
+- `POST /api/consentimiento/enviar` `{rut,tipo,canal}` — F2, protegido ADMIN_TOKEN.
+- `GET  /api/consentimiento/datos?token=` — prellenado celular (sin email/tel).
+- `GET  /api/consentimiento/tablet/buscar?rut=` — búsqueda kiosco (KIOSK_TOKEN).
+- `GET  /api/consentimiento/tablet/cola` — polling de la tablet.
+- `POST /api/consentimiento/firmar` — recibe firma, genera PDF, sube a Drive.
+- `GET  /api/consentimientos?estado=` — lista para el panel (ADMIN_TOKEN).
+- `POST /api/consentimiento/marcar-subido` `{id}` — marca subido a DentiDesk.
+
+Estados: `enviado` → `firmado` → `subido`. Registro en `consentimientos_registro.json`
+(gitignored). PDFs en `consentimientos_firmados/` (gitignored). `respaldo_drive` = true/false.
+
+**Google Drive (respaldo):** cuenta de servicio `claude@intrepid-charge-501115-n0.iam.
+gserviceaccount.com`, **Unidad compartida** (Shared Drive) ID `0AKiV1nLsqi2dUk9PVA`.
+⚠️ Debe ser Unidad compartida, NO carpeta de "Mi unidad" — las cuentas de servicio no
+tienen cuota propia (error `storageQuotaExceeded`). Scope `drive` completo (no `drive.file`).
+En Render: env var `GOOGLE_SERVICE_ACCOUNT_JSON` = JSON entero (drive_backup.py lo soporta).
+
+### ⚠️ Subida a DentiDesk: NO se puede automatizar (probado en vivo)
+
+Se investigó a fondo subir el PDF a la ficha (pestaña **Informes**, plugin
+jquery-uploadfile, POST a `ajax/ajaxUpload.php`). **Ninguna vía funciona sin intervención
+humana en este entorno:**
+- `file_upload` de la extensión Chrome → bloqueado (no hay carpeta compartible en Claude Code).
+- Extensión + diálogo nativo de Windows → imposible (la extensión no ve ventanas del SO).
+- computer-use + diálogo nativo → el diálogo de archivos hereda el tier "read" del
+  navegador → click/typing bloqueados (confirmado en vivo).
+- Inyección JS (`DataTransfer` + `jQuery.trigger('change')`) → sube a temporal
+  (`imagen/temp/e_375/p_1103479/…`, `id:0`) pero falta una 2ª fase "guardar" enterrada
+  en JS minificado que el filtro de seguridad impide leer.
+
+**Flujo supervisado (el que se usa):** el panel (pestaña Consentimientos) lista los
+`firmado` con botón **"Abrir en DentiDesk"** (abre `pacientes.php?rut=…`) y **"Ya lo subí"**
+(marca subido). El humano hace solo el gesto bloqueado (elegir el PDF en el diálogo).
+En una sesión Code, Claude puede orquestar (abrir paciente, click Subir, verificar) vía
+la extensión — el humano solo elige el archivo. Si algún día DentiDesk expone API de
+documentos, reemplazar este flujo por subida directa.
+
+---
+
 ## Infraestructura decidida (producción)
 
 | Servicio | Rol | Costo |
@@ -412,6 +485,65 @@ GitHub Pages publica automáticamente en 1-2 minutos.
 - El video hero es pesado — el preview interno de Claude Code a veces se traba por esto; verificar siempre en `http://localhost:3000` en el navegador real
 - La cuenta de GitHub es `delreal90`
 - El correo de la clínica funciona con Gmail (`recepcion@ortodonciarichard.cl`) — al configurar el DNS en nic.cl NO tocar los registros MX existentes
+
+---
+
+## WhatsApp Cloud API oficial (Meta) — migración en curso
+
+Objetivo: reemplazar el WhatsApp NO oficial (bridge whatsmeow en `notify.py`, fallback
+local que NO corre en Render) por la **Cloud API oficial de Meta**, para enviar
+**confirmación al agendar** y **recordatorio previo** desde el backend en producción.
+
+### Datos auditados de la app de Meta (Fase 1, auditada 2026-06-30 vía Claude in Chrome)
+| Dato | Valor |
+|---|---|
+| App | **WA automáticos** · App ID `1047459514605008` |
+| Portfolio comercial (business_id) | `205682900395758` |
+| Número de PRUEBA (de Meta, gratis) | +1 (555) 649-1179 |
+| **Phone Number ID** (test) | `1132643936607937` |
+| **WABA ID** (WhatsApp Business Account) | `2209662166461456` |
+| Destinatario de prueba registrado | +56 9 8903 2888 (celular Alberto) ✅ |
+| **Verificación del negocio** | ✅ **APROBADA** |
+| Token | Solo botón "Generar token" (temporal 24h). Producción → **System User token permanente** |
+| App | "Sin publicar" (normal en esta etapa) |
+
+NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para revendedores, no aplica.
+
+### Estado y plan por fases
+- **Fase 1 — Auditar app Meta:** ✅ HECHA (tabla arriba). Verificación aprobada, prueba envió OK la semana del 26-06.
+- **Fase 2 — Plantillas (templates):** EN CURSO (creadas 2026-06-30 vía Administrador de WhatsApp
+  business.facebook.com). Idioma **Spanish (CHL) = `es_CL`**, todas categoría **Utilidad**, pie de
+  página fijo "Clínica de Ortodoncia C. Richard", trato "Estimado(a) {nombre}". Variables:
+  {{1}}=nombre, {{2}}=doctor, {{3}}=fecha, {{4}}=hora.
+  - `conversacion_general` — abridora flexible ({{1}}=nombre, {{2}}=motivo libre). Botón [Sí, díganme]. ✅ En revisión
+  - `confirmacion_hora` — sin botones (se manda justo al agendar). ✅ En revisión
+  - `recordatorio_semana` — botones [Confirmo][Reagendar][Anular]. ✅ En revisión
+  - `recordatorio_dia` — "mañana" en minúscula; botones [Confirmo][Reagendar][Anular]. ✅ En revisión
+  - `inasistencia_reagendar` — botón [Reagendar]. ✅ En revisión
+  - `primera_consulta` — encabezado VIDEO + botones [Confirmo][Reagendar]. ⏳ Armada; falta subir el
+    video (`C:\Users\ESTUDIO3D\Desktop\COCRL\Redes Sociales\Video Primera Consulta.mp4`, 5 MB) —
+    la subida de archivo NO se puede automatizar (Chrome MCP solo sube archivos compartidos con la
+    sesión); el usuario la hace manual y luego "Enviar para revisión".
+  - Reglas de negocio pendientes de cablear en el backend (Fase 3): botón "Anular" → registrar la
+    cita como ANULADA en DentiDesk (`updateAgenda`) + avisar a recepción al instante. "Reagendar" →
+    bot manda horas disponibles en el chat (reusa getAvailableHours) con opción SIEMPRE visible de
+    "hablar con una persona" (handoff a recepción). Vigilar aprobación de Meta con `/loop`.
+  - Encabezado de ubicación (pin del mapa) PENDIENTE para confirmacion_hora y recordatorio_dia:
+    falta el lat/long exacto de la clínica (el sitio usa Maps por dirección, no por coordenadas).
+- **Fase 3 — Código:** módulo nuevo `admin/wa_cloud.py` (POST a `graph.facebook.com/v.../{phone_number_id}/messages`)
+  conectado dentro de `_enviar_whatsapp()` en `notify.py` (un solo punto de cambio). Webhook
+  entrante en `server.py` (verify token + recepción de respuestas/estados de entrega).
+- **Fase 4 — Deploy + prueba:** env vars en Render `WA_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_VERIFY_TOKEN`.
+  Generar el token 24h JUSTO al probar (caduca rápido). Probar contra número de test → celular Alberto.
+- **Fase 5 — Producción:** registrar el número real **+56 9 3355 8189** en la WABA. ⚠️ Al registrarlo
+  en la Cloud API se DESCONECTA del WhatsApp normal del celular (todo pasa a API). Verificación ya
+  aprobada acelera esto. Subir tier de envíos.
+
+### Notas clave
+- Ventana de 24h: fuera de ella solo se pueden enviar PLANTILLAS aprobadas (caso confirmación/recordatorio).
+- El número de prueba solo envía a destinatarios pre-registrados (máx. 5).
+- Webhooks ya llegan (probado): `{"object":"whatsapp_business_account",...}`. Render da el HTTPS público.
+- El bridge whatsmeow (sección siguiente) queda como herramienta de Claude/MCP, NO como canal de producción.
 
 ---
 

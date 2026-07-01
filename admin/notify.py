@@ -378,6 +378,110 @@ def enviar_aviso_agendamiento(datos, cfg=None):
         return False
 
 
+# ── Consentimiento informado (link de firma) ─────────────────────────────────
+
+def _html_consentimiento(nombre, link, tipo_label):
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Consentimiento informado</title></head>
+<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
+  <tr>
+    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
+      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
+      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Consentimiento informado</h1>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:32px 32px 24px;">
+      <p style="margin:0 0 20px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>, antes de tu próximo tratamiento necesitamos que firmes tu <strong>{tipo_label}</strong>.</p>
+      <p style="margin:0 0 24px;color:#4A5568;font-size:15px;">Puedes leerlo con calma y firmarlo directamente desde tu celular:</p>
+      <div style="text-align:center;margin:0 0 24px;">
+        <a href="{link}" style="display:inline-block;background:#C9A84C;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Firmar consentimiento</a>
+      </div>
+      <p style="margin:0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="tel:+56222173499" style="color:#1A2E4A;">+56 2 2217 3499</a> &nbsp;|&nbsp; 💬 <a href="https://wa.me/56933558189" style="color:#1A2E4A;">WhatsApp</a></p>
+    </td>
+  </tr>
+  <tr>
+    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
+      <p style="margin:0;color:#8fa8c8;font-size:12px;">Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago</p>
+    </td>
+  </tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
+def _enviar_email_consentimiento(nombre, email, link, tipo_label):
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    dest = (email or '').strip()
+    if not smtp_user or not smtp_pass or '@' not in dest:
+        return False
+
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
+    msg['To'] = dest
+    msg['Subject'] = f'Firma tu {tipo_label} — Ortodoncia Richard'
+    msg['Reply-To'] = smtp_user
+    msg.attach(MIMEText(_html_consentimiento(nombre, link, tipo_label), 'html', 'utf-8'))
+
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [dest], msg.as_bytes())
+        log.info('Link de consentimiento enviado a %s', dest)
+        return True
+    except Exception as e:
+        log.error('SMTP consentimiento error: %s', e)
+        return False
+
+
+def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label):
+    if requests is None or not telefono:
+        return False
+    try:
+        jid = _normalizar_telefono(telefono)
+        mensaje = (
+            f"*Ortodoncia Richard*\n\n"
+            f"Hola {nombre}, antes de tu próximo tratamiento necesitamos que firmes "
+            f"tu *{tipo_label}*.\n\n"
+            f"Puedes firmarlo directamente desde tu celular aquí:\n{link}\n\n"
+            f"Cualquier duda, escríbenos."
+        )
+        r = requests.post(f'{BRIDGE_URL}/send',
+                          json={'recipient': jid, 'message': mensaje},
+                          headers=_bridge_headers(), timeout=15)
+        return r.status_code == 200 and r.json().get('success', False)
+    except Exception:
+        return False
+
+
+def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento informado'):
+    """
+    Envía el link de firma de consentimiento por el canal elegido explícitamente
+    por la secretaria desde F2 (a diferencia de enviar_confirmacion(), que hace
+    fallback automático entre canales).
+
+    paciente: dict con nombres, apellidos, email, telefono (formato de
+              pacientes.lookup()). canal: 'mail' | 'whatsapp'.
+    """
+    nombre = f"{paciente.get('nombres', '')} {paciente.get('apellidos', '')}".strip()
+    if canal == 'mail':
+        ok = _enviar_email_consentimiento(nombre, paciente.get('email', ''), link, tipo_label)
+        return {'ok': ok, 'canal': 'email'}
+    if canal == 'whatsapp':
+        ok = _enviar_whatsapp_consentimiento(nombre, paciente.get('telefono', ''), link, tipo_label)
+        return {'ok': ok, 'canal': 'whatsapp'}
+    return {'ok': False, 'error': f'Canal no soportado: {canal}'}
+
+
 # ── Punto de entrada ─────────────────────────────────────────────────────────
 
 def enviar_confirmacion(cita, cfg=None):

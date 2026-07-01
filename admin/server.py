@@ -39,6 +39,8 @@ _ALLOWED_ORIGINS = {
     'https://www.ortodonciarichard.cl',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://localhost:3050',  # servidor estático alternativo (preview local)
+    'http://127.0.0.1:3050',
     'http://localhost:5001',   # panel admin local (consulta stats en produccion)
     'http://127.0.0.1:5001',
 }
@@ -1417,6 +1419,191 @@ def asistente_confirmar_cita():
             'motivo':   cita_dict['motivo_label'],
         }
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSENTIMIENTOS INFORMADOS — firma digital (celular o tablet de recepción)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import consentimientos
+
+
+def _check_kiosk_token():
+    """Protege los endpoints que usa la tablet de recepción. Token propio
+    (KIOSK_TOKEN), distinto de ADMIN_TOKEN: la tablet no debe tener el mismo
+    nivel de acceso que el panel admin. Sin KIOSK_TOKEN configurado (dev local)
+    se permite, igual que _check_admin_token."""
+    tok = os.environ.get('KIOSK_TOKEN')
+    if not tok:
+        return True
+    provisto = request.headers.get('X-Kiosk-Token') or request.args.get('kiosk_token')
+    return provisto == tok
+
+
+@app.route('/consentimiento')
+def consentimiento_page():
+    return send_from_directory('.', 'consentimiento.html')
+
+
+@app.route('/api/consentimiento/datos', methods=['GET'])
+@rate_limit('30 per minute')
+def consentimiento_datos():
+    """Prellenado para el modo celular: valida el token del link y devuelve
+    nombre/RUT del paciente (sin email ni teléfono — datos_paciente() es la
+    versión segura para exponer en un endpoint sin autenticación de admin)."""
+    token = request.args.get('token', '')
+    info = consentimientos.validar_token(token)
+    if not info:
+        return jsonify({'ok': False, 'error': 'Link inválido o vencido'}), 400
+    datos = consentimientos.datos_paciente(info['rut'])
+    if not datos:
+        return jsonify({'ok': False, 'error': 'Paciente no encontrado'}), 404
+    return jsonify({'ok': True, **datos, 'tipo': info['tipo']})
+
+
+@app.route('/api/consentimiento/tablet/buscar', methods=['GET'])
+@rate_limit('20 per minute')
+def consentimiento_tablet_buscar():
+    """Búsqueda manual por RUT en la tablet de recepción (walk-up, sin que la
+    secretaria haya disparado un envío desde F2 primero)."""
+    if not _check_kiosk_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    datos = consentimientos.datos_paciente(request.args.get('rut', ''))
+    if not datos:
+        return jsonify({'ok': False, 'error': 'No se encontró un paciente con ese RUT'}), 404
+    return jsonify({'ok': True, **datos})
+
+
+@app.route('/api/consentimiento/tablet/cola', methods=['GET'])
+def consentimiento_tablet_cola():
+    """Polling de la tablet: si la secretaria empujó un consentimiento desde F2
+    (canal='tablet'), aquí aparece {rut, tipo, id} para que la tablet salte
+    directo a la pantalla de confirmación de identidad."""
+    if not _check_kiosk_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'item': consentimientos.obtener_cola_tablet()})
+
+
+@app.route('/api/consentimiento/enviar', methods=['POST'])
+def consentimiento_enviar():
+    """Disparado desde el asistente F2. Body: {rut, tipo, canal}.
+    canal: 'mail' | 'whatsapp' | 'tablet'. Protegido por ADMIN_TOKEN (mismo
+    patrón que /api/asistente/confirmar-cita)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    tipo = (data.get('tipo') or 'ortodoncia').strip()
+    canal = (data.get('canal') or '').strip()
+    if canal not in ('mail', 'whatsapp', 'tablet'):
+        return jsonify({'ok': False, 'error': "canal debe ser 'mail', 'whatsapp' o 'tablet'"}), 400
+    if tipo not in consentimientos.TIPOS_DOCUMENTO:
+        return jsonify({'ok': False, 'error': f'tipo de documento desconocido: {tipo}'}), 400
+
+    import pacientes as _pacientes
+    rec = _pacientes.lookup(rut)
+    if not rec:
+        return jsonify({'ok': False, 'error': 'Paciente no encontrado en la base local'}), 404
+
+    consent_id = consentimientos.crear_registro(rut, tipo, canal)
+
+    if canal == 'tablet':
+        consentimientos.poner_en_cola_tablet(rut, tipo, consent_id)
+        return jsonify({'ok': True, 'canal': 'tablet', 'id': consent_id})
+
+    token = consentimientos.generar_token(rut, tipo, consent_id)
+    link = f"{request.url_root.rstrip('/')}/consentimiento?token={token}"
+    tipo_label = consentimientos.TIPOS_DOCUMENTO[tipo]
+    resultado = notify.enviar_link_consentimiento(rec, link, canal, tipo_label)
+    return jsonify({'ok': resultado.get('ok', False), 'canal': resultado.get('canal', canal),
+                    'id': consent_id, 'error': resultado.get('error')})
+
+
+@app.route('/api/consentimiento/firmar', methods=['POST'])
+@rate_limit('10 per minute')
+def consentimiento_firmar():
+    """Recibe la firma desde consentimiento.html (celular o tablet), genera el
+    PDF y marca el registro como firmado.
+
+    Modo celular: body incluye 'token' (del link recibido por mail/WhatsApp).
+    Modo tablet: sin token — requiere KIOSK_TOKEN. Si 'id' viene seteado (la
+    tablet lo tomó de la cola, empujada por F2) se usa ese registro; si no
+    (walk-up manual en la tablet), se crea un registro nuevo canal='tablet'."""
+    data = request.json or {}
+    token = data.get('token', '')
+
+    if token:
+        info = consentimientos.validar_token(token)
+        if not info:
+            return jsonify({'ok': False, 'error': 'Link inválido o vencido'}), 400
+        rut, tipo, consent_id = info['rut'], info['tipo'], info['id']
+        de_cola = False
+    else:
+        if not _check_kiosk_token():
+            return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+        rut = (data.get('rut') or '').strip()
+        tipo = (data.get('tipo') or 'ortodoncia').strip()
+        consent_id = data.get('id') or None
+        de_cola = bool(consent_id)
+        if not consent_id:
+            consent_id = consentimientos.crear_registro(rut, tipo, 'tablet')
+
+    datos_pac = consentimientos.datos_paciente(rut)
+    if not datos_pac:
+        return jsonify({'ok': False, 'error': 'Paciente no encontrado'}), 404
+
+    pdf_datos = {
+        **datos_pac, 'tipo': tipo,
+        'tratamiento':       (data.get('tratamiento') or '').strip(),
+        'dentista_actual':   (data.get('dentista_actual') or '').strip(),
+        'quien_firma':       data.get('quien_firma') or 'paciente',
+        'apoderado_nombre':  (data.get('apoderado_nombre') or '').strip(),
+        'apoderado_rut':     (data.get('apoderado_rut') or '').strip(),
+        'fecha':             data.get('fecha') or date.today().isoformat(),
+        'firma_png':         data.get('firma_png') or '',
+    }
+    try:
+        ruta_pdf = consentimientos.generar_pdf(pdf_datos)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Error al generar el PDF: {e}'}), 500
+
+    consentimientos.marcar_firmado(consent_id, ruta_pdf)
+    if de_cola:
+        consentimientos.limpiar_cola_tablet()
+
+    # Respaldo en Drive — no debe tumbar la firma si falla (el PDF ya quedó
+    # guardado localmente); solo se registra el resultado.
+    import drive_backup
+    resultado_drive = drive_backup.subir_pdf(ruta_pdf)
+    consentimientos.marcar_respaldo_drive(consent_id, resultado_drive.get('ok'), resultado_drive.get('file_id'))
+    if not resultado_drive.get('ok'):
+        print(f"[consentimiento] Respaldo a Drive falló para {consent_id}: {resultado_drive.get('error')}")
+
+    return jsonify({'ok': True, 'id': consent_id})
+
+
+@app.route('/api/consentimientos', methods=['GET'])
+def consentimientos_listar():
+    """Lista para la futura pestaña 'Consentimientos' del panel admin.
+    Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'items': consentimientos.listar(request.args.get('estado'))})
+
+
+@app.route('/api/consentimiento/marcar-subido', methods=['POST'])
+def consentimiento_marcar_subido():
+    """Marca un consentimiento como subido a la ficha de DentiDesk. Lo llama el
+    proceso de subida nocturna tras confirmar que el PDF quedó en Informes.
+    Body: {id}. Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    consent_id = (request.json or {}).get('id', '')
+    if not consent_id or not consentimientos.obtener_registro(consent_id):
+        return jsonify({'ok': False, 'error': 'Consentimiento no encontrado'}), 404
+    consentimientos.marcar_subido_dentidesk(consent_id)
+    return jsonify({'ok': True})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

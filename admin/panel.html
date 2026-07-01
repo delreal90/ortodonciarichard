@@ -105,6 +105,7 @@
     <a onclick="show('faq')" id="nav-faq"><i class="fa fa-question-circle"></i> FAQ</a>
     <a onclick="show('agenda')" id="nav-agenda"><i class="fa fa-calendar-check"></i> Agenda online</a>
     <a onclick="show('estadisticas')" id="nav-estadisticas"><i class="fa fa-chart-column"></i> Estadísticas</a>
+    <a onclick="show('consentimientos')" id="nav-consentimientos"><i class="fa fa-file-signature"></i> Consentimientos</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
   </nav>
@@ -219,6 +220,37 @@
       </div>
 
       <div id="stats-resultado"></div>
+    </div>
+
+    <!-- ── CONSENTIMIENTOS ─────────────────────────────────────── -->
+    <div class="section" id="sec-consentimientos">
+      <h2>Consentimientos informados</h2>
+      <p class="desc">Estado de los consentimientos enviados desde el asistente F2 (mail, WhatsApp o tablet de recepción): quién ya firmó y qué queda pendiente de subir a la ficha de DentiDesk.</p>
+
+      <div class="card" id="consent-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="consent-url" value="https://ortodonciarichard.onrender.com" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="consent-token" type="password" placeholder="ADMIN_TOKEN" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <button class="btn btn-primary" onclick="loadConsentimientos()">Cargar</button>
+        </div>
+        <p style="font-size:.78rem;color:#718096;margin-top:8px">El token se guarda solo en este navegador (no se publica). Es el mismo <code>ADMIN_TOKEN</code> de Render.</p>
+      </div>
+
+      <div class="tab-bar" id="consent-filtros">
+        <button class="active" onclick="filtrarConsentimientos('', this)">Todos</button>
+        <button onclick="filtrarConsentimientos('enviado', this)">Enviados</button>
+        <button onclick="filtrarConsentimientos('firmado', this)">Firmados (falta subir)</button>
+        <button onclick="filtrarConsentimientos('subido', this)">Subidos a DentiDesk</button>
+      </div>
+
+      <div id="consent-resultado"></div>
     </div>
 
     <!-- ── PUBLICAR ─────────────────────────────────────── -->
@@ -348,6 +380,7 @@ function show(sec) {
   if (sec === 'cv') loadCV();
   if (sec === 'agenda') loadAgenda();
   if (sec === 'estadisticas') initStats();
+  if (sec === 'consentimientos') initConsentimientos();
 }
 
 // ══════════════════════════════════════════════════════
@@ -449,6 +482,157 @@ function renderStats(d) {
     <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:4px">Día en que agendan</h3><p style="font-size:.78rem;color:#718096;margin-bottom:12px">Día de la semana en que el paciente hizo la reserva online.</p>${_barras(d.por_dia_semana, navy)}</div>
     <div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:4px">Hora en que agendan</h3><p style="font-size:.78rem;color:#718096;margin-bottom:12px">Hora del día en que el paciente hizo la reserva online.</p>${_barras(d.por_hora, gold)}</div>
     <div class="card"><h3 style="margin-bottom:14px">Reservas últimos 30 días</h3>${_barras(d.timeline_30d.filter(x=>x.total>0).map(x=>({label:x.fecha.slice(5),total:x.total})), navy)}</div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// CONSENTIMIENTOS INFORMADOS
+// ══════════════════════════════════════════════════════
+let consentimientosData = [], consentFiltroActivo = '';
+
+function initConsentimientos() {
+  // Comparte token/URL con Estadísticas: mismo ADMIN_TOKEN, mismo backend.
+  const t = localStorage.getItem('stats_token') || '';
+  const u = localStorage.getItem('stats_url') || 'https://ortodonciarichard.onrender.com';
+  document.getElementById('consent-token').value = t;
+  document.getElementById('consent-url').value = u;
+  if (t) loadConsentimientos();
+}
+
+async function loadConsentimientos() {
+  const url   = document.getElementById('consent-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('consent-token').value.trim();
+  const cont  = document.getElementById('consent-resultado');
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  localStorage.setItem('stats_token', token);
+  localStorage.setItem('stats_url', url);
+  cont.innerHTML = '<div class="card">Cargando…</div>';
+  let d;
+  try {
+    const r = await fetch(url + '/api/consentimientos', { headers: { 'X-Admin-Token': token } });
+    if (r.status === 403) { cont.innerHTML = '<div class="card" style="color:#e53e3e">Token incorrecto.</div>'; return; }
+    d = await r.json();
+  } catch (e) {
+    cont.innerHTML = '<div class="card" style="color:#e53e3e">No se pudo conectar con el backend.</div>';
+    return;
+  }
+  if (!d.ok) { cont.innerHTML = '<div class="card" style="color:#e53e3e">Error al cargar los consentimientos.</div>'; return; }
+  consentimientosData = d.items || [];
+  renderConsentimientos();
+}
+
+function filtrarConsentimientos(estado, btn) {
+  consentFiltroActivo = estado;
+  document.querySelectorAll('#consent-filtros button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderConsentimientos();
+}
+
+const CONSENT_ESTADO_LABEL = { enviado: 'Enviado', firmado: 'Firmado', subido: 'Subido a DentiDesk' };
+const CONSENT_ESTADO_COLOR = { enviado: '#a0aec0', firmado: '#C9A84C', subido: '#38a169' };
+const CONSENT_CANAL_LABEL  = { mail: 'Mail', whatsapp: 'WhatsApp', tablet: 'Tablet' };
+const CONSENT_TIPO_LABEL   = { ortodoncia: 'Ortodoncia', rehabilitacion: 'Rehabilitación oral' };
+
+function _rutFmt(rut) {
+  if (!rut || rut.length < 2) return rut || '—';
+  const cuerpo = rut.slice(0, -1), dv = rut.slice(-1);
+  return cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '-' + dv;
+}
+
+function _fechaCorta(iso) {
+  if (!iso) return '—';
+  const [f, h] = iso.split('T');
+  const [y, m, d] = f.split('-');
+  return `${d}-${m}-${y}${h ? ' ' + h.slice(0, 5) : ''}`;
+}
+
+function renderConsentimientos() {
+  const cont = document.getElementById('consent-resultado');
+  const items = consentFiltroActivo ? consentimientosData.filter(i => i.estado === consentFiltroActivo) : consentimientosData;
+  if (!items.length) {
+    cont.innerHTML = '<div class="card"><p style="color:#718096;font-size:.85rem">No hay consentimientos que coincidan con este filtro.</p></div>';
+    return;
+  }
+  cont.innerHTML = `<div class="card" style="padding:0;overflow:hidden">
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+      <thead><tr style="background:#f8fafc;text-align:left">
+        <th style="padding:10px 14px">RUT</th>
+        <th style="padding:10px 14px">Documento</th>
+        <th style="padding:10px 14px">Canal</th>
+        <th style="padding:10px 14px">Estado</th>
+        <th style="padding:10px 14px">Enviado</th>
+        <th style="padding:10px 14px">Firmado</th>
+        <th style="padding:10px 14px">Drive</th>
+        <th style="padding:10px 14px">Subir a DentiDesk</th>
+      </tr></thead>
+      <tbody>
+        ${items.map(i => `
+          <tr style="border-top:1px solid #e2e8f0">
+            <td style="padding:10px 14px">${_rutFmt(i.rut)}</td>
+            <td style="padding:10px 14px">${CONSENT_TIPO_LABEL[i.tipo] || i.tipo}</td>
+            <td style="padding:10px 14px">${CONSENT_CANAL_LABEL[i.canal] || i.canal}</td>
+            <td style="padding:10px 14px"><span class="tag" style="border-color:${CONSENT_ESTADO_COLOR[i.estado]};color:${CONSENT_ESTADO_COLOR[i.estado]}">${CONSENT_ESTADO_LABEL[i.estado] || i.estado}</span></td>
+            <td style="padding:10px 14px;color:#718096">${_fechaCorta(i.creado)}</td>
+            <td style="padding:10px 14px;color:#718096">${i.firmado ? _fechaCorta(i.firmado) : '—'}</td>
+            <td style="padding:10px 14px">${i.respaldo_drive === true ? '✅' : i.respaldo_drive === false ? '⚠️' : '—'}</td>
+            <td style="padding:8px 14px;white-space:nowrap">${_accionesConsent(i)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:.78rem;color:#718096;margin-top:10px">
+    <strong>Abrir en DentiDesk</strong> te lleva al paciente (busca por RUT). Entra a la pestaña <em>Informes</em>, click en <em>Subir</em> y elige el PDF.
+    El nombre del archivo aparece al pasar el mouse sobre el botón. Luego marca <strong>Ya lo subí</strong> para llevar la cuenta.
+  </p>`;
+}
+
+const DENTIDESK_BASE = 'https://app.dentidesk.cl';
+
+function _pdfNombre(i) {
+  // El PDF se guarda como RUT_tipo_fecha.pdf; si tenemos pdf_path, mostramos el basename.
+  if (i.pdf_path) { const p = i.pdf_path.replace(/\\\\/g,'/').split('/'); return p[p.length-1]; }
+  return `${i.rut}_${i.tipo}.pdf`;
+}
+
+function _accionesConsent(i) {
+  if (i.estado === 'subido') {
+    return '<span style="color:#38a169;font-weight:600">✓ Subido</span>';
+  }
+  if (i.estado !== 'firmado') {
+    return '<span style="color:#a0aec0">Aún sin firmar</span>';
+  }
+  const rutLimpio = (i.rut || '').replace(/[^0-9kK]/g,'');
+  return `
+    <button class="btn btn-primary btn-sm" title="Archivo a elegir: ${_pdfNombre(i)}"
+      onclick="abrirEnDentidesk('${rutLimpio}')">Abrir en DentiDesk</button>
+    <button class="btn btn-sm" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
+      onclick="marcarConsentSubido('${i.id}')">Ya lo subí</button>`;
+}
+
+function abrirEnDentidesk(rut) {
+  window.open(`${DENTIDESK_BASE}/pacientes.php?rut=${encodeURIComponent(rut)}`, '_blank');
+}
+
+async function marcarConsentSubido(id) {
+  const url = document.getElementById('consent-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('consent-token').value.trim();
+  try {
+    const r = await fetch(url + '/api/consentimiento/marcar-subido', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+      body: JSON.stringify({ id }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      toast('✅ Marcado como subido');
+      const item = consentimientosData.find(c => c.id === id);
+      if (item) item.estado = 'subido';
+      renderConsentimientos();
+    } else {
+      toast('❌ ' + (j.error || 'No se pudo marcar'), false);
+    }
+  } catch (e) {
+    toast('❌ Error de conexión', false);
+  }
 }
 
 function _statCard(label, valor, color) {

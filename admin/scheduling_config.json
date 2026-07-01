@@ -67,7 +67,7 @@
       "id_reason": "18152",
       "duracion_min": 30,
       "urgencia": false,
-      "notificar_agenda": false
+      "notificar_agenda": true
     },
     "control_fijo": {
       "label": "Control de Ortodoncia con Aparato Fijo (frenillos, disyuntor)",
@@ -99,7 +99,7 @@
       "id_reason": "20066",
       "duracion_min": 15,
       "urgencia": true,
-      "notificar_agenda": false
+      "notificar_agenda": true
     },
     "rehab_evaluacion": {
       "label": "Evaluación",
@@ -123,7 +123,7 @@
       "id_reason": "20082",
       "duracion_min": 30,
       "urgencia": true,
-      "notificar_agenda": false
+      "notificar_agenda": true
     }
   },
   "doctores": {

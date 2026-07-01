@@ -7,6 +7,9 @@ venv/
 # Credenciales DentiDesk — NUNCA subir a git
 admin/scheduling_secrets.json
 
+# Credenciales cuenta de servicio Google Drive (backup consentimientos) — NUNCA subir a git
+admin/drive_service_account.json
+
 # Base local de pacientes (datos personales) — NUNCA subir a git
 admin/patient_index.json
 # Exports de pacientes (datos personales) — NUNCA subir a git
@@ -14,3 +17,8 @@ admin/patient_index.json
 *.xls
 *.csv
 Listado de Pacientes*
+
+# Consentimientos firmados (datos personales + PDFs) — NUNCA subir a git
+admin/consentimientos_registro.json
+admin/consentimientos_cola_tablet.json
+admin/consentimientos_firmados/
