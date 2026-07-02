@@ -151,9 +151,12 @@ def _enviar_email_smtp(cita, ics):
 
 def _enviar_whatsapp(cita, ics):
     """Fallback: WhatsApp Cloud API con la plantilla 'confirmacion_hora'.
-    Sin adjunto (las plantillas de Meta no llevan .ics); solo texto."""
+    Sin adjunto (las plantillas de Meta no llevan .ics); solo texto.
+    Devuelve (ok: bool, error: str|None) — el error se propaga hasta F2 para
+    que la secretaria vea la causa real (token vencido, sin telefono, etc.)
+    en vez de un mensaje generico."""
     if not cita.get('telefono'):
-        return False
+        return False, 'La cita no tiene teléfono registrado'
     try:
         resultado = wa_cloud.enviar_confirmacion_hora(
             telefono=cita['telefono'],
@@ -162,10 +165,12 @@ def _enviar_whatsapp(cita, ics):
             fecha_legible=cita['fecha_legible'],
             hora=cita['hora'],
         )
-        return bool(resultado.get('ok'))
+        if resultado.get('ok'):
+            return True, None
+        return False, 'WhatsApp no confirmó el envío'
     except wa_cloud.WhatsAppCloudError as e:
         log.error('WhatsApp Cloud API error: %s', e)
-        return False
+        return False, str(e)
 
 
 # ── Solicitud de cambio de datos ─────────────────────────────────────────────
@@ -452,9 +457,10 @@ def enviar_confirmacion(cita, cfg=None, canal=None):
     cita = {**cita, 'direccion': clin['direccion']}
 
     if canal == 'whatsapp':
-        if _enviar_whatsapp(cita, ics):
+        ok, err = _enviar_whatsapp(cita, ics)
+        if ok:
             return {'ok': True, 'canal': 'whatsapp'}
-        return {'ok': False, 'canal': None, 'error': 'No se pudo enviar por WhatsApp'}
+        return {'ok': False, 'canal': None, 'error': err or 'No se pudo enviar por WhatsApp'}
 
     if canal == 'email':
         if _enviar_email_smtp(cita, ics):
@@ -464,7 +470,8 @@ def enviar_confirmacion(cita, cfg=None, canal=None):
     # Automatico (online / barrido): email primero, WhatsApp de respaldo
     if _enviar_email_smtp(cita, ics):
         return {'ok': True, 'canal': 'email'}
-    if _enviar_whatsapp(cita, ics):
+    ok, _err = _enviar_whatsapp(cita, ics)
+    if ok:
         return {'ok': True, 'canal': 'whatsapp'}
 
     return {'ok': False, 'canal': None, 'error': 'No se pudo enviar confirmacion'}
