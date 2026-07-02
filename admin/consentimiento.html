@@ -270,9 +270,11 @@ document.getElementById('badge-modo').textContent = modo === 'kiosco' ? 'Modo ta
 
 function limpiarRut(v) { return (v || '').toUpperCase().replace(/[^0-9K]/g, ''); }
 
-function conKiosk(url) {
-  if (!kioskToken) return url;
-  return url + (url.includes('?') ? '&' : '?') + 'kiosk_token=' + encodeURIComponent(kioskToken);
+// El KIOSK_TOKEN se envía SIEMPRE como header (X-Kiosk-Token), nunca en la URL
+// de la API — así no queda en logs, historial ni Referer. La tablet lo recibe
+// una sola vez en la URL de la página (?kiosk_token=) al configurarla.
+function kioskHeaders() {
+  return kioskToken ? { 'X-Kiosk-Token': kioskToken } : {};
 }
 
 function mostrarError(msg) {
@@ -312,11 +314,11 @@ function iniciarPollingCola() {
   pollingCola = setInterval(async () => {
     if (document.getElementById('kiosco-buscar').style.display !== 'block') return;
     try {
-      const r = await fetch(conKiosk(`${API_BASE}/api/consentimiento/tablet/cola`));
+      const r = await fetch(`${API_BASE}/api/consentimiento/tablet/cola`, { headers: kioskHeaders() });
       const j = await r.json();
       if (j.ok && j.item) {
         clearInterval(pollingCola);
-        const dr = await fetch(conKiosk(`${API_BASE}/api/consentimiento/tablet/buscar?rut=${encodeURIComponent(j.item.rut)}`));
+        const dr = await fetch(`${API_BASE}/api/consentimiento/tablet/buscar?rut=${encodeURIComponent(j.item.rut)}`, { headers: kioskHeaders() });
         const dj = await dr.json();
         if (dj.ok) {
           paciente = { nombre: dj.nombre, rut: dj.rut_fmt };
@@ -334,7 +336,7 @@ async function buscarPorRut() {
   const val = document.getElementById('input-rut-buscar').value.trim();
   if (!val) return;
   try {
-    const r = await fetch(conKiosk(`${API_BASE}/api/consentimiento/tablet/buscar?rut=${encodeURIComponent(val)}`));
+    const r = await fetch(`${API_BASE}/api/consentimiento/tablet/buscar?rut=${encodeURIComponent(val)}`, { headers: kioskHeaders() });
     const j = await r.json();
     if (!j.ok) { alert(j.error || 'No se encontró un paciente con ese RUT.'); iniciarPollingCola(); return; }
     paciente = { nombre: j.nombre, rut: j.rut_fmt };
@@ -461,9 +463,8 @@ async function enviarConsentimiento() {
   btn.textContent = 'Enviando...';
 
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (modo === 'kiosco' && kioskToken) headers['X-Kiosk-Token'] = kioskToken;
-    const r = await fetch(conKiosk(`${API_BASE}/api/consentimiento/firmar`), {
+    const headers = { 'Content-Type': 'application/json', ...kioskHeaders() };
+    const r = await fetch(`${API_BASE}/api/consentimiento/firmar`, {
       method: 'POST', headers, body: JSON.stringify(payload),
     });
     const j = await r.json();

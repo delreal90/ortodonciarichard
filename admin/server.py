@@ -6,6 +6,7 @@ Abrir: http://localhost:5001
 
 import os
 import re
+import hmac
 import json
 import shutil
 import subprocess
@@ -14,6 +15,21 @@ from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
 
 app = Flask(__name__, static_folder='.')
+
+# Limite de tamaño del cuerpo de la petición (anti-DoS): la firma llega como PNG
+# en base64; 3 MB es holgado para una firma y frena payloads gigantes.
+app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024
+
+# Detrás del proxy de Render: hacer que request.remote_addr sea la IP real del
+# cliente (la que Render pone en X-Forwarded-For), en vez de la IP del proxy.
+# x_for=1 = confiamos en UN solo proxy (Render). Así el rate-limit por IP y el
+# sello de firma electrónica usan la IP real y NO una X-Forwarded-For falsificada
+# por el cliente (werkzeug toma la entrada que agregó el proxy de confianza).
+try:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+except ImportError:
+    pass
 
 # Rate limiting: frena abusos/bots que podrian disparar el trafico (y el costo).
 # Limite global por IP + limites mas estrictos en endpoints que llaman a DentiDesk.
@@ -32,24 +48,25 @@ def rate_limit(spec):
         return limiter.limit(spec)(f) if limiter else f
     return deco
 
-# CORS: permitir el sitio en GitHub Pages, dominio propio y desarrollo local.
+# CORS: sitio publicado + localhost (el panel admin corre local y consulta el
+# backend de Render para stats/consentimientos). Los orígenes localhost son de
+# bajo riesgo porque TODOS los endpoints sensibles exigen ADMIN_TOKEN/KIOSK_TOKEN,
+# y CORS solo controla lectura desde JS del navegador, no llamadas servidor a
+# servidor. La whitelist es exacta (no comodines).
 _ALLOWED_ORIGINS = {
     'https://delreal90.github.io',
     'https://ortodonciarichard.cl',
     'https://www.ortodonciarichard.cl',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:3050',  # servidor estático alternativo (preview local)
-    'http://127.0.0.1:3050',
-    'http://localhost:5001',   # panel admin local (consulta stats en produccion)
-    'http://127.0.0.1:5001',
+    'http://localhost:3000', 'http://127.0.0.1:3000',
+    'http://localhost:3050', 'http://127.0.0.1:3050',
+    'http://localhost:5001', 'http://127.0.0.1:5001',
 }
 @app.after_request
 def _cors(resp):
     origin = request.headers.get('Origin', '')
     if origin in _ALLOWED_ORIGINS:
         resp.headers['Access-Control-Allow-Origin'] = origin
-    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Admin-Token'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Admin-Token, X-Kiosk-Token'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
 
@@ -793,13 +810,17 @@ def agenda_disponibilidad():
 
 def _check_admin_token():
     """Protege endpoints sensibles. En produccion se define ADMIN_TOKEN (env var);
-    el llamador debe mandar header 'X-Admin-Token' o ?token=. Sin ADMIN_TOKEN
-    configurado (desarrollo local) se permite."""
+    el llamador debe mandar el header 'X-Admin-Token'. Sin ADMIN_TOKEN configurado
+    (desarrollo local) se permite.
+
+    SEGURIDAD: solo se acepta por header, NO por ?token= en la URL — las URLs
+    quedan en logs, historial y Referer, filtrando el token. Comparacion de
+    tiempo constante (hmac.compare_digest) para evitar timing attacks."""
     tok = os.environ.get('ADMIN_TOKEN')
     if not tok:
         return True
-    provisto = request.headers.get('X-Admin-Token') or request.args.get('token')
-    return provisto == tok
+    provisto = request.headers.get('X-Admin-Token') or ''
+    return hmac.compare_digest(provisto, tok)
 
 @app.route('/api/pacientes/actualizar', methods=['POST'])
 def pacientes_actualizar():
@@ -1436,8 +1457,9 @@ def _check_kiosk_token():
     tok = os.environ.get('KIOSK_TOKEN')
     if not tok:
         return True
-    provisto = request.headers.get('X-Kiosk-Token') or request.args.get('kiosk_token')
-    return provisto == tok
+    # Solo header (no ?kiosk_token= en la URL). Tiempo constante.
+    provisto = request.headers.get('X-Kiosk-Token') or ''
+    return hmac.compare_digest(provisto, tok)
 
 
 @app.route('/consentimiento')
@@ -1485,6 +1507,7 @@ def consentimiento_tablet_cola():
 
 
 @app.route('/api/consentimiento/enviar', methods=['POST'])
+@rate_limit('30 per minute')
 def consentimiento_enviar():
     """Disparado desde el asistente F2. Body: {rut, tipo, canal}.
     canal: 'mail' | 'whatsapp' | 'tablet'. Protegido por ADMIN_TOKEN (mismo
@@ -1549,23 +1572,40 @@ def consentimiento_firmar():
         if not consent_id:
             consent_id = consentimientos.crear_registro(rut, tipo, 'tablet')
 
+    # Validar tipo SIEMPRE (no solo en /enviar): en modo tablet 'tipo' viene del
+    # body sin firmar. Sin esto, un valor arbitrario se guardaría en el registro
+    # y el panel admin lo renderizaría → XSS almacenado contra la sesión admin.
+    if tipo not in consentimientos.TIPOS_DOCUMENTO:
+        return jsonify({'ok': False, 'error': 'tipo de documento desconocido'}), 400
+
+    # Validar que la firma sea realmente un PNG en data URL (no un blob arbitrario).
+    firma_png = data.get('firma_png') or ''
+    if not firma_png.startswith('data:image/png;base64,'):
+        return jsonify({'ok': False, 'error': 'Firma inválida'}), 400
+
     datos_pac = consentimientos.datos_paciente(rut)
     if not datos_pac:
         return jsonify({'ok': False, 'error': 'Paciente no encontrado'}), 404
 
-    # IP real del firmante — considera el proxy de Render (X-Forwarded-For)
-    ip_origen = (request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
-                or request.remote_addr or '')
+    # IP real del firmante. ProxyFix ya resolvió request.remote_addr a la IP que
+    # puso el proxy de Render — NO se lee X-Forwarded-For crudo (falsificable por
+    # el cliente). Localmente será 127.0.0.1.
+    ip_origen = request.remote_addr or ''
+
+    # Acotar los campos de texto libre que van al PDF (defensa extra sobre
+    # MAX_CONTENT_LENGTH; evita PDFs desmesurados por un solo campo).
+    def _cap(v, n=300):
+        return (str(v or '')).strip()[:n]
 
     pdf_datos = {
         **datos_pac, 'tipo': tipo,
-        'tratamiento':       (data.get('tratamiento') or '').strip(),
-        'dentista_actual':   (data.get('dentista_actual') or '').strip(),
-        'quien_firma':       data.get('quien_firma') or 'paciente',
-        'apoderado_nombre':  (data.get('apoderado_nombre') or '').strip(),
-        'apoderado_rut':     (data.get('apoderado_rut') or '').strip(),
-        'fecha':             data.get('fecha') or date.today().isoformat(),
-        'firma_png':         data.get('firma_png') or '',
+        'tratamiento':       _cap(data.get('tratamiento')),
+        'dentista_actual':   _cap(data.get('dentista_actual')),
+        'quien_firma':       'apoderado' if data.get('quien_firma') == 'apoderado' else 'paciente',
+        'apoderado_nombre':  _cap(data.get('apoderado_nombre'), 120),
+        'apoderado_rut':     _cap(data.get('apoderado_rut'), 20),
+        'fecha':             _cap(data.get('fecha'), 40) or date.today().isoformat(),
+        'firma_png':         firma_png,
         'consent_id':        consent_id,
         'ip':                ip_origen,
     }

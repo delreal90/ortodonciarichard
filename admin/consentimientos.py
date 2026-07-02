@@ -57,11 +57,12 @@ TOKEN_MAX_AGE_SEGUNDOS = 30 * 24 * 3600  # 30 dias
 
 
 def _secret():
-    # Reutiliza ADMIN_TOKEN como secreto de firma si no hay uno dedicado
-    # (CONSENT_SECRET). En dev local sin ninguno de los dos, usa un valor fijo
-    # NO apto para produccion (mismo criterio de _check_admin_token en server.py).
-    return (os.environ.get('CONSENT_SECRET') or os.environ.get('ADMIN_TOKEN')
-            or 'dev-secret-cambiar-en-produccion')
+    # Secreto DEDICADO para firmar los links de consentimiento (CONSENT_SECRET).
+    # NO se reutiliza ADMIN_TOKEN: si ese token se filtrara (viaja en la extension
+    # F2), un atacante podria forjar links validos de cualquier RUT y cosechar
+    # nombres de pacientes o firmar consentimientos falsos. En dev local sin
+    # CONSENT_SECRET usa un valor fijo NO apto para produccion.
+    return os.environ.get('CONSENT_SECRET') or 'dev-secret-cambiar-en-produccion'
 
 
 def _serializer():

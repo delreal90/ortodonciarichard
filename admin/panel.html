@@ -567,12 +567,12 @@ function renderConsentimientos() {
       <tbody>
         ${items.map(i => `
           <tr style="border-top:1px solid #e2e8f0">
-            <td style="padding:10px 14px">${_rutFmt(i.rut)}</td>
-            <td style="padding:10px 14px">${CONSENT_TIPO_LABEL[i.tipo] || i.tipo}</td>
-            <td style="padding:10px 14px">${CONSENT_CANAL_LABEL[i.canal] || i.canal}</td>
-            <td style="padding:10px 14px"><span class="tag" style="border-color:${CONSENT_ESTADO_COLOR[i.estado]};color:${CONSENT_ESTADO_COLOR[i.estado]}">${CONSENT_ESTADO_LABEL[i.estado] || i.estado}</span></td>
-            <td style="padding:10px 14px;color:#718096">${_fechaCorta(i.creado)}</td>
-            <td style="padding:10px 14px;color:#718096">${i.firmado ? _fechaCorta(i.firmado) : '—'}</td>
+            <td style="padding:10px 14px">${_esc(_rutFmt(i.rut))}</td>
+            <td style="padding:10px 14px">${_esc(CONSENT_TIPO_LABEL[i.tipo] || i.tipo)}</td>
+            <td style="padding:10px 14px">${_esc(CONSENT_CANAL_LABEL[i.canal] || i.canal)}</td>
+            <td style="padding:10px 14px"><span class="tag" style="border-color:${CONSENT_ESTADO_COLOR[i.estado] || '#a0aec0'};color:${CONSENT_ESTADO_COLOR[i.estado] || '#a0aec0'}">${_esc(CONSENT_ESTADO_LABEL[i.estado] || i.estado)}</span></td>
+            <td style="padding:10px 14px;color:#718096">${_esc(_fechaCorta(i.creado))}</td>
+            <td style="padding:10px 14px;color:#718096">${i.firmado ? _esc(_fechaCorta(i.firmado)) : '—'}</td>
             <td style="padding:10px 14px">${i.respaldo_drive === true ? '✅' : i.respaldo_drive === false ? '⚠️' : '—'}</td>
             <td style="padding:8px 14px;white-space:nowrap">${_accionesConsent(i)}</td>
           </tr>`).join('')}
@@ -587,6 +587,15 @@ function renderConsentimientos() {
 
 const DENTIDESK_BASE = 'https://app.dentidesk.cl';
 
+// Escapa texto para insertarlo con seguridad en HTML/atributos (anti-XSS).
+// Todos los valores que vienen del backend deben pasar por aquí antes de ir a
+// innerHTML — así, aunque un valor malicioso llegara al registro, no se ejecuta.
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function _pdfNombre(i) {
   // El PDF se guarda como RUT_tipo_fecha.pdf; si tenemos pdf_path, mostramos el basename.
   if (i.pdf_path) { const p = i.pdf_path.replace(/\\\\/g,'/').split('/'); return p[p.length-1]; }
@@ -600,12 +609,13 @@ function _accionesConsent(i) {
   if (i.estado !== 'firmado') {
     return '<span style="color:#a0aec0">Aún sin firmar</span>';
   }
-  const rutLimpio = (i.rut || '').replace(/[^0-9kK]/g,'');
+  const rutLimpio = (i.rut || '').replace(/[^0-9kK]/g,'');       // solo dígitos/K
+  const idLimpio  = (i.id || '').replace(/[^a-zA-Z0-9]/g,'');    // uuid hex
   return `
-    <button class="btn btn-primary btn-sm" title="Archivo a elegir: ${_pdfNombre(i)}"
+    <button class="btn btn-primary btn-sm" title="Archivo a elegir: ${_esc(_pdfNombre(i))}"
       onclick="abrirEnDentidesk('${rutLimpio}')">Abrir en DentiDesk</button>
     <button class="btn btn-sm" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
-      onclick="marcarConsentSubido('${i.id}')">Ya lo subí</button>`;
+      onclick="marcarConsentSubido('${idLimpio}')">Ya lo subí</button>`;
 }
 
 function abrirEnDentidesk(rut) {
