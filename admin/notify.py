@@ -428,11 +428,15 @@ def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento
 
 # ── Punto de entrada ─────────────────────────────────────────────────────────
 
-def enviar_confirmacion(cita, cfg=None):
+def enviar_confirmacion(cita, cfg=None, canal=None):
     """
     Envía confirmacion de cita al paciente.
     cita: dict con nombre, telefono, email, fecha (date), fecha_legible, hora,
           doctor_nombre, motivo_label, dur_min.
+    canal: None (default) = automatico: email primero, WhatsApp de respaldo
+           (usado por el agendamiento online y el barrido de confirmaciones).
+           'email' | 'whatsapp' = forzado explicitamente (lo usa el asistente
+           F2, donde la secretaria elige el canal a mano).
     Devuelve dict con el canal usado y estado.
     """
     cfg = cfg or load_config()
@@ -447,11 +451,19 @@ def enviar_confirmacion(cita, cfg=None):
 
     cita = {**cita, 'direccion': clin['direccion']}
 
-    # 1) Email con .ics adjunto (primario)
+    if canal == 'whatsapp':
+        if _enviar_whatsapp(cita, ics):
+            return {'ok': True, 'canal': 'whatsapp'}
+        return {'ok': False, 'canal': None, 'error': 'No se pudo enviar por WhatsApp'}
+
+    if canal == 'email':
+        if _enviar_email_smtp(cita, ics):
+            return {'ok': True, 'canal': 'email'}
+        return {'ok': False, 'canal': None, 'error': 'No se pudo enviar el email'}
+
+    # Automatico (online / barrido): email primero, WhatsApp de respaldo
     if _enviar_email_smtp(cita, ics):
         return {'ok': True, 'canal': 'email'}
-
-    # 2) WhatsApp (fallback, solo si el bridge esta corriendo localmente)
     if _enviar_whatsapp(cita, ics):
         return {'ok': True, 'canal': 'whatsapp'}
 

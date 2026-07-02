@@ -1365,14 +1365,19 @@ def asistente_confirmar_cita():
     Envía la confirmación de una cita puntual al instante (sin esperar el barrido).
     Llamado por el asistente F2 desde el navegador de la secretaria.
 
-    Body JSON: { "id_agenda": "13350327", "fecha": "2026-06-26" }
+    Body JSON: { "id_agenda": "13350327", "fecha": "2026-06-26", "canal": "email"|"whatsapp" }
+    "canal" es opcional: si no se manda, es automatico (email, con WhatsApp de
+    respaldo) — igual que el agendamiento online. Si se manda, la secretaria
+    eligio el canal a mano desde el panel F2 y se fuerza ese unico canal.
     Protegido por ADMIN_TOKEN (mismo patrón que el resto de endpoints sensibles).
 
     Flujo:
       1. Trae las citas del día desde DentiDesk (getAgendaDay, con caché).
       2. Localiza la cita por IdAgenda.
-      3. Valida que tenga email y no esté inactiva (cancelada, atendida, etc.).
-      4. Llama a notify.enviar_confirmacion() — mismo correo que el agendamiento online.
+      3. Valida que no esté inactiva (cancelada, atendida, etc.) y que tenga el
+         dato que exige el canal elegido (email para 'email'/automatico,
+         telefono para 'whatsapp').
+      4. Llama a notify.enviar_confirmacion() con ese canal.
       5. Marca la cita como enviada (marcar_enviada) para que el barrido no la reenvíe.
       6. Devuelve { ok, canal, email_enmascarado } o { ok: false, error }.
     """
@@ -1382,9 +1387,12 @@ def asistente_confirmar_cita():
     data = request.json or {}
     id_agenda = str(data.get('id_agenda', '')).strip()
     fecha_str  = (data.get('fecha') or '').strip()
+    canal = (data.get('canal') or '').strip().lower() or None
 
     if not id_agenda:
         return jsonify({'ok': False, 'error': 'Falta id_agenda'}), 400
+    if canal not in (None, 'email', 'whatsapp'):
+        return jsonify({'ok': False, 'error': f'Canal no válido: {canal}'}), 400
     try:
         fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
     except (ValueError, TypeError):
@@ -1398,7 +1406,7 @@ def asistente_confirmar_cita():
         confirmaciones.marcar_enviada(id_agenda)
         return jsonify({
             'ok': True, 'mock': True,
-            'canal': 'email',
+            'canal': canal or 'email',
             'email_enmascarado': 'pa***@co***.cl',
             'mensaje': 'Modo demo: sin credenciales DentiDesk (enabled=false)',
         })
@@ -1424,15 +1432,23 @@ def asistente_confirmar_cita():
     if any(s in estado for s in dentidesk._ESTADOS_INACTIVOS):
         return jsonify({'ok': False, 'error': f'La cita está en estado "{cita_raw.get("Status")}" — no se envía confirmación'}), 409
 
-    # Validar email. Prioridad: el de DentiDesk (recién guardado); si la cita no
-    # lo tiene, usar el que el asistente leyó del modal (data['email']) como
+    # Email. Prioridad: el de DentiDesk (recién guardado); si la cita no lo
+    # tiene, usar el que el asistente leyó del modal (data['email']) como
     # respaldo. Esto cubre el caso de una cita antigua a la que recién se le
     # agregó el email en el modal y el cambio aún no se refleja del lado servidor.
     email = (cita_raw.get('PatientEmail') or '').strip()
     if '@' not in email:
         email = (data.get('email') or '').strip()
-    if '@' not in email or '.' not in email:
-        return jsonify({'ok': False, 'error': 'La cita no tiene email registrado. Agrégalo en DentiDesk, guarda, y vuelve a intentar.'}), 409
+    telefono = (cita_raw.get('Phone') or '').strip()
+
+    # El dato requerido depende del canal que la secretaria eligió en F2
+    # (automatico/'email' necesitan email; 'whatsapp' necesita telefono).
+    if canal == 'whatsapp':
+        if not telefono:
+            return jsonify({'ok': False, 'error': 'La cita no tiene teléfono registrado. Agrégalo en DentiDesk, guarda, y vuelve a intentar.'}), 409
+    else:
+        if '@' not in email or '.' not in email:
+            return jsonify({'ok': False, 'error': 'La cita no tiene email registrado. Agrégalo en DentiDesk, guarda, y vuelve a intentar.'}), 409
 
     # Armar el dict para notify.enviar_confirmacion()
     import pacientes as _pacientes
@@ -1446,7 +1462,7 @@ def asistente_confirmar_cita():
 
     cita_dict = {
         'nombre':        nombre,
-        'telefono':      (cita_raw.get('Phone') or '').strip(),
+        'telefono':      telefono,
         'email':         email,
         'fecha':         fch,
         'fecha_legible': _fecha_legible(fch),
@@ -1456,8 +1472,9 @@ def asistente_confirmar_cita():
         'dur_min':       int(cita_raw.get('duration') or 30),
     }
 
-    # Enviar — mismo canal y mismo formato que el agendamiento online
-    resultado = notify.enviar_confirmacion(cita_dict, cfg)
+    # canal=None -> automatico (email, con WhatsApp de respaldo); si la
+    # secretaria eligio uno en F2, se fuerza ese unico canal.
+    resultado = notify.enviar_confirmacion(cita_dict, cfg, canal=canal)
 
     # Marcar como enviada para que el barrido de 4 ciclos no la reenvíe
     if resultado.get('ok'):
