@@ -85,10 +85,21 @@ def _post(payload):
         'Authorization': f"Bearer {cfg['token']}",
         'Content-Type': 'application/json',
     }
-    resp = requests.post(url, json=payload, headers=headers, timeout=20)
+    # Cualquier falla (red, timeout, JSON invalido) se envuelve SIEMPRE en
+    # WhatsAppCloudError: es la unica excepcion que los llamadores (notify.py)
+    # esperan capturar. Sin esto, un error de red se escapaba sin capturar y
+    # tumbaba el request completo (Flask devolvia su pagina HTML de error en
+    # vez de JSON, rompiendo al cliente que espera parsear la respuesta).
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=20)
+    except requests.exceptions.RequestException as e:
+        raise WhatsAppCloudError(f'Error de red al llamar a Meta: {e}')
     if resp.status_code >= 400:
         raise WhatsAppCloudError(f'Meta respondio {resp.status_code}: {resp.text[:300]}')
-    data = resp.json()
+    try:
+        data = resp.json()
+    except ValueError:
+        raise WhatsAppCloudError(f'Respuesta invalida de Meta (no es JSON): {resp.text[:300]}')
     return {'ok': True, 'mock': False, 'raw': data,
             'message_id': (data.get('messages') or [{}])[0].get('id')}
 
