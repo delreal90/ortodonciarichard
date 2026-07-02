@@ -662,6 +662,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scheduling
 import dentidesk
 import notify
+import wa_cloud
 from datetime import date, datetime
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -1048,6 +1049,42 @@ def confirmaciones_run():
     except (TypeError, ValueError):
         dias = 90
     return jsonify(confirmaciones.barrer_y_confirmar(dias_adelante=dias))
+
+@app.route('/api/whatsapp/test', methods=['POST'])
+def whatsapp_test():
+    """Envia UNA plantilla de WhatsApp de prueba (protegido por ADMIN_TOKEN).
+    Sirve para verificar la Cloud API sin agendar una cita real.
+    Body JSON: { telefono, plantilla?, nombre?, doctor?, fecha?, hora? }
+      plantilla: 'confirmacion_hora' (default) | 'recordatorio_semana' |
+                 'recordatorio_dia' | 'inasistencia_reagendar'
+    El destinatario debe estar registrado como número de prueba en Meta."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    tel = (data.get('telefono') or '').strip()
+    if not tel:
+        return jsonify({'ok': False, 'error': 'Falta telefono'}), 400
+
+    nombre = data.get('nombre', 'Juan')
+    doctor = data.get('doctor', 'Octavio Del Real')
+    fecha  = data.get('fecha', 'martes 8 de julio')
+    hora   = data.get('hora', '10:30')
+    plantilla = data.get('plantilla', 'confirmacion_hora')
+
+    envio = {
+        'confirmacion_hora':      lambda: wa_cloud.enviar_confirmacion_hora(tel, nombre, doctor, fecha, hora),
+        'recordatorio_semana':    lambda: wa_cloud.enviar_recordatorio_semana(tel, nombre, doctor, fecha, hora),
+        'recordatorio_dia':       lambda: wa_cloud.enviar_recordatorio_dia(tel, nombre, doctor, fecha, hora),
+        'inasistencia_reagendar': lambda: wa_cloud.enviar_inasistencia_reagendar(tel, nombre, fecha),
+    }.get(plantilla)
+    if not envio:
+        return jsonify({'ok': False, 'error': f'Plantilla no valida: {plantilla}'}), 400
+
+    try:
+        res = envio()
+        return jsonify({'ok': True, 'plantilla': plantilla, 'resultado': res})
+    except wa_cloud.WhatsAppCloudError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
 
 @rate_limit('20 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])

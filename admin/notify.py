@@ -3,60 +3,30 @@ notify.py - Confirmacion al paciente tras agendar (Ortodoncia Richard)
 
 Prioridad:
   1. Email via SMTP (Gmail App Password) -> HTML + .ics adjunto
-  2. Fallback: WhatsApp (bridge Go en localhost:8080, solo cuando esta corriendo)
+  2. Fallback: WhatsApp Cloud API oficial (plantilla 'confirmacion_hora'; ver wa_cloud.py)
 
 El .ics adjunto es reconocido automaticamente por Gmail, iOS Mail, Outlook y
 la mayoria de apps de calendario: aparece como boton "Agregar al calendario".
+El fallback de WhatsApp es solo texto (las plantillas de Meta no llevan adjuntos).
 
 Variables de entorno requeridas (configurar en Render):
   SMTP_USER  — email que envia (ej: recepcion@ortodonciarichard.cl)
   SMTP_PASS  — App Password de Gmail (16 caracteres, sin espacios)
+  WA_ENABLED, WA_TOKEN, WA_PHONE_NUMBER_ID — ver wa_cloud.py
 """
 
 import os
 import ssl
 import smtplib
 import logging
-import tempfile
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
-from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-try:
-    import requests
-except ImportError:
-    requests = None
-
 from scheduling import generar_ics, load_config
-
-# Bridge de WhatsApp (fallback local)
-BRIDGE_URL = os.getenv('WHATSAPP_API_URL', 'http://localhost:8080/api')
-BRIDGE_TOKEN_FILE = Path(
-    r'C:\Users\ESTUDIO3D\Claude Code Playground\whatsapp-mcp-vgp'
-    r'\whatsapp-bridge\store\.bridge-token'
-)
-
-
-def _bridge_headers():
-    token = os.getenv('WHATSAPP_BRIDGE_TOKEN')
-    if not token and BRIDGE_TOKEN_FILE.exists():
-        token = BRIDGE_TOKEN_FILE.read_text(encoding='utf-8').strip()
-    return {'Authorization': f'Bearer {token}'} if token else {}
-
-
-def _normalizar_telefono(tel):
-    """Telefono chileno -> JID de WhatsApp."""
-    digits = ''.join(c for c in tel if c.isdigit())
-    if digits.startswith('56'):
-        pass
-    elif digits.startswith('9') and len(digits) == 9:
-        digits = '56' + digits
-    elif len(digits) == 8:
-        digits = '569' + digits
-    return f'{digits}@s.whatsapp.net'
+import wa_cloud
 
 
 # ── Email (primario) ─────────────────────────────────────────────────────────
@@ -177,45 +147,25 @@ def _enviar_email_smtp(cita, ics):
         return False
 
 
-# ── WhatsApp (fallback) ──────────────────────────────────────────────────────
-
-def _mensaje_wa(c):
-    return (
-        f"*Ortodoncia Richard* — Confirmacion de hora\n\n"
-        f"Hola {c['nombre']}, tu hora quedo agendada:\n\n"
-        f"🗓 *Fecha:* {c['fecha_legible']}\n"
-        f"🕐 *Hora:* {c['hora']}\n"
-        f"👨‍⚕️ *Doctor:* {c['doctor_nombre']}\n"
-        f"📋 *Motivo:* {c['motivo_label']}\n"
-        f"📍 *Direccion:* {c['direccion']}\n\n"
-        f"Adjunto un archivo para agregarla a tu calendario.\n"
-        f"Si necesitas reagendar, escribenos. ¡Te esperamos!"
-    )
-
+# ── WhatsApp (fallback, Cloud API oficial) ───────────────────────────────────
 
 def _enviar_whatsapp(cita, ics):
-    """Fallback: WhatsApp via bridge local (solo funciona si el bridge esta corriendo)."""
-    if requests is None or not cita.get('telefono'):
+    """Fallback: WhatsApp Cloud API con la plantilla 'confirmacion_hora'.
+    Sin adjunto (las plantillas de Meta no llevan .ics); solo texto."""
+    if not cita.get('telefono'):
         return False
     try:
-        jid = _normalizar_telefono(cita['telefono'])
-        r = requests.post(f'{BRIDGE_URL}/send',
-                          json={'recipient': jid, 'message': _mensaje_wa(cita)},
-                          headers=_bridge_headers(), timeout=15)
-        if r.status_code == 200 and r.json().get('success'):
-            # Intentar enviar el .ics como archivo
-            tmp = Path(tempfile.gettempdir()) / f"cita-{cita['fecha']}-{cita['hora'].replace(':','')}.ics"
-            tmp.write_text(ics, encoding='utf-8')
-            try:
-                requests.post(f'{BRIDGE_URL}/send',
-                              json={'recipient': jid, 'media_path': str(tmp)},
-                              headers=_bridge_headers(), timeout=20)
-            except Exception:
-                pass
-            return True
-    except Exception:
-        pass
-    return False
+        resultado = wa_cloud.enviar_confirmacion_hora(
+            telefono=cita['telefono'],
+            nombre=cita['nombre'],
+            doctor_nombre=cita['doctor_nombre'],
+            fecha_legible=cita['fecha_legible'],
+            hora=cita['hora'],
+        )
+        return bool(resultado.get('ok'))
+    except wa_cloud.WhatsAppCloudError as e:
+        log.error('WhatsApp Cloud API error: %s', e)
+        return False
 
 
 # ── Solicitud de cambio de datos ─────────────────────────────────────────────
@@ -444,22 +394,16 @@ def _enviar_email_consentimiento(nombre, email, link, tipo_label):
 
 
 def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label):
-    if requests is None or not telefono:
+    """No hay plantilla dedicada para esto; reutiliza 'conversacion_general'
+    (pensada justo para avisos libres de la clinica) con el link en el motivo."""
+    if not telefono:
         return False
     try:
-        jid = _normalizar_telefono(telefono)
-        mensaje = (
-            f"*Ortodoncia Richard*\n\n"
-            f"Hola {nombre}, antes de tu próximo tratamiento necesitamos que firmes "
-            f"tu *{tipo_label}*.\n\n"
-            f"Puedes firmarlo directamente desde tu celular aquí:\n{link}\n\n"
-            f"Cualquier duda, escríbenos."
-        )
-        r = requests.post(f'{BRIDGE_URL}/send',
-                          json={'recipient': jid, 'message': mensaje},
-                          headers=_bridge_headers(), timeout=15)
-        return r.status_code == 200 and r.json().get('success', False)
-    except Exception:
+        motivo = f"necesita firmar su {tipo_label}. Puede hacerlo directamente desde su celular aquí: {link}"
+        resultado = wa_cloud.enviar_conversacion_general(telefono, nombre, motivo)
+        return bool(resultado.get('ok'))
+    except wa_cloud.WhatsAppCloudError as e:
+        log.error('WhatsApp Cloud API error (consentimiento): %s', e)
         return False
 
 
