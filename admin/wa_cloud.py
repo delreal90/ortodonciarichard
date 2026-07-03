@@ -178,3 +178,40 @@ def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora
     return _enviar_plantilla(telefono, 'primera_consulta',
                               [nombre, doctor_nombre, fecha_legible, hora],
                               header_video_url=video_url)
+
+
+# ── Estado / salud ────────────────────────────────────────────────────────
+
+def verificar_estado():
+    """Chequeo liviano (sin enviar ningun mensaje): confirma que WA_TOKEN y
+    WA_PHONE_NUMBER_ID son validos haciendo un GET al propio numero. Detecta
+    tokens vencidos/invalidos (p.ej. el error 190 OAuthException) sin gastar
+    cuota de mensajes ni molestar a ningun paciente."""
+    cfg = _config()
+    if not cfg['enabled']:
+        return {'configurado': False, 'conectado': False, 'error': 'WA_ENABLED no esta activo'}
+    if not cfg['token'] or not cfg['phone_number_id']:
+        return {'configurado': False, 'conectado': False, 'error': 'Faltan WA_TOKEN / WA_PHONE_NUMBER_ID'}
+    if requests is None:
+        return {'configurado': True, 'conectado': False, 'error': "Falta 'requests' (pip install requests)"}
+
+    url = f"https://graph.facebook.com/{cfg['api_version']}/{cfg['phone_number_id']}"
+    params = {'fields': 'display_phone_number,quality_rating'}
+    headers = {'Authorization': f"Bearer {cfg['token']}"}
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+    except requests.exceptions.RequestException as e:
+        return {'configurado': True, 'conectado': False, 'error': f'Error de red al llamar a Meta: {e}'}
+
+    if resp.status_code >= 400:
+        return {'configurado': True, 'conectado': False, 'error': f'Meta respondio {resp.status_code}: {resp.text[:300]}'}
+    try:
+        data = resp.json()
+    except ValueError:
+        return {'configurado': True, 'conectado': False, 'error': f'Respuesta invalida de Meta (no es JSON): {resp.text[:300]}'}
+
+    return {
+        'configurado': True, 'conectado': True,
+        'numero': data.get('display_phone_number'),
+        'calidad': data.get('quality_rating'),
+    }

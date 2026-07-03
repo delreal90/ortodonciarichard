@@ -1,0 +1,225 @@
+"""
+recordatorios_wa.py - Recordatorios automaticos por WhatsApp (Ortodoncia Richard)
+
+Tres avisos, cada uno con su propio toggle activo/inactivo y hora de envio
+(configurables desde el panel admin, pestania "WhatsApp"):
+  - recordatorio_semana:    cita en exactamente 7 dias
+  - recordatorio_dia:       cita en el proximo dia habil (salta fin de semana
+                             y feriados -- ver scheduling.siguiente_dia_habil_con_feriados)
+  - inasistencia_reagendar: citas marcadas "no llega" en DentiDesk (ayer/hoy)
+
+Corre desde _loop_recordatorios() en server.py, a la hora que cada tipo tenga
+configurada. Registro anti-duplicados propio (no reusa el de confirmaciones.py,
+son avisos distintos). Config + registro viven en el disco persistente de
+Render (misma base que confirmaciones_enviadas.json / patient_index.json,
+via PATIENT_INDEX_PATH) para sobrevivir a los redeploys sin pasar por git.
+"""
+
+import os
+import json
+import threading
+from pathlib import Path
+from datetime import date, datetime, timedelta
+
+import dentidesk
+import notify
+import scheduling
+import wa_cloud
+
+_BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
+                                 Path(__file__).parent / 'patient_index.json')).parent
+CONFIG_PATH = Path(os.environ.get('WA_RECORDATORIOS_CONFIG_PATH', _BASE_DIR / 'wa_recordatorios_config.json'))
+ENVIADOS_PATH = Path(os.environ.get('WA_RECORDATORIOS_ENVIADOS_PATH', _BASE_DIR / 'wa_recordatorios_enviados.json'))
+
+_LOCK = threading.Lock()
+
+_DEFAULT_CONFIG = {
+    # Los 3 arrancan APAGADOS a proposito: el primer deploy no debe mandar
+    # nada solo. Se activan a mano desde el panel (pestania WhatsApp) cuando
+    # el usuario este listo.
+    'recordatorio_semana':    {'activo': False, 'hora': '09:00'},
+    'recordatorio_dia':       {'activo': False, 'hora': '09:00'},
+    'inasistencia_reagendar': {'activo': False, 'hora': '12:00'},
+    'feriados': [],
+}
+
+_DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
+_MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+          'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+
+
+def _fecha_legible(d):
+    return f'{_DIAS[d.weekday()]} {d.day} de {_MESES[d.month - 1]}'
+
+
+# ── Config (activo/hora por tipo + feriados) ────────────────────────────────
+
+def load_config():
+    data = {}
+    if CONFIG_PATH.exists():
+        try:
+            data = json.loads(CONFIG_PATH.read_text(encoding='utf-8'))
+        except (ValueError, OSError):
+            data = {}
+    cfg = json.loads(json.dumps(_DEFAULT_CONFIG))  # copia profunda
+    for k in ('recordatorio_semana', 'recordatorio_dia', 'inasistencia_reagendar'):
+        if isinstance(data.get(k), dict):
+            if 'activo' in data[k]:
+                cfg[k]['activo'] = bool(data[k]['activo'])
+            hora = str(data[k].get('hora', '')).strip()
+            if len(hora) == 5 and hora[2] == ':':
+                cfg[k]['hora'] = hora
+    if isinstance(data.get('feriados'), list):
+        cfg['feriados'] = [str(f).strip() for f in data['feriados'] if str(f).strip()]
+    return cfg
+
+
+def save_config(updates):
+    """Actualiza solo los campos recibidos (activo/hora por tipo, feriados);
+    preserva el resto -- mismo criterio que server.set_scheduling_config()."""
+    with _LOCK:
+        cfg = load_config()
+        for k in ('recordatorio_semana', 'recordatorio_dia', 'inasistencia_reagendar'):
+            cambios = updates.get(k)
+            if not isinstance(cambios, dict):
+                continue
+            if 'activo' in cambios:
+                cfg[k]['activo'] = bool(cambios['activo'])
+            if 'hora' in cambios:
+                hora = str(cambios['hora']).strip()
+                if len(hora) == 5 and hora[2] == ':':
+                    cfg[k]['hora'] = hora
+        if 'feriados' in updates:
+            cfg['feriados'] = [str(f).strip() for f in (updates['feriados'] or []) if str(f).strip()]
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CONFIG_PATH.with_suffix('.json.tmp')
+        tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(tmp, CONFIG_PATH)
+        return cfg
+
+
+# ── Registro anti-duplicados ─────────────────────────────────────────────────
+
+def _load_registro():
+    if ENVIADOS_PATH.exists():
+        try:
+            reg = json.loads(ENVIADOS_PATH.read_text(encoding='utf-8'))
+            if isinstance(reg, dict):
+                return reg
+        except (ValueError, OSError):
+            pass
+    return {'semana': {}, 'dia': {}, 'inasistencia': {}}
+
+
+def _save_registro(reg):
+    ENVIADOS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ENVIADOS_PATH.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(reg, ensure_ascii=False), encoding='utf-8')
+    os.replace(tmp, ENVIADOS_PATH)
+
+
+def _marcar(tipo, id_agenda):
+    with _LOCK:
+        reg = _load_registro()
+        reg.setdefault(tipo, {})[str(id_agenda)] = datetime.now().isoformat(timespec='seconds')
+        _save_registro(reg)
+
+
+def ultimo_envio(tipo):
+    ts = list((_load_registro().get(tipo) or {}).values())
+    return max(ts) if ts else None
+
+
+# ── Escaneo y envio ──────────────────────────────────────────────────────────
+
+def _procesar_dia(cfg, target_date, tipo, fn_envio, incluir_doctor):
+    """Escanea las citas de un dia puntual y envia fn_envio() a las que
+    correspondan (tienen telefono, no estan canceladas/atendidas, no se les
+    envio antes este mismo tipo de aviso)."""
+    try:
+        citas = dentidesk._get_agenda_day(cfg, target_date)
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+    reg = _load_registro().get(tipo, {})
+    import pacientes as _pac
+    enviadas = 0
+    for c in citas:
+        ida = str(c.get('IdAgenda') or '')
+        if not ida or ida in reg:
+            continue
+        estado_txt = (c.get('Status') or '').lower()
+        if any(s in estado_txt for s in dentidesk._ESTADOS_INACTIVOS):
+            continue
+        telefono = (c.get('Phone') or '').strip()
+        if not telefono:
+            continue
+        nombres, _ = _pac._split_nombre(c.get('PatientName', ''))
+        cita = {
+            'nombre': nombres or 'paciente',
+            'telefono': telefono,
+            'fecha_legible': _fecha_legible(target_date),
+            'hora': (c.get('time') or '')[:5],
+        }
+        if incluir_doctor:
+            cita['doctor_nombre'] = (c.get('ProfessionalName') or '').strip()
+        r = fn_envio(cita)
+        if r.get('ok'):
+            _marcar(tipo, ida)
+            enviadas += 1
+    return {'ok': True, 'enviadas': enviadas, 'citas': len(citas)}
+
+
+def enviar_recordatorios_semana(cfg, hoy=None):
+    """Cita en exactamente 7 dias -> recordatorio_semana."""
+    target = (hoy or date.today()) + timedelta(days=7)
+    return _procesar_dia(cfg, target, 'semana', notify.enviar_recordatorio_semana, incluir_doctor=True)
+
+
+def enviar_recordatorios_dia(cfg, feriados, hoy=None):
+    """Proximo dia habil (salta fin de semana + feriados) -> recordatorio_dia."""
+    hoy = hoy or date.today()
+    target = scheduling.siguiente_dia_habil_con_feriados(hoy + timedelta(days=1), feriados)
+    return _procesar_dia(cfg, target, 'dia', notify.enviar_recordatorio_dia, incluir_doctor=True)
+
+
+def enviar_inasistencias(cfg, hoy=None):
+    """Barre ayer y hoy buscando citas marcadas 'no llega' -> inasistencia_reagendar."""
+    hoy = hoy or date.today()
+    enviadas = revisadas = 0
+    reg = _load_registro().get('inasistencia', {})
+    import pacientes as _pac
+    for target in (hoy - timedelta(days=1), hoy):
+        try:
+            citas = dentidesk._get_agenda_day(cfg, target)
+        except Exception:
+            continue
+        for c in citas:
+            ida = str(c.get('IdAgenda') or '')
+            if not ida or ida in reg:
+                continue
+            estado_txt = (c.get('Status') or '').lower()
+            if 'no llega' not in estado_txt:
+                continue
+            revisadas += 1
+            telefono = (c.get('Phone') or '').strip()
+            if not telefono:
+                continue
+            nombres, _ = _pac._split_nombre(c.get('PatientName', ''))
+            r = notify.enviar_inasistencia({
+                'nombre': nombres or 'paciente', 'telefono': telefono,
+                'fecha_legible': _fecha_legible(target),
+            })
+            if r.get('ok'):
+                _marcar('inasistencia', ida)
+                enviadas += 1
+    return {'ok': True, 'enviadas': enviadas, 'revisadas': revisadas}
+
+
+def estado():
+    """Para el indicador del panel: chequeo en vivo contra Meta + ultimos envios."""
+    est = wa_cloud.verificar_estado()
+    est['ultimo_envio_semana'] = ultimo_envio('semana')
+    est['ultimo_envio_dia'] = ultimo_envio('dia')
+    est['ultimo_envio_inasistencia'] = ultimo_envio('inasistencia')
+    return est

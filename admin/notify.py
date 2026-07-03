@@ -174,6 +174,57 @@ def _enviar_whatsapp(cita, ics):
         return False, str(e)
 
 
+# ── Recordatorios / inasistencia (scheduler de server.py) ───────────────────
+# A diferencia de _enviar_whatsapp() (fallback de la confirmacion), estas 3
+# son el UNICO canal para estos avisos -- no hay version por email.
+
+def enviar_recordatorio_semana(cita):
+    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora."""
+    if not cita.get('telefono'):
+        return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
+    try:
+        r = wa_cloud.enviar_recordatorio_semana(
+            telefono=cita['telefono'], nombre=cita['nombre'],
+            doctor_nombre=cita['doctor_nombre'],
+            fecha_legible=cita['fecha_legible'], hora=cita['hora'],
+        )
+        return {'ok': bool(r.get('ok'))}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.error('WhatsApp Cloud API error (recordatorio_semana): %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
+def enviar_recordatorio_dia(cita):
+    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora."""
+    if not cita.get('telefono'):
+        return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
+    try:
+        r = wa_cloud.enviar_recordatorio_dia(
+            telefono=cita['telefono'], nombre=cita['nombre'],
+            doctor_nombre=cita['doctor_nombre'],
+            fecha_legible=cita['fecha_legible'], hora=cita['hora'],
+        )
+        return {'ok': bool(r.get('ok'))}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.error('WhatsApp Cloud API error (recordatorio_dia): %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
+def enviar_inasistencia(cita):
+    """cita: nombre, telefono, fecha_legible."""
+    if not cita.get('telefono'):
+        return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
+    try:
+        r = wa_cloud.enviar_inasistencia_reagendar(
+            telefono=cita['telefono'], nombre=cita['nombre'],
+            fecha_legible=cita['fecha_legible'],
+        )
+        return {'ok': bool(r.get('ok'))}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.error('WhatsApp Cloud API error (inasistencia_reagendar): %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
 # ── Solicitud de cambio de datos ─────────────────────────────────────────────
 
 def enviar_solicitud_cambio_datos(datos, cfg=None):

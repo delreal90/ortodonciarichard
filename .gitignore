@@ -22,3 +22,8 @@ Listado de Pacientes*
 admin/consentimientos_registro.json
 admin/consentimientos_cola_tablet.json
 admin/consentimientos_firmados/
+
+# Recordatorios de WhatsApp: config editable desde el panel + registro anti-duplicados.
+# Viven en el disco persistente de Render (no en git) para tomar efecto sin deploy.
+admin/wa_recordatorios_config.json
+admin/wa_recordatorios_enviados.json

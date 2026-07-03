@@ -155,6 +155,18 @@ def dias_habiles_desde(d0, cantidad, cfg):
     return out
 
 
+def siguiente_dia_habil_con_feriados(desde, feriados_iso):
+    """Primer dia >= 'desde' que no sea fin de semana (sabado/domingo) ni este
+    en 'feriados_iso' (lista de fechas 'YYYY-MM-DD'). Uso exclusivo de los
+    recordatorios de WhatsApp -- NO es lo mismo que es_habil()/dias_habiles_desde(),
+    que rigen la disponibilidad de agendamiento online y no conocen feriados."""
+    feriados = set(feriados_iso or [])
+    d = desde
+    while d.isoweekday() >= 6 or d.isoformat() in feriados:
+        d += timedelta(days=1)
+    return d
+
+
 # Franjas temporales por dias de CALENDARIO desde hoy (inclusive).
 _BANDAS = [
     ('dia_0_5',    0,  5),

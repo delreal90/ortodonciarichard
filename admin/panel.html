@@ -106,6 +106,7 @@
     <a onclick="show('agenda')" id="nav-agenda"><i class="fa fa-calendar-check"></i> Agenda online</a>
     <a onclick="show('estadisticas')" id="nav-estadisticas"><i class="fa fa-chart-column"></i> Estadísticas</a>
     <a onclick="show('consentimientos')" id="nav-consentimientos"><i class="fa fa-file-signature"></i> Consentimientos</a>
+    <a onclick="show('whatsapp')" id="nav-whatsapp"><i class="fab fa-whatsapp"></i> WhatsApp</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
   </nav>
@@ -253,6 +254,71 @@
       <div id="consent-resultado"></div>
     </div>
 
+    <!-- ── WHATSAPP ─────────────────────────────────────── -->
+    <div class="section" id="sec-whatsapp">
+      <h2>WhatsApp</h2>
+      <p class="desc">Recordatorios automáticos por WhatsApp: activa/desactiva cada uno y ajusta la hora de envío. Los cambios toman efecto de inmediato (no requieren publicar el sitio).</p>
+
+      <div class="card" id="wa-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="wa-url" value="https://ortodonciarichard.onrender.com" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="wa-token" type="password" placeholder="ADMIN_TOKEN" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <button class="btn btn-primary" onclick="loadWhatsapp()">Cargar</button>
+        </div>
+        <p style="font-size:.78rem;color:#718096;margin-top:8px">El token se guarda solo en este navegador (no se publica). Es el mismo <code>ADMIN_TOKEN</code> de Render.</p>
+      </div>
+
+      <div class="card" id="wa-estado" style="margin-bottom:18px">
+        <h3 style="margin-bottom:10px">Estado del sistema</h3>
+        <p style="font-size:.85rem;color:#718096">Carga la conexión para ver el estado.</p>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">📅 Recordatorio 1 semana antes</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Se envía a las citas que quedan a exactamente 7 días.</p>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.88rem">
+          <input type="checkbox" id="wa-semana-activo"> Activo
+        </label>
+        <label style="font-size:.82rem;color:#4A5568;display:block;margin-bottom:4px">Hora de envío</label>
+        <input type="time" id="wa-semana-hora" style="width:140px;padding:6px;border:1px solid #cbd5e0;border-radius:6px">
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">📅 Recordatorio 1 día antes</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Se envía el día hábil anterior a la cita, saltando fines de semana y los feriados de la lista de abajo (si ese día también fuera feriado, se adelanta un día más). No afecta la disponibilidad del agendamiento online.</p>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.88rem">
+          <input type="checkbox" id="wa-dia-activo"> Activo
+        </label>
+        <label style="font-size:.82rem;color:#4A5568;display:block;margin-bottom:4px">Hora de envío</label>
+        <input type="time" id="wa-dia-hora" style="width:140px;padding:6px;border:1px solid #cbd5e0;border-radius:6px">
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">↩️ Aviso de inasistencia (invitar a reagendar)</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Se envía cuando DentiDesk marca la cita como "Paciente no llega" (revisa ayer y hoy).</p>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.88rem">
+          <input type="checkbox" id="wa-inasistencia-activo"> Activo
+        </label>
+        <label style="font-size:.82rem;color:#4A5568;display:block;margin-bottom:4px">Hora de envío</label>
+        <input type="time" id="wa-inasistencia-hora" style="width:140px;padding:6px;border:1px solid #cbd5e0;border-radius:6px">
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">Feriados</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Una fecha por línea, formato AAAA-MM-DD. Solo afecta el recordatorio de 1 día antes.</p>
+        <textarea id="wa-feriados" rows="6" style="width:100%;padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:.88rem;line-height:1.5;resize:vertical;font-family:monospace" placeholder="2026-09-18&#10;2026-09-19"></textarea>
+      </div>
+
+      <button class="btn btn-primary" onclick="saveWhatsapp()">Guardar configuración</button>
+    </div>
+
     <!-- ── PUBLICAR ─────────────────────────────────────── -->
     <div class="section" id="sec-publicar">
       <h2>Publicar en el sitio web</h2>
@@ -381,6 +447,7 @@ function show(sec) {
   if (sec === 'agenda') loadAgenda();
   if (sec === 'estadisticas') initStats();
   if (sec === 'consentimientos') initConsentimientos();
+  if (sec === 'whatsapp') initWhatsapp();
 }
 
 // ══════════════════════════════════════════════════════
@@ -721,6 +788,100 @@ function _statCard(label, valor, color) {
     <div style="font-size:2rem;font-weight:700;color:${color}">${valor}</div>
     <div style="font-size:.82rem;color:#718096">${label}</div>
   </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// WHATSAPP — recordatorios automáticos
+// ══════════════════════════════════════════════════════
+function initWhatsapp() {
+  const t = localStorage.getItem('wa_token') || '';
+  const u = localStorage.getItem('wa_url') || 'https://ortodonciarichard.onrender.com';
+  document.getElementById('wa-token').value = t;
+  document.getElementById('wa-url').value = u;
+  if (t) loadWhatsapp();
+}
+
+function _waHeaders() {
+  return { 'Content-Type': 'application/json', 'X-Admin-Token': document.getElementById('wa-token').value.trim() };
+}
+
+async function loadWhatsapp() {
+  const url   = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('wa-token').value.trim();
+  const estadoEl = document.getElementById('wa-estado');
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  localStorage.setItem('wa_token', token);
+  localStorage.setItem('wa_url', url);
+  estadoEl.innerHTML = '<h3 style="margin-bottom:10px">Estado del sistema</h3><p style="font-size:.85rem;color:#718096">Cargando…</p>';
+
+  let cfgData, estData;
+  try {
+    const [rCfg, rEstado] = await Promise.all([
+      fetch(url + '/api/whatsapp/config', { headers: _waHeaders() }),
+      fetch(url + '/api/whatsapp/estado', { headers: _waHeaders() }),
+    ]);
+    if (rCfg.status === 403 || rEstado.status === 403) {
+      estadoEl.innerHTML = '<h3 style="margin-bottom:10px">Estado del sistema</h3><p style="font-size:.85rem;color:#e53e3e">Token incorrecto.</p>';
+      return;
+    }
+    cfgData = await rCfg.json();
+    estData = await rEstado.json();
+  } catch (e) {
+    estadoEl.innerHTML = '<h3 style="margin-bottom:10px">Estado del sistema</h3><p style="font-size:.85rem;color:#e53e3e">No se pudo conectar con el backend.</p>';
+    return;
+  }
+  if (!cfgData.ok) { toast('Error al cargar la configuración', false); return; }
+
+  const c = cfgData.config;
+  document.getElementById('wa-semana-activo').checked = !!c.recordatorio_semana.activo;
+  document.getElementById('wa-semana-hora').value = c.recordatorio_semana.hora || '09:00';
+  document.getElementById('wa-dia-activo').checked = !!c.recordatorio_dia.activo;
+  document.getElementById('wa-dia-hora').value = c.recordatorio_dia.hora || '09:00';
+  document.getElementById('wa-inasistencia-activo').checked = !!c.inasistencia_reagendar.activo;
+  document.getElementById('wa-inasistencia-hora').value = c.inasistencia_reagendar.hora || '12:00';
+  document.getElementById('wa-feriados').value = (c.feriados || []).join('\n');
+
+  renderWaEstado(estData);
+}
+
+function renderWaEstado(d) {
+  const el = document.getElementById('wa-estado');
+  let color, texto;
+  if (d.conectado) {
+    color = '#38a169';
+    texto = `<strong style="color:${color}">● Conectado</strong> — ${_esc(d.numero || 'número activo')}${d.calidad ? ' · calidad ' + _esc(d.calidad) : ''}`;
+  } else if (d.configurado) {
+    color = '#e53e3e';
+    texto = `<strong style="color:${color}">● Error</strong> — ${_esc(d.error || 'no se pudo conectar con Meta')}`;
+  } else {
+    color = '#C9A84C';
+    texto = `<strong style="color:${color}">● No configurado</strong> — ${_esc(d.error || 'faltan las variables WA_ENABLED / WA_TOKEN / WA_PHONE_NUMBER_ID en Render')}`;
+  }
+  const fmt = ts => ts ? new Date(ts).toLocaleString('es-CL') : 'nunca';
+  el.innerHTML = `
+    <h3 style="margin-bottom:10px">Estado del sistema</h3>
+    <p style="font-size:.9rem;margin-bottom:10px">${texto}</p>
+    <p style="font-size:.78rem;color:#718096">Último envío — semana: ${fmt(d.ultimo_envio_semana)} · día: ${fmt(d.ultimo_envio_dia)} · inasistencia: ${fmt(d.ultimo_envio_inasistencia)}</p>`;
+}
+
+async function saveWhatsapp() {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const feriados = document.getElementById('wa-feriados').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const body = {
+    recordatorio_semana:    { activo: document.getElementById('wa-semana-activo').checked, hora: document.getElementById('wa-semana-hora').value },
+    recordatorio_dia:       { activo: document.getElementById('wa-dia-activo').checked, hora: document.getElementById('wa-dia-hora').value },
+    inasistencia_reagendar: { activo: document.getElementById('wa-inasistencia-activo').checked, hora: document.getElementById('wa-inasistencia-hora').value },
+    feriados,
+  };
+  try {
+    const r = await fetch(url + '/api/whatsapp/config', { method: 'POST', headers: _waHeaders(), body: JSON.stringify(body) });
+    const d = await r.json();
+    toast(d.ok ? '✅ Configuración guardada' : '❌ ' + (d.error || 'Error'), d.ok);
+    if (d.ok) loadWhatsapp();
+  } catch (e) {
+    toast('❌ No se pudo conectar con el backend', false);
+  }
 }
 
 // ══════════════════════════════════════════════════════

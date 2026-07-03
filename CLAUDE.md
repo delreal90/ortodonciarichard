@@ -585,6 +585,33 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
   cada vez que se regenera invalida el anterior (causó un 401 en una prueba — hay que tener solo
   UN token válido a la vez y que sea el que está en Render). Actualizar `WA_PHONE_NUMBER_ID` y
   `WA_TOKEN` en Render con los valores reales. Vigilar el tier/límite de mensajes (sube con uso+calidad).
+- **Fase 5 — Scheduler de recordatorios + pestaña "WhatsApp" en el panel: ✅ HECHA (2026-07-03).**
+  Hasta esta fase NO existía ningún disparador automático de `recordatorio_semana`,
+  `recordatorio_dia` ni `inasistencia_reagendar` — solo la confirmación al agendar estaba
+  automatizada. Ahora:
+  - `admin/recordatorios_wa.py` (módulo nuevo, mismo patrón que `confirmaciones.py`): escanea
+    DentiDesk y envía cada tipo, con registro anti-duplicados propio.
+  - `scheduling.siguiente_dia_habil_con_feriados()` — calcula el día hábil siguiente saltando fin
+    de semana + una lista de feriados. **Deliberadamente separado** de `es_habil()` (que rige la
+    disponibilidad de agendamiento online): los feriados de WhatsApp NO bloquean horas online — el
+    usuario ya los maneja aparte en DentiDesk.
+  - `wa_cloud.verificar_estado()` — chequeo en vivo contra Meta (sin enviar mensajes) para el
+    indicador de estado del panel; detecta tokens vencidos como el 401 de la Fase 4.
+  - Config (`activo`/`hora` por tipo + `feriados`) y registro anti-duplicados viven en
+    **`admin/wa_recordatorios_config.json`** / **`admin/wa_recordatorios_enviados.json`**
+    (gitignored, disco persistente de Render vía `PATIENT_INDEX_PATH` — mismo mecanismo que
+    `confirmaciones_enviadas.json`/`patient_index.json`). Toman efecto sin deploy.
+  - `_loop_recordatorios()` en `server.py`, mismo esqueleto que `_loop_confirmaciones` (poll 40s).
+  - Panel admin → pestaña **"WhatsApp"**: sigue el patrón de Estadísticas/Consentimientos (tarjeta
+    "Conexión" con Backend URL + Admin Token en `localStorage`, habla DIRECTO a Render) — no el de
+    "Agenda online" (que viaja por git y necesitaría push por cada cambio). Endpoints:
+    `GET/POST /api/whatsapp/config`, `GET /api/whatsapp/estado`,
+    `POST /api/whatsapp/recordatorios/run` (prueba manual, ignora el toggle `activo` pero respeta
+    el registro anti-duplicados).
+  - Lista de feriados: arranca **vacía**, el usuario la completa desde el panel (decisión
+    explícita — no se precargó ninguna fecha).
+  - Probado end-to-end contra `admin/server.py` local con Flask test client + preview de
+    navegador (carga, guarda, persiste, indicador de estado). Falta probar contra Render real.
 
 ### Notas clave
 - Ventana de 24h: fuera de ella solo se pueden enviar PLANTILLAS (por eso siempre funcionan,

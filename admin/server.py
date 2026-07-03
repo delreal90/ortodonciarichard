@@ -663,6 +663,7 @@ import scheduling
 import dentidesk
 import notify
 import wa_cloud
+import recordatorios_wa
 from datetime import date, datetime
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -1216,6 +1217,54 @@ def set_scheduling_config():
 
     scheduling.save_config(cfg)
     return jsonify({'ok': True})
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WHATSAPP — recordatorios automaticos (config + estado + prueba manual)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/whatsapp/config', methods=['GET'])
+def get_whatsapp_config():
+    """Protegido por ADMIN_TOKEN: toggles/hora de cada recordatorio + feriados."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'config': recordatorios_wa.load_config()})
+
+@app.route('/api/whatsapp/config', methods=['POST'])
+def set_whatsapp_config():
+    """Guarda cambios parciales (activo/hora por tipo, feriados). Toma efecto
+    de inmediato -- no requiere deploy, vive en el disco persistente."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    cfg = recordatorios_wa.save_config(data)
+    return jsonify({'ok': True, 'config': cfg})
+
+@app.route('/api/whatsapp/estado', methods=['GET'])
+def get_whatsapp_estado():
+    """Chequeo en vivo contra Meta (sin enviar mensajes) + timestamps del
+    ultimo envio de cada tipo, para el indicador del panel."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, **recordatorios_wa.estado()})
+
+@app.route('/api/whatsapp/recordatorios/run', methods=['POST'])
+def whatsapp_recordatorios_run():
+    """Dispara manualmente una pasada de los 3 recordatorios (protegido por
+    ADMIN_TOKEN). Sirve para probar la logica sin esperar la hora configurada
+    -- ignora el toggle 'activo' de cada tipo para poder probarlos aunque
+    esten apagados; SI respeta el registro anti-duplicados."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg = scheduling.load_config()
+    if not cfg['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk (enabled=false)'}), 400
+    wa_cfg = recordatorios_wa.load_config()
+    return jsonify({
+        'ok': True,
+        'semana': recordatorios_wa.enviar_recordatorios_semana(cfg),
+        'dia': recordatorios_wa.enviar_recordatorios_dia(cfg, wa_cfg['feriados']),
+        'inasistencia': recordatorios_wa.enviar_inasistencias(cfg),
+    })
 
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1840,6 +1889,44 @@ def _loop_confirmaciones():
             print('[confirmaciones] error:', e)
         time.sleep(40)
 
+def _loop_recordatorios():
+    """Dispara los 3 recordatorios de WhatsApp (semana/dia/inasistencia), cada
+    uno a la hora que tenga configurada en recordatorios_wa (panel admin ->
+    pestania WhatsApp). Mismo esqueleto que _loop_confirmaciones: revisa cada
+    40s, un solo disparo por (tipo, dia)."""
+    import time
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('America/Santiago')
+    except Exception:
+        tz = None
+    ya_corrio = {}  # {tipo: date}
+    while True:
+        try:
+            ahora = datetime.now(tz) if tz else datetime.now()
+            slot = ahora.strftime('%H:%M')
+            cfg_dd = scheduling.load_config()
+            if cfg_dd['dentidesk']['enabled']:
+                wa_cfg = recordatorios_wa.load_config()
+                pasadas = (
+                    ('semana', wa_cfg['recordatorio_semana'],
+                     lambda: recordatorios_wa.enviar_recordatorios_semana(cfg_dd)),
+                    ('dia', wa_cfg['recordatorio_dia'],
+                     lambda: recordatorios_wa.enviar_recordatorios_dia(cfg_dd, wa_cfg['feriados'])),
+                    ('inasistencia', wa_cfg['inasistencia_reagendar'],
+                     lambda: recordatorios_wa.enviar_inasistencias(cfg_dd)),
+                )
+                for tipo, tipo_cfg, fn in pasadas:
+                    if not tipo_cfg.get('activo'):
+                        continue
+                    if slot == tipo_cfg.get('hora') and ya_corrio.get(tipo) != ahora.date():
+                        ya_corrio[tipo] = ahora.date()
+                        r = fn()
+                        print('[recordatorios]', tipo, slot, r)
+        except Exception as e:
+            print('[recordatorios] error:', e)
+        time.sleep(40)
+
 def _iniciar_scheduler():
     """Arranca el refresco de pacientes + el barrido de confirmaciones en segundo
     plano. Activo en Render (o si se define RUN_PATIENT_SYNC=true). En local no
@@ -1855,7 +1942,9 @@ def _iniciar_scheduler():
     _SCHEDULER_INICIADO = True
     threading.Thread(target=_loop_refresco_pacientes, daemon=True).start()
     threading.Thread(target=_loop_confirmaciones, daemon=True).start()
+    threading.Thread(target=_loop_recordatorios, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
+    print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
     print('[confirmaciones] scheduler iniciado (11:00, 13:30, 17:00, 19:45)')
 
 _iniciar_scheduler()

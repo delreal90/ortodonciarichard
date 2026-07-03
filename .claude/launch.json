@@ -12,6 +12,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "3050"],
       "port": 3050
+    },
+    {
+      "name": "panel-admin",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["admin/server.py"],
+      "port": 5001
     }
   ]
 }
