@@ -17,9 +17,13 @@ Las 7 plantillas (creadas en el Administrador de WhatsApp, idioma es_CL /
                             ⏳ en revision — notify.py cae de vuelta a
                             conversacion_general mientras Meta la aprueba.
 
-Los botones de respuesta rapida (quick reply) NO necesitan payload en el envio:
-ya quedaron fijos al aprobar la plantilla. Solo el header de video (primera_consulta)
-necesita un link publico al archivo (Meta no acepta subir el video en cada envio).
+Los botones de respuesta rapida (quick reply) llevan un PAYLOAD propio por boton,
+independiente del texto aprobado: se les pone "{tipo}:{id_agenda}" (tipo = semana/dia/
+inasistencia) para que el webhook (webhook_wa.py) sepa a que cita responde el toque y
+de que recordatorio vino, sin depender del orden/indice de los botones (identifica la
+ACCION por button.text, que Meta siempre manda igual al texto aprobado). Solo el header
+de video (primera_consulta) necesita un link publico al archivo (Meta no acepta subir
+el video en cada envio).
 
 MODO MOCK: si WA_ENABLED no es 'true', no se llama a Meta; se devuelve un
 resultado simulado para que el resto del sistema (server.py, confirmaciones.py)
@@ -111,9 +115,13 @@ def _param(texto):
     return {'type': 'text', 'text': str(texto)}
 
 
-def _enviar_plantilla(telefono, nombre_plantilla, parametros_body, header_video_url=None):
+def _enviar_plantilla(telefono, nombre_plantilla, parametros_body, header_video_url=None,
+                       boton_payload=None, num_botones=0):
     """Arma y envia un mensaje de plantilla. parametros_body: lista ordenada
-    de valores para {{1}}, {{2}}, ... del cuerpo."""
+    de valores para {{1}}, {{2}}, ... del cuerpo. boton_payload/num_botones:
+    si la plantilla tiene botones quick-reply, se les fija el MISMO payload
+    (usado para identificar la cita al recibir el toque via webhook) en cada
+    indice 0..num_botones-1."""
     to = _normalizar_telefono(telefono)
     components = []
     if header_video_url:
@@ -126,6 +134,14 @@ def _enviar_plantilla(telefono, nombre_plantilla, parametros_body, header_video_
             'type': 'body',
             'parameters': [_param(v) for v in parametros_body],
         })
+    if boton_payload and num_botones:
+        for i in range(num_botones):
+            components.append({
+                'type': 'button',
+                'sub_type': 'quick_reply',
+                'index': str(i),
+                'parameters': [{'type': 'payload', 'payload': boton_payload}],
+            })
 
     payload = {
         'messaging_product': 'whatsapp',
@@ -157,18 +173,27 @@ def enviar_confirmacion_hora(telefono, nombre, doctor_nombre, fecha_legible, hor
                               [nombre, doctor_nombre, fecha_legible, hora])
 
 
-def enviar_recordatorio_semana(telefono, nombre, doctor_nombre, fecha_legible, hora):
+def enviar_recordatorio_semana(telefono, nombre, doctor_nombre, fecha_legible, hora, id_agenda):
+    """id_agenda: se codifica como payload 'semana:{id_agenda}' en los 3 botones
+    (Confirmo/Reagendar/Anular) para que el webhook sepa a que cita responde
+    el toque y que vino del recordatorio de 1 semana (IdStatus 40968 al confirmar)."""
     return _enviar_plantilla(telefono, 'recordatorio_semana',
-                              [nombre, doctor_nombre, fecha_legible, hora])
+                              [nombre, doctor_nombre, fecha_legible, hora],
+                              boton_payload=f'semana:{id_agenda}', num_botones=3)
 
 
-def enviar_recordatorio_dia(telefono, nombre, doctor_nombre, fecha_legible, hora):
+def enviar_recordatorio_dia(telefono, nombre, doctor_nombre, fecha_legible, hora, id_agenda):
+    """id_agenda: payload 'dia:{id_agenda}' -- confirmar desde aqui usa el
+    IdStatus generico 32180 (no el de 'semana')."""
     return _enviar_plantilla(telefono, 'recordatorio_dia',
-                              [nombre, doctor_nombre, fecha_legible, hora])
+                              [nombre, doctor_nombre, fecha_legible, hora],
+                              boton_payload=f'dia:{id_agenda}', num_botones=3)
 
 
-def enviar_inasistencia_reagendar(telefono, nombre, fecha_legible):
-    return _enviar_plantilla(telefono, 'inasistencia_reagendar', [nombre, fecha_legible])
+def enviar_inasistencia_reagendar(telefono, nombre, fecha_legible, id_agenda):
+    """id_agenda: payload 'inasistencia:{id_agenda}' en el unico boton (Reagendar)."""
+    return _enviar_plantilla(telefono, 'inasistencia_reagendar', [nombre, fecha_legible],
+                              boton_payload=f'inasistencia:{id_agenda}', num_botones=1)
 
 
 def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora, video_url):
@@ -178,6 +203,22 @@ def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora
     return _enviar_plantilla(telefono, 'primera_consulta',
                               [nombre, doctor_nombre, fecha_legible, hora],
                               header_video_url=video_url)
+
+
+# ── Mensaje libre (respuesta dentro de la ventana de 24h) ───────────────────
+
+def enviar_texto_libre(telefono, texto):
+    """Mensaje de texto SIN plantilla -- solo valido dentro de la ventana de
+    24h que se abre cuando el paciente responde o toca un boton. Usado por
+    el webhook para agradecer un Confirmo/Anular o acusar recibo de un
+    Reagendar."""
+    payload = {
+        'messaging_product': 'whatsapp',
+        'to': _normalizar_telefono(telefono),
+        'type': 'text',
+        'text': {'body': texto},
+    }
+    return _post(payload)
 
 
 # ── Estado / salud ────────────────────────────────────────────────────────

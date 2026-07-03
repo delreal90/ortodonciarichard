@@ -179,7 +179,7 @@ def _enviar_whatsapp(cita, ics):
 # son el UNICO canal para estos avisos -- no hay version por email.
 
 def enviar_recordatorio_semana(cita):
-    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora."""
+    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda."""
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
@@ -187,6 +187,7 @@ def enviar_recordatorio_semana(cita):
             telefono=cita['telefono'], nombre=cita['nombre'],
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'], hora=cita['hora'],
+            id_agenda=cita['id_agenda'],
         )
         return {'ok': bool(r.get('ok'))}
     except wa_cloud.WhatsAppCloudError as e:
@@ -195,7 +196,7 @@ def enviar_recordatorio_semana(cita):
 
 
 def enviar_recordatorio_dia(cita):
-    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora."""
+    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda."""
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
@@ -203,6 +204,7 @@ def enviar_recordatorio_dia(cita):
             telefono=cita['telefono'], nombre=cita['nombre'],
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'], hora=cita['hora'],
+            id_agenda=cita['id_agenda'],
         )
         return {'ok': bool(r.get('ok'))}
     except wa_cloud.WhatsAppCloudError as e:
@@ -211,18 +213,102 @@ def enviar_recordatorio_dia(cita):
 
 
 def enviar_inasistencia(cita):
-    """cita: nombre, telefono, fecha_legible."""
+    """cita: nombre, telefono, fecha_legible, id_agenda."""
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
         r = wa_cloud.enviar_inasistencia_reagendar(
             telefono=cita['telefono'], nombre=cita['nombre'],
-            fecha_legible=cita['fecha_legible'],
+            fecha_legible=cita['fecha_legible'], id_agenda=cita['id_agenda'],
         )
         return {'ok': bool(r.get('ok'))}
     except wa_cloud.WhatsAppCloudError as e:
         log.error('WhatsApp Cloud API error (inasistencia_reagendar): %s', e)
         return {'ok': False, 'error': str(e)}
+
+
+# ── Mensaje libre + avisos a recepcion (webhook: Confirmo/Anular/Reagendar) ──
+
+def enviar_texto_libre(telefono, texto):
+    """Respuesta libre al paciente tras tocar un boton (dentro de la ventana
+    de 24h que ese mismo toque abre). No lanza si falla -- el webhook no debe
+    caerse porque el mensaje de cortesia no salio; solo se loguea."""
+    if not telefono:
+        return {'ok': False, 'error': 'Sin telefono'}
+    try:
+        r = wa_cloud.enviar_texto_libre(telefono, texto)
+        return {'ok': bool(r.get('ok'))}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.error('WhatsApp Cloud API error (texto libre): %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
+def _aviso_recepcion_html(titulo, filas_html):
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
+  <tr><td style="background:#1A2E4A;padding:24px 32px;">
+    <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase">WhatsApp — Aviso</p>
+    <h1 style="margin:6px 0 0;color:#fff;font-size:20px">{titulo}</h1>
+  </td></tr>
+  <tr><td style="padding:24px 32px;">
+    <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+      <tbody>{filas_html}</tbody>
+    </table>
+  </td></tr>
+  <tr><td style="background:#1A2E4A;padding:16px 32px;text-align:center;">
+    <p style="margin:0;color:#8fa8c8;font-size:12px">Ortodoncia Richard · Recordatorios automáticos por WhatsApp</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
+
+
+def _fila(label, valor):
+    return f"""<tr>
+      <td style="padding:10px 14px;font-weight:700;color:#1A2E4A;white-space:nowrap;border-top:1px solid #e2e8f0">{label}</td>
+      <td style="padding:10px 14px;color:#1A2535;border-top:1px solid #e2e8f0">{valor or '—'}</td>
+    </tr>"""
+
+
+def _enviar_email_recepcion(asunto, html):
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    if not smtp_user or not smtp_pass:
+        return False
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'WhatsApp Ortodoncia Richard <{smtp_user}>'
+    msg['To'] = smtp_user
+    msg['Subject'] = asunto
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [smtp_user], msg.as_bytes())
+        return True
+    except Exception as e:
+        log.error('SMTP aviso WhatsApp error: %s', e)
+        return False
+
+
+def avisar_recepcion_anulacion(id_agenda, telefono, nombre=''):
+    """El paciente anulo su hora tocando el boton -- avisar de inmediato para
+    que recepcion lo vea (DentiDesk ya quedo actualizado por separado)."""
+    filas = _fila('Cita', id_agenda) + _fila('Paciente', nombre) + _fila('Teléfono', telefono)
+    html = _aviso_recepcion_html('Un paciente anuló su hora por WhatsApp', filas)
+    return _enviar_email_recepcion(f'Anulación por WhatsApp — cita {id_agenda}', html)
+
+
+def avisar_recepcion_reagendar(id_agenda, telefono, nombre=''):
+    """El paciente pidio reagendar -- por ahora esto se gestiona a mano
+    (la logica de horas disponibles queda para una fase futura)."""
+    filas = _fila('Cita', id_agenda) + _fila('Paciente', nombre) + _fila('Teléfono', telefono)
+    html = _aviso_recepcion_html('Un paciente pidió reagendar por WhatsApp', filas)
+    return _enviar_email_recepcion(f'Solicitud de reagendar — cita {id_agenda}', html)
 
 
 # ── Solicitud de cambio de datos ─────────────────────────────────────────────

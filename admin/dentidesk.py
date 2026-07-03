@@ -49,10 +49,14 @@ def _auth_token(cfg):
 
 
 def _basic_auth(cfg):
+    """DentiDesk exige BASIC AUTH ademas del Token JWT en updateAgenda (probado
+    en vivo 2026-07-03: sin esto, 401 Unauthorized). Si no hay credenciales de
+    Basic Auth separadas configuradas, usa las mismas email/password del login
+    -- confirmado que funciona igual (son la misma cuenta)."""
     dd = cfg['dentidesk']
     if dd.get('basic_auth_user'):
         return (dd['basic_auth_user'], dd['basic_auth_pass'])
-    return None
+    return (dd['email'], dd['password'])
 
 
 # ── Horas ocupadas reales ────────────────────────────────────────────────────
@@ -323,3 +327,30 @@ def crear_cita(*, doc_id, motivo_key, target_date, hora,
     data = resp.json()
     return {'ok': True, 'mock': False, 'raw': data,
             'id_cita': data.get('IdAgenda') or data.get('id')}
+
+
+# ── Actualizar estado de una cita existente ─────────────────────────────────
+
+def actualizar_estado_cita(id_agenda, id_status, cfg=None):
+    """Cambia el IdStatus de una cita existente (ej. 32180 'Confirmado por
+    WhatsApp', 2122 'Hora Cancelada'). Usado por el webhook cuando el
+    paciente toca un boton de una plantilla. Mismo patron que crear_cita():
+    auth de un solo uso + POST con Token."""
+    cfg = cfg or load_config()
+    if not cfg['dentidesk']['enabled']:
+        return {'ok': True, 'mock': True}
+
+    if requests is None:
+        raise DentiDeskError("Falta 'requests' (pip install requests)")
+    dd = cfg['dentidesk']
+    token = _auth_token(cfg)
+    url = f"{dd['base_url'].rstrip('/')}/api/agenda/updateAgenda.php"
+    payload = {
+        'IdLocation': dd['id_location'],
+        'IdAgenda': id_agenda,
+        'IdStatus': id_status,
+        'Token': token,
+    }
+    resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
+    resp.raise_for_status()
+    return {'ok': True, 'mock': False, 'raw': resp.json()}

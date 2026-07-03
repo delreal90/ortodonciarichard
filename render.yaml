@@ -22,3 +22,8 @@ services:
         sync: false
       - key: WA_PHONE_NUMBER_ID
         sync: false
+      # Webhook entrante (botones tocados por el paciente): firma de Meta + handshake.
+      - key: WA_APP_SECRET
+        sync: false
+      - key: WA_VERIFY_TOKEN
+        sync: false

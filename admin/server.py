@@ -8,6 +8,7 @@ import os
 import re
 import hmac
 import json
+import hashlib
 import shutil
 import subprocess
 from pathlib import Path
@@ -664,6 +665,7 @@ import dentidesk
 import notify
 import wa_cloud
 import recordatorios_wa
+import webhook_wa
 from datetime import date, datetime
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -1265,6 +1267,43 @@ def whatsapp_recordatorios_run():
         'dia': recordatorios_wa.enviar_recordatorios_dia(cfg, wa_cfg['feriados']),
         'inasistencia': recordatorios_wa.enviar_inasistencias(cfg),
     })
+
+def _verificar_firma_meta(req):
+    """Valida X-Hub-Signature-256 (HMAC-SHA256 del body crudo con WA_APP_SECRET).
+    Sin esto, cualquiera que descubra la URL del webhook podria mandar un
+    Confirmo/Anular falso y anular una cita real. Si WA_APP_SECRET no esta
+    configurado, se rechaza TODO (fail-closed, no fail-open)."""
+    secret = os.environ.get('WA_APP_SECRET', '').strip()
+    if not secret:
+        return False
+    firma = req.headers.get('X-Hub-Signature-256', '')
+    if not firma.startswith('sha256='):
+        return False
+    esperado = hmac.new(secret.encode('utf-8'), req.get_data(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(firma[len('sha256='):], esperado)
+
+@app.route('/api/whatsapp/webhook', methods=['GET'])
+def whatsapp_webhook_verify():
+    """Handshake que exige Meta al configurar el webhook en su panel."""
+    verify_token = os.environ.get('WA_VERIFY_TOKEN', '')
+    if (verify_token and request.args.get('hub.mode') == 'subscribe'
+            and request.args.get('hub.verify_token') == verify_token):
+        return request.args.get('hub.challenge', ''), 200
+    return 'Forbidden', 403
+
+@app.route('/api/whatsapp/webhook', methods=['POST'])
+def whatsapp_webhook_recibir():
+    """Recibe los eventos de WhatsApp (botones tocados por el paciente).
+    Responde 200 siempre y rapido -- si el procesamiento interno falla, se
+    loguea pero NO se re-lanza (Meta reintenta agresivamente si no ve 200)."""
+    if not _verificar_firma_meta(request):
+        return jsonify({'ok': False, 'error': 'Firma invalida'}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        webhook_wa.procesar_evento(data, scheduling.load_config())
+    except Exception as e:
+        print('[webhook whatsapp] error:', e)
+    return jsonify({'ok': True})
 
 # ══════════════════════════════════════════════════════════════════════════════
 
