@@ -552,8 +552,8 @@ function renderConsentimientos() {
     cont.innerHTML = '<div class="card"><p style="color:#718096;font-size:.85rem">No hay consentimientos que coincidan con este filtro.</p></div>';
     return;
   }
-  cont.innerHTML = `<div class="card" style="padding:0;overflow:hidden">
-    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+  cont.innerHTML = `<div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem;min-width:820px">
       <thead><tr style="background:#f8fafc;text-align:left">
         <th style="padding:10px 14px">RUT</th>
         <th style="padding:10px 14px">Documento</th>
@@ -573,8 +573,8 @@ function renderConsentimientos() {
             <td style="padding:10px 14px"><span class="tag" style="border-color:${CONSENT_ESTADO_COLOR[i.estado] || '#a0aec0'};color:${CONSENT_ESTADO_COLOR[i.estado] || '#a0aec0'}">${_esc(CONSENT_ESTADO_LABEL[i.estado] || i.estado)}</span></td>
             <td style="padding:10px 14px;color:#718096">${_esc(_fechaCorta(i.creado))}</td>
             <td style="padding:10px 14px;color:#718096">${i.firmado ? _esc(_fechaCorta(i.firmado)) : '—'}</td>
-            <td style="padding:10px 14px">${i.respaldo_drive === true ? '✅' : i.respaldo_drive === false ? '⚠️' : '—'}</td>
-            <td style="padding:8px 14px;white-space:nowrap">${_accionesConsent(i)}</td>
+            <td style="padding:10px 14px">${_celdaDrive(i)}</td>
+            <td style="padding:8px 14px;white-space:normal">${_accionesConsent(i)}</td>
           </tr>`).join('')}
       </tbody>
     </table>
@@ -602,6 +602,16 @@ function _pdfNombre(i) {
   return `${i.rut}_${i.tipo}.pdf`;
 }
 
+function _celdaDrive(i) {
+  const fileId = (i.drive_file_id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (fileId) {
+    return `<button class="btn btn-sm" style="background:#e6f4ea;color:#1e7e34;white-space:nowrap"
+      onclick="abrirEnDrive('${fileId}')">✅ Abrir en Drive</button>`;
+  }
+  if (i.respaldo_drive === false) return '⚠️';
+  return '—';
+}
+
 function _accionesConsent(i) {
   const idLimpio = (i.id || '').replace(/[^a-zA-Z0-9]/g,'');    // uuid hex
 
@@ -615,19 +625,15 @@ function _accionesConsent(i) {
   // A partir de aquí, 'firmado' o 'subido': ya existe un documento firmado —
   // el registro NUNCA se borra desde este botón (lo valida también el backend).
   const rutLimpio = (i.rut || '').replace(/[^0-9kK]/g,'');       // solo dígitos/K
-  const driveBtn = i.drive_file_id
-    ? `<button class="btn btn-sm" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
-        onclick="abrirEnDrive('${(i.drive_file_id||'').replace(/[^a-zA-Z0-9_-]/g,'')}')">Abrir en Drive</button>`
-    : '';
 
   if (i.estado === 'subido') {
-    return `<span style="color:#38a169;font-weight:600">✓ Subido</span>${driveBtn}`;
+    return '<span style="color:#38a169;font-weight:600">✓ Subido</span>';
   }
   return `
     <button class="btn btn-primary btn-sm" title="Archivo a elegir: ${_esc(_pdfNombre(i))}"
       onclick="abrirEnDentidesk('${rutLimpio}')">Abrir en DentiDesk</button>
     <button class="btn btn-sm" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
-      onclick="marcarConsentSubido('${idLimpio}')">Ya lo subí</button>${driveBtn}`;
+      onclick="marcarConsentSubido('${idLimpio}')">Ya lo subí</button>`;
 }
 
 function abrirEnDentidesk(rut) {

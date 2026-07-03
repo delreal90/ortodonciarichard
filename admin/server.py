@@ -1683,14 +1683,21 @@ def consentimiento_firmar():
         print(f"[consentimiento] Respaldo a Drive falló para {consent_id}: {resultado_drive.get('error')}")
 
     # Enviar copia firmada al email del paciente (si tenemos su correo real).
-    # No debe tumbar la firma si el correo falla.
+    # No debe tumbar la firma si el correo falla. IMPORTANTE: enviar_copia_consentimiento()
+    # NUNCA lanza excepción — atrapa sus propios errores y devuelve {'ok': False, 'error': ...}.
+    # Por eso hay que revisar el resultado explícitamente (antes se ignoraba y el envío
+    # fallaba en silencio sin dejar rastro).
     try:
         import pacientes as _pac
         rec = _pac.lookup(rut) or {}
         email_pac = (rec.get('email') or '').strip()
         if '@' in email_pac:
             tipo_label = consentimientos.TIPOS_DOCUMENTO.get(tipo, 'Consentimiento informado')
-            notify.enviar_copia_consentimiento(rec, ruta_pdf, tipo_label)
+            resultado_copia = notify.enviar_copia_consentimiento(rec, ruta_pdf, tipo_label)
+            if not resultado_copia.get('ok'):
+                print(f"[consentimiento] Copia por mail falló para {consent_id} ({email_pac}): {resultado_copia.get('error')}")
+        else:
+            print(f"[consentimiento] Sin email registrado para {consent_id} (rut={rut}) — no se envía copia")
     except Exception as e:
         print(f"[consentimiento] Envío de copia al paciente falló para {consent_id}: {e}")
 

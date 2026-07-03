@@ -325,16 +325,24 @@ INSTALAR.md     ← cómo cargar la extensión descomprimida + configurar.
 `#id_agenda`, `#id_paciente`, `#nombre`, `#apellido`, `#email`, `#diacita/#mescita/
 #aniocita`, `#horac/#minutos`, `#dentista_cita`, `#motivo` (value=id, text=label).
 
-**Flujo del botón "Enviar confirmación":**
+**Flujo del botón "Enviar confirmación" (2026-07-01: ahora 2 botones, la secretaria elige canal):**
 ```
-F2 → content.js lee idAgenda + email del modal
+F2 → "📧 Enviar por email" / "💬 Enviar por WhatsApp" (content.js: confirmarCita('email'|'whatsapp'))
    → background.js → POST {apiBase}/api/asistente/confirmar-cita
-        body: { id_agenda, fecha, email }   header: X-Admin-Token
+        body: { id_agenda, fecha, email, canal }   header: X-Admin-Token
    → backend trae la agenda FRESCA (getAgendaDay force=True, sin caché)
-   → valida estado activo + email (respaldo: el email del modal si DentiDesk no lo tiene)
-   → notify.enviar_confirmacion()  →  marcar_enviada()
-   → panel muestra "✅ Confirmación enviada a co***@gm***.cl"
+   → valida estado activo + el dato que exige el canal (email para 'email', telefono para
+     'whatsapp' — el telefono viene de DentiDesk (Phone), no del modal)
+   → notify.enviar_confirmacion(cita, cfg, canal=canal)  →  marcar_enviada()
+   → panel muestra "✅ Confirmación enviada por WhatsApp" o "por email a co***@gm***.cl"
 ```
+`canal=None` (no se manda) = comportamiento automático de siempre (email con WhatsApp de
+respaldo) — lo sigue usando el agendamiento online y el barrido de confirmaciones, no el F2.
+
+**Consentimiento informado — colapsable (2026-07-01):** el botón "📄 Consentimiento informado"
+ahora se despliega (chevron ▾) mostrando los 3 sub-botones (mail/WhatsApp/tablet) en vez de
+mostrarlos siempre sueltos. Se cierra solo al mostrar una cita nueva (`toggleConsent()`,
+`#consentBody`/`#consentChevron` en content.js).
 
 **Dos quirks resueltos (importantes si se retoma):**
 1. **Bootstrap `enforceFocus`** — el modal de DentiDesk roba el foco a cualquier
@@ -351,8 +359,15 @@ token en `config.js`. Para producto multi-clínica habrá que pasar a token por
 instalación (no compartido) — ver HANDOFF.
 
 **Endpoint backend** (`server.py` → `asistente_confirmar_cita`):
-`POST /api/asistente/confirmar-cita`, body `{id_agenda, fecha, email?}`, protegido por
-`ADMIN_TOKEN` (header `X-Admin-Token`). Funciona también en modo mock (enabled=false).
+`POST /api/asistente/confirmar-cita`, body `{id_agenda, fecha, email?, canal?}` (`canal`:
+`'email'|'whatsapp'`, opcional), protegido por `ADMIN_TOKEN` (header `X-Admin-Token`).
+Funciona también en modo mock (enabled=false).
+
+**Pendiente (pedido por el usuario, sin implementar aún):** cuando el motivo es "primera
+consulta", agregar además del envío del video (`primera_consulta` template, aún no cableado
+al F2 — hoy sigue como placeholder deshabilitado "Próximamente" en `accionesContexto()`) un
+botón para enviar el link del **formulario de primera consulta (Google Forms)** — falta que
+el usuario pase el link real.
 
 ---
 
@@ -526,39 +541,56 @@ local que NO corre en Render) por la **Cloud API oficial de Meta**, para enviar
 NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para revendedores, no aplica.
 
 ### Estado y plan por fases
-- **Fase 1 — Auditar app Meta:** ✅ HECHA (tabla arriba). Verificación aprobada, prueba envió OK la semana del 26-06.
-- **Fase 2 — Plantillas (templates):** EN CURSO (creadas 2026-06-30 vía Administrador de WhatsApp
-  business.facebook.com). Idioma **Spanish (CHL) = `es_CL`**, todas categoría **Utilidad**, pie de
-  página fijo "Clínica de Ortodoncia C. Richard", trato "Estimado(a) {nombre}". Variables:
-  {{1}}=nombre, {{2}}=doctor, {{3}}=fecha, {{4}}=hora.
-  - `conversacion_general` — abridora flexible ({{1}}=nombre, {{2}}=motivo libre). Botón [Sí, díganme]. ✅ En revisión
-  - `confirmacion_hora` — sin botones (se manda justo al agendar). ✅ En revisión
-  - `recordatorio_semana` — botones [Confirmo][Reagendar][Anular]. ✅ En revisión
-  - `recordatorio_dia` — "mañana" en minúscula; botones [Confirmo][Reagendar][Anular]. ✅ En revisión
-  - `inasistencia_reagendar` — botón [Reagendar]. ✅ En revisión
-  - `primera_consulta` — encabezado VIDEO + botones [Confirmo][Reagendar]. ⏳ Armada; falta subir el
-    video (`C:\Users\ESTUDIO3D\Desktop\COCRL\Redes Sociales\Video Primera Consulta.mp4`, 5 MB) —
-    la subida de archivo NO se puede automatizar (Chrome MCP solo sube archivos compartidos con la
-    sesión); el usuario la hace manual y luego "Enviar para revisión".
-  - Reglas de negocio pendientes de cablear en el backend (Fase 3): botón "Anular" → registrar la
-    cita como ANULADA en DentiDesk (`updateAgenda`) + avisar a recepción al instante. "Reagendar" →
-    bot manda horas disponibles en el chat (reusa getAvailableHours) con opción SIEMPRE visible de
-    "hablar con una persona" (handoff a recepción). Vigilar aprobación de Meta con `/loop`.
+- **Fase 1 — Auditar app Meta:** ✅ HECHA. Verificación del negocio aprobada.
+- **Fase 2 — Plantillas (templates):** casi completa. Idioma **Spanish (CHL) = `es_CL`**, todas
+  categoría **Utilidad**, pie de página fijo "Clínica de Ortodoncia C. Richard", trato
+  "Estimado(a) {nombre}".
+  - `conversacion_general` ✅ Aprobada — abridora flexible ({{1}}=nombre, {{2}}=motivo libre). Botón [Sí, díganme].
+  - `confirmacion_hora` ✅ Aprobada — {{1}}=nombre {{2}}=doctor {{3}}=fecha {{4}}=hora, sin botones.
+  - `recordatorio_semana` ✅ Aprobada — botones [Confirmo][Reagendar][Anular].
+  - `recordatorio_dia` ✅ Aprobada — botones [Confirmo][Reagendar][Anular].
+  - `inasistencia_reagendar` ✅ Aprobada — botón [Reagendar].
+  - `primera_consulta` ✅ Aprobada — encabezado VIDEO + botones [Confirmo][Reagendar]. El video de
+    encabezado se subió manual (el usuario lo hizo — Chrome MCP no puede subir archivos no
+    compartidos con la sesión). **wa_cloud.enviar_primera_consulta() necesita un video_url PUBLICO
+    para enviar en runtime** (el archivo subido a Meta fue solo la muestra de aprobación) — pendiente
+    alojar el video en el sitio y pasar esa URL.
+  - `consentimiento_informado` ⏳ **Enviada a revisión el 2026-07-01** (sin `/loop` de vigilancia —
+    revisar el estado a mano en el Administrador de WhatsApp cuando se retome). {{1}}=nombre
+    {{2}}=tipo_label (ej. "Consentimiento Informado — Tratamiento de Ortodoncia") {{3}}=link, sin
+    botones. Mientras no esté aprobada, `notify._enviar_whatsapp_consentimiento()` cae de vuelta a
+    `conversacion_general` automáticamente (fallback ya en producción, sin downtime).
   - Encabezado de ubicación (pin del mapa) PENDIENTE para confirmacion_hora y recordatorio_dia:
     falta el lat/long exacto de la clínica (el sitio usa Maps por dirección, no por coordenadas).
-- **Fase 3 — Código:** módulo nuevo `admin/wa_cloud.py` (POST a `graph.facebook.com/v.../{phone_number_id}/messages`)
-  conectado dentro de `_enviar_whatsapp()` en `notify.py` (un solo punto de cambio). Webhook
-  entrante en `server.py` (verify token + recepción de respuestas/estados de entrega).
-- **Fase 4 — Deploy + prueba:** env vars en Render `WA_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_VERIFY_TOKEN`.
-  Generar el token 24h JUSTO al probar (caduca rápido). Probar contra número de test → celular Alberto.
-- **Fase 5 — Producción:** registrar el número real **+56 9 3355 8189** en la WABA. ⚠️ Al registrarlo
-  en la Cloud API se DESCONECTA del WhatsApp normal del celular (todo pasa a API). Verificación ya
-  aprobada acelera esto. Subir tier de envíos.
+- **Fase 3 — Código (envío): ✅ HECHA y en producción.** `admin/wa_cloud.py` (cliente Cloud API,
+  modo mock si `WA_ENABLED != true`) conectado en `_enviar_whatsapp()` de `notify.py`. Probado en
+  vivo contra Render con el token de prueba — llegó WhatsApp real al celular de Alberto.
+  - `notify.enviar_confirmacion(cita, cfg, canal=None)` — `canal=None` = automático (email con
+    WhatsApp de respaldo, usan agendamiento online + barrido); `'email'`/`'whatsapp'` = forzado
+    (lo usa el F2, donde la secretaria elige el canal a mano).
+  - Endpoint `/api/whatsapp/test` (protegido por ADMIN_TOKEN) para probar envíos sueltos sin
+    agendar una cita real — acepta `plantilla` = confirmacion_hora/recordatorio_semana/
+    recordatorio_dia/inasistencia_reagendar.
+  - `wa_cloud._post()` envuelve SIEMPRE los errores en `WhatsAppCloudError` (red, timeout, JSON
+    inválido) — sin esto un error de red se escapaba sin capturar y Flask devolvía su página HTML
+    de error 500 en vez de JSON, rompiendo al cliente (F2) que espera parsear la respuesta.
+  - Webhook (recibir respuestas/botones del paciente) **PENDIENTE** — no bloquea producción básica,
+    pero sin él nadie en el sistema se entera solo cuando el paciente toca Confirmo/Reagendar/Anular.
+    Mientras tanto, recepción puede conversar libre con el paciente (dentro de la ventana de 24h)
+    desde la **bandeja de Meta Business Suite** (business.facebook.com), sin necesitar código.
+- **Fase 4 — Producción (número real):** registrar **+56 9 3355 8189** en la misma WABA (las
+  plantillas ya aprobadas quedan disponibles automáticamente, son a nivel de WABA no de número).
+  ⚠️ Al registrarlo se DESCONECTA del WhatsApp normal del celular. Generar **token permanente de
+  System User** (Configuración empresarial → Usuarios del sistema) — el de 24h usado en pruebas
+  cada vez que se regenera invalida el anterior (causó un 401 en una prueba — hay que tener solo
+  UN token válido a la vez y que sea el que está en Render). Actualizar `WA_PHONE_NUMBER_ID` y
+  `WA_TOKEN` en Render con los valores reales. Vigilar el tier/límite de mensajes (sube con uso+calidad).
 
 ### Notas clave
-- Ventana de 24h: fuera de ella solo se pueden enviar PLANTILLAS aprobadas (caso confirmación/recordatorio).
-- El número de prueba solo envía a destinatarios pre-registrados (máx. 5).
-- Webhooks ya llegan (probado): `{"object":"whatsapp_business_account",...}`. Render da el HTTPS público.
+- Ventana de 24h: fuera de ella solo se pueden enviar PLANTILLAS (por eso siempre funcionan,
+  incluso para el primer contacto — a diferencia de un mensaje libre).
+- El número de prueba solo envía a destinatarios pre-registrados (máx. 5) — el de prueba es
+  +56 9 8903 2888 (celular Alberto).
 - El bridge whatsmeow (sección siguiente) queda como herramienta de Claude/MCP, NO como canal de producción.
 
 ---
