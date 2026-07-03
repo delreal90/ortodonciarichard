@@ -394,18 +394,34 @@ admin/panel.html               ← pestaña "Consentimientos" (worklist + estado
 - `GET  /api/consentimiento/datos?token=` — prellenado celular (sin email/tel).
 - `GET  /api/consentimiento/tablet/buscar?rut=` — búsqueda kiosco (KIOSK_TOKEN).
 - `GET  /api/consentimiento/tablet/cola` — polling de la tablet.
-- `POST /api/consentimiento/firmar` — recibe firma, genera PDF, sube a Drive.
+- `POST /api/consentimiento/firmar` — recibe firma, genera PDF, sube a Drive, envía copia al mail del paciente.
 - `GET  /api/consentimientos?estado=` — lista para el panel (ADMIN_TOKEN).
 - `POST /api/consentimiento/marcar-subido` `{id}` — marca subido a DentiDesk.
+- `POST /api/consentimiento/borrar` `{id}` — borra un registro SOLO si estado='enviado'
+  (nunca firmado). El backend rechaza borrar uno firmado (409); es la fuente de verdad,
+  no solo el frontend.
 
 Estados: `enviado` → `firmado` → `subido`. Registro en `consentimientos_registro.json`
-(gitignored). PDFs en `consentimientos_firmados/` (gitignored). `respaldo_drive` = true/false.
+(gitignored). PDFs en `consentimientos_firmados/` (gitignored). `respaldo_drive` = true/false,
+`drive_file_id` (para el botón "Abrir en Drive" del panel), `pdf_sha256` (hash real del PDF).
+
+**Zona horaria:** el servidor en Render corre en UTC. Todas las fechas del registro y el
+sello del PDF usan `consentimientos.ahora_chile()` (zoneinfo `America/Santiago` + paquete
+`tzdata` en requirements — Windows/Render no traen tzdata del sistema).
+
+**Integridad del PDF (honesto, no cosmético):** el sello "REGISTRO DE FIRMA" en el PDF
+NO es una firma electrónica avanzada (PKI) — es un registro de trazabilidad (ID, fecha/hora,
+IP). La integridad real se ancla FUERA del PDF: al generarlo, el servidor calcula el SHA-256
+de sus bytes reales (`consentimientos.hash_pdf()`) y lo guarda en `pdf_sha256` del registro.
+Para verificar que un PDF no fue adulterado, se recalcula su hash y se compara con ese valor
+guardado server-side — un PDF editado nunca podría "auto-corregir" su propio hash impreso.
 
 **Google Drive (respaldo):** cuenta de servicio `claude@intrepid-charge-501115-n0.iam.
 gserviceaccount.com`, **Unidad compartida** (Shared Drive) ID `0AKiV1nLsqi2dUk9PVA`.
 ⚠️ Debe ser Unidad compartida, NO carpeta de "Mi unidad" — las cuentas de servicio no
 tienen cuota propia (error `storageQuotaExceeded`). Scope `drive` completo (no `drive.file`).
 En Render: env var `GOOGLE_SERVICE_ACCOUNT_JSON` = JSON entero (drive_backup.py lo soporta).
+El panel tiene botón **"Abrir en Drive"** (usa `drive_file_id`, abre `drive.google.com/file/d/<id>/view`).
 
 ### ⚠️ Subida a DentiDesk: NO se puede automatizar (probado en vivo)
 
