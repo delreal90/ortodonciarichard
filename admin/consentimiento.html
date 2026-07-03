@@ -14,8 +14,11 @@
   body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text-dark); padding-bottom: 40px; }
 
   header { background: var(--navy); color: white; padding: 20px 24px; text-align: center; }
+  header img.logo { height: 46px; margin-bottom: 10px; }
   header .clinica { color: var(--gold); font-size: .75rem; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
   header h1 { font-size: 1.15rem; font-weight: 700; }
+
+  .refl { display: inline-block; background: var(--bg); border-bottom: 1.5px solid var(--gold); border-radius: 4px 4px 0 0; padding: 1px 6px; font-weight: 600; color: var(--navy); }
 
   /* Pantalla de búsqueda por RUT (modo tablet/kiosco) */
   #kiosco-buscar { display: none; max-width: 480px; margin: 60px auto; background: white; border-radius: 14px; padding: 32px; box-shadow: 0 2px 12px rgba(26,46,74,.10); text-align: center; }
@@ -85,6 +88,7 @@
 <body>
 
 <header>
+  <img class="logo" src="https://delreal90.github.io/ortodonciarichard/images/logo-png.png" alt="Ortodoncia Richard">
   <div class="clinica">Clínica de Ortodoncia C. Richard</div>
   <h1>Consentimiento Informado — Tratamiento de Ortodoncia</h1>
   <div class="badge-modo" id="badge-modo"></div>
@@ -122,16 +126,13 @@
     <h2>Sección II. Datos del Tratamiento y Requisitos para su Éxito</h2>
     <p>Esta sección detalla aspectos clave del tratamiento y el rol fundamental que desempeña el paciente para lograr los mejores resultados:</p>
     <h3>Elección del Enfoque Terapéutico</h3>
-    <p>Mi ortodoncista me ha explicado de manera detallada, considerando mis características y necesidades, cuál es el tratamiento ideal para mi caso. Tras haber aclarado todas mis alternativas, resuelto mis dudas y evaluado los beneficios y riesgos de cada opción, he decidido que el tratamiento a realizar será:</p>
-    <input type="text" class="blank" id="campo-tratamiento" placeholder="Describa con sus palabras brevemente qué tratamiento recibirá" style="width:100%;">
+    <p>Mi ortodoncista me ha explicado de manera detallada, considerando mis características y necesidades, cuál es el tratamiento ideal para mi caso. Tras haber aclarado todas mis alternativas, resuelto mis dudas y evaluado los beneficios y riesgos de cada opción, he decidido que el tratamiento a realizar será: <span class="refl" id="refl-tratamiento">(lo indicaré al final)</span>.</p>
     <h3>Duración del Tratamiento</h3>
     <p>Sé cual es el tiempo estimado de tratamiento que me ha indicado mi doctor. Reconozco que este plazo es solo una estimación y puede variar en función de mi crecimiento facial, la respuesta biológica, mi asistencia a los controles, mi higiene y el cuidado personal de los aparatos.</p>
     <h3>Higiene Oral y Asistencia a Controles</h3>
     <p>Sé que durante el tratamiento de ortodoncia mantener una higiene oral óptima es más desafiante, lo que puede aumentar el riesgo de caries, gingivitis y manchas blancas. Me comprometo a asistir a controles periódicos con mi dentista general, al menos cada 6 meses o según lo indique mi ortodoncista.</p>
     <h3>Información sobre el Dentista Actual</h3>
-    <p>Confirmo que mi dentista actual (no el ortodoncista, sino quien ve limpieza, caries, etc.) se llama:</p>
-    <input type="text" class="blank" id="campo-dentista" placeholder="nombre del dentista" style="width:100%;">
-    <p style="margin-top:10px;">y que mi último control se realizó hace menos de 6 meses o se realizará antes de iniciar el tratamiento.</p>
+    <p>Confirmo que mi dentista actual (no el ortodoncista, sino quien ve limpieza, caries, etc.) se llama: <span class="refl" id="refl-dentista">(lo indicaré al final)</span>, y que mi último control se realizó hace menos de 6 meses o se realizará antes de iniciar el tratamiento.</p>
     <h3>Cooperación y Cumplimiento</h3>
     <p>Entiendo que mi asistencia regular a los controles de ortodoncia y el estricto seguimiento de las indicaciones del profesional son esenciales para el éxito del tratamiento. La falta de cooperación puede prolongar o complicar el proceso.</p>
     <h3>Resultados del Tratamiento</h3>
@@ -185,6 +186,18 @@
     <h2>Sección VII. Confirmación de Entendimiento y Autorización</h2>
     <p>Este es el compromiso final en el que el paciente confirma que ha entendido y acepta las condiciones expuestas:</p>
     <p>Confirmo que he leído y comprendido detalladamente el contenido de este consentimiento informado, que todas mis dudas han sido aclaradas y que autorizo de manera voluntaria el inicio del tratamiento de ortodoncia según lo explicado por mi especialista.</p>
+  </div>
+
+  <div class="card datos-firmante">
+    <h2>Datos que debes completar</h2>
+    <p style="font-size:.88rem;color:var(--text-mid);margin-bottom:6px;">Estos dos datos son parte de tu consentimiento. Por favor complétalos antes de firmar.</p>
+
+    <label id="label-tratamiento">Tratamiento a realizar</label>
+    <input type="text" id="campo-tratamiento" oninput="reflejarDatos()" placeholder="Ej: brackets, alineadores, disyuntor...">
+
+    <label>Nombre de tu dentista de controles regulares</label>
+    <p style="font-size:.82rem;color:var(--text-mid);margin:-2px 0 6px;">Por favor indica el nombre del dentista (no el ortodoncista, sino quien te ve las caries, limpieza, etc.) con quien tendrás tus controles dentales regulares durante el tratamiento.</p>
+    <input type="text" id="campo-dentista" oninput="reflejarDatos()" placeholder="Nombre del dentista">
   </div>
 
   <div class="card datos-firmante">
@@ -372,9 +385,27 @@ function mostrarFormulario() {
   document.getElementById('campo-nombre-paciente').value = paciente.nombre;
   document.getElementById('campo-rut-paciente').value = paciente.rut;
   document.getElementById('campo-fecha').value = new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  // Nombre de pila (no el apellido) para personalizar la pregunta del tratamiento
+  const primerNombre = (paciente.nombre || '').trim().split(/\s+/)[0] || 'el paciente';
+  document.getElementById('label-tratamiento').textContent =
+    `En sus palabras, describa el tratamiento que recibirá ${primerNombre}`;
+
   document.getElementById('formulario').style.display = 'block';
   initFirma();
+  reflejarDatos();
   window.scrollTo(0, 0);
+}
+
+// Refleja lo que el paciente escribe en los campos "Datos que debes completar"
+// dentro del texto de la Sección II (donde aparecen los blancos originales del
+// documento), para que el PDF y lo que lee el paciente queden consistentes.
+function reflejarDatos() {
+  const tratamiento = document.getElementById('campo-tratamiento').value.trim();
+  const dentista = document.getElementById('campo-dentista').value.trim();
+  document.getElementById('refl-tratamiento').textContent = tratamiento || '(lo indicaré al final)';
+  document.getElementById('refl-dentista').textContent = dentista || '(lo indicaré al final)';
+  revisarHabilitarFirma();
 }
 
 function cambiaQuienFirma() {
@@ -427,13 +458,15 @@ function limpiarFirma() {
 
 function revisarHabilitarFirma() {
   const aceptado = document.getElementById('check-acepto').checked;
+  const datosOk = document.getElementById('campo-tratamiento').value.trim().length > 2
+    && document.getElementById('campo-dentista').value.trim().length > 2;
   const esApoderado = document.getElementById('opt-apoderado').querySelector('input').checked;
   let apoderadoOk = true;
   if (esApoderado) {
     apoderadoOk = document.getElementById('campo-nombre-apoderado').value.trim().length > 2
       && limpiarRut(document.getElementById('campo-rut-apoderado').value).length >= 8;
   }
-  document.getElementById('btn-enviar').disabled = !(aceptado && !trazoVacio && apoderadoOk);
+  document.getElementById('btn-enviar').disabled = !(aceptado && datosOk && !trazoVacio && apoderadoOk);
 }
 
 document.getElementById('campo-nombre-apoderado').addEventListener('input', revisarHabilitarFirma);

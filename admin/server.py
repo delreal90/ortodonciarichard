@@ -1668,7 +1668,9 @@ def consentimiento_firmar():
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Error al generar el PDF: {e}'}), 500
 
-    consentimientos.marcar_firmado(consent_id, ruta_pdf)
+    # Hash SHA-256 de los bytes reales del PDF → ancla de integridad verificable.
+    pdf_sha = consentimientos.hash_pdf(ruta_pdf)
+    consentimientos.marcar_firmado(consent_id, ruta_pdf, pdf_sha256=pdf_sha)
     if de_cola:
         consentimientos.limpiar_cola_tablet()
 
@@ -1679,6 +1681,18 @@ def consentimiento_firmar():
     consentimientos.marcar_respaldo_drive(consent_id, resultado_drive.get('ok'), resultado_drive.get('file_id'))
     if not resultado_drive.get('ok'):
         print(f"[consentimiento] Respaldo a Drive falló para {consent_id}: {resultado_drive.get('error')}")
+
+    # Enviar copia firmada al email del paciente (si tenemos su correo real).
+    # No debe tumbar la firma si el correo falla.
+    try:
+        import pacientes as _pac
+        rec = _pac.lookup(rut) or {}
+        email_pac = (rec.get('email') or '').strip()
+        if '@' in email_pac:
+            tipo_label = consentimientos.TIPOS_DOCUMENTO.get(tipo, 'Consentimiento informado')
+            notify.enviar_copia_consentimiento(rec, ruta_pdf, tipo_label)
+    except Exception as e:
+        print(f"[consentimiento] Envío de copia al paciente falló para {consent_id}: {e}")
 
     return jsonify({'ok': True, 'id': consent_id})
 
@@ -1703,6 +1717,20 @@ def consentimiento_marcar_subido():
     if not consent_id or not consentimientos.obtener_registro(consent_id):
         return jsonify({'ok': False, 'error': 'Consentimiento no encontrado'}), 404
     consentimientos.marcar_subido_dentidesk(consent_id)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/consentimiento/borrar', methods=['POST'])
+def consentimiento_borrar():
+    """Borra un consentimiento NO firmado (estado 'enviado') del registro.
+    Un consentimiento firmado NUNCA se borra (es registro clínico/legal).
+    Body: {id}. Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    consent_id = (request.json or {}).get('id', '')
+    ok, error = consentimientos.borrar_registro(consent_id)
+    if not ok:
+        return jsonify({'ok': False, 'error': error}), 409 if 'firmado' in (error or '') else 404
     return jsonify({'ok': True})
 
 

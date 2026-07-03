@@ -603,23 +603,62 @@ function _pdfNombre(i) {
 }
 
 function _accionesConsent(i) {
-  if (i.estado === 'subido') {
-    return '<span style="color:#38a169;font-weight:600">✓ Subido</span>';
+  const idLimpio = (i.id || '').replace(/[^a-zA-Z0-9]/g,'');    // uuid hex
+
+  if (i.estado === 'enviado') {
+    // Aún no firmado: se puede borrar el registro (no hay documento legal que preservar).
+    return `<span style="color:#a0aec0">Aún sin firmar</span>
+      <button class="btn btn-sm" style="background:#fed7d7;color:#c53030;margin-left:6px"
+        onclick="borrarConsent('${idLimpio}')">Borrar</button>`;
   }
-  if (i.estado !== 'firmado') {
-    return '<span style="color:#a0aec0">Aún sin firmar</span>';
-  }
+
+  // A partir de aquí, 'firmado' o 'subido': ya existe un documento firmado —
+  // el registro NUNCA se borra desde este botón (lo valida también el backend).
   const rutLimpio = (i.rut || '').replace(/[^0-9kK]/g,'');       // solo dígitos/K
-  const idLimpio  = (i.id || '').replace(/[^a-zA-Z0-9]/g,'');    // uuid hex
+  const driveBtn = i.drive_file_id
+    ? `<button class="btn btn-sm" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
+        onclick="abrirEnDrive('${(i.drive_file_id||'').replace(/[^a-zA-Z0-9_-]/g,'')}')">Abrir en Drive</button>`
+    : '';
+
+  if (i.estado === 'subido') {
+    return `<span style="color:#38a169;font-weight:600">✓ Subido</span>${driveBtn}`;
+  }
   return `
     <button class="btn btn-primary btn-sm" title="Archivo a elegir: ${_esc(_pdfNombre(i))}"
       onclick="abrirEnDentidesk('${rutLimpio}')">Abrir en DentiDesk</button>
     <button class="btn btn-sm" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
-      onclick="marcarConsentSubido('${idLimpio}')">Ya lo subí</button>`;
+      onclick="marcarConsentSubido('${idLimpio}')">Ya lo subí</button>${driveBtn}`;
 }
 
 function abrirEnDentidesk(rut) {
   window.open(`${DENTIDESK_BASE}/pacientes.php?rut=${encodeURIComponent(rut)}`, '_blank');
+}
+
+function abrirEnDrive(fileId) {
+  window.open(`https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`, '_blank');
+}
+
+async function borrarConsent(id) {
+  if (!confirm('¿Borrar este registro de consentimiento (aún no firmado)? Esta acción no se puede deshacer.')) return;
+  const url = document.getElementById('consent-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('consent-token').value.trim();
+  try {
+    const r = await fetch(url + '/api/consentimiento/borrar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+      body: JSON.stringify({ id }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      toast('🗑️ Consentimiento borrado');
+      consentimientosData = consentimientosData.filter(c => c.id !== id);
+      renderConsentimientos();
+    } else {
+      toast('❌ ' + (j.error || 'No se pudo borrar'), false);
+    }
+  } catch (e) {
+    toast('❌ Error de conexión', false);
+  }
 }
 
 async function marcarConsentSubido(id) {

@@ -412,6 +412,81 @@ def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label):
         return False
 
 
+def _html_copia_consentimiento(nombre, tipo_label):
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Copia de tu consentimiento</title></head>
+<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
+  <tr>
+    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
+      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
+      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Tu consentimiento firmado</h1>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:32px 32px 24px;">
+      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>, gracias por firmar tu <strong>{tipo_label}</strong>.</p>
+      <p style="margin:0 0 8px;color:#4A5568;font-size:15px;">Adjuntamos una copia en PDF del documento firmado para tus registros.</p>
+      <p style="margin:20px 0 0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="tel:+56222173499" style="color:#1A2E4A;">+56 2 2217 3499</a> &nbsp;|&nbsp; 💬 <a href="https://wa.me/56933558189" style="color:#1A2E4A;">WhatsApp</a></p>
+    </td>
+  </tr>
+  <tr>
+    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
+      <p style="margin:0;color:#8fa8c8;font-size:12px;">Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago</p>
+    </td>
+  </tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
+def enviar_copia_consentimiento(paciente, pdf_path, tipo_label='consentimiento informado'):
+    """Envía al paciente una copia en PDF de su consentimiento firmado (adjunto).
+    paciente: dict con nombres, apellidos, email. Devuelve dict {ok, canal}."""
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    dest = (paciente.get('email') or '').strip()
+    if not smtp_user or not smtp_pass or '@' not in dest:
+        return {'ok': False, 'error': 'sin SMTP o email'}
+
+    nombre = f"{paciente.get('nombres', '')} {paciente.get('apellidos', '')}".strip() or 'Paciente'
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
+    msg['To'] = dest
+    msg['Subject'] = f'Copia de tu {tipo_label} — Ortodoncia Richard'
+    msg['Reply-To'] = smtp_user
+    msg.attach(MIMEText(_html_copia_consentimiento(nombre, tipo_label), 'html', 'utf-8'))
+
+    try:
+        pdf_bytes = Path(pdf_path).read_bytes()
+        adj = MIMEBase('application', 'pdf')
+        adj.set_payload(pdf_bytes)
+        from email.encoders import encode_base64
+        encode_base64(adj)
+        adj['Content-Disposition'] = 'attachment; filename="consentimiento-firmado.pdf"'
+        msg.attach(adj)
+    except Exception as e:
+        log.error('No se pudo adjuntar el PDF de consentimiento: %s', e)
+        return {'ok': False, 'error': 'no se pudo adjuntar el PDF'}
+
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [dest], msg.as_bytes())
+        log.info('Copia de consentimiento enviada a %s', dest)
+        return {'ok': True, 'canal': 'email'}
+    except Exception as e:
+        log.error('SMTP copia consentimiento error: %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
 def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento informado'):
     """
     Envía el link de firma de consentimiento por el canal elegido explícitamente

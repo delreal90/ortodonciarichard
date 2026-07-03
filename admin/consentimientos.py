@@ -36,6 +36,19 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 import pacientes
 
+# Zona horaria de Chile continental. El servidor en Render corre en UTC; sin
+# esto, las horas registradas y el sello del PDF salen ~4h adelantadas.
+try:
+    from zoneinfo import ZoneInfo
+    _TZ_CHILE = ZoneInfo('America/Santiago')
+except Exception:
+    _TZ_CHILE = None
+
+
+def ahora_chile():
+    """datetime actual en hora de Chile (con fallback a hora local si no hay tz)."""
+    return datetime.now(_TZ_CHILE) if _TZ_CHILE else datetime.now()
+
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 Path(__file__).parent / 'patient_index.json')).parent
 
@@ -124,7 +137,7 @@ def crear_registro(rut, tipo, canal):
             'tipo': tipo,
             'canal': canal,
             'estado': 'enviado',
-            'creado': datetime.now().isoformat(timespec='seconds'),
+            'creado': ahora_chile().isoformat(timespec='seconds'),
             'firmado': None,
             'pdf_path': None,
             'subido_dentidesk': False,
@@ -138,14 +151,48 @@ def obtener_registro(consent_id):
     return _load_registro().get(consent_id)
 
 
-def marcar_firmado(consent_id, pdf_path):
+def marcar_firmado(consent_id, pdf_path, pdf_sha256=None):
     with _LOCK:
         idx = _load_registro()
         if consent_id in idx:
             idx[consent_id]['estado'] = 'firmado'
-            idx[consent_id]['firmado'] = datetime.now().isoformat(timespec='seconds')
+            idx[consent_id]['firmado'] = ahora_chile().isoformat(timespec='seconds')
             idx[consent_id]['pdf_path'] = str(pdf_path)
+            # Hash SHA-256 de los bytes REALES del PDF final. Es el ancla de
+            # integridad verificable: si el archivo se altera luego, al re-calcular
+            # el hash ya no coincide con este valor guardado del lado del servidor.
+            if pdf_sha256:
+                idx[consent_id]['pdf_sha256'] = pdf_sha256
             _save_registro(idx)
+
+
+def hash_pdf(ruta):
+    """SHA-256 de los bytes del archivo (para anclar/verificar integridad)."""
+    h = hashlib.sha256()
+    with open(ruta, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def borrar_registro(consent_id):
+    """Borra un consentimiento SOLO si no fue firmado (estado 'enviado').
+    Devuelve (ok, error). Un consentimiento firmado NUNCA se borra desde aquí
+    (es un registro clínico/legal)."""
+    with _LOCK:
+        idx = _load_registro()
+        item = idx.get(consent_id)
+        if not item:
+            return False, 'Consentimiento no encontrado'
+        if item.get('estado') != 'enviado':
+            return False, 'No se puede borrar un consentimiento ya firmado'
+        # Si estaba en la cola de la tablet, limpiarla también
+        cola = obtener_cola_tablet()
+        if cola and cola.get('id') == consent_id:
+            _limpiar_cola_tablet_sin_lock()
+        del idx[consent_id]
+        _save_registro(idx)
+        return True, None
 
 
 def marcar_respaldo_drive(consent_id, ok, file_id=None):
@@ -186,7 +233,7 @@ def poner_en_cola_tablet(rut, tipo, consent_id):
         COLA_TABLET_PATH.parent.mkdir(parents=True, exist_ok=True)
         COLA_TABLET_PATH.write_text(json.dumps({
             'rut': _limpiar_rut(rut), 'tipo': tipo, 'id': consent_id,
-            'ts': datetime.now().isoformat(timespec='seconds'),
+            'ts': ahora_chile().isoformat(timespec='seconds'),
         }), encoding='utf-8')
 
 
@@ -199,10 +246,14 @@ def obtener_cola_tablet():
         return None
 
 
+def _limpiar_cola_tablet_sin_lock():
+    if COLA_TABLET_PATH.exists():
+        COLA_TABLET_PATH.unlink()
+
+
 def limpiar_cola_tablet():
     with _LOCK:
-        if COLA_TABLET_PATH.exists():
-            COLA_TABLET_PATH.unlink()
+        _limpiar_cola_tablet_sin_lock()
 
 
 # ── Datos del paciente (prellenado, version publica sin email/telefono) ──────
@@ -404,15 +455,6 @@ SECCIONES = [
 ]
 
 
-def _hash_firma(datos):
-    """SHA-256 sobre los datos firmados (integridad — cambia si algo se altera)."""
-    canon = '|'.join(str(datos.get(k, '')) for k in (
-        'rut_fmt', 'nombre', 'tipo', 'tratamiento', 'dentista_actual',
-        'quien_firma', 'apoderado_nombre', 'apoderado_rut', 'fecha', 'firma_png',
-    ))
-    return hashlib.sha256(canon.encode('utf-8')).hexdigest()
-
-
 def generar_pdf(datos):
     """
     datos: dict con nombre, rut_fmt, tipo, tratamiento, dentista_actual,
@@ -432,11 +474,13 @@ def generar_pdf(datos):
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     rut_archivo = _limpiar_rut(datos.get('rut_fmt', ''))
     tipo = datos.get('tipo', 'ortodoncia')
-    marca_tiempo = datetime.now()
+    marca_tiempo = ahora_chile()
     ruta = PDF_DIR / f"{rut_archivo}_{tipo}_{marca_tiempo.strftime('%Y%m%d-%H%M%S')}.pdf"
 
     styles = getSampleStyleSheet()
     titulo = ParagraphStyle('titulo', parent=styles['Title'], fontSize=14)
+    tit_centrado = ParagraphStyle('titc', parent=titulo, alignment=1)  # centrado
+    subt_centrado = ParagraphStyle('subc', parent=styles['Heading3'], alignment=1)
     seccion = ParagraphStyle('seccion', parent=styles['Heading2'], fontSize=11, spaceBefore=10)
     subtitulo = ParagraphStyle('subtitulo', parent=styles['Heading4'], fontSize=9.5, spaceBefore=6, spaceAfter=2)
     cuerpo = ParagraphStyle('cuerpo', parent=styles['BodyText'], fontSize=9.5,
@@ -444,11 +488,20 @@ def generar_pdf(datos):
     sello_txt = ParagraphStyle('sello', parent=styles['BodyText'], fontSize=8, leading=11, textColor=colors.HexColor('#1A2E4A'))
 
     doc = SimpleDocTemplate(str(ruta), pagesize=letter,
-                            topMargin=2 * cm, bottomMargin=2 * cm,
+                            topMargin=1.6 * cm, bottomMargin=2 * cm,
                             leftMargin=2 * cm, rightMargin=2 * cm)
-    story = [
-        Paragraph('Clínica de Ortodoncia C. Richard', titulo),
-        Paragraph(TIPOS_DOCUMENTO.get(tipo, 'Consentimiento Informado'), styles['Heading3']),
+    story = []
+    # Logo de la clínica (encabezado), centrado. Si no está el archivo, se omite.
+    _logo = Path(__file__).parent.parent / 'images' / 'logo.jpg'
+    if _logo.exists():
+        logo_w = 4.2 * cm
+        logo_img = RLImage(str(_logo), width=logo_w, height=logo_w / 1.374)
+        logo_img.hAlign = 'CENTER'
+        story.append(logo_img)
+        story.append(Spacer(1, 8))
+    story += [
+        Paragraph('Clínica de Ortodoncia C. Richard', tit_centrado),
+        Paragraph(TIPOS_DOCUMENTO.get(tipo, 'Consentimiento Informado'), subt_centrado),
         Spacer(1, 10),
     ]
     fmt_kwargs = {
@@ -479,18 +532,25 @@ def generar_pdf(datos):
         story.append(Paragraph('Firma del Paciente/Apoderado:', cuerpo))
         story.append(RLImage(io.BytesIO(img_bytes), width=6 * cm, height=2.5 * cm))
 
-    # ── Sello de firma electrónica (trazabilidad e integridad) ───────────────
+    # ── Sello de registro de firma (trazabilidad) ────────────────────────────
+    # NOTA de honestidad técnica: esto NO es una firma electrónica avanzada con
+    # PKI. Es un registro de trazabilidad. La integridad real se ancla FUERA del
+    # PDF: al terminar de generarlo, el servidor calcula el SHA-256 de sus bytes
+    # y lo guarda en su registro (consentimientos_registro.json). Para verificar
+    # que un PDF no fue adulterado, se recalcula su hash y se compara con el
+    # valor guardado del lado del servidor.
     consent_id = datos.get('consent_id') or '(sin id)'
-    hash_doc = _hash_firma(datos)[:32]
     ip = datos.get('ip') or '(no registrada)'
     sello_html = (
-        '<b>FIRMA ELECTRÓNICA</b><br/>'
-        f'Este documento fue firmado electrónicamente el '
+        '<b>REGISTRO DE FIRMA</b><br/>'
+        f'Firmado electrónicamente el '
         f'{marca_tiempo.strftime("%d-%m-%Y")} a las {marca_tiempo.strftime("%H:%M:%S")} '
         f'(hora de Chile).<br/>'
         f'ID de verificación: {consent_id}<br/>'
-        f'Hash de integridad (SHA-256): {hash_doc}<br/>'
-        f'Dirección IP de origen: {ip}'
+        f'Dirección IP de origen: {ip}<br/>'
+        f'<font size="7">La integridad de este documento se verifica contra el registro '
+        f'digital de la clínica (hash SHA-256 almacenado en el servidor al momento '
+        f'de la firma).</font>'
     )
     sello = Table([[Paragraph(sello_html, sello_txt)]], colWidths=[16.5 * cm])
     sello.setStyle(TableStyle([
