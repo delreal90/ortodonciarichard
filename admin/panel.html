@@ -625,15 +625,17 @@ function _accionesConsent(i) {
   // A partir de aquí, 'firmado' o 'subido': ya existe un documento firmado —
   // el registro NUNCA se borra desde este botón (lo valida también el backend).
   const rutLimpio = (i.rut || '').replace(/[^0-9kK]/g,'');       // solo dígitos/K
+  const reenviarBtn = `<button class="btn btn-sm" id="btn-reenviar-${idLimpio}" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
+      onclick="reenviarCopia('${idLimpio}')">Reenviar copia</button>`;
 
   if (i.estado === 'subido') {
-    return '<span style="color:#38a169;font-weight:600">✓ Subido</span>';
+    return `<span style="color:#38a169;font-weight:600">✓ Subido</span>${reenviarBtn}`;
   }
   return `
     <button class="btn btn-primary btn-sm" title="Archivo a elegir: ${_esc(_pdfNombre(i))}"
       onclick="abrirEnDentidesk('${rutLimpio}')">Abrir en DentiDesk</button>
     <button class="btn btn-sm" style="background:#e2e8f0;color:#2d3748;margin-left:6px"
-      onclick="marcarConsentSubido('${idLimpio}')">Ya lo subí</button>`;
+      onclick="marcarConsentSubido('${idLimpio}')">Ya lo subí</button>${reenviarBtn}`;
 }
 
 function abrirEnDentidesk(rut) {
@@ -642,6 +644,30 @@ function abrirEnDentidesk(rut) {
 
 function abrirEnDrive(fileId) {
   window.open(`https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`, '_blank');
+}
+
+async function reenviarCopia(id) {
+  const url = document.getElementById('consent-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('consent-token').value.trim();
+  const btn = document.getElementById('btn-reenviar-' + id);
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+  try {
+    const r = await fetch(url + '/api/consentimiento/reenviar-copia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+      body: JSON.stringify({ id }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      toast('✅ Copia reenviada a ' + (j.email_enmascarado || 'el paciente'));
+    } else {
+      toast('❌ ' + (j.error || 'No se pudo reenviar'), false);
+    }
+  } catch (e) {
+    toast('❌ Error de conexión', false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Reenviar copia'; }
+  }
 }
 
 async function borrarConsent(id) {

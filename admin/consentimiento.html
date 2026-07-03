@@ -48,6 +48,13 @@
   .datos-firmante input[readonly] { background: var(--bg); color: var(--text-mid); }
   .datos-firmante input:focus { outline: none; border-color: var(--gold); }
 
+  /* Campos que el paciente debe completar (tratamiento, dentista): resaltados en
+     celeste con borde dorado, igual que los "blancos" reflejados en el texto de
+     la Sección II, para que sea obvio que hay que llenarlos. */
+  .datos-firmante input.campo-completar { background: var(--bg); border: 1.5px solid var(--gold-light); color: var(--text-dark); }
+  .datos-firmante input.campo-completar:focus { background: #fff; border-color: var(--gold); }
+  .datos-firmante input.campo-completar::placeholder { color: #8ba0bd; }
+
   .quien-firma { display: flex; gap: 10px; margin-top: 6px; }
   .quien-firma label.opt { flex: 1; display: flex; align-items: center; gap: 8px; border: 1.5px solid #cbd5e0; border-radius: 8px; padding: 10px 14px; font-size: .88rem; font-weight: 500; color: var(--text-mid); cursor: pointer; text-transform: none; letter-spacing: 0; margin: 0; }
   .quien-firma input[type=radio] { accent-color: var(--gold); width: 16px; height: 16px; }
@@ -191,17 +198,17 @@
   <div class="card datos-firmante">
     <h2>Sección Final: Firma y Datos de Confirmación</h2>
 
-    <label id="label-tratamiento">Tratamiento a realizar</label>
-    <input type="text" id="campo-tratamiento" oninput="reflejarDatos()" placeholder="Ej: brackets, alineadores, disyuntor...">
-
-    <label>Nombre de tu dentista de controles regulares</label>
-    <p style="font-size:.82rem;color:var(--text-mid);margin:-2px 0 6px;">Por favor indica el nombre del dentista (no el ortodoncista, sino quien te ve las caries, limpieza, etc.) con quien tendrás tus controles dentales regulares durante el tratamiento.</p>
-    <input type="text" id="campo-dentista" oninput="reflejarDatos()" placeholder="Nombre del dentista">
-
     <label>Nombre del Paciente</label>
     <input type="text" id="campo-nombre-paciente" readonly>
     <label>RUT del Paciente</label>
     <input type="text" id="campo-rut-paciente" readonly>
+
+    <label id="label-tratamiento">Tratamiento a realizar</label>
+    <input type="text" class="campo-completar" id="campo-tratamiento" oninput="reflejarDatos()" placeholder="Ej: brackets, alineadores, disyuntor...">
+
+    <label>Nombre de tu dentista de controles regulares</label>
+    <p style="font-size:.82rem;color:var(--text-mid);margin:-2px 0 6px;">Por favor indica el nombre del dentista (no el ortodoncista, sino quien te ve las caries, limpieza, etc.) con quien tendrás tus controles dentales regulares durante el tratamiento.</p>
+    <input type="text" class="campo-completar" id="campo-dentista" oninput="reflejarDatos()" placeholder="Nombre del dentista">
 
     <label>¿Quién firma este consentimiento?</label>
     <div class="quien-firma">

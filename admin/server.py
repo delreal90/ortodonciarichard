@@ -1741,6 +1741,40 @@ def consentimiento_borrar():
     return jsonify({'ok': True})
 
 
+@app.route('/api/consentimiento/reenviar-copia', methods=['POST'])
+@rate_limit('20 per minute')
+def consentimiento_reenviar_copia():
+    """Reenvía la copia en PDF de un consentimiento YA firmado al email del
+    paciente. Botón "Reenviar copia" del panel — cubre los casos que se
+    firmaron antes de que existiera el envío automático, o donde falló.
+    Body: {id}. Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+
+    consent_id = (request.json or {}).get('id', '')
+    item = consentimientos.obtener_registro(consent_id)
+    if not item:
+        return jsonify({'ok': False, 'error': 'Consentimiento no encontrado'}), 404
+    if item.get('estado') not in ('firmado', 'subido'):
+        return jsonify({'ok': False, 'error': 'Este consentimiento aún no está firmado'}), 409
+
+    ruta_pdf = item.get('pdf_path')
+    if not ruta_pdf or not os.path.exists(ruta_pdf):
+        return jsonify({'ok': False, 'error': 'No se encontró el archivo PDF en el servidor'}), 404
+
+    import pacientes as _pac
+    rec = _pac.lookup(item.get('rut', '')) or {}
+    email_pac = (rec.get('email') or '').strip()
+    if '@' not in email_pac:
+        return jsonify({'ok': False, 'error': 'El paciente no tiene email registrado'}), 400
+
+    tipo_label = consentimientos.TIPOS_DOCUMENTO.get(item.get('tipo'), 'Consentimiento informado')
+    resultado = notify.enviar_copia_consentimiento(rec, ruta_pdf, tipo_label)
+    if not resultado.get('ok'):
+        return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar el correo'}), 502
+    return jsonify({'ok': True, 'email_enmascarado': _enmascarar_email(email_pac)})
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # REFRESCO AUTOMÁTICO DE PACIENTES (2x/día) + BARRIDO DE CONFIRMACIONES (4 ciclos)
 # ══════════════════════════════════════════════════════════════════════════════
