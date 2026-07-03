@@ -1073,12 +1073,16 @@ def whatsapp_test():
     fecha  = data.get('fecha', 'martes 8 de julio')
     hora   = data.get('hora', '10:30')
     plantilla = data.get('plantilla', 'confirmacion_hora')
+    # id_agenda: para pruebas sueltas (no ligadas a una cita real) alcanza un
+    # valor cualquiera -- solo viaja en el payload del boton, no se usa hasta
+    # que alguien lo toque de verdad.
+    id_agenda = str(data.get('id_agenda', '000000'))
 
     envio = {
         'confirmacion_hora':      lambda: wa_cloud.enviar_confirmacion_hora(tel, nombre, doctor, fecha, hora),
-        'recordatorio_semana':    lambda: wa_cloud.enviar_recordatorio_semana(tel, nombre, doctor, fecha, hora),
-        'recordatorio_dia':       lambda: wa_cloud.enviar_recordatorio_dia(tel, nombre, doctor, fecha, hora),
-        'inasistencia_reagendar': lambda: wa_cloud.enviar_inasistencia_reagendar(tel, nombre, fecha),
+        'recordatorio_semana':    lambda: wa_cloud.enviar_recordatorio_semana(tel, nombre, doctor, fecha, hora, id_agenda),
+        'recordatorio_dia':       lambda: wa_cloud.enviar_recordatorio_dia(tel, nombre, doctor, fecha, hora, id_agenda),
+        'inasistencia_reagendar': lambda: wa_cloud.enviar_inasistencia_reagendar(tel, nombre, fecha, id_agenda),
     }.get(plantilla)
     if not envio:
         return jsonify({'ok': False, 'error': f'Plantilla no valida: {plantilla}'}), 400
