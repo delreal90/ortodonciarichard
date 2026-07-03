@@ -5,14 +5,17 @@ Unico modulo que habla por red con graph.facebook.com. El resto del sistema
 (notify.py) lo usa a traves de funciones limpias por plantilla, sin ver
 tokens ni el formato del payload de Meta.
 
-Las 6 plantillas (creadas y aprobadas en el Administrador de WhatsApp,
-idioma es_CL / "Spanish (CHL)"):
+Las 7 plantillas (creadas en el Administrador de WhatsApp, idioma es_CL /
+"Spanish (CHL)"):
   conversacion_general      {{1}}=nombre {{2}}=motivo_libre         boton: Sí, díganme
   confirmacion_hora         {{1}}=nombre {{2}}=doctor {{3}}=fecha {{4}}=hora   (sin botones)
   recordatorio_semana       {{1}}=nombre {{2}}=doctor {{3}}=fecha {{4}}=hora   botones: Confirmo/Reagendar/Anular
   recordatorio_dia          {{1}}=nombre {{2}}=doctor {{3}}=fecha {{4}}=hora   botones: Confirmo/Reagendar/Anular
   inasistencia_reagendar    {{1}}=nombre {{2}}=fecha                          boton: Reagendar
   primera_consulta          {{1}}=nombre {{2}}=doctor {{3}}=fecha {{4}}=hora   header VIDEO, botones: Confirmo/Reagendar
+  consentimiento_informado  {{1}}=nombre {{2}}=tipo_label {{3}}=link          (sin botones)
+                            ⏳ en revision — notify.py cae de vuelta a
+                            conversacion_general mientras Meta la aprueba.
 
 Los botones de respuesta rapida (quick reply) NO necesitan payload en el envio:
 ya quedaron fijos al aprobar la plantilla. Solo el header de video (primera_consulta)
@@ -143,6 +146,10 @@ def _enviar_plantilla(telefono, nombre_plantilla, parametros_body, header_video_
 
 def enviar_conversacion_general(telefono, nombre, motivo_texto):
     return _enviar_plantilla(telefono, 'conversacion_general', [nombre, motivo_texto])
+
+
+def enviar_consentimiento(telefono, nombre, tipo_label, link):
+    return _enviar_plantilla(telefono, 'consentimiento_informado', [nombre, tipo_label, link])
 
 
 def enviar_confirmacion_hora(telefono, nombre, doctor_nombre, fecha_legible, hora):

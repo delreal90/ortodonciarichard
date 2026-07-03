@@ -399,17 +399,24 @@ def _enviar_email_consentimiento(nombre, email, link, tipo_label):
 
 
 def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label):
-    """No hay plantilla dedicada para esto; reutiliza 'conversacion_general'
-    (pensada justo para avisos libres de la clinica) con el link en el motivo."""
+    """Plantilla dedicada 'consentimiento_informado'. Mientras Meta la aprueba
+    (o si por algun motivo falla), cae de vuelta a 'conversacion_general' con
+    el link en el motivo — el mismo mensaje que se usaba antes de tener
+    plantilla propia, para no dejar de enviar durante la transicion."""
     if not telefono:
         return False
     try:
-        motivo = f"necesita firmar su {tipo_label}. Puede hacerlo directamente desde su celular aquí: {link}"
-        resultado = wa_cloud.enviar_conversacion_general(telefono, nombre, motivo)
+        resultado = wa_cloud.enviar_consentimiento(telefono, nombre, tipo_label, link)
         return bool(resultado.get('ok'))
     except wa_cloud.WhatsAppCloudError as e:
-        log.error('WhatsApp Cloud API error (consentimiento): %s', e)
-        return False
+        log.warning('consentimiento_informado no disponible (%s); uso conversacion_general', e)
+        try:
+            motivo = f"necesita firmar su {tipo_label}. Puede hacerlo directamente desde su celular aquí: {link}"
+            resultado = wa_cloud.enviar_conversacion_general(telefono, nombre, motivo)
+            return bool(resultado.get('ok'))
+        except wa_cloud.WhatsAppCloudError as e2:
+            log.error('WhatsApp Cloud API error (consentimiento): %s', e2)
+            return False
 
 
 def _html_copia_consentimiento(nombre, tipo_label):
