@@ -566,3 +566,145 @@ def generar_pdf(datos):
 
     doc.build(story)
     return ruta
+
+
+def generar_pdf_blanco(tipo='ortodoncia'):
+    """
+    PDF "en blanco" (sin datos de paciente ni firma) del consentimiento, con
+    estilo gráfico similar al formulario web — para que la clínica lo imprima
+    y lo tenga disponible en recepción, por si un paciente prefiere leerlo en
+    papel antes de firmar digitalmente. Tamaño carta.
+
+    A diferencia de generar_pdf(), este NO se guarda en PDF_DIR (no es un
+    documento firmado, no tiene datos personales) — se genera al vuelo y se
+    devuelven los bytes.
+    """
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import cm
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                     Image as RLImage, Table, TableStyle)
+    from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
+    from reportlab.lib import colors
+    import io
+
+    NAVY = colors.HexColor('#1A2E4A')
+    GOLD = colors.HexColor('#C9A84C')
+    BG = colors.HexColor('#F0F5FB')
+    TEXT_MID = colors.HexColor('#4A5568')
+
+    buf = io.BytesIO()
+    styles = getSampleStyleSheet()
+    tit_blanco = ParagraphStyle('titb', parent=styles['Title'], fontSize=16,
+                                textColor=colors.white, alignment=TA_CENTER, spaceAfter=2)
+    subt_blanco = ParagraphStyle('subb', parent=styles['Heading3'], fontSize=11,
+                                 textColor=GOLD, alignment=TA_CENTER, fontName='Helvetica')
+    seccion_txt = ParagraphStyle('secb', parent=styles['Heading2'], fontSize=11.5,
+                                 textColor=colors.white, spaceAfter=0)
+    # Los párrafos del cuerpo llevan fondo celeste + borde izquierdo dorado
+    # (backColor/borderPadding en el propio ParagraphStyle) en vez de envolver
+    # toda la sección en una Table — así cada párrafo puede partirse solo entre
+    # páginas de forma segura (una Table con una celda gigante NO se puede
+    # partir y revienta con LayoutError en secciones largas, ej. Sección III).
+    subtitulo = ParagraphStyle('subtitulo', parent=styles['Heading4'], fontSize=9.5,
+                               spaceBefore=8, spaceAfter=1, textColor=NAVY,
+                               backColor=BG, borderPadding=8, leftIndent=0)
+    cuerpo = ParagraphStyle('cuerpo', parent=styles['BodyText'], fontSize=9.5,
+                            alignment=TA_JUSTIFY, leading=13,
+                            backColor=BG, borderPadding=8, spaceAfter=0)
+    label_txt = ParagraphStyle('label', parent=styles['BodyText'], fontSize=8.5,
+                               textColor=TEXT_MID, spaceAfter=2)
+
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+                            topMargin=1.4 * cm, bottomMargin=1.8 * cm,
+                            leftMargin=2 * cm, rightMargin=2 * cm)
+    story = []
+    ANCHO = 16.5 * cm
+
+    # ── Encabezado: logo + barra navy con el título (como el header web) ─────
+    _logo = Path(__file__).parent.parent / 'images' / 'logo-png.png'
+    if _logo.exists():
+        logo_w = 3.6 * cm
+        logo_img = RLImage(str(_logo), width=logo_w, height=logo_w / 1.374)
+        logo_img.hAlign = 'CENTER'
+        cabecera = Table(
+            [[logo_img],
+             [Paragraph('CLÍNICA DE ORTODONCIA C. RICHARD', subt_blanco)],
+             [Paragraph(TIPOS_DOCUMENTO.get(tipo, 'Consentimiento Informado'), tit_blanco)]],
+            colWidths=[ANCHO])
+    else:
+        cabecera = Table(
+            [[Paragraph('CLÍNICA DE ORTODONCIA C. RICHARD', subt_blanco)],
+             [Paragraph(TIPOS_DOCUMENTO.get(tipo, 'Consentimiento Informado'), tit_blanco)]],
+            colWidths=[ANCHO])
+    cabecera.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), NAVY),
+        ('TOPPADDING', (0, 0), (-1, 0), 14),
+        ('BOTTOMPADDING', (0, -1), (-1, -1), 16),
+        ('TOPPADDING', (0, -1), (-1, -1), 4),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    story.append(cabecera)
+    story.append(Spacer(1, 2))
+    story.append(Table([['']], colWidths=[ANCHO], rowHeights=[3],
+                       style=TableStyle([('BACKGROUND', (0, 0), (-1, -1), GOLD)])))
+    story.append(Spacer(1, 16))
+
+    nota = Table([[Paragraph(
+        '<b>Documento informativo — versión impresa en blanco.</b> Puedes leer con calma este '
+        'consentimiento antes de firmar. La firma se realiza de forma digital, ya sea desde tu '
+        'celular (link enviado por la clínica) o en la tablet de recepción.', label_txt)]],
+        colWidths=[ANCHO])
+    nota.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), BG),
+        ('BOX', (0, 0), (-1, -1), 0.75, GOLD),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(nota)
+    story.append(Spacer(1, 14))
+
+    # ── Cada sección como una "tarjeta": barra navy con el título + cuerpo ────
+    fmt_kwargs = {
+        'tratamiento': '_' * 55,
+        'dentista_actual': '_' * 45,
+    }
+    for titulo_sec, bloques in SECCIONES:
+        barra = Table([[Paragraph(titulo_sec, seccion_txt)]], colWidths=[ANCHO])
+        barra.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), NAVY),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(barra)
+
+        # Párrafos sueltos (no Table) con fondo celeste propio — se parten
+        # solos entre páginas sin riesgo de LayoutError en secciones largas.
+        for sub, texto in bloques:
+            if sub:
+                story.append(Paragraph(sub, subtitulo))
+            story.append(Paragraph(texto.format(**fmt_kwargs), cuerpo))
+        story.append(Spacer(1, 10))
+
+    # ── Sección final: campos en blanco para completar a mano, si se imprime ─
+    barra_final = Table([[Paragraph('Sección Final: Firma y Datos de Confirmación', seccion_txt)]], colWidths=[ANCHO])
+    barra_final.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), NAVY),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(barra_final)
+
+    campos_finales = [
+        f"Nombre del Paciente: {'_' * 45}",
+        f"RUT del Paciente: {'_' * 30}",
+        f"Nombre del Apoderado que firma (solo menores de 18 años): {'_' * 30}",
+        f"Fecha: {'_' * 20}",
+        f"Firma del Paciente/Apoderado: {'_' * 30}",
+    ]
+    for c in campos_finales:
+        story.append(Paragraph(c, cuerpo))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf

@@ -1521,6 +1521,22 @@ def consentimiento_page():
     return send_from_directory('.', 'consentimiento.html')
 
 
+@app.route('/consentimiento/imprimir')
+@rate_limit('20 per minute')
+def consentimiento_pdf_blanco():
+    """Versión 'en blanco' del consentimiento (sin datos de paciente), con el
+    mismo estilo gráfico del formulario web, para que la clínica la imprima y
+    la tenga disponible en recepción. No lleva datos personales — no requiere
+    token ni ADMIN_TOKEN (mismo texto que cualquiera puede leer en /consentimiento)."""
+    from flask import send_file
+    tipo = request.args.get('tipo', 'ortodoncia')
+    if tipo not in consentimientos.TIPOS_DOCUMENTO:
+        return jsonify({'ok': False, 'error': 'tipo de documento desconocido'}), 400
+    buf = consentimientos.generar_pdf_blanco(tipo)
+    return send_file(buf, mimetype='application/pdf', as_attachment=False,
+                     download_name=f'consentimiento-{tipo}-en-blanco.pdf')
+
+
 @app.route('/api/consentimiento/datos', methods=['GET'])
 @rate_limit('30 per minute')
 def consentimiento_datos():
