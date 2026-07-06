@@ -673,10 +673,10 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
   confirmación con `reagenda=True` → usa el texto/plantilla de reagenda en vez de la normal.
   `notify.enviar_confirmacion(..., reagenda=True)` cambia el asunto/título del email y usa la
   plantilla WhatsApp **`reagenda_confirmada`** (params: nombre, doctor, fecha nueva, hora) en
-  vez de `confirmacion_hora`. **Ojo:** en el agendamiento online el canal es email-primero /
-  WhatsApp-fallback (igual que una reserva normal) — el paciente normalmente recibe el EMAIL
-  de reagenda; la plantilla WhatsApp solo se usa si el email falla. Si el update de la cita
-  vieja falla, se loguea pero NO rompe la reserva nueva (que sí quedó hecha).
+  vez de `confirmacion_hora`. **Canal:** el reagendamiento usa `canal='ambos'` (email Y
+  WhatsApp, porque el paciente vino desde WhatsApp) — a diferencia de una reserva normal que
+  es email-primero / WhatsApp-fallback. Si el update de la cita vieja falla, se loguea pero
+  NO rompe la reserva nueva (que sí quedó hecha).
   **Pendiente:** el usuario debe crear y aprobar la plantilla `reagenda_confirmada` en Meta.
   - `server.py`: `GET/POST /api/whatsapp/webhook` — el GET es el handshake que exige Meta
     (`WA_VERIFY_TOKEN`); el POST valida `X-Hub-Signature-256` (HMAC-SHA256 con `WA_APP_SECRET`,

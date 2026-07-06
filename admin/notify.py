@@ -669,6 +669,8 @@ def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False):
            (usado por el agendamiento online y el barrido de confirmaciones).
            'email' | 'whatsapp' = forzado explicitamente (lo usa el asistente
            F2, donde la secretaria elige el canal a mano).
+           'ambos' = email Y WhatsApp (lo usa el reagendamiento: el paciente vino
+           desde WhatsApp, asi que se le avisa por ambos canales).
     reagenda: True cuando la cita nueva viene de un reagendamiento -- usa el
            texto/plantilla 'reagenda_confirmada' en vez de 'confirmacion_hora'.
     Devuelve dict con el canal usado y estado.
@@ -684,6 +686,16 @@ def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False):
     )
 
     cita = {**cita, 'direccion': clin['direccion']}
+
+    if canal == 'ambos':
+        # Reagendamiento: mandar por los dos canales (viene desde WhatsApp).
+        # Se considera OK si al menos uno salio; se reporta cada uno.
+        email_ok = _enviar_email_smtp(cita, ics, reagenda=reagenda)
+        wa_ok, wa_err = _enviar_whatsapp(cita, ics, reagenda=reagenda)
+        canales = [c for c, ok in (('email', email_ok), ('whatsapp', wa_ok)) if ok]
+        return {'ok': bool(canales), 'canal': '+'.join(canales) or None,
+                'email_ok': email_ok, 'whatsapp_ok': wa_ok,
+                'error': None if canales else (wa_err or 'No se pudo enviar por ningún canal')}
 
     if canal == 'whatsapp':
         ok, err = _enviar_whatsapp(cita, ics, reagenda=reagenda)

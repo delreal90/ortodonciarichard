@@ -1021,13 +1021,15 @@ def agenda_reservar():
         else:
             app.logger.warning('id_status_reagendada no configurado -- no se marca la cita %s', reagenda_id)
 
+    # Reagenda: avisar por email Y WhatsApp (el paciente vino desde WhatsApp).
+    # Reserva normal: canal automatico (email primero, WhatsApp de respaldo).
     confirm = notify.enviar_confirmacion({
         'nombre': nombre, 'telefono': telefono_nuevo or data.get('telefono', ''),
         'email': email_notif, 'fecha': fecha,
         'fecha_legible': _fecha_legible(fecha), 'hora': hora,
         'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
         'dur_min': motivo_cfg['duracion_min'],
-    }, cfg, reagenda=es_reagenda)
+    }, cfg, canal=('ambos' if es_reagenda else None), reagenda=es_reagenda)
 
     # Aviso a recepción cuando el motivo lo tiene activado en el panel (ticket
     # "Avisar a recepción"). Independiente de la confirmación al paciente.
