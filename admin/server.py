@@ -1083,6 +1083,7 @@ def whatsapp_test():
         'recordatorio_semana':    lambda: wa_cloud.enviar_recordatorio_semana(tel, nombre, doctor, fecha, hora, id_agenda),
         'recordatorio_dia':       lambda: wa_cloud.enviar_recordatorio_dia(tel, nombre, doctor, fecha, hora, id_agenda),
         'inasistencia_reagendar': lambda: wa_cloud.enviar_inasistencia_reagendar(tel, nombre, fecha, id_agenda),
+        'conversacion_general':   lambda: wa_cloud.enviar_conversacion_general(tel, nombre, data.get('motivo', 'una consulta general')),
     }.get(plantilla)
     if not envio:
         return jsonify({'ok': False, 'error': f'Plantilla no valida: {plantilla}'}), 400
