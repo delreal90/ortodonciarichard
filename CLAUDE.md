@@ -660,10 +660,24 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
     `enviar_texto_libre()` — primer mensaje NO-plantilla del proyecto (solo válido en la
     ventana de 24h que abre el propio toque del botón).
   - `admin/webhook_wa.py` (módulo nuevo): `procesar_evento()` despacha Confirmo/Anular/Reagendar.
-    **Reagendar queda deliberadamente sin automatizar** — solo acusa recibo al paciente +
-    avisa a recepción por email para gestión manual (`notify.avisar_recepcion_reagendar`);
-    la lógica de horarios disponibles queda para una fase futura. Anular sí avisa a recepción
-    al instante (`notify.avisar_recepcion_anulacion`).
+    Anular avisa a recepción al instante (`notify.avisar_recepcion_anulacion`).
+- **Reagendar automático vía agenda online (2026-07-06, opción "reusar la agenda online").**
+  Al tocar **"Reagendar"**, el webhook (`_reagendar`) le manda al paciente un link a la agenda
+  online con el id de su cita vieja codificado en el hash:
+  `https://www.ortodonciarichard.cl/#reagendar=<id_agenda>`. La cita vieja **sigue vigente**
+  hasta que confirme la nueva (así no queda sin hora si abandona). En el frontend
+  (`js/agenda-dentidesk.js`), `_abrirDesdeHash` lee `#reagendar=<id>` → `agenda.reagendaId`, y
+  `confirmarReserva` lo manda como `reagenda_id_agenda` en el POST. En el backend
+  (`/api/agenda/reservar`), si viene ese id: (a) marca la cita vieja como **"Re-agendado"**
+  (`id_status_reagendada=2132` en `scheduling_config.json`) vía `updateAgenda`, (b) envía la
+  confirmación con `reagenda=True` → usa el texto/plantilla de reagenda en vez de la normal.
+  `notify.enviar_confirmacion(..., reagenda=True)` cambia el asunto/título del email y usa la
+  plantilla WhatsApp **`reagenda_confirmada`** (params: nombre, doctor, fecha nueva, hora) en
+  vez de `confirmacion_hora`. **Ojo:** en el agendamiento online el canal es email-primero /
+  WhatsApp-fallback (igual que una reserva normal) — el paciente normalmente recibe el EMAIL
+  de reagenda; la plantilla WhatsApp solo se usa si el email falla. Si el update de la cita
+  vieja falla, se loguea pero NO rompe la reserva nueva (que sí quedó hecha).
+  **Pendiente:** el usuario debe crear y aprobar la plantilla `reagenda_confirmada` en Meta.
   - `server.py`: `GET/POST /api/whatsapp/webhook` — el GET es el handshake que exige Meta
     (`WA_VERIFY_TOKEN`); el POST valida `X-Hub-Signature-256` (HMAC-SHA256 con `WA_APP_SECRET`,
     **fail-closed**: sin secret configurado se rechaza todo) antes de procesar nada — esto

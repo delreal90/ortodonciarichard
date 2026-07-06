@@ -173,6 +173,14 @@ def enviar_confirmacion_hora(telefono, nombre, doctor_nombre, fecha_legible, hor
                               [nombre, doctor_nombre, fecha_legible, hora])
 
 
+def enviar_reagenda_confirmada(telefono, nombre, doctor_nombre, fecha_legible, hora):
+    """Aviso al paciente de que su hora fue reagendada con exito, tras completar
+    la reserva nueva desde el link de reagendar. Plantilla `reagenda_confirmada`
+    con {{1}}=nombre {{2}}=doctor {{3}}=fecha nueva {{4}}=hora nueva."""
+    return _enviar_plantilla(telefono, 'reagenda_confirmada',
+                              [nombre, doctor_nombre, fecha_legible, hora])
+
+
 def enviar_recordatorio_semana(telefono, nombre, doctor_nombre, fecha_legible, hora, id_agenda):
     """id_agenda: se codifica como payload 'semana:{id_agenda}' en los 3 botones
     (Confirmo/Reagendar/Anular) para que el webhook sepa a que cita responde

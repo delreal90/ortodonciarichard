@@ -1004,13 +1004,30 @@ def agenda_reservar():
     telefono_nuevo  = (data.get('telefono_nuevo') or data.get('telefono') or '').strip()
     email_notif     = email_nuevo if ((es_no_soy_yo or es_completar) and '@' in email_nuevo) else email
 
+    # Reagendamiento: si la reserva vino por el link de "Reagendar" de un
+    # recordatorio (#reagendar=<id> -> reagenda_id_agenda), marcamos la cita
+    # VIEJA como "Re-agendado" en DentiDesk ahora que la nueva ya quedó creada.
+    # Solo dígitos (viene del hash de un link nuestro). Si falla el update, se
+    # loguea pero NO se rompe la reserva nueva (que sí quedó hecha).
+    reagenda_id = ''.join(c for c in str(data.get('reagenda_id_agenda') or '') if c.isdigit())
+    es_reagenda = bool(reagenda_id)
+    if es_reagenda:
+        id_status_reag = cfg['dentidesk'].get('id_status_reagendada')
+        if id_status_reag:
+            try:
+                dentidesk.actualizar_estado_cita(reagenda_id, id_status_reag, cfg)
+            except Exception as e:
+                app.logger.error('No se pudo marcar como reagendada la cita %s: %s', reagenda_id, e)
+        else:
+            app.logger.warning('id_status_reagendada no configurado -- no se marca la cita %s', reagenda_id)
+
     confirm = notify.enviar_confirmacion({
         'nombre': nombre, 'telefono': telefono_nuevo or data.get('telefono', ''),
         'email': email_notif, 'fecha': fecha,
         'fecha_legible': _fecha_legible(fecha), 'hora': hora,
         'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
         'dur_min': motivo_cfg['duracion_min'],
-    }, cfg)
+    }, cfg, reagenda=es_reagenda)
 
     # Aviso a recepción cuando el motivo lo tiene activado en el panel (ticket
     # "Avisar a recepción"). Independiente de la confirmación al paciente.
@@ -1037,7 +1054,8 @@ def agenda_reservar():
 
     return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
                     'confirmacion': confirm, 'mock': res.get('mock', False),
-                    'solicitud_cambio': es_no_soy_yo or es_completar})
+                    'solicitud_cambio': es_no_soy_yo or es_completar,
+                    'reagenda': es_reagenda})
 
 @app.route('/api/agenda/confirmaciones/run', methods=['POST'])
 def confirmaciones_run():
@@ -1087,6 +1105,7 @@ def whatsapp_test():
         'consentimiento_informado': lambda: wa_cloud.enviar_consentimiento(
             tel, nombre, data.get('tipo_label', 'Consentimiento de Ortodoncia'),
             data.get('link', 'https://ortodonciarichard.cl/consentimiento?token=PRUEBA')),
+        'reagenda_confirmada':    lambda: wa_cloud.enviar_reagenda_confirmada(tel, nombre, doctor, fecha, hora),
     }.get(plantilla)
     if not envio:
         return jsonify({'ok': False, 'error': f'Plantilla no valida: {plantilla}'}), 400

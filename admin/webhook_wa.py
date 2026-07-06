@@ -13,9 +13,12 @@ Reglas de negocio:
                   + mensaje de agradecimiento al paciente.
   - Anular     -> actualizar_estado_cita() con IdStatus 2122 (Hora Cancelada)
                   + mensaje al paciente + aviso INMEDIATO a recepcion por email.
-  - Reagendar  -> SOLO acuse de recibo al paciente + aviso a recepcion para
-                  gestion manual. Nada de DentiDesk ni logica de horarios
-                  todavia (queda para una fase futura).
+  - Reagendar  -> manda al paciente el link de la agenda online con el id de su
+                  cita vieja codificado en el hash (#reagendar=<id>). Cuando
+                  complete la reserva nueva ahi, /api/agenda/reservar marca la
+                  cita vieja como "Re-agendado" (2132) y le avisa. La cita vieja
+                  se mantiene vigente hasta que confirme la nueva (asi no queda
+                  sin hora si abandona el flujo).
 
 Ignora cualquier evento que no sea un toque de boton (mensajes de texto libre,
 recibos de entrega/lectura, etc.) -- esos se ven manualmente en la bandeja de
@@ -32,6 +35,11 @@ log = logging.getLogger(__name__)
 ACCION_CONFIRMAR = 'Confirmo'
 ACCION_ANULAR = 'Anular'
 ACCION_REAGENDAR = 'Reagendar'
+
+# Link a la agenda online con el id de la cita vieja codificado en el hash.
+# Al completar la reserva nueva, el backend marca esa cita vieja como
+# "Re-agendado" y avisa al paciente (ver /api/agenda/reservar).
+URL_REAGENDA = 'https://www.ortodonciarichard.cl/#reagendar={id_agenda}'
 
 
 def procesar_evento(payload, cfg):
@@ -69,7 +77,7 @@ def _procesar_mensaje(msg, cfg):
     elif texto == ACCION_ANULAR:
         _anular(id_agenda, telefono, cfg)
     elif texto == ACCION_REAGENDAR:
-        _reagendar_placeholder(id_agenda, telefono, cfg)
+        _reagendar(id_agenda, telefono, cfg)
     else:
         log.info('Boton no manejado: %r (cita %s)', texto, id_agenda)
         return False
@@ -104,11 +112,15 @@ def _anular(id_agenda, telefono, cfg):
     notify.avisar_recepcion_anulacion(id_agenda, telefono)
 
 
-def _reagendar_placeholder(id_agenda, telefono, cfg):
-    """Fase futura: por ahora no toca DentiDesk ni ofrece horarios -- solo
-    acusa recibo y deja que recepcion lo gestione a mano."""
+def _reagendar(id_agenda, telefono, cfg):
+    """Le manda al paciente el link de la agenda online con el id de su cita
+    vieja codificado. Cuando complete la reserva nueva ahi, /api/agenda/reservar
+    marca esta cita vieja como 'Re-agendado' y le avisa (ver ese endpoint).
+    No toca DentiDesk aca todavia -- la cita vieja sigue vigente hasta que el
+    paciente concrete la nueva (asi no queda sin hora si abandona el flujo)."""
+    link = URL_REAGENDA.format(id_agenda=id_agenda)
     notify.enviar_texto_libre(
         telefono,
-        'Recibimos su solicitud para reagendar. Nos pondremos en contacto a la brevedad para coordinar un nuevo horario.'
+        'Para reagendar su hora, elija un nuevo horario en el siguiente enlace. '
+        'Su hora actual se mantiene hasta que confirme la nueva:\n\n' + link
     )
-    notify.avisar_recepcion_reagendar(id_agenda, telefono)

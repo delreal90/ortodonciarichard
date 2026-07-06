@@ -32,8 +32,13 @@ import wa_cloud
 
 # ── Email (primario) ─────────────────────────────────────────────────────────
 
-def _html_confirmacion(cita):
-    """HTML del cuerpo del email de confirmacion."""
+def _html_confirmacion(cita, reagenda=False):
+    """HTML del cuerpo del email de confirmacion. reagenda=True cambia el titulo
+    y la bajada para un reagendamiento ('tu hora fue reagendada con exito')."""
+    titulo = '¡Tu hora fue reagendada con éxito!' if reagenda else '¡Tu hora quedó agendada!'
+    bajada = ('Hola <strong>' + cita['nombre'] + '</strong>, tu hora anterior quedó anulada '
+              'y tu nueva cita quedó agendada con los siguientes datos:') if reagenda else \
+             ('Hola <strong>' + cita['nombre'] + '</strong>, confirmamos tu cita con los siguientes datos:')
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -47,14 +52,14 @@ def _html_confirmacion(cita):
   <tr>
     <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
       <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
-      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">¡Tu hora quedó agendada!</h1>
+      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">{titulo}</h1>
     </td>
   </tr>
 
   <!-- Detalles -->
   <tr>
     <td style="padding:32px 32px 24px;">
-      <p style="margin:0 0 24px;color:#4A5568;font-size:15px;">Hola <strong>{cita['nombre']}</strong>, confirmamos tu cita con los siguientes datos:</p>
+      <p style="margin:0 0 24px;color:#4A5568;font-size:15px;">{bajada}</p>
 
       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
         <tr style="background:#f8fafc;">
@@ -112,7 +117,7 @@ def _html_confirmacion(cita):
 </html>"""
 
 
-def _enviar_email_smtp(cita, ics):
+def _enviar_email_smtp(cita, ics, reagenda=False):
     """Email principal: smtplib con .ics adjunto (Gmail App Password)."""
     smtp_user = os.getenv('SMTP_USER', '').strip()
     smtp_pass = os.getenv('SMTP_PASS', '').strip()
@@ -123,10 +128,11 @@ def _enviar_email_smtp(cita, ics):
     msg = MIMEMultipart('mixed')
     msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
     msg['To'] = dest
-    msg['Subject'] = f"Confirmación de hora — {cita['fecha_legible']} {cita['hora']} hrs"
+    asunto = 'Hora reagendada' if reagenda else 'Confirmación de hora'
+    msg['Subject'] = f"{asunto} — {cita['fecha_legible']} {cita['hora']} hrs"
     msg['Reply-To'] = smtp_user
 
-    msg.attach(MIMEText(_html_confirmacion(cita), 'html', 'utf-8'))
+    msg.attach(MIMEText(_html_confirmacion(cita, reagenda=reagenda), 'html', 'utf-8'))
 
     # .ics como adjunto — Gmail/iOS/Outlook muestran "Agregar al calendario"
     ics_part = MIMEBase('text', 'calendar', method='PUBLISH', charset='utf-8')
@@ -150,16 +156,17 @@ def _enviar_email_smtp(cita, ics):
 
 # ── WhatsApp (fallback, Cloud API oficial) ───────────────────────────────────
 
-def _enviar_whatsapp(cita, ics):
-    """Fallback: WhatsApp Cloud API con la plantilla 'confirmacion_hora'.
-    Sin adjunto (las plantillas de Meta no llevan .ics); solo texto.
-    Devuelve (ok: bool, error: str|None) — el error se propaga hasta F2 para
-    que la secretaria vea la causa real (token vencido, sin telefono, etc.)
-    en vez de un mensaje generico."""
+def _enviar_whatsapp(cita, ics, reagenda=False):
+    """Fallback: WhatsApp Cloud API con la plantilla 'confirmacion_hora'
+    (o 'reagenda_confirmada' si reagenda=True). Sin adjunto (las plantillas
+    de Meta no llevan .ics); solo texto. Devuelve (ok: bool, error: str|None)
+    — el error se propaga hasta F2 para que la secretaria vea la causa real
+    (token vencido, sin telefono, etc.) en vez de un mensaje generico."""
     if not cita.get('telefono'):
         return False, 'La cita no tiene teléfono registrado'
+    envio = wa_cloud.enviar_reagenda_confirmada if reagenda else wa_cloud.enviar_confirmacion_hora
     try:
-        resultado = wa_cloud.enviar_confirmacion_hora(
+        resultado = envio(
             telefono=cita['telefono'],
             nombre=cita['nombre'],
             doctor_nombre=cita['doctor_nombre'],
@@ -653,7 +660,7 @@ def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento
 
 # ── Punto de entrada ─────────────────────────────────────────────────────────
 
-def enviar_confirmacion(cita, cfg=None, canal=None):
+def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False):
     """
     Envía confirmacion de cita al paciente.
     cita: dict con nombre, telefono, email, fecha (date), fecha_legible, hora,
@@ -662,6 +669,8 @@ def enviar_confirmacion(cita, cfg=None, canal=None):
            (usado por el agendamiento online y el barrido de confirmaciones).
            'email' | 'whatsapp' = forzado explicitamente (lo usa el asistente
            F2, donde la secretaria elige el canal a mano).
+    reagenda: True cuando la cita nueva viene de un reagendamiento -- usa el
+           texto/plantilla 'reagenda_confirmada' en vez de 'confirmacion_hora'.
     Devuelve dict con el canal usado y estado.
     """
     cfg = cfg or load_config()
@@ -677,20 +686,20 @@ def enviar_confirmacion(cita, cfg=None, canal=None):
     cita = {**cita, 'direccion': clin['direccion']}
 
     if canal == 'whatsapp':
-        ok, err = _enviar_whatsapp(cita, ics)
+        ok, err = _enviar_whatsapp(cita, ics, reagenda=reagenda)
         if ok:
             return {'ok': True, 'canal': 'whatsapp'}
         return {'ok': False, 'canal': None, 'error': err or 'No se pudo enviar por WhatsApp'}
 
     if canal == 'email':
-        if _enviar_email_smtp(cita, ics):
+        if _enviar_email_smtp(cita, ics, reagenda=reagenda):
             return {'ok': True, 'canal': 'email'}
         return {'ok': False, 'canal': None, 'error': 'No se pudo enviar el email'}
 
     # Automatico (online / barrido): email primero, WhatsApp de respaldo
-    if _enviar_email_smtp(cita, ics):
+    if _enviar_email_smtp(cita, ics, reagenda=reagenda):
         return {'ok': True, 'canal': 'email'}
-    ok, _err = _enviar_whatsapp(cita, ics)
+    ok, _err = _enviar_whatsapp(cita, ics, reagenda=reagenda)
     if ok:
         return {'ok': True, 'canal': 'whatsapp'}
 

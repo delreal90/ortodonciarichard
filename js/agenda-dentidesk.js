@@ -28,6 +28,7 @@ const agenda = {
   },
   dias: [],
   prefetch: {},   // cache de promesas de disponibilidad por doctor|motivo
+  reagendaId: null,  // id_agenda de la cita vieja si se llegó por el link de reagendar
 };
 
 async function agendaApi(path, opts) {
@@ -723,6 +724,7 @@ async function confirmarReserva() {
           telefono_nuevo: s.datos.telefono || '',
         }),
         ...(s.completarDatos && { es_completar_datos: true }),
+        ...(agenda.reagendaId && { reagenda_id_agenda: agenda.reagendaId }),
         captcha_token: agenda.captchaToken || '',
       }),
     });
@@ -739,11 +741,13 @@ function pasoExito(r) {
   const extraMsg = r.solicitud_cambio
     ? ' También notificamos a la clínica tu solicitud de actualizar tus datos de contacto.'
     : '';
+  const titulo = r.reagenda ? '¡Tu hora fue reagendada!' : '¡Tu hora quedó agendada!';
+  const introReag = r.reagenda ? 'Tu hora anterior quedó anulada. ' : '';
   setBody(`<div class="agenda-final ok">
     <i class="fas fa-circle-check"></i>
-    <h3>¡Tu hora quedó agendada!</h3>
+    <h3>${titulo}</h3>
     <p>${s.doctorNombre}<br>${s.fechaLegible} · ${s.hora} hrs</p>
-    <p class="agenda-mini">Te enviamos un email de confirmación con un archivo para agregar la cita a tu calendario${r.mock ? ' (modo demo)' : ''}.${extraMsg}</p>
+    <p class="agenda-mini">${introReag}Te enviamos un email de confirmación con un archivo para agregar la cita a tu calendario${r.mock ? ' (modo demo)' : ''}.${extraMsg}</p>
     <button class="btn btn-primary" onclick="cerrarAgenda()">Listo</button>
   </div>`);
 }
@@ -773,8 +777,17 @@ window.cerrarAgenda = cerrarAgenda;
 
 // Link directo: ortodonciarichard.cl/#reservar (o #agendar) abre el agendamiento
 // al instante. Ideal para el sticker de link de historias o el link de la bio.
+// #reagendar=<id_agenda> abre igual, pero marca esta sesión como reagendamiento:
+// al completar la reserva, el backend marca la cita vieja como "Re-agendado".
 function _abrirDesdeHash() {
-  if (/^#(reservar|agendar)/i.test(location.hash || '')) abrirAgenda();
+  const hash = location.hash || '';
+  const reag = hash.match(/^#reagendar=(\d+)/i);
+  if (reag) {
+    agenda.reagendaId = reag[1];
+    abrirAgenda();
+  } else if (/^#(reservar|agendar)/i.test(hash)) {
+    abrirAgenda();
+  }
 }
 window.addEventListener('load', _abrirDesdeHash);
 window.addEventListener('hashchange', _abrirDesdeHash);
