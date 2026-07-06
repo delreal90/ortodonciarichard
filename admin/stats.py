@@ -149,6 +149,28 @@ def resumen(desde=None, hasta=None):
     }
 
 
+def ultimos(n=20):
+    """Las N reservas mas recientes (por 'ts'), para revisar/depurar el registro
+    desde el panel. 'ts' se usa como identificador para eliminar()."""
+    eventos = _leer()
+    eventos.sort(key=lambda e: e.get('ts', ''), reverse=True)
+    return eventos[:n]
+
+
+def eliminar(ts):
+    """Elimina del log todas las entradas cuyo 'ts' coincida exactamente (sirve
+    para sacar una reserva de prueba que distorsiona las estadisticas). Devuelve
+    cuantas se eliminaron."""
+    eventos = _leer()
+    restantes = [e for e in eventos if e.get('ts') != ts]
+    eliminados = len(eventos) - len(restantes)
+    if eliminados:
+        with open(STATS_PATH, 'w', encoding='utf-8') as f:
+            for e in restantes:
+                f.write(json.dumps(e, ensure_ascii=False) + '\n')
+    return eliminados
+
+
 # ── Embudo de agendamiento (dónde abandonan los pacientes) ────────────────────
 
 def registrar_evento(sesion, paso, latency_ms=None):

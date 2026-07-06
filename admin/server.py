@@ -1187,6 +1187,35 @@ def agenda_stats():
                     **_stats.resumen(desde=desde, hasta=hasta),
                     'funnel': _stats.resumen_funnel(desde=desde, hasta=hasta)})
 
+@app.route('/api/agenda/stats/citas', methods=['GET'])
+def agenda_stats_citas():
+    """Ultimas N reservas registradas (protegido por ADMIN_TOKEN), para revisar
+    o eliminar del registro una reserva de prueba que altera las estadisticas.
+    ?n=20 (default 20)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import stats as _stats
+    try:
+        n = min(max(int(request.args.get('n', 20)), 1), 200)
+    except ValueError:
+        n = 20
+    return jsonify({'ok': True, 'citas': _stats.ultimos(n)})
+
+@app.route('/api/agenda/stats/citas', methods=['DELETE'])
+def agenda_stats_citas_eliminar():
+    """Elimina una reserva del registro de estadisticas por su 'ts' (protegido
+    por ADMIN_TOKEN). No toca DentiDesk ni la agenda real -- solo el archivo de
+    estadisticas locales."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import stats as _stats
+    data = request.json or {}
+    ts = (data.get('ts') or '').strip()
+    if not ts:
+        return jsonify({'ok': False, 'error': 'Falta ts'}), 400
+    eliminados = _stats.eliminar(ts)
+    return jsonify({'ok': True, 'eliminados': eliminados})
+
 @app.route('/api/scheduling-config', methods=['GET'])
 def get_scheduling_config():
     """Para el panel admin: devuelve doctores, motivos, especialidades y reglas."""

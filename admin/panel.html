@@ -221,6 +221,12 @@
       </div>
 
       <div id="stats-resultado"></div>
+
+      <div class="card" style="margin-top:18px">
+        <h3 style="margin-bottom:4px">Últimas reservas</h3>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:12px">Las 20 más recientes. Elimina alguna si fue una prueba y está alterando las estadísticas de arriba (no afecta la agenda real ni DentiDesk).</p>
+        <div id="stats-ultimas">Carga la conexión para ver las reservas.</div>
+      </div>
     </div>
 
     <!-- ── CONSENTIMIENTOS ─────────────────────────────────────── -->
@@ -481,6 +487,70 @@ async function loadStats() {
   }
   if (!d.ok) { cont.innerHTML = '<div class="card" style="color:#e53e3e">Error al cargar las estadísticas.</div>'; return; }
   renderStats(d);
+  loadUltimasCitas();
+}
+
+async function loadUltimasCitas() {
+  const url   = document.getElementById('stats-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('stats-token').value.trim();
+  const cont  = document.getElementById('stats-ultimas');
+  if (!cont) return;
+  cont.innerHTML = 'Cargando…';
+  try {
+    const r = await fetch(url + '/api/agenda/stats/citas?n=20', { headers: { 'X-Admin-Token': token } });
+    const d = await r.json();
+    if (!d.ok) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar.</p>'; return; }
+    renderUltimasCitas(d.citas);
+  } catch (e) {
+    cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar.</p>';
+  }
+}
+
+function renderUltimasCitas(citas) {
+  const cont = document.getElementById('stats-ultimas');
+  if (!citas || !citas.length) { cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin reservas aún.</p>'; return; }
+  const filas = citas.map(c => `
+    <tr>
+      <td style="padding:6px 8px;font-size:.82rem">${(c.ts || '').replace('T', ' ')}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${c.fecha || '—'} ${c.hora || ''}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${c.doctor_nombre || '—'}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${c.motivo_label || '—'}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${c.paciente_conocido ? 'Conocido' : 'Nuevo'}</td>
+      <td style="padding:6px 8px"><button class="btn" style="padding:4px 10px;font-size:.78rem;color:#e53e3e;border-color:#e53e3e" onclick="eliminarCita('${c.ts}', this)">Eliminar</button></td>
+    </tr>`).join('');
+  cont.innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:2px solid #edf2f7;text-align:left">
+        <th style="padding:6px 8px;font-size:.78rem;color:#718096">Registrado</th>
+        <th style="padding:6px 8px;font-size:.78rem;color:#718096">Cita</th>
+        <th style="padding:6px 8px;font-size:.78rem;color:#718096">Doctor</th>
+        <th style="padding:6px 8px;font-size:.78rem;color:#718096">Motivo</th>
+        <th style="padding:6px 8px;font-size:.78rem;color:#718096">Paciente</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>`;
+}
+
+async function eliminarCita(ts, btn) {
+  if (!confirm('¿Eliminar esta reserva del registro de estadísticas? No afecta la agenda real ni DentiDesk, solo las estadísticas.')) return;
+  const url   = document.getElementById('stats-url').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('stats-token').value.trim();
+  btn.disabled = true; btn.textContent = 'Eliminando…';
+  try {
+    const r = await fetch(url + '/api/agenda/stats/citas', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+      body: JSON.stringify({ ts })
+    });
+    const d = await r.json();
+    if (!d.ok || !d.eliminados) { toast('No se pudo eliminar', false); btn.disabled = false; btn.textContent = 'Eliminar'; return; }
+    toast('Eliminada del registro');
+    loadStats();
+  } catch (e) {
+    toast('No se pudo conectar', false);
+    btn.disabled = false; btn.textContent = 'Eliminar';
+  }
 }
 
 function _barras(items, color) {
