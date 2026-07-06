@@ -612,14 +612,41 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
     explícita — no se precargó ninguna fecha).
   - Probado end-to-end contra `admin/server.py` local con Flask test client + preview de
     navegador (carga, guarda, persiste, indicador de estado). Falta probar contra Render real.
-- **Fase 6 — Webhook: Confirmo/Anular actualizan DentiDesk al instante (2026-07-03, código
-  listo, pendiente probar `updateAgenda` en vivo).** Antes de esta fase, tocar un botón de
-  WhatsApp no hacía nada del lado del sistema. Ahora:
+- **Fase 6 — Webhook: Confirmo/Anular actualizan DentiDesk al instante (COMPLETA y verificada
+  en vivo el 2026-07-06).** Antes de esta fase, tocar un botón de WhatsApp no hacía nada del
+  lado del sistema. Probado dos veces end-to-end con la cita de prueba real (IdAgenda
+  `13389698`, RUT 17.406.985-9): tocar "Anular" en WhatsApp pasó el `IdStatus` de `2120`
+  (No confirmado) a `2122` (Hora Cancelada) automáticamente en DentiDesk, con respuesta al
+  paciente y aviso a recepción.
   - `admin/dentidesk.py`: `actualizar_estado_cita(id_agenda, id_status, cfg)` — primer uso de
     `updateAgenda.php` en el proyecto (antes solo existían `createAgenda`/`getAgendaDay`/
-    `getAvailableHours`). **Dio 401 Unauthorized en la prueba con IDs de cita inventados** —
-    hay que resolverlo con el formato real antes de confiar en el flujo (probar con una cita
-    de prueba propia, nunca la de un paciente real).
+    `getAvailableHours`). Requiere Basic Auth además del Token JWT (mismo email/password del
+    login) — sin eso da 401.
+  - **Tres causas reales encontradas y resueltas para que el webhook entregara eventos:**
+    1. Plantillas recién creadas en la WABA quedan en "calidad pendiente" — el envío devuelve
+       `message_status:"accepted"` (retenido para evaluación) en vez de entrega inmediata;
+       se resuelve solo con el uso (minutos/horas, no días).
+    2. La app de Meta debe estar **publicada** ("Publicar" en la barra lateral del App
+       Dashboard) — mientras esté "Sin publicar", los eventos reales de webhook (toques de
+       botón) nunca se entregan, solo las pruebas manuales desde el panel. Publicar exige
+       Categoría, Ícono y URL de Política de Privacidad (creada en
+       `https://www.ortodonciarichard.cl/privacidad.html`, enlazada desde el footer del sitio).
+    3. **La causa final y más sutil:** configurar la URL/token/campos del webhook a nivel de
+       App **no alcanza** — cada WABA debe tener la app suscrita explícitamente vía el edge
+       `/{waba_id}/subscribed_apps` de la Graph API. Se diagnosticó con un GET a ese edge
+       (devolvía `"data":[]`, vacío) y se arregló con un POST al mismo edge.
+  - **Herramientas de diagnóstico agregadas a `server.py` (protegidas por `ADMIN_TOKEN`,
+    se dejan a propósito para el futuro — útiles si se agrega otro número/WABA):**
+    - `POST /api/whatsapp/test` — envía cualquiera de las 7 plantillas a un teléfono
+      arbitrario (`{telefono, plantilla, nombre, doctor, fecha, hora, id_agenda, motivo,
+      tipo_label, link}` según la plantilla).
+    - `POST /api/whatsapp/test-texto-libre` — mensaje de texto libre (no plantilla), solo
+      funciona dentro de la ventana de 24h; sirve para descartar problemas de plantilla vs.
+      conectividad/número.
+    - `GET/POST /api/whatsapp/subscribed-apps?waba_id=...` — consulta o corrige la
+      suscripción de la app a una WABA (el fix de la causa #3 de arriba). Si en el futuro se
+      conecta un número/WABA nuevo y el webhook "no hace nada", **este es el primer lugar a
+      revisar**.
   - IDs de estado reales (diccionario oficial DentiDesk 16-06-2026, en `scheduling_config.json`
     → `dentidesk`): `id_status_confirmado_semana=40968` ("1 SEMANA Confirmado por WhatsApp",
     para Confirmo tocado desde `recordatorio_semana`), `id_status_confirmado_whatsapp=32180`
@@ -641,10 +668,10 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
     (`WA_VERIFY_TOKEN`); el POST valida `X-Hub-Signature-256` (HMAC-SHA256 con `WA_APP_SECRET`,
     **fail-closed**: sin secret configurado se rechaza todo) antes de procesar nada — esto
     puede anular citas reales, así que la firma NO es opcional.
-  - `WA_APP_SECRET` ya lo pegó el usuario en Render (deployado). Falta generar y pegar
-    **`WA_VERIFY_TOKEN`** + configurar el webhook en el panel de Meta (WhatsApp → Configuración
-    → Webhook → URL `https://ortodonciarichard.onrender.com/api/whatsapp/webhook`, mismo
-    verify token, suscribirse a `messages`).
+  - `WA_APP_SECRET` y `WA_VERIFY_TOKEN` configurados en Render; webhook configurado en el
+    panel de Meta (WhatsApp → Configuración → Webhook → URL
+    `https://ortodonciarichard.onrender.com/api/whatsapp/webhook`, campo `messages` suscrito)
+    y la app suscrita a la WABA real (ver causa #3 arriba).
   - ⚠️ **Cuidado al probar localmente:** cualquier test que pase por `webhook_wa.procesar_evento`
     o por `server.py` con `scheduling.load_config()` normal usa las credenciales reales de
     DentiDesk si están activas en `scheduling_secrets.json` local — para probar sin tocar
