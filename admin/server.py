@@ -1084,6 +1084,9 @@ def whatsapp_test():
         'recordatorio_dia':       lambda: wa_cloud.enviar_recordatorio_dia(tel, nombre, doctor, fecha, hora, id_agenda),
         'inasistencia_reagendar': lambda: wa_cloud.enviar_inasistencia_reagendar(tel, nombre, fecha, id_agenda),
         'conversacion_general':   lambda: wa_cloud.enviar_conversacion_general(tel, nombre, data.get('motivo', 'una consulta general')),
+        'consentimiento_informado': lambda: wa_cloud.enviar_consentimiento(
+            tel, nombre, data.get('tipo_label', 'Consentimiento de Ortodoncia'),
+            data.get('link', 'https://ortodonciarichard.cl/consentimiento?token=PRUEBA')),
     }.get(plantilla)
     if not envio:
         return jsonify({'ok': False, 'error': f'Plantilla no valida: {plantilla}'}), 400
