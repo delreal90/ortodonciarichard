@@ -1093,6 +1093,25 @@ def whatsapp_test():
     except wa_cloud.WhatsAppCloudError as e:
         return jsonify({'ok': False, 'error': str(e)}), 502
 
+@app.route('/api/whatsapp/test-texto-libre', methods=['POST'])
+def whatsapp_test_texto_libre():
+    """Envia un mensaje de TEXTO LIBRE (no plantilla) de diagnostico (protegido
+    por ADMIN_TOKEN). Solo funciona si el destinatario escribio a la clinica
+    en las ultimas 24h (ventana de servicio al cliente) -- sirve para descartar
+    problemas especificos de plantillas vs. problemas de conectividad/numero."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    tel = (data.get('telefono') or '').strip()
+    texto = (data.get('texto') or 'Mensaje de prueba (texto libre) - Ortodoncia Richard').strip()
+    if not tel:
+        return jsonify({'ok': False, 'error': 'Falta telefono'}), 400
+    try:
+        res = wa_cloud.enviar_texto_libre(tel, texto)
+        return jsonify({'ok': True, 'resultado': res})
+    except wa_cloud.WhatsAppCloudError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
 @rate_limit('20 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
 def agenda_citas_futuras():
