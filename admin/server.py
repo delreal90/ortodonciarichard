@@ -1116,6 +1116,32 @@ def whatsapp_test_texto_libre():
     except wa_cloud.WhatsAppCloudError as e:
         return jsonify({'ok': False, 'error': str(e)}), 502
 
+@app.route('/api/whatsapp/subscribed-apps', methods=['GET', 'POST'])
+def whatsapp_subscribed_apps():
+    """Diagnostico (protegido por ADMIN_TOKEN): consulta (GET) o suscribe (POST)
+    la app actual a los webhooks de una WABA especifica via /subscribed_apps.
+    Configurar la URL/token del webhook a nivel de app NO alcanza -- cada WABA
+    debe tener la app suscrita explicitamente ahi para que reenvie sus eventos."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json if request.method == 'POST' else request.args
+    waba_id = (data.get('waba_id') or '').strip()
+    if not waba_id:
+        return jsonify({'ok': False, 'error': 'Falta waba_id'}), 400
+    cfg = wa_cloud._config()
+    if not cfg['token']:
+        return jsonify({'ok': False, 'error': 'Falta WA_TOKEN'}), 400
+    url = f"https://graph.facebook.com/{cfg['api_version']}/{waba_id}/subscribed_apps"
+    headers = {'Authorization': f"Bearer {cfg['token']}"}
+    try:
+        if request.method == 'GET':
+            resp = wa_cloud.requests.get(url, headers=headers, timeout=10)
+        else:
+            resp = wa_cloud.requests.post(url, headers=headers, timeout=10)
+        return jsonify({'ok': resp.status_code < 400, 'status_code': resp.status_code, 'body': resp.json()})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
 @rate_limit('20 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
 def agenda_citas_futuras():
