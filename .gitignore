@@ -27,3 +27,8 @@ admin/consentimientos_firmados/
 # Viven en el disco persistente de Render (no en git) para tomar efecto sin deploy.
 admin/wa_recordatorios_config.json
 admin/wa_recordatorios_enviados.json
+
+# Datos de runtime en local (se generan al probar; en Render viven en disco persistente)
+admin/agendamientos.jsonl
+admin/confirmaciones_enviadas.json
+admin/eventos.jsonl
