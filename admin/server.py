@@ -1781,15 +1781,42 @@ def consentimiento_enviar():
     rut = (data.get('rut') or '').strip()
     tipo = (data.get('tipo') or 'ortodoncia').strip()
     canal = (data.get('canal') or '').strip()
+    id_agenda = str(data.get('id_agenda', '')).strip()
+    fecha_str = (data.get('fecha') or '').strip()
     if canal not in ('mail', 'whatsapp', 'tablet'):
         return jsonify({'ok': False, 'error': "canal debe ser 'mail', 'whatsapp' o 'tablet'"}), 400
     if tipo not in consentimientos.TIPOS_DOCUMENTO:
         return jsonify({'ok': False, 'error': f'tipo de documento desconocido: {tipo}'}), 400
 
+    cfg = scheduling.load_config()
     import pacientes as _pacientes
-    rec = _pacientes.lookup(rut)
+
+    # Contacto del paciente: preferir DentiDesk FRESCO (via id_agenda+fecha, igual
+    # que /confirmar-cita) para tomar telefono/email recien agregados en la ficha;
+    # si no se puede, caer a la base local (que se sincroniza 2x/dia). Antes solo
+    # usaba la base local -> si el dato era recien agregado, fallaba.
+    rec = None
+    if id_agenda and fecha_str and cfg['dentidesk']['enabled']:
+        try:
+            _fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+            _cita = next((c for c in dentidesk._get_agenda_day(cfg, _fecha, force=True)
+                          if str(c.get('IdAgenda', '')) == id_agenda), None)
+            if _cita:
+                _nom, _ape = _pacientes._split_nombre(_cita.get('PatientName', ''))
+                rec = {'nombres': _nom, 'apellidos': _ape,
+                       'email': (_cita.get('PatientEmail') or '').strip(),
+                       'telefono': (_cita.get('Phone') or '').strip()}
+                if not rut:
+                    rut = _pacientes._limpiar_rut(str(_cita.get('PatientDocument', '')))
+        except Exception as e:
+            app.logger.warning('consentimiento: no se pudo leer DentiDesk fresco (%s); uso base local', e)
+
+    if rec is None:
+        rec = _pacientes.lookup(rut)
     if not rec:
-        return jsonify({'ok': False, 'error': 'Paciente no encontrado en la base local'}), 404
+        return jsonify({'ok': False, 'error': 'Paciente no encontrado. Verifica el RUT en DentiDesk.'}), 404
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT del paciente'}), 400
 
     consent_id = consentimientos.crear_registro(rut, tipo, canal)
 
