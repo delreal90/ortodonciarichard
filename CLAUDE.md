@@ -243,6 +243,12 @@ admin/confirmaciones.py       ← barrido de citas presenciales/teléfono (4 cic
 admin/server.py               ← rutas Flask: /api/agenda/config|disponibilidad|reservar,
                                  /api/scheduling-config, /api/asistente/confirmar-cita (F2),
                                  y el scheduler (_loop_confirmaciones + refresco pacientes)
+                                 · /disponibilidad acepta min_dias (2026-07-07): el servidor
+                                 escanea lotes de 6 días en paralelo hasta juntar N días CON
+                                 horas (tope 30/request). Antes el frontend paginaba en serie
+                                 (2-3s por página fría; el JWT de DentiDesk es de UN SOLO USO
+                                 —verificado en vivo— así que cada consulta son 2 round-trips)
+                                 y con doctores de pocos días la mediana real era 7.5s.
 js/agenda-dentidesk.js        ← modal de 4 pasos (motivo→doctor→fecha/hora→datos)
 index.html                    ← botón "Agendar hora online" + markup del modal
 admin/panel.html              ← sección "Agenda online" para ajustar % de ocupación
