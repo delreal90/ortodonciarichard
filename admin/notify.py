@@ -611,6 +611,11 @@ def enviar_copia_consentimiento(paciente, pdf_path, tipo_label='consentimiento i
     msg = MIMEMultipart('mixed')
     msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
     msg['To'] = dest
+    # Copia a recepcion (SMTP_USER = recepcion@ortodonciarichard.cl) para que la
+    # clinica reciba tambien el PDF firmado, sin depender de revisar la bandeja.
+    cc_recepcion = smtp_user if smtp_user.lower() != dest.lower() else ''
+    if cc_recepcion:
+        msg['Cc'] = cc_recepcion
     msg['Subject'] = f'Copia de tu {tipo_label} — Ortodoncia Richard'
     msg['Reply-To'] = smtp_user
     msg.attach(MIMEText(_html_copia_consentimiento(nombre, tipo_label), 'html', 'utf-8'))
@@ -629,10 +634,11 @@ def enviar_copia_consentimiento(paciente, pdf_path, tipo_label='consentimiento i
 
     try:
         ctx = ssl.create_default_context()
+        destinatarios = [dest] + ([cc_recepcion] if cc_recepcion else [])
         with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
             s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
-            s.sendmail(smtp_user, [dest], msg.as_bytes())
-        log.info('Copia de consentimiento enviada a %s', dest)
+            s.sendmail(smtp_user, destinatarios, msg.as_bytes())
+        log.info('Copia de consentimiento enviada a %s (cc %s)', dest, cc_recepcion or '—')
         return {'ok': True, 'canal': 'email'}
     except Exception as e:
         log.error('SMTP copia consentimiento error: %s', e)
