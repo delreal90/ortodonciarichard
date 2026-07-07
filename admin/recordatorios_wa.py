@@ -3,10 +3,14 @@ recordatorios_wa.py - Recordatorios automaticos por WhatsApp (Ortodoncia Richard
 
 Tres avisos, cada uno con su propio toggle activo/inactivo y hora de envio
 (configurables desde el panel admin, pestania "WhatsApp"):
-  - recordatorio_semana:    cita en exactamente 7 dias
-  - recordatorio_dia:       cita en el proximo dia habil (salta fin de semana
-                             y feriados -- ver scheduling.siguiente_dia_habil_con_feriados)
+  - recordatorio_semana:    cita en 4 dias habiles (lunes-viernes; ignora feriados)
+  - recordatorio_dia:       cita en el proximo dia habil (salta fin de semana;
+                             ignora feriados)
   - inasistencia_reagendar: citas marcadas "no llega" en DentiDesk (ayer/hoy)
+
+Los recordatorios semana/dia solo se envian en dias habiles (lunes-viernes):
+si el loop cae en fin de semana, no mandan nada (la clinica no atiende y el
+registro anti-duplicados evitaria reenvios de todos modos).
 
 Corre desde _loop_recordatorios() en server.py, a la hora que cada tipo tenga
 configurada. Registro anti-duplicados propio (no reusa el de confirmaciones.py,
@@ -40,7 +44,6 @@ _DEFAULT_CONFIG = {
     'recordatorio_semana':    {'activo': False, 'hora': '09:00'},
     'recordatorio_dia':       {'activo': False, 'hora': '09:00'},
     'inasistencia_reagendar': {'activo': False, 'hora': '12:00'},
-    'feriados': [],
 }
 
 _DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
@@ -52,7 +55,7 @@ def _fecha_legible(d):
     return f'{_DIAS[d.weekday()]} {d.day} de {_MESES[d.month - 1]}'
 
 
-# ── Config (activo/hora por tipo + feriados) ────────────────────────────────
+# ── Config (activo/hora por tipo) ───────────────────────────────────────────
 
 def load_config():
     data = {}
@@ -69,14 +72,12 @@ def load_config():
             hora = str(data[k].get('hora', '')).strip()
             if len(hora) == 5 and hora[2] == ':':
                 cfg[k]['hora'] = hora
-    if isinstance(data.get('feriados'), list):
-        cfg['feriados'] = [str(f).strip() for f in data['feriados'] if str(f).strip()]
     return cfg
 
 
 def save_config(updates):
-    """Actualiza solo los campos recibidos (activo/hora por tipo, feriados);
-    preserva el resto -- mismo criterio que server.set_scheduling_config()."""
+    """Actualiza solo los campos recibidos (activo/hora por tipo); preserva el
+    resto -- mismo criterio que server.set_scheduling_config()."""
     with _LOCK:
         cfg = load_config()
         for k in ('recordatorio_semana', 'recordatorio_dia', 'inasistencia_reagendar'):
@@ -89,8 +90,6 @@ def save_config(updates):
                 hora = str(cambios['hora']).strip()
                 if len(hora) == 5 and hora[2] == ':':
                     cfg[k]['hora'] = hora
-        if 'feriados' in updates:
-            cfg['feriados'] = [str(f).strip() for f in (updates['feriados'] or []) if str(f).strip()]
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp = CONFIG_PATH.with_suffix('.json.tmp')
         tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -172,15 +171,22 @@ def _procesar_dia(cfg, target_date, tipo, fn_envio, incluir_doctor):
 
 
 def enviar_recordatorios_semana(cfg, hoy=None):
-    """Cita en exactamente 7 dias -> recordatorio_semana."""
-    target = (hoy or date.today()) + timedelta(days=7)
+    """Cita en 4 dias habiles (lunes-viernes, ignora feriados) -> recordatorio_semana.
+    Solo envia si HOY es dia habil (si cae fin de semana, no manda)."""
+    hoy = hoy or date.today()
+    if hoy.isoweekday() >= 6:
+        return {'ok': True, 'enviadas': 0, 'citas': 0, 'omitido': 'fin de semana'}
+    target = scheduling.sumar_dias_habiles(hoy, 4)
     return _procesar_dia(cfg, target, 'semana', notify.enviar_recordatorio_semana, incluir_doctor=True)
 
 
-def enviar_recordatorios_dia(cfg, feriados, hoy=None):
-    """Proximo dia habil (salta fin de semana + feriados) -> recordatorio_dia."""
+def enviar_recordatorios_dia(cfg, hoy=None):
+    """Proximo dia habil (salta fin de semana; ignora feriados) -> recordatorio_dia.
+    Solo envia si HOY es dia habil (si cae fin de semana, no manda)."""
     hoy = hoy or date.today()
-    target = scheduling.siguiente_dia_habil_con_feriados(hoy + timedelta(days=1), feriados)
+    if hoy.isoweekday() >= 6:
+        return {'ok': True, 'enviadas': 0, 'citas': 0, 'omitido': 'fin de semana'}
+    target = scheduling.siguiente_dia_habil(hoy + timedelta(days=1))
     return _procesar_dia(cfg, target, 'dia', notify.enviar_recordatorio_dia, incluir_doctor=True)
 
 

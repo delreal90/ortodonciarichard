@@ -1329,15 +1329,15 @@ def set_scheduling_config():
 
 @app.route('/api/whatsapp/config', methods=['GET'])
 def get_whatsapp_config():
-    """Protegido por ADMIN_TOKEN: toggles/hora de cada recordatorio + feriados."""
+    """Protegido por ADMIN_TOKEN: toggles/hora de cada recordatorio."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     return jsonify({'ok': True, 'config': recordatorios_wa.load_config()})
 
 @app.route('/api/whatsapp/config', methods=['POST'])
 def set_whatsapp_config():
-    """Guarda cambios parciales (activo/hora por tipo, feriados). Toma efecto
-    de inmediato -- no requiere deploy, vive en el disco persistente."""
+    """Guarda cambios parciales (activo/hora por tipo). Toma efecto de inmediato
+    -- no requiere deploy, vive en el disco persistente."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     data = request.json or {}
@@ -1363,11 +1363,10 @@ def whatsapp_recordatorios_run():
     cfg = scheduling.load_config()
     if not cfg['dentidesk']['enabled']:
         return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk (enabled=false)'}), 400
-    wa_cfg = recordatorios_wa.load_config()
     return jsonify({
         'ok': True,
         'semana': recordatorios_wa.enviar_recordatorios_semana(cfg),
-        'dia': recordatorios_wa.enviar_recordatorios_dia(cfg, wa_cfg['feriados']),
+        'dia': recordatorios_wa.enviar_recordatorios_dia(cfg),
         'inasistencia': recordatorios_wa.enviar_inasistencias(cfg),
     })
 
@@ -2054,7 +2053,7 @@ def _loop_recordatorios():
                     ('semana', wa_cfg['recordatorio_semana'],
                      lambda: recordatorios_wa.enviar_recordatorios_semana(cfg_dd)),
                     ('dia', wa_cfg['recordatorio_dia'],
-                     lambda: recordatorios_wa.enviar_recordatorios_dia(cfg_dd, wa_cfg['feriados'])),
+                     lambda: recordatorios_wa.enviar_recordatorios_dia(cfg_dd)),
                     ('inasistencia', wa_cfg['inasistencia_reagendar'],
                      lambda: recordatorios_wa.enviar_inasistencias(cfg_dd)),
                 )

@@ -591,13 +591,19 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
   automatizada. Ahora:
   - `admin/recordatorios_wa.py` (módulo nuevo, mismo patrón que `confirmaciones.py`): escanea
     DentiDesk y envía cada tipo, con registro anti-duplicados propio.
-  - `scheduling.siguiente_dia_habil_con_feriados()` — calcula el día hábil siguiente saltando fin
-    de semana + una lista de feriados. **Deliberadamente separado** de `es_habil()` (que rige la
-    disponibilidad de agendamiento online): los feriados de WhatsApp NO bloquean horas online — el
-    usuario ya los maneja aparte en DentiDesk.
+  - `scheduling.siguiente_dia_habil()` (próximo día L-V) y `scheduling.sumar_dias_habiles(d, n)`
+    (d + n días hábiles). **Deliberadamente separados** de `es_habil()` (que rige la disponibilidad
+    de agendamiento online). **Los recordatorios ignoran feriados** (2026-07-07, decisión del
+    usuario): se envían siempre L-V aunque sea feriado — el usuario ya bloquea feriados en DentiDesk.
+    El manejo de feriados (y su sección en el panel) se ELIMINÓ.
   - `wa_cloud.verificar_estado()` — chequeo en vivo contra Meta (sin enviar mensajes) para el
     indicador de estado del panel; detecta tokens vencidos como el 401 de la Fase 4.
-  - Config (`activo`/`hora` por tipo + `feriados`) y registro anti-duplicados viven en
+  - **`recordatorio_semana` = 4 días hábiles antes** de la cita (2026-07-07, cambiado desde
+    "exactamente 7 días"): hoy (L-V) escanea las citas de `hoy + 4 días hábiles`. Ej: martes 7-jul
+    avisa las citas del lunes 13-jul; lunes 13-jul avisa las del viernes 17-jul. `recordatorio_dia`
+    = próximo día hábil (salta fin de semana). Ambos SOLO envían en día hábil (si el loop cae
+    sábado/domingo, no mandan — con guardia `hoy.isoweekday() >= 6`).
+  - Config (`activo`/`hora` por tipo) y registro anti-duplicados viven en
     **`admin/wa_recordatorios_config.json`** / **`admin/wa_recordatorios_enviados.json`**
     (gitignored, disco persistente de Render vía `PATIENT_INDEX_PATH` — mismo mecanismo que
     `confirmaciones_enviadas.json`/`patient_index.json`). Toman efecto sin deploy.
@@ -608,8 +614,6 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
     `GET/POST /api/whatsapp/config`, `GET /api/whatsapp/estado`,
     `POST /api/whatsapp/recordatorios/run` (prueba manual, ignora el toggle `activo` pero respeta
     el registro anti-duplicados).
-  - Lista de feriados: arranca **vacía**, el usuario la completa desde el panel (decisión
-    explícita — no se precargó ninguna fecha).
   - Probado end-to-end contra `admin/server.py` local con Flask test client + preview de
     navegador (carga, guarda, persiste, indicador de estado). Falta probar contra Render real.
 - **Fase 6 — Webhook: Confirmo/Anular actualizan DentiDesk al instante (COMPLETA y verificada

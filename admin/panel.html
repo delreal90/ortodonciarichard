@@ -287,8 +287,8 @@
       </div>
 
       <div class="card" style="margin-bottom:18px">
-        <h3 style="margin-bottom:6px">📅 Recordatorio 1 semana antes</h3>
-        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Se envía a las citas que quedan a exactamente 7 días.</p>
+        <h3 style="margin-bottom:6px">📅 Recordatorio anticipado</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Se envía 4 días hábiles antes de la cita (lunes a viernes; no considera feriados). Ej: a las citas del lunes se les avisa el martes anterior.</p>
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.88rem">
           <input type="checkbox" id="wa-semana-activo"> Activo
         </label>
@@ -298,7 +298,7 @@
 
       <div class="card" style="margin-bottom:18px">
         <h3 style="margin-bottom:6px">📅 Recordatorio 1 día antes</h3>
-        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Se envía el día hábil anterior a la cita, saltando fines de semana y los feriados de la lista de abajo (si ese día también fuera feriado, se adelanta un día más). No afecta la disponibilidad del agendamiento online.</p>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Se envía el día hábil anterior a la cita, saltando fines de semana (no considera feriados). No afecta la disponibilidad del agendamiento online.</p>
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.88rem">
           <input type="checkbox" id="wa-dia-activo"> Activo
         </label>
@@ -314,12 +314,6 @@
         </label>
         <label style="font-size:.82rem;color:#4A5568;display:block;margin-bottom:4px">Hora de envío</label>
         <input type="time" id="wa-inasistencia-hora" style="width:140px;padding:6px;border:1px solid #cbd5e0;border-radius:6px">
-      </div>
-
-      <div class="card" style="margin-bottom:18px">
-        <h3 style="margin-bottom:6px">Feriados</h3>
-        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Una fecha por línea, formato AAAA-MM-DD. Solo afecta el recordatorio de 1 día antes.</p>
-        <textarea id="wa-feriados" rows="6" style="width:100%;padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:.88rem;line-height:1.5;resize:vertical;font-family:monospace" placeholder="2026-09-18&#10;2026-09-19"></textarea>
       </div>
 
       <button class="btn btn-primary" onclick="saveWhatsapp()">Guardar configuración</button>
@@ -909,7 +903,6 @@ async function loadWhatsapp() {
   document.getElementById('wa-dia-hora').value = c.recordatorio_dia.hora || '09:00';
   document.getElementById('wa-inasistencia-activo').checked = !!c.inasistencia_reagendar.activo;
   document.getElementById('wa-inasistencia-hora').value = c.inasistencia_reagendar.hora || '12:00';
-  document.getElementById('wa-feriados').value = (c.feriados || []).join('\n');
 
   renderWaEstado(estData);
 }
@@ -936,13 +929,10 @@ function renderWaEstado(d) {
 
 async function saveWhatsapp() {
   const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
-  const feriados = document.getElementById('wa-feriados').value
-    .split('\n').map(s => s.trim()).filter(Boolean);
   const body = {
     recordatorio_semana:    { activo: document.getElementById('wa-semana-activo').checked, hora: document.getElementById('wa-semana-hora').value },
     recordatorio_dia:       { activo: document.getElementById('wa-dia-activo').checked, hora: document.getElementById('wa-dia-hora').value },
     inasistencia_reagendar: { activo: document.getElementById('wa-inasistencia-activo').checked, hora: document.getElementById('wa-inasistencia-hora').value },
-    feriados,
   };
   try {
     const r = await fetch(url + '/api/whatsapp/config', { method: 'POST', headers: _waHeaders(), body: JSON.stringify(body) });
