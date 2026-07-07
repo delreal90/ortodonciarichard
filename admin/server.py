@@ -793,9 +793,17 @@ def agenda_disponibilidad():
     # Paginacion: se cargan de a PAGE dias habiles (evita decenas de llamadas
     # a DentiDesk de una sola vez). Pagina chica = carga inicial mas rapida; el
     # frontend pide mas con 'offset'.
+    #
+    # min_dias (opcional): el servidor sigue escaneando lotes EN PARALELO hasta
+    # juntar al menos ese numero de dias CON horas (o agotar la ventana / el tope
+    # por request). Antes esto lo hacia el frontend pidiendo pagina tras pagina
+    # en SERIE (cada pagina fria = 2-3s contra DentiDesk): con doctores de pocos
+    # dias disponibles eso sumaba 6-12s para ver las horas (mediana real medida:
+    # 7.5s). Resolverlo en una sola request evita los ping-pong cliente-servidor.
     PAGE = 6
+    MAX_DIAS_REQ = 30   # tope de dias escaneados por request (protege a DentiDesk)
     offset = max(0, int(request.args.get('offset', 0) or 0))
-    pagina = todos[offset:offset + PAGE]
+    min_dias = max(0, min(int(request.args.get('min_dias', 0) or 0), 10))
 
     def trabajo(d):
         try:
@@ -804,13 +812,23 @@ def agenda_disponibilidad():
             return d, []
 
     dias = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        for d, horas in sorted(pool.map(trabajo, pagina), key=lambda x: x[0]):
-            if horas:
-                dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
+    idx = offset
+    escaneados = 0
+    while idx < len(todos) and escaneados < MAX_DIAS_REQ:
+        lote = todos[idx:idx + PAGE]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for d, horas in sorted(pool.map(trabajo, lote), key=lambda x: x[0]):
+                if horas:
+                    dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
+        idx += len(lote)
+        escaneados += len(lote)
+        if len(dias) >= (min_dias or 1):
+            break
+        if not min_dias:
+            break   # sin min_dias: comportamiento clasico de UNA pagina
     return jsonify({'ok': True, 'dias': dias,
-                    'offset_siguiente': offset + PAGE,
-                    'hay_mas': (offset + PAGE) < len(todos)})
+                    'offset_siguiente': idx,
+                    'hay_mas': idx < len(todos)})
 
 def _check_admin_token():
     """Protege endpoints sensibles. En produccion se define ADMIN_TOKEN (env var);

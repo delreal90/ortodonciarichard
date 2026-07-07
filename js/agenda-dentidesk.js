@@ -341,8 +341,11 @@ function _dispoKey(doctor, motivo) { return doctor + '|' + motivo; }
 function prefetchDisponibilidad(doctor, motivo) {
   const key = _dispoKey(doctor, motivo);
   if (!agenda.prefetch[key]) {
+    // min_dias=5: el servidor junta al menos 5 días CON horas en una sola
+    // request (escanea lotes en paralelo), en vez de que el cliente pida
+    // página tras página en serie (2-3s cada una con doctores de pocos días).
     agenda.prefetch[key] = agendaApi(
-      `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${motivo}&offset=0`
+      `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${motivo}&offset=0&min_dias=5`
     ).catch(err => { delete agenda.prefetch[key]; throw err; });  // permitir reintento
   }
   return agenda.prefetch[key];
@@ -437,9 +440,11 @@ async function pasoFechaHora() {
   agenda.dias = r.dias || [];
   agenda.diasOffset = r.offset_siguiente || 0;
   agenda.diasHayMas = !!r.hay_mas;
-  // Cargar páginas hasta juntar al menos TIRA_MIN_DIAS días con horas (o agotar).
+  // Respaldo: si el servidor no alcanzó a juntar TIRA_MIN_DIAS (p.ej. tope de
+  // días por request), completar aquí — con min_dias también, para no volver
+  // al ping-pong de páginas chicas.
   while (agenda.dias.length < TIRA_MIN_DIAS && agenda.diasHayMas) {
-    const r2 = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
+    const r2 = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=5`);
     agenda.dias = agenda.dias.concat(r2.dias || []);
     agenda.diasOffset = r2.offset_siguiente || agenda.diasOffset;
     agenda.diasHayMas = !!r2.hay_mas;
@@ -513,7 +518,10 @@ async function abrirCalendario(e) {
     _iniciarSabias();
     try {
       while (agenda.diasHayMas) {
-        const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
+        // min_dias=10 (el máximo): cada request escanea hasta 30 días de una
+        // vez en el servidor -> el calendario completo se arma en 1-2 requests
+        // en vez de ~7 páginas en serie.
+        const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=10`);
         agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
         agenda.diasHayMas = !!r.hay_mas;
         if ((r.dias || []).length) agenda.dias = agenda.dias.concat(r.dias);
@@ -587,9 +595,10 @@ async function cargarMasFechas() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cargando…'; }
   try {
     let cargo = false;
-    // Cargar paginas hasta encontrar al menos un dia con horas o agotar la ventana
+    // min_dias=5: el servidor junta varios dias con horas en una sola request
+    // (antes: pagina tras pagina en serie hasta encontrar alguno).
     while (!cargo && agenda.diasHayMas) {
-      const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}`);
+      const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=5`);
       agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
       agenda.diasHayMas = !!r.hay_mas;
       if ((r.dias || []).length) { agenda.dias = agenda.dias.concat(r.dias); cargo = true; }
