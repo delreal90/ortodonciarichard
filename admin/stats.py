@@ -15,6 +15,19 @@ import json
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
+try:
+    from zoneinfo import ZoneInfo
+    _TZ_CL = ZoneInfo('America/Santiago')
+except Exception:
+    _TZ_CL = None
+
+
+def _ahora_cl():
+    """Hora actual en Chile (America/Santiago). En Render el servidor corre en
+    UTC, asi que datetime.now() daria una hora adelantada -- por eso se fija la
+    zona explicitamente para que el 'ts' de las reservas sea hora local chilena."""
+    return datetime.now(_TZ_CL) if _TZ_CL else datetime.now()
+
 # Por defecto, junto a la base de pacientes (mismo disco persistente).
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 Path(__file__).parent / 'patient_index.json')).parent
@@ -42,7 +55,7 @@ def registrar(evento):
     """Agrega un agendamiento al log. 'evento' es un dict; se completa con ts."""
     try:
         STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        evento = {**evento, 'ts': datetime.now().isoformat(timespec='seconds')}
+        evento = {**evento, 'ts': _ahora_cl().isoformat(timespec='seconds')}
         with open(STATS_PATH, 'a', encoding='utf-8') as f:
             f.write(json.dumps(evento, ensure_ascii=False) + '\n')
         return True

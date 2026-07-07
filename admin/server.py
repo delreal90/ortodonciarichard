@@ -980,11 +980,13 @@ def agenda_reservar():
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
 
-    # Registrar el agendamiento para estadisticas (sin datos personales sensibles).
+    # Registrar el agendamiento para estadisticas. Incluye el nombre del paciente
+    # (a pedido del usuario, para verlo en el panel -> Ultimas reservas).
     try:
         import stats
         stats.registrar({
             'fecha': fecha.isoformat(), 'hora': hora,
+            'paciente_nombre': f"{nombre} {apellido}".strip(),
             'doctor': doctor, 'doctor_nombre': doctor_nombre,
             'motivo': motivo, 'motivo_label': motivo_cfg['label'],
             'especialidad': cfg['especialidades'].get(motivo_cfg.get('especialidad', ''), {}).get('label', motivo_cfg.get('especialidad', '')),

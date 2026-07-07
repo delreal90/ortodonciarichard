@@ -503,23 +503,26 @@ async function loadUltimasCitas() {
 function renderUltimasCitas(citas) {
   const cont = document.getElementById('stats-ultimas');
   if (!citas || !citas.length) { cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin reservas aún.</p>'; return; }
+  // El ts se guarda en hora de Chile; mostramos "YYYY-MM-DD HH:MM" (sin
+  // segundos ni offset), tomando solo los primeros 16 caracteres del ISO.
+  const fmtTs = ts => (ts || '').slice(0, 16).replace('T', ' ');
   const filas = citas.map(c => `
     <tr>
-      <td style="padding:6px 8px;font-size:.82rem">${(c.ts || '').replace('T', ' ')}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${fmtTs(c.ts)}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${_esc(c.paciente_nombre || '—')} <span style="color:#a0aec0">(${c.paciente_conocido ? 'conocido' : 'nuevo'})</span></td>
       <td style="padding:6px 8px;font-size:.82rem">${c.fecha || '—'} ${c.hora || ''}</td>
       <td style="padding:6px 8px;font-size:.82rem">${c.doctor_nombre || '—'}</td>
       <td style="padding:6px 8px;font-size:.82rem">${c.motivo_label || '—'}</td>
-      <td style="padding:6px 8px;font-size:.82rem">${c.paciente_conocido ? 'Conocido' : 'Nuevo'}</td>
       <td style="padding:6px 8px"><button class="btn" style="padding:4px 10px;font-size:.78rem;color:#e53e3e;border-color:#e53e3e" onclick="eliminarCita('${c.ts}', this)">Eliminar</button></td>
     </tr>`).join('');
   cont.innerHTML = `
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:2px solid #edf2f7;text-align:left">
         <th style="padding:6px 8px;font-size:.78rem;color:#718096">Registrado</th>
+        <th style="padding:6px 8px;font-size:.78rem;color:#718096">Paciente</th>
         <th style="padding:6px 8px;font-size:.78rem;color:#718096">Cita</th>
         <th style="padding:6px 8px;font-size:.78rem;color:#718096">Doctor</th>
         <th style="padding:6px 8px;font-size:.78rem;color:#718096">Motivo</th>
-        <th style="padding:6px 8px;font-size:.78rem;color:#718096">Paciente</th>
         <th></th>
       </tr></thead>
       <tbody>${filas}</tbody>
