@@ -123,7 +123,7 @@ def _reagendar(id_agenda, telefono, cfg):
         telefono,
         'Para reagendar su hora tiene dos opciones:\n\n'
         '1️⃣ *Escríbanos por aquí mismo* y una persona de nuestro equipo lo '
-        'coordina con usted. Le responderemos en nuestro horario de atención.\n\n'
+        'coordina con usted. Le responderemos a la brevedad.\n\n'
         '2️⃣ *Elegir un nuevo horario usted mismo*, a cualquier hora, en este '
         'enlace:\n' + link + '\n\n'
         'Su hora actual se mantiene agendada hasta que confirme la nueva. 🦷'
