@@ -656,11 +656,25 @@ def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento
     """
     nombre = f"{paciente.get('nombres', '')} {paciente.get('apellidos', '')}".strip()
     if canal == 'mail':
-        ok = _enviar_email_consentimiento(nombre, paciente.get('email', ''), link, tipo_label)
-        return {'ok': ok, 'canal': 'email'}
+        email = (paciente.get('email') or '').strip()
+        if '@' not in email:
+            return {'ok': False, 'canal': 'email',
+                    'error': 'El paciente no tiene un email registrado en la base. '
+                             'Si lo acabas de registrar, la ficha puede no haberse '
+                             'sincronizado todavía (se actualiza 2 veces al día).'}
+        ok = _enviar_email_consentimiento(nombre, email, link, tipo_label)
+        return {'ok': ok, 'canal': 'email',
+                'error': None if ok else 'No se pudo enviar el email (revisa la configuración SMTP).'}
     if canal == 'whatsapp':
-        ok = _enviar_whatsapp_consentimiento(nombre, paciente.get('telefono', ''), link, tipo_label)
-        return {'ok': ok, 'canal': 'whatsapp'}
+        telefono = (paciente.get('telefono') or '').strip()
+        if not telefono:
+            return {'ok': False, 'canal': 'whatsapp',
+                    'error': 'El paciente no tiene un teléfono registrado en la base. '
+                             'Si lo acabas de registrar, la ficha puede no haberse '
+                             'sincronizado todavía (se actualiza 2 veces al día).'}
+        ok = _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label)
+        return {'ok': ok, 'canal': 'whatsapp',
+                'error': None if ok else 'WhatsApp no confirmó el envío (revisa el estado en el panel).'}
     return {'ok': False, 'error': f'Canal no soportado: {canal}'}
 
 
