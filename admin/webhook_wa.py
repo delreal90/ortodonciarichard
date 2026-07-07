@@ -121,6 +121,10 @@ def _reagendar(id_agenda, telefono, cfg):
     link = URL_REAGENDA.format(id_agenda=id_agenda)
     notify.enviar_texto_libre(
         telefono,
-        'Para reagendar su hora, elija un nuevo horario en el siguiente enlace. '
-        'Su hora actual se mantiene hasta que confirme la nueva:\n\n' + link
+        'Para reagendar su hora tiene dos opciones:\n\n'
+        '1️⃣ *Escríbanos por aquí mismo* y una persona de nuestro equipo lo '
+        'coordina con usted. Le responderemos en nuestro horario de atención.\n\n'
+        '2️⃣ *Elegir un nuevo horario usted mismo*, a cualquier hora, en este '
+        'enlace:\n' + link + '\n\n'
+        'Su hora actual se mantiene agendada hasta que confirme la nueva. 🦷'
     )
