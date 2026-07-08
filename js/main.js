@@ -267,6 +267,36 @@ document.querySelectorAll('.acc-btn').forEach(btn => {
     });
 });
 
+/* Link directo a una pregunta puntual del FAQ (para QR / WhatsApp), ej:
+   ortodonciarichard.cl/#faq-uso-alineadores -> abre la pestaña correcta,
+   expande esa pregunta y hace scroll hasta ella (con el offset del nav). */
+function _abrirFaqDesdeHash() {
+    const id = (location.hash || '').replace('#', '');
+    if (!id.startsWith('faq-') || id === 'faq-primeros' || id === 'faq-durante' ||
+        id === 'faq-alineadores' || id === 'faq-contenciones' || id === 'faq-cirugia' ||
+        id === 'faq-urgencias') return;   // esos ids ya son los de faq-content (tabs), no preguntas
+    const item = document.getElementById(id);
+    if (!item || !item.classList.contains('acc-item')) return;
+
+    const content = item.closest('.faq-content');
+    const tabKey = content ? content.id.replace('faq-', '') : null;
+    if (tabKey) {
+        const tabBtn = document.querySelector(`.faq-tab-btn[data-faq="${tabKey}"]`);
+        document.querySelectorAll('.faq-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.faq-content').forEach(c => c.classList.remove('active'));
+        if (tabBtn) tabBtn.classList.add('active');
+        content.classList.add('active');
+    }
+    item.closest('.accordion').querySelectorAll('.acc-item').forEach(i => i.classList.remove('open'));
+    item.classList.add('open');
+
+    const navH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-h')) || 80;
+    item.style.scrollMarginTop = (navH + 16) + 'px';
+    setTimeout(() => item.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+}
+window.addEventListener('load', _abrirFaqDesdeHash);
+window.addEventListener('hashchange', _abrirFaqDesdeHash);
+
 /* ═══════════════════════════════════════════
    ACTIVE NAV LINK — highlight on scroll
 ═══════════════════════════════════════════ */
