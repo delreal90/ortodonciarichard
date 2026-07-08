@@ -327,6 +327,7 @@ def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
                 if any(s in estado for s in _ESTADOS_INACTIVOS):
                     continue
                 out.append({
+                    'id_agenda':   str(c.get('IdAgenda') or ''),
                     'fecha':       c.get('Date', d.isoformat()),
                     'hora':        (c.get('time') or '')[:5],
                     'profesional': (c.get('ProfessionalName') or '').strip(),
@@ -419,17 +420,17 @@ def crear_cita(*, doc_id, motivo_key=None, id_reason=None, duracion_min=None,
 
 # ── Actualizar estado de una cita existente ─────────────────────────────────
 
-def actualizar_estado_cita(id_agenda, id_status, cfg=None, hora=None):
+def actualizar_estado_cita(id_agenda, id_status, cfg=None):
     """Cambia el IdStatus de una cita existente (ej. 32180 'Confirmado por
-    WhatsApp', 2122 'Hora Cancelada'). Usado por el webhook cuando el
-    paciente toca un boton de una plantilla. Mismo patron que crear_cita():
-    auth de un solo uso + POST con Token.
+    WhatsApp', 2122 'Hora Cancelada', 2132 'Re-agendado'). Usado por el webhook
+    y el reagendamiento. Mismo patron que crear_cita(): auth de un solo uso +
+    POST con Token.
 
-    hora ('HH:MM', opcional): mueve la cita a esa hora el MISMO dia -- lo usa
-    el reagendamiento para correr la cita vieja a las 20:00 (fuera de horario)
-    y liberar visualmente su bloque original para otro paciente. El endpoint
-    solo toca los campos enviados (verificado en vivo: el envio de solo
-    IdStatus, sin Date/Hour, no altera la fecha/hora de la cita)."""
+    IMPORTANTE (verificado en vivo 2026-07-08): updateAgenda.php SOLO cambia el
+    IdStatus. NO mueve la hora (campo Hour/Date ignorado) ni cambia la duracion
+    (Duration/duration/Minutes ignorados) -- todos devuelven 200 OK pero solo
+    el estado muta. Por eso no se puede 'mover' una cita a otro horario por la
+    API; el unico lever es el estado."""
     cfg = cfg or load_config()
     if not cfg['dentidesk']['enabled']:
         return {'ok': True, 'mock': True}
@@ -445,8 +446,6 @@ def actualizar_estado_cita(id_agenda, id_status, cfg=None, hora=None):
         'IdStatus': id_status,
         'Token': token,
     }
-    if hora:
-        payload['Hour'] = hora
     resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
     resp.raise_for_status()
     return {'ok': True, 'mock': False, 'raw': resp.json()}

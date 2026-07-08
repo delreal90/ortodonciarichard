@@ -309,7 +309,34 @@ def horas_disponibles(doc_id, target_date, motivo_key, libres, ocupados, cfg, ah
         doc_id, target_date, worked, set(ocupados), cfg, hoy=ahora.date()
     )
     return [h for h in disponibles
-            if cumple_anticipacion(target_date, h, motivo_cfg, cfg, ahora)]
+            if cumple_anticipacion(target_date, h, motivo_cfg, cfg, ahora)
+            and _dentro_horario(h, cfg)]
+
+
+def _dentro_horario(hhmm, cfg):
+    """False si la hora es en o despues del cierre normal (19:30). La clinica
+    puede abrir slots 'de overflow' en DentiDesk (ej. 20:00) para arrastrar a
+    mano citas reagendadas; esos NUNCA deben ofrecerse en la agenda online
+    (pedido del usuario 2026-07-08). getAvailableHours los devuelve como libres,
+    asi que se filtran aca."""
+    return (hhmm or '')[:5] < cfg['horario'].get('cierre', '19:30')
+
+
+def restriccion_manana_reagenda(cfg, doc_key, hora_original, duracion_min):
+    """True si una cita, al reagendarse, debe MANTENERSE antes de almuerzo.
+
+    Regla (pedido del usuario 2026-07-08): una cita con un doctor de ORTODONCIA
+    que dure 60+ min Y que este agendada antes de almuerzo (mañana) debe quedar
+    en la mañana al reagendar (ej. Montaje Total/Parcial, Retiro Total/Parcial).
+    Una cita de la TARDE si puede pasar a la mañana (no se restringe).
+    'antes de almuerzo' = hora de inicio < corte_pm del horario (14:00)."""
+    doc = cfg['doctores'].get(doc_key, {})
+    if doc.get('especialidad') != 'ortodoncia':
+        return False
+    if int(duracion_min or 0) < 60:
+        return False
+    corte = cfg['horario'].get('corte_pm', '14:00')
+    return (hora_original or '')[:5] < corte
 
 
 def horas_disponibles_libre(doc_id, target_date, libres, ocupados, cfg, ahora=None):
@@ -325,7 +352,8 @@ def horas_disponibles_libre(doc_id, target_date, libres, ocupados, cfg, ahora=No
         doc_id, target_date, worked, set(ocupados), cfg, hoy=ahora.date()
     )
     return [h for h in disponibles
-            if cumple_anticipacion(target_date, h, None, cfg, ahora)]
+            if cumple_anticipacion(target_date, h, None, cfg, ahora)
+            and _dentro_horario(h, cfg)]
 
 
 # ── RUT chileno ──────────────────────────────────────────────────────────────

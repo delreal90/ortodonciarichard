@@ -759,27 +759,42 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
     **relee la cita vieja en vivo** (no confía en lo que juntó el frontend al abrir el link) y
     llama a `dentidesk.crear_cita(id_reason=..., duracion_min=...)` (nuevo modo, sin `motivo_key`)
     con el motivo/duración EXACTOS de la cita original.
-  - **Libera el horario viejo:** `dentidesk.actualizar_estado_cita()` ahora acepta `hora=` — al
-    marcar la cita vieja como "Re-agendado" (2132) también la mueve a
-    `cfg['dentidesk']['hora_liberar_reagendada']` (default `"20:00"`, fuera de horario) el MISMO
-    día, liberando su bloque original en la agenda. Aplica tanto al flujo nuevo
-    (`reservar-reagenda`) como al viejo (`/api/agenda/reservar` con `reagenda_id_agenda`, que
-    sigue existiendo como FALLBACK: si `/reagendar-info` no logra resolver doctor o motivo, el
-    frontend cae de vuelta al wizard completo de siempre, dejando elegir libremente).
-  - **Duración atípica:** el paciente puede tener una cita con duración distinta a la standard
-    del motivo (ej. "Instalar Microtornillos" standard 30 min pero a este paciente se le asignó
-    45). Para replicarla, `crear_cita(enviar_duracion=True, duracion_min=<la real de la cita>)`
-    agrega un campo `Duration` al payload de `createAgenda` — SOLO en el flujo de reagendar; el
-    flujo normal lo deja en False (payload idéntico al ya probado, sin arriesgar el camino que
-    funciona). ⚠️ El nombre `Duration` es el más probable (createAgenda usa PascalCase) pero **NO
-    está confirmado en vivo**: si DentiDesk lo ignora, la cita toma la duración standard de su
-    IdReason (no rompe nada, solo no ajusta el caso atípico).
-  - **Falta probar el WRITE en vivo** (no se creó/movió ninguna cita real todavía; solo se
-    verificaron en vivo las lecturas: `info_cita`, `doc_key_por_nombre`, `id_reason_por_label`
-    contra la cita real 12047334 "Control Pasivo"). Pendiente confirmar contra una cita de prueba
-    real: (a) `createAgenda` con el IdReason resuelto crea la cita nueva con el motivo correcto,
-    (b) la cita vieja se mueve a las 20:00 y queda "Re-agendado", (c) si `createAgenda` respeta el
-    campo `Duration` (ver punto anterior).
+  - **Cita vieja al reagendar (probado en vivo end-to-end 2026-07-08):** se marca "Re-agendado"
+    (2132) vía `dentidesk.actualizar_estado_cita()`. Aplica al flujo nuevo (`reservar-reagenda`)
+    y al viejo (`/api/agenda/reservar` con `reagenda_id_agenda`, que sigue como FALLBACK cuando
+    `/reagendar-info` no logra resolver doctor/motivo → el frontend cae al wizard completo).
+  - ⚠️ **LIMITACIÓN de la API descubierta en vivo (importante): `updateAgenda.php` SOLO cambia el
+    IdStatus.** Probado exhaustivamente contra la cita real 13403984: NO mueve la hora (`Hour`/
+    `Date` ignorados), NO cambia la duración (`Duration`/`duration`/`Minutes` ignorados) — todos
+    devuelven 200 OK pero solo el estado muta. Consecuencias:
+    - **No se puede "mover" la cita vieja a las 20:00** (la idea original de liberar el bloque).
+      Se intentó incluso con un slot de 20:00 abierto a mano en DentiDesk: igual no mueve.
+    - **El estado "Re-agendado" (2132) NO libera el bloque** en DentiDesk (verificado: 2132 →
+      9:00 sigue ocupada; solo "Hora Cancelada" 2122 la libera). **Decisión del usuario
+      (2026-07-08): mantener la etiqueta "Re-agendado" por sobre liberar el horario** — la cita
+      vieja queda marcada pero su bloque NO se reabre para otro paciente. Si en el futuro se
+      prioriza liberar el espacio, la única vía por API es marcarla "Hora Cancelada" (2122),
+      perdiendo la etiqueta de reagenda (el registro del reagendamiento igual vive en la cita
+      nueva). Mover/acortar solo es posible arrastrando a mano en la web de DentiDesk.
+  - **Filtro de horario (`scheduling._dentro_horario`):** la agenda online NUNCA ofrece horas en
+    o después del cierre (19:30). Si la clínica abre slots "de overflow" en DentiDesk (ej. 20:00
+    para arrastrar citas a mano), `getAvailableHours` los devuelve como libres pero este filtro
+    los saca de lo ofrecible online (pedido del usuario). Aplica a `horas_disponibles` y
+    `horas_disponibles_libre`.
+  - **Regla de almuerzo (`scheduling.restriccion_manana_reagenda`):** una cita de ORTODONCIA de
+    60+ min agendada en la mañana (inicio < `corte_pm` 14:00) debe mantenerse en la mañana al
+    reagendar (ej. Montaje/Retiro Total/Parcial). Una cita de la tarde SÍ puede pasar a la mañana.
+    `reagendar-info` devuelve `solo_manana`; el frontend pasa `solo_am=1` a
+    `disponibilidad-reagendar` (filtra horas < corte) y `reservar-reagenda` lo revalida server-side.
+  - **Aviso de cita previa en reagenda (fix 2026-07-08):** el aviso "Ya tienes una hora agendada"
+    ahora excluye la propia cita que se está reagendando (antes la mostraba, confuso). Requirió
+    agregar `id_agenda` a `dentidesk.citas_futuras_paciente()` y filtrar por `reagendaId` en el
+    frontend (`irAResumen`).
+  - **Duración atípica (createAgenda) — pendiente:** `crear_cita(enviar_duracion=True)` agregaría
+    un campo `Duration` al payload de `createAgenda` para replicar una duración atípica en la cita
+    NUEVA. Está **DESACTIVADO** (`enviar_duracion=False`) porque el campo no está confirmado en
+    `createAgenda` (y en `updateAgenda` se probó que NO existe). Hoy la cita nueva toma la duración
+    STANDARD de su IdReason. Verificar el campo en `createAgenda` antes de activar.
 
 ### Notas clave
 - Ventana de 24h: fuera de ella solo se pueden enviar PLANTILLAS (por eso siempre funcionan,

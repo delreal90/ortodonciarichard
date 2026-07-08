@@ -32,6 +32,7 @@ const agenda = {
   reagendaFecha: null,  // fecha (YYYY-MM-DD) de la cita vieja, codificada en el mismo link
   reagendaExacto: false,   // true si /api/agenda/reagendar-info logró precargar doctor+motivo
   reagendaDuracion: null,  // duracion_min ORIGINAL de la cita (modo reagendaExacto)
+  reagendaSoloManana: false, // true si la cita debe mantenerse antes de almuerzo (regla ortodoncia 60+ min AM)
   estudio: null,        // {etapa: 1|2, cita1: {fecha, fechaLegible, hora}} si es Estudio Integral
   filtroMinFecha: null, // 'YYYY-MM-DD': solo mostrar días >= esta fecha (cita 2 del estudio)
 };
@@ -125,6 +126,7 @@ async function abrirAgenda() {
         const esp = (agenda.config.especialidades || []).find(e => e.key === doc.especialidad);
         agenda.reagendaExacto = true;
         agenda.reagendaDuracion = info.duracion_min;
+        agenda.reagendaSoloManana = !!info.solo_manana;
         agenda.sel.doctor = doc.key;
         agenda.sel.doctorNombre = info.doctor_nombre || doc.name;
         agenda.sel.doctorFoto = info.doctor_foto || doc.photo;
@@ -163,6 +165,7 @@ function cerrarAgenda() {
   agenda.reagendaFecha = null;
   agenda.reagendaExacto = false;
   agenda.reagendaDuracion = null;
+  agenda.reagendaSoloManana = false;
   agenda._reagendaInfoIntentado = false;
 }
 
@@ -408,9 +411,11 @@ function pasoMotivo() {
 // DURACIÓN (endpoint /disponibilidad-reagendar) en vez de por motivo_key.
 function _disponibilidadUrl(offset, minDias) {
   const doctor = agenda.sel.doctor;
-  return agenda.reagendaExacto
-    ? `/api/agenda/disponibilidad-reagendar?doctor=${doctor}&duracion=${agenda.reagendaDuracion}&offset=${offset}&min_dias=${minDias}`
-    : `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${agenda.sel.motivo}&offset=${offset}&min_dias=${minDias}`;
+  if (agenda.reagendaExacto) {
+    const soloAm = agenda.reagendaSoloManana ? '&solo_am=1' : '';
+    return `/api/agenda/disponibilidad-reagendar?doctor=${doctor}&duracion=${agenda.reagendaDuracion}${soloAm}&offset=${offset}&min_dias=${minDias}`;
+  }
+  return `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${agenda.sel.motivo}&offset=${offset}&min_dias=${minDias}`;
 }
 
 function _dispoKey(doctor, motivo) {
@@ -729,7 +734,17 @@ function _cabeceraFechaHora() {
     </div>
     ${avisoUrgenciaHTML()}
     ${avisoEstudioHTML()}
+    ${avisoSoloMananaHTML()}
     <h3 class="agenda-q">Elige día y hora</h3>`;
+}
+
+// Aviso cuando la cita reagendada debe mantenerse en la mañana (regla de
+// almuerzo para citas largas de ortodoncia).
+function avisoSoloMananaHTML() {
+  if (!(agenda.reagendaExacto && agenda.reagendaSoloManana)) return '';
+  return `<div class="agenda-urgencia" style="margin-bottom:10px">
+    <p><i class="fas fa-sun"></i> Por el tipo de cita, solo mostramos horarios de <strong>mañana</strong>.</p>
+  </div>`;
 }
 
 function renderFechaHora() {
@@ -878,6 +893,11 @@ async function irAResumen() {
     let citas = [];
     setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Un momento…</div>');
     try { citas = await agenda.citasPreviasPromise; } catch (e) { citas = []; }
+    // En reagenda: NO avisar de la propia cita que se está reagendando (sigue
+    // activa hasta que se confirme la nueva) — solo de OTRAS citas del paciente.
+    if (agenda.reagendaId) {
+      citas = citas.filter(c => String(c.id_agenda) !== String(agenda.reagendaId));
+    }
     if (citas && citas.length) return pasoAvisoCitaPrevia(citas);
   }
   pasoResumen();

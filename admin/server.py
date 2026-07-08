@@ -919,12 +919,17 @@ def agenda_reagendar_info():
 
     doctors = read_doctor_data()
     info = doctors.get(doctor_key, {})
+    hora_actual = (c.get('time') or '')[:5]
+    # Regla de almuerzo: una cita de mañana larga (ortodoncia, 60+ min) debe
+    # mantenerse en la mañana al reagendar (ver scheduling.restriccion_manana_reagenda).
+    solo_manana = scheduling.restriccion_manana_reagenda(cfg, doctor_key, hora_actual, duracion_min)
     return jsonify({
         'ok': True, 'id_agenda': id_agenda,
         'doctor': doctor_key, 'doctor_nombre': info.get('name', doctor_nombre),
         'doctor_foto': info.get('photo', ''),
         'motivo_label': motivo_label, 'duracion_min': duracion_min,
-        'fecha_actual': fecha.isoformat(), 'hora_actual': (c.get('time') or '')[:5],
+        'fecha_actual': fecha.isoformat(), 'hora_actual': hora_actual,
+        'solo_manana': solo_manana,
     })
 
 @rate_limit('30 per minute')
@@ -946,6 +951,11 @@ def agenda_disponibilidad_reagendar():
     if duracion_min <= 0:
         return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
 
+    # solo_am: regla de almuerzo (cita de mañana larga de ortodoncia debe
+    # mantenerse en la mañana). El frontend lo pasa segun reagendar-info.
+    solo_am = str(request.args.get('solo_am', '')).strip() in ('1', 'true', 'yes', 'on')
+    corte = cfg['horario'].get('corte_pm', '14:00')
+
     hoy = date.today()
     todos = scheduling.dias_habiles_ventana(hoy, cfg)
     PAGE = 6
@@ -955,7 +965,10 @@ def agenda_disponibilidad_reagendar():
 
     def trabajo(d):
         try:
-            return d, _horas_de_dia_libre(doctor, duracion_min, d, cfg)
+            horas = _horas_de_dia_libre(doctor, duracion_min, d, cfg)
+            if solo_am:
+                horas = [h for h in horas if h < corte]
+            return d, horas
         except Exception:
             return d, []
 
@@ -1180,8 +1193,9 @@ def agenda_reservar():
 
     # Reagendamiento: si la reserva vino por el link de "Reagendar" de un
     # recordatorio (#reagendar=<id> -> reagenda_id_agenda), marcamos la cita
-    # VIEJA como "Re-agendado" en DentiDesk ahora que la nueva ya quedó creada,
-    # y la movemos fuera de horario (libera su bloque original visualmente).
+    # VIEJA como "Re-agendado" en DentiDesk ahora que la nueva ya quedó creada.
+    # (updateAgenda solo cambia el estado -- no se puede mover ni acortar la
+    # cita vieja por la API; ver dentidesk.actualizar_estado_cita.)
     # Solo dígitos (viene del hash de un link nuestro). Si falla el update, se
     # loguea pero NO se rompe la reserva nueva (que sí quedó hecha).
     reagenda_id = ''.join(c for c in str(data.get('reagenda_id_agenda') or '') if c.isdigit())
@@ -1189,9 +1203,8 @@ def agenda_reservar():
     if es_reagenda:
         id_status_reag = cfg['dentidesk'].get('id_status_reagendada')
         if id_status_reag:
-            hora_liberar = cfg['dentidesk'].get('hora_liberar_reagendada', '20:00')
             try:
-                dentidesk.actualizar_estado_cita(reagenda_id, id_status_reag, cfg, hora=hora_liberar)
+                dentidesk.actualizar_estado_cita(reagenda_id, id_status_reag, cfg)
             except Exception as e:
                 app.logger.error('No se pudo marcar como reagendada la cita %s: %s', reagenda_id, e)
         else:
@@ -1282,6 +1295,14 @@ def agenda_reservar_reagenda():
     if not id_reason:
         return jsonify({'ok': False, 'error': 'No pudimos reagendar automáticamente este motivo. Escríbenos por WhatsApp.'}), 409
 
+    # Regla de almuerzo (autoritativa, re-derivada de la cita real): una cita de
+    # mañana larga de ortodoncia debe mantenerse en la mañana al reagendar.
+    hora_original = (c.get('time') or '')[:5]
+    solo_manana = scheduling.restriccion_manana_reagenda(cfg, doctor, hora_original, duracion_min)
+    corte = cfg['horario'].get('corte_pm', '14:00')
+    if solo_manana and hora >= corte:
+        return jsonify({'ok': False, 'error': 'Esta cita debe mantenerse en horario de mañana.'}), 409
+
     # Revalidar en backend: ventana + anticipacion + disponibilidad (por
     # duracion, motivo-agnostico -- igual criterio que agenda_disponibilidad_reagendar).
     if not scheduling.dentro_de_ventana(fecha, cfg):
@@ -1331,14 +1352,15 @@ def agenda_reservar_reagenda():
     except Exception:
         pass
 
-    # Cita vieja: marcarla "Re-agendado" y moverla fuera de horario (libera su
-    # bloque original visualmente). Si falla, se loguea pero NO rompe la
-    # reserva nueva (que sí quedó hecha).
+    # Cita vieja: marcarla "Re-agendado". (updateAgenda solo cambia el estado;
+    # no se puede mover ni acortar por la API -- el estado "Re-agendado" NO
+    # libera el bloque en DentiDesk, decision del usuario 2026-07-08 de
+    # mantener la etiqueta por sobre liberar el horario.) Si falla, se loguea
+    # pero NO rompe la reserva nueva (que sí quedó hecha).
     id_status_reag = cfg['dentidesk'].get('id_status_reagendada')
     if id_status_reag:
-        hora_liberar = cfg['dentidesk'].get('hora_liberar_reagendada', '20:00')
         try:
-            dentidesk.actualizar_estado_cita(id_agenda, id_status_reag, cfg, hora=hora_liberar)
+            dentidesk.actualizar_estado_cita(id_agenda, id_status_reag, cfg)
             _refrescar_dia_reservado(doctor, fecha_original, cfg)
         except Exception as e:
             app.logger.error('No se pudo marcar como reagendada la cita %s: %s', id_agenda, e)
