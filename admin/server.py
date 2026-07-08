@@ -2311,7 +2311,9 @@ def _loop_calentador():
         try:
             cfg_dd = scheduling.load_config()
             if cfg_dd['dentidesk']['enabled']:
-                dias = scheduling.dias_habiles_ventana(date.today(), cfg_dd)[:15]
+                # 21 dias habiles (~1 mes): cubre tambien a los doctores con pocos
+                # dias, cuyo escaneo con min_dias llega mas alla del dia 15.
+                dias = scheduling.dias_habiles_ventana(date.today(), cfg_dd)[:21]
                 docs = [k for k, v in cfg_dd['doctores'].items()
                         if not k.startswith('_') and isinstance(v, dict)]
                 t0 = datetime.now()
