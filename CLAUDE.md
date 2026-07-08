@@ -249,6 +249,28 @@ admin/server.py               ← rutas Flask: /api/agenda/config|disponibilidad
                                  (2-3s por página fría; el JWT de DentiDesk es de UN SOLO USO
                                  —verificado en vivo— así que cada consulta son 2 round-trips)
                                  y con doctores de pocos días la mediana real era 7.5s.
+                                 · Disponibilidad v2 (2026-07-07): el caché es por (doctor,
+                                 día), NO por motivo — UNA getAvailableHours con el motivo
+                                 MÁS CORTO de la especialidad como sonda (DentiDesk descuenta
+                                 citas+bloqueos+feriados+vacaciones; getAgendaDay NO trae
+                                 bloqueos ni feriados, verificado en vivo) y las horas de cada
+                                 motivo se derivan localmente por duración
+                                 (dentidesk.horas_que_caben — coincide EXACTO con DentiDesk,
+                                 validado). _loop_calentador refresca 15 días hábiles ×
+                                 doctores cada 20 min y cada reserva refresca su día al
+                                 instante (_refrescar_dia_reservado). "establecida como
+                                 feriado" (401) = día sin horas, no error.
+                                 · /api/agenda/reservar-estudio (2026-07-07): Estudio Integral
+                                 de Ortodoncia = motivo compuesto `estudio_integral` que
+                                 agenda 2 citas (estudio_registros IdReason 23935 +
+                                 estudio_explicacion 18167, 30 min c/u, motivos `oculto` del
+                                 menú) con ≥14 días de separación (config
+                                 separacion_min_dias). SOLO pacientes ya en la base local
+                                 (gate 403 → el frontend ofrece Primera Consulta). Valida
+                                 ambas horas EN VIVO; si la 2ª cita falla, cancela la 1ª
+                                 (rollback a id_status_cancelado). El frontend elige hora en
+                                 2 etapas (agenda.estudio; la etapa 2 filtra fechas con
+                                 agenda.filtroMinFecha).
 js/agenda-dentidesk.js        ← modal de 4 pasos (motivo→doctor→fecha/hora→datos)
 index.html                    ← botón "Agendar hora online" + markup del modal
 admin/panel.html              ← sección "Agenda online" para ajustar % de ocupación
