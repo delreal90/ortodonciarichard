@@ -186,7 +186,7 @@ def _enviar_whatsapp(cita, ics, reagenda=False):
 # son el UNICO canal para estos avisos -- no hay version por email.
 
 def enviar_recordatorio_semana(cita):
-    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda."""
+    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda, fecha."""
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
@@ -194,7 +194,7 @@ def enviar_recordatorio_semana(cita):
             telefono=cita['telefono'], nombre=cita['nombre'],
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'], hora=cita['hora'],
-            id_agenda=cita['id_agenda'],
+            id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
         )
         return {'ok': bool(r.get('ok'))}
     except wa_cloud.WhatsAppCloudError as e:
@@ -203,7 +203,7 @@ def enviar_recordatorio_semana(cita):
 
 
 def enviar_recordatorio_dia(cita):
-    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda."""
+    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda, fecha."""
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
@@ -211,7 +211,7 @@ def enviar_recordatorio_dia(cita):
             telefono=cita['telefono'], nombre=cita['nombre'],
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'], hora=cita['hora'],
-            id_agenda=cita['id_agenda'],
+            id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
         )
         return {'ok': bool(r.get('ok'))}
     except wa_cloud.WhatsAppCloudError as e:
@@ -220,13 +220,14 @@ def enviar_recordatorio_dia(cita):
 
 
 def enviar_inasistencia(cita):
-    """cita: nombre, telefono, fecha_legible, id_agenda."""
+    """cita: nombre, telefono, fecha_legible, id_agenda, fecha."""
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
         r = wa_cloud.enviar_inasistencia_reagendar(
             telefono=cita['telefono'], nombre=cita['nombre'],
             fecha_legible=cita['fecha_legible'], id_agenda=cita['id_agenda'],
+            fecha_iso=cita.get('fecha', ''),
         )
         return {'ok': bool(r.get('ok'))}
     except wa_cloud.WhatsAppCloudError as e:

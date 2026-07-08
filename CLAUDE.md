@@ -723,6 +723,64 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
     DentiDesk si están activas en `scheduling_secrets.json` local — para probar sin tocar
     producción, forzar `cfg['dentidesk']['enabled'] = False` a mano antes de llamar.
 
+- **Reagendar con motivo/doctor PRECARGADOS y bloqueados (2026-07-08).** Antes de este cambio,
+  el link de reagendar abría el wizard COMPLETO: el paciente podía terminar eligiendo un doctor
+  o motivo distinto al de su cita original (a pedido del usuario, esto ya no debía pasar).
+  Además el motivo original de una cita puede NO estar en la lista de motivos agendables online
+  (motivos que la clínica escribe directo en DentiDesk, ej. "Instalación de microtornillos", con
+  duración propia que puede variar cita a cita) — verificado en vivo: `getAgendaDay` devuelve el
+  **nombre** del motivo (`Reason`) y la **duración** (`duration`), pero NUNCA el `IdReason`
+  numérico que exige `createAgenda`. DentiDesk tampoco tiene endpoint de "buscar por id" (solo
+  `getAgendaDay` por fecha) ni de listar motivos.
+  - **Encadenado id_agenda→fecha:** el payload de los botones Confirmo/Reagendar/Anular pasó de
+    `"{tipo}:{id_agenda}"` a `"{tipo}:{id_agenda}:{fecha_iso}"` (`wa_cloud.py` → `notify.py` →
+    `recordatorios_wa.py`, que ya conocía la fecha al momento de enviar). `webhook_wa.py` parsea
+    con `split(':')` (no `partition`) — compatible con botones viejos ya enviados (sin fecha,
+    `partes[2]` queda vacío). El link pasó de `#reagendar=<id>` a `#reagendar=<id>&fecha=<fecha>`.
+  - **Resolución de motivo (`dentidesk.id_reason_por_label`):** dado el nombre del motivo tal
+    como lo devuelve DentiDesk, busca primero en los motivos agendables online (`cfg['motivos']`,
+    ya tienen `id_reason` confirmado) y si no hay match cae a `cfg['motivos_id_reason_extra']`
+    (`scheduling_config.json`, tabla plana `"Nombre exacto": IdReason`). **La tabla ya está
+    COMPLETA** (186 motivos, poblada 2026-07-08 desde `motivos_consulta.txt` que entregó la
+    clínica — el .txt tiene IdReason/Nombre/Duración standard; la duración NO se copió al config,
+    se replica la real de cada cita). Verificado en vivo: "Control Pasivo" (motivo fuera del menú
+    online) ahora resuelve a IdReason 18162. Si algún día la clínica agrega un motivo nuevo en
+    DentiDesk, hay que sumarlo a esta tabla. Si no hay match en ninguna, el backend NO inventa un
+    motivo — devuelve error y sugiere WhatsApp.
+  - **Flujo:** `GET /api/agenda/reagendar-info?id_agenda=&fecha=` (usa `dentidesk.info_cita`,
+    un solo `getAgendaDay(fecha)`) devuelve doctor+motivo+duración si se pudo resolver todo.
+    El frontend (`agenda.reagendaExacto=true`) precarga doctor y motivo (de solo lectura, sin
+    selector) y salta los pasos de especialidad/profesional/motivo — el paciente solo confirma
+    RUT/datos y elige hora. La disponibilidad se pide por **duración** (no por motivo_key):
+    `GET /api/agenda/disponibilidad-reagendar?doctor=&duracion=`, vía
+    `scheduling.horas_disponibles_libre()` (gemela de `horas_disponibles()` pero sin necesitar
+    un `motivo_key` de config — confirmado que `cumple_anticipacion()` nunca usó `motivo_cfg`
+    igual, la anticipación mínima es global). Al confirmar, `POST /api/agenda/reservar-reagenda`
+    **relee la cita vieja en vivo** (no confía en lo que juntó el frontend al abrir el link) y
+    llama a `dentidesk.crear_cita(id_reason=..., duracion_min=...)` (nuevo modo, sin `motivo_key`)
+    con el motivo/duración EXACTOS de la cita original.
+  - **Libera el horario viejo:** `dentidesk.actualizar_estado_cita()` ahora acepta `hora=` — al
+    marcar la cita vieja como "Re-agendado" (2132) también la mueve a
+    `cfg['dentidesk']['hora_liberar_reagendada']` (default `"20:00"`, fuera de horario) el MISMO
+    día, liberando su bloque original en la agenda. Aplica tanto al flujo nuevo
+    (`reservar-reagenda`) como al viejo (`/api/agenda/reservar` con `reagenda_id_agenda`, que
+    sigue existiendo como FALLBACK: si `/reagendar-info` no logra resolver doctor o motivo, el
+    frontend cae de vuelta al wizard completo de siempre, dejando elegir libremente).
+  - **Duración atípica:** el paciente puede tener una cita con duración distinta a la standard
+    del motivo (ej. "Instalar Microtornillos" standard 30 min pero a este paciente se le asignó
+    45). Para replicarla, `crear_cita(enviar_duracion=True, duracion_min=<la real de la cita>)`
+    agrega un campo `Duration` al payload de `createAgenda` — SOLO en el flujo de reagendar; el
+    flujo normal lo deja en False (payload idéntico al ya probado, sin arriesgar el camino que
+    funciona). ⚠️ El nombre `Duration` es el más probable (createAgenda usa PascalCase) pero **NO
+    está confirmado en vivo**: si DentiDesk lo ignora, la cita toma la duración standard de su
+    IdReason (no rompe nada, solo no ajusta el caso atípico).
+  - **Falta probar el WRITE en vivo** (no se creó/movió ninguna cita real todavía; solo se
+    verificaron en vivo las lecturas: `info_cita`, `doc_key_por_nombre`, `id_reason_por_label`
+    contra la cita real 12047334 "Control Pasivo"). Pendiente confirmar contra una cita de prueba
+    real: (a) `createAgenda` con el IdReason resuelto crea la cita nueva con el motivo correcto,
+    (b) la cita vieja se mueve a las 20:00 y queda "Re-agendado", (c) si `createAgenda` respeta el
+    campo `Duration` (ver punto anterior).
+
 ### Notas clave
 - Ventana de 24h: fuera de ella solo se pueden enviar PLANTILLAS (por eso siempre funcionan,
   incluso para el primer contacto — a diferencia de un mensaje libre).

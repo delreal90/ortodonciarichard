@@ -181,27 +181,30 @@ def enviar_reagenda_confirmada(telefono, nombre, doctor_nombre, fecha_legible, h
                               [nombre, doctor_nombre, fecha_legible, hora])
 
 
-def enviar_recordatorio_semana(telefono, nombre, doctor_nombre, fecha_legible, hora, id_agenda):
-    """id_agenda: se codifica como payload 'semana:{id_agenda}' en los 3 botones
-    (Confirmo/Reagendar/Anular) para que el webhook sepa a que cita responde
-    el toque y que vino del recordatorio de 1 semana (IdStatus 40968 al confirmar)."""
+def enviar_recordatorio_semana(telefono, nombre, doctor_nombre, fecha_legible, hora, id_agenda, fecha_iso=''):
+    """id_agenda: se codifica como payload 'semana:{id_agenda}:{fecha_iso}' en
+    los 3 botones (Confirmo/Reagendar/Anular) para que el webhook sepa a que
+    cita responde el toque, que vino del recordatorio de 1 semana (IdStatus
+    40968 al confirmar), y en que dia esta (Reagendar: DentiDesk no tiene
+    'buscar por id', el backend necesita el dia para encontrarla de nuevo)."""
     return _enviar_plantilla(telefono, 'recordatorio_semana',
                               [nombre, doctor_nombre, fecha_legible, hora],
-                              boton_payload=f'semana:{id_agenda}', num_botones=3)
+                              boton_payload=f'semana:{id_agenda}:{fecha_iso}', num_botones=3)
 
 
-def enviar_recordatorio_dia(telefono, nombre, doctor_nombre, fecha_legible, hora, id_agenda):
-    """id_agenda: payload 'dia:{id_agenda}' -- confirmar desde aqui usa el
-    IdStatus generico 32180 (no el de 'semana')."""
+def enviar_recordatorio_dia(telefono, nombre, doctor_nombre, fecha_legible, hora, id_agenda, fecha_iso=''):
+    """id_agenda: payload 'dia:{id_agenda}:{fecha_iso}' -- confirmar desde aqui
+    usa el IdStatus generico 32180 (no el de 'semana')."""
     return _enviar_plantilla(telefono, 'recordatorio_dia',
                               [nombre, doctor_nombre, fecha_legible, hora],
-                              boton_payload=f'dia:{id_agenda}', num_botones=3)
+                              boton_payload=f'dia:{id_agenda}:{fecha_iso}', num_botones=3)
 
 
-def enviar_inasistencia_reagendar(telefono, nombre, fecha_legible, id_agenda):
-    """id_agenda: payload 'inasistencia:{id_agenda}' en el unico boton (Reagendar)."""
+def enviar_inasistencia_reagendar(telefono, nombre, fecha_legible, id_agenda, fecha_iso=''):
+    """id_agenda: payload 'inasistencia:{id_agenda}:{fecha_iso}' en el unico
+    boton (Reagendar)."""
     return _enviar_plantilla(telefono, 'inasistencia_reagendar', [nombre, fecha_legible],
-                              boton_payload=f'inasistencia:{id_agenda}', num_botones=1)
+                              boton_payload=f'inasistencia:{id_agenda}:{fecha_iso}', num_botones=1)
 
 
 def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora, video_url):

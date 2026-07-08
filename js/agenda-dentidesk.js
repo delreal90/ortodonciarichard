@@ -28,7 +28,10 @@ const agenda = {
   },
   dias: [],
   prefetch: {},   // cache de promesas de disponibilidad por doctor|motivo
-  reagendaId: null,  // id_agenda de la cita vieja si se llegó por el link de reagendar
+  reagendaId: null,     // id_agenda de la cita vieja si se llegó por el link de reagendar
+  reagendaFecha: null,  // fecha (YYYY-MM-DD) de la cita vieja, codificada en el mismo link
+  reagendaExacto: false,   // true si /api/agenda/reagendar-info logró precargar doctor+motivo
+  reagendaDuracion: null,  // duracion_min ORIGINAL de la cita (modo reagendaExacto)
   estudio: null,        // {etapa: 1|2, cita1: {fecha, fechaLegible, hora}} si es Estudio Integral
   filtroMinFecha: null, // 'YYYY-MM-DD': solo mostrar días >= esta fecha (cita 2 del estudio)
 };
@@ -104,6 +107,35 @@ async function abrirAgenda() {
     catch (e) { return pasoError('No pudimos conectar con la agenda online. Te recomendamos agendar por WhatsApp.'); }
   }
   track('abrir');
+  // Si ya se precargó doctor+motivo en una apertura anterior de este modal
+  // (cerrar y volver a abrir sin recargar la página), no volver a preguntar.
+  if (agenda.reagendaExacto) { pasoRut(); return; }
+  // Link de reagendar CON fecha: intenta precargar doctor+motivo de la cita
+  // vieja (el paciente no podrá cambiarlos). Si falla por cualquier motivo
+  // (cita no encontrada, motivo no reconocido, etc.), sigue con el wizard
+  // completo de siempre -- agenda.reagendaId queda igual seteado, así que
+  // /api/agenda/reservar (flujo normal) todavía marca la cita vieja como
+  // reagendada al confirmar.
+  if (agenda.reagendaId && agenda.reagendaFecha && !agenda._reagendaInfoIntentado) {
+    agenda._reagendaInfoIntentado = true;
+    try {
+      const info = await agendaApi(`/api/agenda/reagendar-info?id_agenda=${encodeURIComponent(agenda.reagendaId)}&fecha=${encodeURIComponent(agenda.reagendaFecha)}`);
+      const doc = info.ok ? (agenda.config.doctores || []).find(d => d.key === info.doctor) : null;
+      if (doc) {
+        const esp = (agenda.config.especialidades || []).find(e => e.key === doc.especialidad);
+        agenda.reagendaExacto = true;
+        agenda.reagendaDuracion = info.duracion_min;
+        agenda.sel.doctor = doc.key;
+        agenda.sel.doctorNombre = info.doctor_nombre || doc.name;
+        agenda.sel.doctorFoto = info.doctor_foto || doc.photo;
+        agenda.sel.especialidad = doc.especialidad;
+        agenda.sel.especialidadLabel = esp ? esp.label : '';
+        agenda.sel.motivoLabel = info.motivo_label;
+        pasoRut();
+        return;
+      }
+    } catch (e) { /* sigue con el wizard completo */ }
+  }
   pasoEspecialidad();
 }
 
@@ -122,6 +154,16 @@ function cerrarAgenda() {
   agenda.citaPreviaAck = false;
   agenda.estudio = null;
   agenda.filtroMinFecha = null;
+  // Cerrar abandona el reagendamiento: si reabre (p.ej. con el botón normal
+  // "Agendar hora online") empieza una reserva limpia. Para volver a entrar
+  // en modo reagenda hay que tocar de nuevo el link de WhatsApp (re-dispara
+  // _abrirDesdeHash). Sin esto, sel queda vacío pero reagendaExacto seguiría
+  // true -> pasoRut sin doctor/motivo precargados = estado roto.
+  agenda.reagendaId = null;
+  agenda.reagendaFecha = null;
+  agenda.reagendaExacto = false;
+  agenda.reagendaDuracion = null;
+  agenda._reagendaInfoIntentado = false;
 }
 
 function setBody(html) { document.getElementById('agendaBody').innerHTML = html; }
@@ -154,7 +196,11 @@ function elegirEspecialidad(key, el) {
 
 function pasoRut() {
   setPaso(2);
-  setBody(`<button class="agenda-back" onclick="pasoEspecialidad()"><i class="fas fa-arrow-left"></i> Volver</button>
+  // En modo reagendaExacto no hay paso de especialidad al que volver (se
+  // saltó): doctor y motivo quedan fijos, tal como los tenía la cita vieja.
+  const volver = agenda.reagendaExacto ? ''
+    : `<button class="agenda-back" onclick="pasoEspecialidad()"><i class="fas fa-arrow-left"></i> Volver</button>`;
+  setBody(`${volver}
     <h3 class="agenda-q">Tu RUT</h3>
     <p class="agenda-sub">Lo usamos para reconocerte si ya eres paciente.</p>
     <form class="agenda-form" onsubmit="return continuarRut(event)">
@@ -261,8 +307,21 @@ function pasoDatos() {
 
 function confirmarReconocido() {
   // No tocamos email/telefono: el backend usa los registrados (dedup por RUT+email).
+  continuarDespuesDeDatos();
+}
+
+// Modo reagendaExacto: doctor y motivo ya vienen precargados de la cita vieja
+// (no se le preguntan al paciente) -> salta directo a elegir hora.
+function continuarDespuesDeDatos() {
   track('datos');
-  pasoProfesional();
+  if (agenda.reagendaExacto) {
+    track('profesional');
+    track('motivo');
+    agenda._horasT0 = Date.now();
+    pasoFechaHora();
+  } else {
+    pasoProfesional();
+  }
 }
 
 function noSoyYo(e) {
@@ -287,8 +346,7 @@ function continuarDatos(e) {
     nombres: f.nombres.value.trim(), apellidos: f.apellidos.value.trim(),
     telefono: f.telefono.value.trim(), email: f.email.value.trim(),
   };
-  track('datos');
-  pasoProfesional();
+  continuarDespuesDeDatos();
   return false;
 }
 
@@ -345,7 +403,19 @@ function pasoMotivo() {
 
 /* ── Precarga de disponibilidad ──────────────────────────────────────────── */
 
-function _dispoKey(doctor, motivo) { return doctor + '|' + motivo; }
+// Modo reagendaExacto: el motivo original de la cita puede no estar en la
+// lista de motivos agendables online, así que la disponibilidad se pide por
+// DURACIÓN (endpoint /disponibilidad-reagendar) en vez de por motivo_key.
+function _disponibilidadUrl(offset, minDias) {
+  const doctor = agenda.sel.doctor;
+  return agenda.reagendaExacto
+    ? `/api/agenda/disponibilidad-reagendar?doctor=${doctor}&duracion=${agenda.reagendaDuracion}&offset=${offset}&min_dias=${minDias}`
+    : `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${agenda.sel.motivo}&offset=${offset}&min_dias=${minDias}`;
+}
+
+function _dispoKey(doctor, motivo) {
+  return agenda.reagendaExacto ? (doctor + '|reagenda|' + agenda.reagendaDuracion) : (doctor + '|' + motivo);
+}
 
 function prefetchDisponibilidad(doctor, motivo) {
   const key = _dispoKey(doctor, motivo);
@@ -353,9 +423,8 @@ function prefetchDisponibilidad(doctor, motivo) {
     // min_dias=5: el servidor junta al menos 5 días CON horas en una sola
     // request (escanea lotes en paralelo), en vez de que el cliente pida
     // página tras página en serie (2-3s cada una con doctores de pocos días).
-    agenda.prefetch[key] = agendaApi(
-      `/api/agenda/disponibilidad?doctor=${doctor}&motivo=${motivo}&offset=0&min_dias=5`
-    ).catch(err => { delete agenda.prefetch[key]; throw err; });  // permitir reintento
+    agenda.prefetch[key] = agendaApi(_disponibilidadUrl(0, 5))
+      .catch(err => { delete agenda.prefetch[key]; throw err; });  // permitir reintento
   }
   return agenda.prefetch[key];
 }
@@ -585,7 +654,7 @@ async function pasoFechaHora() {
   agenda.calM = null;
   agenda.diasOffset = 0;
   agenda.diasHayMas = false;
-  setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
+  setBody(`<button class="agenda-back" onclick="_volverDesdeFechaHora()"><i class="fas fa-arrow-left"></i> Volver</button>
     <div class="agenda-doctor-head">
       <img src="${agenda.sel.doctorFoto}" alt="">
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.motivoLabel}</span></div>
@@ -604,7 +673,7 @@ async function pasoFechaHora() {
   // días por request, o el filtro de fecha mínima del estudio descartó días),
   // completar aquí — con min_dias también, para no volver al ping-pong.
   while (agenda.dias.length < TIRA_MIN_DIAS && agenda.diasHayMas) {
-    const r2 = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=5`);
+    const r2 = await agendaApi(_disponibilidadUrl(agenda.diasOffset, 5));
     agenda.dias = agenda.dias.concat(_filtrarDias(r2.dias));
     agenda.diasOffset = r2.offset_siguiente || agenda.diasOffset;
     agenda.diasHayMas = !!r2.hay_mas;
@@ -645,8 +714,15 @@ function _horasJornadaHTML(d, diaIdx) {
   return out || '<p class="agenda-sub">No hay horas este día.</p>';
 }
 
+// Modo reagendaExacto: no hay paso de motivo al que volver (doctor+motivo
+// quedaron fijos con los de la cita vieja) -> "Volver" regresa a los datos.
+function _volverDesdeFechaHora() {
+  if (agenda.reagendaExacto) { pasoDatos(); return; }
+  pasoMotivo();
+}
+
 function _cabeceraFechaHora() {
-  return `<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
+  return `<button class="agenda-back" onclick="_volverDesdeFechaHora()"><i class="fas fa-arrow-left"></i> Volver</button>
     <div class="agenda-doctor-head">
       <img src="${agenda.sel.doctorFoto}" alt="">
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.motivoLabel}</span></div>
@@ -698,7 +774,7 @@ async function abrirCalendario(e) {
         // min_dias=10 (el máximo): cada request escanea hasta 30 días de una
         // vez en el servidor -> el calendario completo se arma en 1-2 requests
         // en vez de ~7 páginas en serie.
-        const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=10`);
+        const r = await agendaApi(_disponibilidadUrl(agenda.diasOffset, 10));
         agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
         agenda.diasHayMas = !!r.hay_mas;
         const nuevos = _filtrarDias(r.dias);
@@ -776,7 +852,7 @@ async function cargarMasFechas() {
     // min_dias=5: el servidor junta varios dias con horas en una sola request
     // (antes: pagina tras pagina en serie hasta encontrar alguno).
     while (!cargo && agenda.diasHayMas) {
-      const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=5`);
+      const r = await agendaApi(_disponibilidadUrl(agenda.diasOffset, 5));
       agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
       agenda.diasHayMas = !!r.hay_mas;
       const nuevos = _filtrarDias(r.dias);
@@ -900,23 +976,37 @@ async function confirmarReserva() {
   btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Agendando…';
   const s = agenda.sel;
   try {
-    const r = await agendaApi('/api/agenda/reservar', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        especialidad: s.especialidad, doctor: s.doctor, motivo: s.motivo,
-        fecha: s.fecha, hora: s.hora, rut: s.rut,
-        nombres: s.datos.nombres, apellidos: s.datos.apellidos,
-        email: s.datos.email || '', telefono: s.datos.telefono || '',
-        ...(s.esNoSoyYo && {
-          es_no_soy_yo: true,
-          email_nuevo: s.datos.email || '',
-          telefono_nuevo: s.datos.telefono || '',
-        }),
-        ...(s.completarDatos && { es_completar_datos: true }),
-        ...(agenda.reagendaId && { reagenda_id_agenda: agenda.reagendaId }),
-        captcha_token: agenda.captchaToken || '',
-      }),
-    });
+    // reagendaExacto: preserva el motivo y la duración ORIGINALES de la cita
+    // vieja (endpoint dedicado) -- no el flujo normal, que dejaría al
+    // paciente "eligiendo" un motivo del menú online.
+    const r = agenda.reagendaExacto
+      ? await agendaApi('/api/agenda/reservar-reagenda', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_agenda: agenda.reagendaId, fecha_original: agenda.reagendaFecha,
+            doctor: s.doctor, fecha: s.fecha, hora: s.hora, rut: s.rut,
+            nombres: s.datos.nombres, apellidos: s.datos.apellidos,
+            email: s.datos.email || '', telefono: s.datos.telefono || '',
+            captcha_token: agenda.captchaToken || '',
+          }),
+        })
+      : await agendaApi('/api/agenda/reservar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            especialidad: s.especialidad, doctor: s.doctor, motivo: s.motivo,
+            fecha: s.fecha, hora: s.hora, rut: s.rut,
+            nombres: s.datos.nombres, apellidos: s.datos.apellidos,
+            email: s.datos.email || '', telefono: s.datos.telefono || '',
+            ...(s.esNoSoyYo && {
+              es_no_soy_yo: true,
+              email_nuevo: s.datos.email || '',
+              telefono_nuevo: s.datos.telefono || '',
+            }),
+            ...(s.completarDatos && { es_completar_datos: true }),
+            ...(agenda.reagendaId && { reagenda_id_agenda: agenda.reagendaId }),
+            captcha_token: agenda.captchaToken || '',
+          }),
+        });
     if (r.ok) { track('reservado'); pasoExito(r); } else pasoError(r.error || 'No se pudo agendar.');
   } catch (err) {
     pasoError((err.data && err.data.error) || 'Ocurrió un problema al agendar. Intenta por WhatsApp.');
@@ -966,13 +1056,23 @@ window.cerrarAgenda = cerrarAgenda;
 
 // Link directo: ortodonciarichard.cl/#reservar (o #agendar) abre el agendamiento
 // al instante. Ideal para el sticker de link de historias o el link de la bio.
-// #reagendar=<id_agenda> abre igual, pero marca esta sesión como reagendamiento:
-// al completar la reserva, el backend marca la cita vieja como "Re-agendado".
+// #reagendar=<id_agenda>&fecha=<fecha> abre igual, pero marca esta sesión como
+// reagendamiento: si viene con fecha, abrirAgenda() intenta precargar doctor
+// y motivo de la cita vieja (ver /api/agenda/reagendar-info) y salta directo a
+// elegir hora. Al completar la reserva, el backend marca la cita vieja como
+// "Re-agendado" (y la mueve fuera de horario para liberar su bloque).
 function _abrirDesdeHash() {
   const hash = location.hash || '';
   const reag = hash.match(/^#reagendar=(\d+)/i);
   if (reag) {
     agenda.reagendaId = reag[1];
+    const fm = hash.match(/[?&]fecha=(\d{4}-\d{2}-\d{2})/i);
+    agenda.reagendaFecha = fm ? fm[1] : null;
+    // Entrar (o reentrar, si llega otro link sin haber cerrado) en modo
+    // reagenda: forzar que abrirAgenda vuelva a consultar reagendar-info en
+    // vez de reusar un doctor/motivo precargado de otra cita.
+    agenda.reagendaExacto = false;
+    agenda._reagendaInfoIntentado = false;
     abrirAgenda();
   } else if (/^#(reservar|agendar)/i.test(hash)) {
     abrirAgenda();

@@ -312,6 +312,22 @@ def horas_disponibles(doc_id, target_date, motivo_key, libres, ocupados, cfg, ah
             if cumple_anticipacion(target_date, h, motivo_cfg, cfg, ahora)]
 
 
+def horas_disponibles_libre(doc_id, target_date, libres, ocupados, cfg, ahora=None):
+    """Igual que horas_disponibles(), pero SIN depender de un motivo_key de
+    scheduling_config.json. La usa el reagendamiento: la cita original puede
+    tener un motivo que no esta en la lista de motivos agendables online (uno
+    que la clinica escribio directo en DentiDesk). cumple_anticipacion() no usa
+    realmente motivo_cfg (la anticipacion minima es global, ver su docstring),
+    asi que esta version es equivalente para cualquier motivo real."""
+    ahora = ahora or datetime.now()
+    worked = sorted(set(libres) | set(ocupados))
+    disponibles = aplicar_ocupacion_simulada(
+        doc_id, target_date, worked, set(ocupados), cfg, hoy=ahora.date()
+    )
+    return [h for h in disponibles
+            if cumple_anticipacion(target_date, h, None, cfg, ahora)]
+
+
 # ── RUT chileno ──────────────────────────────────────────────────────────────
 
 def limpiar_rut(rut):

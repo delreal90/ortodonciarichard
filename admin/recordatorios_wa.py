@@ -158,6 +158,7 @@ def _procesar_dia(cfg, target_date, tipo, fn_envio, incluir_doctor):
             'nombre': nombres or 'paciente',
             'telefono': telefono,
             'fecha_legible': _fecha_legible(target_date),
+            'fecha': target_date.isoformat(),
             'hora': (c.get('time') or '')[:5],
             'id_agenda': ida,
         }
@@ -215,7 +216,8 @@ def enviar_inasistencias(cfg, hoy=None):
             nombres, _ = _pac._split_nombre(c.get('PatientName', ''))
             r = notify.enviar_inasistencia({
                 'nombre': nombres or 'paciente', 'telefono': telefono,
-                'fecha_legible': _fecha_legible(target), 'id_agenda': ida,
+                'fecha_legible': _fecha_legible(target), 'fecha': target.isoformat(),
+                'id_agenda': ida,
             })
             if r.get('ok'):
                 _marcar('inasistencia', ida)

@@ -347,12 +347,30 @@ def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
 
 # ── Crear cita ───────────────────────────────────────────────────────────────
 
-def crear_cita(*, doc_id, motivo_key, target_date, hora,
+def crear_cita(*, doc_id, motivo_key=None, id_reason=None, duracion_min=None,
+               enviar_duracion=False, target_date, hora,
                nombre, apellido, email, telefono, rut='', cfg=None):
-    """Crea la cita en DentiDesk. Devuelve dict con resultado."""
+    """Crea la cita en DentiDesk. Devuelve dict con resultado.
+
+    Dos formas de indicar el motivo:
+      - motivo_key: uno de los motivos agendables online (cfg['motivos']) --
+        uso normal del wizard de agendamiento.
+      - id_reason: motivo RAW, sin pasar por la config -- lo usa el
+        reagendamiento para preservar el motivo original de la cita vieja, que
+        puede no estar en la lista de motivos online (ver id_reason_por_label).
+
+    enviar_duracion=True (solo reagendamiento): agrega el campo 'Duration' al
+    payload para replicar una duracion ATIPICA de la cita original. El flujo
+    normal lo deja en False -> payload identico al ya probado en vivo (no se
+    arriesga a que un campo nuevo rompa createAgenda en el camino que funciona)."""
     cfg = cfg or load_config()
-    motivo = cfg['motivos'][motivo_key]
     doc_cfg = cfg['doctores'][doc_id]
+    if motivo_key:
+        motivo = cfg['motivos'][motivo_key]
+        id_reason = id_reason or motivo['id_reason']
+        duracion_min = duracion_min or motivo.get('duracion_min')
+    if not id_reason:
+        raise DentiDeskError('Falta id_reason (o motivo_key) para crear la cita')
 
     if not cfg['dentidesk']['enabled']:
         # MOCK: simula creacion exitosa con un id ficticio determinista
@@ -369,7 +387,7 @@ def crear_cita(*, doc_id, motivo_key, target_date, hora,
     payload = {
         'IdLocation': dd['id_location'],
         'IdStatus': dd['id_status_nueva_cita'],
-        'IdReason': motivo['id_reason'],
+        'IdReason': id_reason,
         'Professional': doc_cfg['professional_id'],
         'NamePatient': nombre,
         'LastnamePatient': apellido,
@@ -380,6 +398,18 @@ def crear_cita(*, doc_id, motivo_key, target_date, hora,
         'Hour': hora,
         'Token': token,
     }
+    # Duracion explicita (SOLO reagendamiento, enviar_duracion=True): el
+    # paciente puede tener una cita con duracion ATIPICA (ej. "Instalar
+    # Microtornillos" que normalmente es 30 min pero a este paciente se le
+    # asigno 45). getAgendaDay la devuelve en 'duration'; para replicarla en la
+    # cita nueva se manda aca. 'Duration' es el nombre de campo mas probable
+    # (createAgenda usa PascalCase: Date, Hour, IdReason) pero NO esta
+    # confirmado en vivo -- si DentiDesk lo ignora, la cita toma la duracion
+    # standard de su IdReason (no rompe nada). PENDIENTE verificar contra una
+    # cita de prueba real. El flujo normal NO manda este campo (enviar_duracion
+    # default False) para no tocar el payload ya probado.
+    if enviar_duracion and duracion_min:
+        payload['Duration'] = int(duracion_min)
     resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
     resp.raise_for_status()
     data = resp.json()
@@ -389,11 +419,17 @@ def crear_cita(*, doc_id, motivo_key, target_date, hora,
 
 # ── Actualizar estado de una cita existente ─────────────────────────────────
 
-def actualizar_estado_cita(id_agenda, id_status, cfg=None):
+def actualizar_estado_cita(id_agenda, id_status, cfg=None, hora=None):
     """Cambia el IdStatus de una cita existente (ej. 32180 'Confirmado por
     WhatsApp', 2122 'Hora Cancelada'). Usado por el webhook cuando el
     paciente toca un boton de una plantilla. Mismo patron que crear_cita():
-    auth de un solo uso + POST con Token."""
+    auth de un solo uso + POST con Token.
+
+    hora ('HH:MM', opcional): mueve la cita a esa hora el MISMO dia -- lo usa
+    el reagendamiento para correr la cita vieja a las 20:00 (fuera de horario)
+    y liberar visualmente su bloque original para otro paciente. El endpoint
+    solo toca los campos enviados (verificado en vivo: el envio de solo
+    IdStatus, sin Date/Hour, no altera la fecha/hora de la cita)."""
     cfg = cfg or load_config()
     if not cfg['dentidesk']['enabled']:
         return {'ok': True, 'mock': True}
@@ -409,6 +445,75 @@ def actualizar_estado_cita(id_agenda, id_status, cfg=None):
         'IdStatus': id_status,
         'Token': token,
     }
+    if hora:
+        payload['Hour'] = hora
     resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
     resp.raise_for_status()
     return {'ok': True, 'mock': False, 'raw': resp.json()}
+
+
+# ── Mapeo inverso nombre/label -> key interna ────────────────────────────────
+# getAgendaDay devuelve el nombre del profesional (ProfessionalName) y el
+# motivo (Reason) como TEXTO, no como las keys internas ('octavio',
+# 'control_ortodoncico') que usa el frontend/scheduling_config.json. Estos
+# helpers reconstruyen la key a partir del texto, para poder precargar
+# doctor+motivo en el link de reagendar (ver server.py / recordatorios_wa.py).
+# Si no hay match (nombre/label no coincide exacto) devuelven '' -- el
+# frontend cae de vuelta a pedirselo al paciente, sin romper el flujo.
+
+def doc_key_por_nombre(cfg, professional_name):
+    professional_name = (professional_name or '').strip()
+    if not professional_name:
+        return ''
+    for k, v in cfg['doctores'].items():
+        if (not k.startswith('_') and isinstance(v, dict)
+                and (v.get('professional_name') or '').strip() == professional_name):
+            return k
+    return ''
+
+
+def id_reason_por_label(cfg, doc_key, label):
+    """Resuelve el IdReason (numerico) del motivo ORIGINAL de una cita, a partir
+    de su nombre tal como lo devuelve DentiDesk (campo 'Reason'). getAgendaDay
+    NO trae el IdReason -- solo el texto -- asi que hay que reconstruirlo:
+
+      1. Primero busca entre los motivos AGENDABLES online (cfg['motivos']),
+         de la especialidad del doctor -- estos ya tienen id_reason confirmado.
+      2. Si no hay match (motivo que la clinica escribio directo en DentiDesk,
+         fuera del menu online, ej. "Instalacion de microtornillos"), busca en
+         cfg['motivos_id_reason_extra'] -- tabla plana nombre->IdReason que la
+         clinica entrega a mano (ver scheduling_config.json).
+
+    Devuelve None si no hay match en ninguna -- quien llama debe manejarlo (no
+    inventar un IdReason: se arriesga a agendar con el motivo equivocado)."""
+    label = (label or '').strip()
+    if not label:
+        return None
+    esp = cfg['doctores'].get(doc_key, {}).get('especialidad')
+    if esp:
+        for k, v in cfg['motivos'].items():
+            if (not k.startswith('_') and isinstance(v, dict)
+                    and v.get('especialidad') == esp
+                    and (v.get('label') or '').strip() == label
+                    and v.get('id_reason')):
+                return v['id_reason']
+    extra = cfg.get('motivos_id_reason_extra') or {}
+    if label in extra:
+        try:
+            return int(extra[label])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def info_cita(cfg, id_agenda, fecha):
+    """Busca una cita puntual por IdAgenda dentro de la agenda de UN dia
+    (DentiDesk no tiene endpoint de 'buscar por id' -- solo getAgendaDay por
+    fecha). El llamador debe conocer la fecha (la sabe desde que se armo el
+    recordatorio de WhatsApp). Devuelve el registro crudo de DentiDesk o None
+    si no esta ese dia (cita movida/eliminada por otra via)."""
+    id_agenda = str(id_agenda)
+    for c in _get_agenda_day(cfg, fecha, force=True):
+        if str(c.get('IdAgenda') or '') == id_agenda:
+            return c
+    return None

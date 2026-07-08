@@ -13,12 +13,16 @@ Reglas de negocio:
                   + mensaje de agradecimiento al paciente.
   - Anular     -> actualizar_estado_cita() con IdStatus 2122 (Hora Cancelada)
                   + mensaje al paciente + aviso INMEDIATO a recepcion por email.
-  - Reagendar  -> manda al paciente el link de la agenda online con el id de su
-                  cita vieja codificado en el hash (#reagendar=<id>). Cuando
-                  complete la reserva nueva ahi, /api/agenda/reservar marca la
-                  cita vieja como "Re-agendado" (2132) y le avisa. La cita vieja
-                  se mantiene vigente hasta que confirme la nueva (asi no queda
-                  sin hora si abandona el flujo).
+  - Reagendar  -> manda al paciente el link de la agenda online con el id (y la
+                  fecha) de su cita vieja codificados en el hash (#reagendar=
+                  <id>&fecha=<fecha>). El frontend usa esos datos para precargar
+                  doctor + motivo (/api/agenda/reagendar-info) y saltar directo
+                  a elegir hora -- el paciente no puede cambiar de doctor ni de
+                  motivo. Cuando complete la reserva nueva ahi, el backend marca
+                  la cita vieja como "Re-agendado" (2132) y la mueve fuera de
+                  horario (libera su bloque original). La cita vieja se mantiene
+                  vigente hasta que confirme la nueva (asi no queda sin hora si
+                  abandona el flujo).
 
 Ignora cualquier evento que no sea un toque de boton (mensajes de texto libre,
 recibos de entrega/lectura, etc.) -- esos se ven manualmente en la bandeja de
@@ -36,10 +40,12 @@ ACCION_CONFIRMAR = 'Confirmo'
 ACCION_ANULAR = 'Anular'
 ACCION_REAGENDAR = 'Reagendar'
 
-# Link a la agenda online con el id de la cita vieja codificado en el hash.
-# Al completar la reserva nueva, el backend marca esa cita vieja como
-# "Re-agendado" y avisa al paciente (ver /api/agenda/reservar).
-URL_REAGENDA = 'https://www.ortodonciarichard.cl/#reagendar={id_agenda}'
+# Link a la agenda online con el id (y la fecha) de la cita vieja codificados
+# en el hash. El frontend usa la fecha para pedirle a /api/agenda/reagendar-info
+# los datos de la cita (DentiDesk no tiene 'buscar por id', hay que saber el
+# dia). Al completar la reserva nueva, el backend marca esa cita vieja como
+# "Re-agendado" y avisa al paciente (ver /api/agenda/reservar-reagenda).
+URL_REAGENDA = 'https://www.ortodonciarichard.cl/#reagendar={id_agenda}&fecha={fecha}'
 
 
 def procesar_evento(payload, cfg):
@@ -67,7 +73,13 @@ def _procesar_mensaje(msg, cfg):
     crudo = (boton.get('payload') or '').strip()
     telefono = msg.get('from', '')
 
-    tipo, _, id_agenda = crudo.partition(':')
+    # Formato 'tipo:id_agenda:fecha' (fecha agregada 2026-07-08; botones
+    # enviados ANTES de ese cambio solo traen 'tipo:id_agenda' -- partes[2]
+    # queda vacio y _reagendar cae de vuelta al link sin fecha).
+    partes = crudo.split(':')
+    tipo = partes[0] if partes else ''
+    id_agenda = partes[1] if len(partes) > 1 else ''
+    fecha = partes[2] if len(partes) > 2 else ''
     if not id_agenda:
         log.warning('Boton sin id_agenda en el payload: %r', crudo)
         return False
@@ -77,7 +89,7 @@ def _procesar_mensaje(msg, cfg):
     elif texto == ACCION_ANULAR:
         _anular(id_agenda, telefono, cfg)
     elif texto == ACCION_REAGENDAR:
-        _reagendar(id_agenda, telefono, cfg)
+        _reagendar(id_agenda, telefono, cfg, fecha)
     else:
         log.info('Boton no manejado: %r (cita %s)', texto, id_agenda)
         return False
@@ -112,13 +124,19 @@ def _anular(id_agenda, telefono, cfg):
     notify.avisar_recepcion_anulacion(id_agenda, telefono)
 
 
-def _reagendar(id_agenda, telefono, cfg):
-    """Le manda al paciente el link de la agenda online con el id de su cita
-    vieja codificado. Cuando complete la reserva nueva ahi, /api/agenda/reservar
+def _reagendar(id_agenda, telefono, cfg, fecha=''):
+    """Le manda al paciente el link de la agenda online con el id (y la fecha)
+    de su cita vieja codificados. El frontend usa esos datos para precargar
+    doctor + motivo (/api/agenda/reagendar-info) y saltar directo a elegir
+    hora. Cuando complete la reserva nueva ahi, /api/agenda/reservar-reagenda
     marca esta cita vieja como 'Re-agendado' y le avisa (ver ese endpoint).
     No toca DentiDesk aca todavia -- la cita vieja sigue vigente hasta que el
-    paciente concrete la nueva (asi no queda sin hora si abandona el flujo)."""
-    link = URL_REAGENDA.format(id_agenda=id_agenda)
+    paciente concrete la nueva (asi no queda sin hora si abandona el flujo).
+
+    fecha vacia (botones enviados antes de este cambio): el link igual abre
+    con el id -- el frontend simplemente no puede precargar doctor/motivo y
+    cae de vuelta al wizard completo (pidiendole todo al paciente)."""
+    link = URL_REAGENDA.format(id_agenda=id_agenda, fecha=fecha)
     notify.enviar_texto_libre(
         telefono,
         'Para reagendar su hora tiene dos opciones:\n\n'

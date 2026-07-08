@@ -1,0 +1,189 @@
+IdReason Nombre Duración
+20187 Aligner / Essix 15
+20179 Aparato Herbst Suelto / Roto 45
+20101 Aparatos Cirugía 30
+19963 Arco Suelto / Roto 15
+25429 Attatchments 15
+20072 Banda Suelta / Rota 30
+18169 Bandas 60
+36174 Bandas + Higiene 30
+20053 Barra Lingual 30
+18170 Barra Palatina / HG 45
+20084 Boca Herida 15
+35639 Botón 15
+20066 Bracket Suelto 15
+35920 Cambio Cadenetas 15
+33530 Carriere suelto 15
+25973 Cementar Bracket 15
+28070 Cementar Marpe (Expansor) 30
+25299 Cemento out 15
+34939 Consulta Online 30
+16073 Control Fijo 15
+24798 Control / Evaluación PV 30
+33779 Control Barra / Nance 15
+27649 Control Clear Correct 15
+27245 Control Contención 15
+20071 Control Digitrack 15
+27675 Control Digitrack + Fijo 15
+27676 Control Digitrack + Lingual 15
+33821 Control Disyuntor 15
+19964 Control Higiene 15
+36181 Control Higiene + Bandas 30
+20070 Control Invisalign 15
+20188 Control Invisalign + Fijo 15
+20120 Control Lingual Parcial 30
+20121 Control Lingual Total 30
+20173 Control Microtornillos 15
+18162 Control Pasivo 15
+20115 Control Plano Relajación 15
+20013 Control Removible 15
+20060 Conversar con Dr. 15
+20086 De Laire Esqueletal 45
+20047 Disyuntor 30
+26734 Disyuntor + 2x4 60
+33977 Disyuntor + Microtornillos 45
+20128 Disyuntor Suelto 30
+20082 Dolor / Molestia 15
+20112 Encías Inflamadas 15
+20062 Essix / Placa Perdida 15
+36406 Essix + Rx + Fotos 30
+36231 Exodoncia incisivos 30
+36043 Explicación Plan + Disyuntor 30
+35053 Explicación Plan + Instalación Digitrack 60
+36295 Explicación Plan + Separaciones 30
+18167 Explicación Plan Tratamiento 30
+34354 Explicación Plan Tratamiento Online 30
+28177 Fenestración 30
+20083 Fierro Pincha 15
+20129 Forsus Suelto 30
+20049 Fotos 15
+20056 Gomas / Cadenetas 15
+35638 Imp essix + scanner final + fotos + rx 30
+20130 Impresión + Bandas p / Barra 60
+20111 Impresión + Bandas p / De Laire Esqueletal 60
+32290 Impresión + Bandas p / Distal Jet 30
+20100 Impresión + Bandas p / Disyuntor 30
+20108 Impresión + Bandas p / Nance 30
+20131 Impresión + Bandas p / Péndulo 60
+20109 Impresión + Bandas p / QH 30
+25147 Impresión + Sep. p / Hyrax 30
+33598 Impresión arrastre + Bandas 30
+26971 Impresión p / Clear Correct 30
+33443 Impresión p / Disyuntor 30
+20065 Impresión p / Essix 15
+34063 Impresión p / Essix + Rx + Scanner final 30
+19962 Impresión p / Invisalign 30
+20176 Impresión p / Jig 30
+33597 Impresión p / Placa 15
+31965 Impresión p / Refinamiento Clear Correct 30
+28495 Impresión p / Refinamiento Invisalign 60
+20106 Impresión p / Reparar Placa 15
+20107 Impresión p / Reparar Plano 15
+20110 Impresión p / Retenedor Fijo 15
+20116 Impresión p / Silensor 30
+27641 Impresión p / Twin-Block 15
+23935 Inicio 30
+20012 Instalar 2 x 4 60
+36185 Instalar Anclaje Esqueletal 30
+20180
+Instalar Apto. Herbst
+45
+20064 Instalar Arco 30
+20184 Instalar Arco Facial 45
+33311 Instalar Carriere 30
+26972 Instalar Clear Correct 60
+20113 Instalar Digitrack 60
+32291 Instalar Distal Jet 30
+20185 Instalar Forsus 30
+34131 Instalar HG 30
+20105 Instalar Hooks 30
+25146 Instalar Hyrax 45
+20114 Instalar Invisalign 60
+20177 Instalar Jig 30
+20181 Instalar Microtornillos 30
+20186 Instalar Péndulo 30
+29089 Instalar Pinchos 30
+27672 Instalar Refinamiento Clear Correct 30
+25091 Instalar Refinamiento Digitrack 30
+25092 Instalar Refinamiento Invisalign 30
+26611 Instalar Twin Block 30
+20058 Máscara De Laire 45
+35425 Máscara De Laire perdida 15
+33111 Micro-orto-perforación 15
+20270 Microtornillo suelto 30
+27674 Montaje Lingual + Digitrack 120
+20122 Montaje Lingual Parcial 120
+20123 Montaje Lingual Total 120
+18164 Montaje Parcial 90
+18163 Montaje Total 120
+27673 Montaje Vestibular + Digitrack 120
+20043 Mordida 30
+20050 Mostrar RX 15
+20051 Nance 30
+20077 Nance Suelto / Roto 30
+26436 Ortognática Reciente 15
+36208 PABELLON 60
+20073 Pal Bar Suelta / Rota 30
+20118 Pegar Botón 30
+20117 Pegar Tubos 30
+18166 Placa 15
+20061 Placa/Essix Roto / Desajustado 15
+27033 Planificar Tratamiento 30
+1655 Plano Relajación 30
+20069 Plano Relajacíón Perdido 15
+20190 Plano Relajación Roto 15
+18152 Primera Consulta 30
+20057 Propel 45
+20046 Quad Helix 45
+20183 Quad Helix Suelto / Roto 30
+20104 Re-estudio 15
+33444 Registro Final 30
+1675 Reinicio 30
+20055 Reinstalar Arco 30
+20174 Reinstalar Microtornillos 30
+20044 Reparación Placa 15
+20045 Reparación Plano 15
+20048 Retenedor Fijo 30
+20068 Retenedor Fijo Suelto / Roto 30
+20191 Retiro 2 x 4 45
+20132 Retiro Aptos. para Resonancia Magnética 90
+20133 Retiro Aptos. por Alergia 90
+20074 Retiro Arco 30
+20175 Retiro Barra Palatina 30
+31966 Retiro Clear Correct 90
+21795 Retiro Digitrack 90
+20052 Retiro Disyuntor 30
+20125 Retiro Forsus 45
+26032 Retiro Invisalign 90
+23801 Retiro Máscara De Laire 30
+20075 Retiro Microtornillo 40
+18172 Retiro Parcial 60
+20126 Retiro Péndulo 45
+28432 Retiro Retenedores fijos 15
+20076 Retiro Separaciones 15
+26435 Retiro Topes 30
+18171 Retiro Total 90
+33599 Retiro Total + Inicio 120
+20054 Reubicar Brackets 45
+19961 Scanner Digitrack 30
+33312 Scanner p / Carriere 15
+20040 Scanner p / Cirugía 30
+34021 Scanner p / Disyuntor 15
+20067 Scanner p / Plano 15
+20857 Scanner p / Registro Final 30
+34560 Scanner p/ Control + Rxs. 30
+35044 Scanner p/ Essix 15
+20119 Scanner para Técnica Lingual 45
+24412 Scanner Refinamiento Digitrack 30
+20063 Segmentos Laterales 60
+18165 Segunda Consulta 15
+18168 Separaciones 15
+20102 Set-up 30
+20103 Silensor 30
+20564 SIN HORA 15
+20042 Sólo Impresiones 15
+20127 Stripping 30
+23934 Toma Rxs 15
+22860 Topes Alineadores 30
+28240 Tornillo Inflamado 15
+36182 Tornillo Suelto con dolor 15

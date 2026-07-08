@@ -788,6 +788,25 @@ def _horas_de_dia(doctor, motivo, d, cfg):
         ocupados = dentidesk.bloques_ocupados(cfg, doctor, d)
     return scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
 
+def _horas_de_dia_libre(doctor, duracion_min, d, cfg):
+    """Como _horas_de_dia(), pero por DURACION en vez de motivo_key -- la usa
+    el reagendamiento, donde el motivo original de la cita puede no estar en
+    la lista de motivos agendables online (ver dentidesk.id_reason_por_label)."""
+    if not cfg['dentidesk']['enabled']:
+        # Modo demo: misma grilla/hash que dentidesk.disponibilidad_real() en
+        # modo mock, pero sin necesitar un motivo_key real.
+        manana = [f'{h:02d}:{m:02d}' for h in range(9, 13) for m in (0, 15, 30, 45)]
+        tarde  = [f'{h:02d}:{m:02d}' for h in range(15, 19) for m in (0, 15, 30, 45)]
+        worked = manana + tarde
+        ocupados = {h for h in worked if dentidesk._hash01(doctor, d.isoformat(), h, 'real') < 0.25}
+        libres = {h for h in worked if h not in ocupados}
+        return scheduling.horas_disponibles_libre(doctor, d, libres, ocupados, cfg)
+    libres15 = _slots15_dia(doctor, d, cfg)
+    libres = dentidesk.horas_que_caben(libres15, duracion_min)
+    with _DENTI_SEM:
+        ocupados = dentidesk.bloques_ocupados(cfg, doctor, d)
+    return scheduling.horas_disponibles_libre(doctor, d, libres, ocupados, cfg)
+
 def _refrescar_dia_reservado(doctor, d, cfg):
     """Tras crear una cita, refresca en segundo plano los slots del doctor y la
     agenda de ese dia -- la hora recien tomada desaparece al instante para el
@@ -853,6 +872,108 @@ def agenda_disponibilidad():
             break
         if not min_dias:
             break   # sin min_dias: comportamiento clasico de UNA pagina
+    return jsonify({'ok': True, 'dias': dias,
+                    'offset_siguiente': idx,
+                    'hay_mas': idx < len(todos)})
+
+# Estados que indican que la cita YA no esta vigente (no se puede reagendar de
+# nuevo desde el mismo link -- ya fue cancelada, reagendada o atendida).
+_ESTADOS_NO_REAGENDABLES = ('cancel', 'reagend', 're-agend', 'atendid', 'no seguir')
+
+@rate_limit('30 per minute')
+@app.route('/api/agenda/reagendar-info', methods=['GET'])
+def agenda_reagendar_info():
+    """Datos de la cita ORIGINAL para precargar el flujo de reagendar (doctor +
+    motivo, de solo lectura -- el paciente no puede cambiarlos). id_agenda +
+    fecha vienen del link que manda el webhook de WhatsApp (#reagendar=<id>&
+    fecha=<fecha>): DentiDesk no tiene 'buscar por id', hay que saber el dia."""
+    id_agenda = (request.args.get('id_agenda') or '').strip()
+    fecha_str = (request.args.get('fecha') or '').strip()
+    if not id_agenda or not fecha_str:
+        return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+    try:
+        fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Fecha invalida'}), 400
+
+    cfg = scheduling.load_config()
+    if not cfg['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin datos reales de DentiDesk'}), 400
+
+    c = dentidesk.info_cita(cfg, id_agenda, fecha)
+    if not c:
+        return jsonify({'ok': False, 'error': 'No encontramos esa cita. Escríbenos por WhatsApp y te ayudamos.'}), 404
+    estado_txt = (c.get('Status') or '').lower()
+    if any(s in estado_txt for s in _ESTADOS_NO_REAGENDABLES):
+        return jsonify({'ok': False, 'error': 'Esta cita ya no está vigente.'}), 409
+
+    doctor_nombre = (c.get('ProfessionalName') or '').strip()
+    doctor_key = dentidesk.doc_key_por_nombre(cfg, doctor_nombre)
+    motivo_label = (c.get('Reason') or '').strip()
+    duracion_min = int(c.get('duration') or 30)
+    if not doctor_key:
+        return jsonify({'ok': False, 'error': 'No pudimos identificar al profesional de esta cita. Escríbenos por WhatsApp.'}), 409
+    id_reason = dentidesk.id_reason_por_label(cfg, doctor_key, motivo_label)
+    if not id_reason:
+        return jsonify({'ok': False, 'error': 'No pudimos reagendar automáticamente este motivo. Escríbenos por WhatsApp y te ayudamos.'}), 409
+
+    doctors = read_doctor_data()
+    info = doctors.get(doctor_key, {})
+    return jsonify({
+        'ok': True, 'id_agenda': id_agenda,
+        'doctor': doctor_key, 'doctor_nombre': info.get('name', doctor_nombre),
+        'doctor_foto': info.get('photo', ''),
+        'motivo_label': motivo_label, 'duracion_min': duracion_min,
+        'fecha_actual': fecha.isoformat(), 'hora_actual': (c.get('time') or '')[:5],
+    })
+
+@rate_limit('30 per minute')
+@app.route('/api/agenda/disponibilidad-reagendar', methods=['GET'])
+def agenda_disponibilidad_reagendar():
+    """Igual que /api/agenda/disponibilidad, pero por DURACION (no motivo) --
+    la usa el flujo de reagendar, que preserva el motivo original de la cita
+    (puede no estar en la lista de motivos agendables online)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    doctor = request.args.get('doctor')
+    cfg = scheduling.load_config()
+    if doctor not in cfg['doctores']:
+        return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+    try:
+        duracion_min = int(request.args.get('duracion', 0))
+    except (TypeError, ValueError):
+        duracion_min = 0
+    if duracion_min <= 0:
+        return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+
+    hoy = date.today()
+    todos = scheduling.dias_habiles_ventana(hoy, cfg)
+    PAGE = 6
+    MAX_DIAS_REQ = 30
+    offset = max(0, int(request.args.get('offset', 0) or 0))
+    min_dias = max(0, min(int(request.args.get('min_dias', 0) or 0), 10))
+
+    def trabajo(d):
+        try:
+            return d, _horas_de_dia_libre(doctor, duracion_min, d, cfg)
+        except Exception:
+            return d, []
+
+    dias = []
+    idx = offset
+    escaneados = 0
+    while idx < len(todos) and escaneados < MAX_DIAS_REQ:
+        lote = todos[idx:idx + PAGE]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for d, horas in sorted(pool.map(trabajo, lote), key=lambda x: x[0]):
+                if horas:
+                    dias.append({'fecha': d.isoformat(), 'legible': _fecha_legible(d), 'horas': horas})
+        idx += len(lote)
+        escaneados += len(lote)
+        if len(dias) >= (min_dias or 1):
+            break
+        if not min_dias:
+            break
     return jsonify({'ok': True, 'dias': dias,
                     'offset_siguiente': idx,
                     'hay_mas': idx < len(todos)})
@@ -1059,7 +1180,8 @@ def agenda_reservar():
 
     # Reagendamiento: si la reserva vino por el link de "Reagendar" de un
     # recordatorio (#reagendar=<id> -> reagenda_id_agenda), marcamos la cita
-    # VIEJA como "Re-agendado" en DentiDesk ahora que la nueva ya quedó creada.
+    # VIEJA como "Re-agendado" en DentiDesk ahora que la nueva ya quedó creada,
+    # y la movemos fuera de horario (libera su bloque original visualmente).
     # Solo dígitos (viene del hash de un link nuestro). Si falla el update, se
     # loguea pero NO se rompe la reserva nueva (que sí quedó hecha).
     reagenda_id = ''.join(c for c in str(data.get('reagenda_id_agenda') or '') if c.isdigit())
@@ -1067,8 +1189,9 @@ def agenda_reservar():
     if es_reagenda:
         id_status_reag = cfg['dentidesk'].get('id_status_reagendada')
         if id_status_reag:
+            hora_liberar = cfg['dentidesk'].get('hora_liberar_reagendada', '20:00')
             try:
-                dentidesk.actualizar_estado_cita(reagenda_id, id_status_reag, cfg)
+                dentidesk.actualizar_estado_cita(reagenda_id, id_status_reag, cfg, hora=hora_liberar)
             except Exception as e:
                 app.logger.error('No se pudo marcar como reagendada la cita %s: %s', reagenda_id, e)
         else:
@@ -1111,6 +1234,145 @@ def agenda_reservar():
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'solicitud_cambio': es_no_soy_yo or es_completar,
                     'reagenda': es_reagenda})
+
+@rate_limit('10 per minute')
+@app.route('/api/agenda/reservar-reagenda', methods=['POST'])
+def agenda_reservar_reagenda():
+    """Reagenda preservando el motivo y la duracion ORIGINALES de la cita
+    vieja -- el paciente NO elige motivo (a diferencia de /api/agenda/reservar
+    con reagenda_id_agenda, que crea la cita nueva con un motivo del menu
+    online). Lo usa el link de reagendar cuando /api/agenda/reagendar-info
+    pudo precargar doctor+motivo (ver dentidesk.id_reason_por_label)."""
+    data = request.json or {}
+    cfg = scheduling.load_config()
+
+    if not _verificar_turnstile(data.get('captcha_token', '')):
+        return jsonify({'ok': False, 'error': 'Verificación de seguridad fallida. Recarga e intenta de nuevo.'}), 403
+
+    id_agenda = (data.get('id_agenda') or '').strip()
+    fecha_original_str = (data.get('fecha_original') or '').strip()
+    doctor = data.get('doctor')
+    if not id_agenda or not fecha_original_str or doctor not in cfg['doctores']:
+        return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+    try:
+        fecha_original = datetime.strptime(fecha_original_str, '%Y-%m-%d').date()
+        fecha = datetime.strptime(data['fecha'], '%Y-%m-%d').date()
+    except (KeyError, ValueError):
+        return jsonify({'ok': False, 'error': 'Fecha invalida'}), 400
+    hora = data.get('hora', '')
+
+    rut = data.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+
+    # Releer la cita vieja EN VIVO (no confiar en lo que junto el frontend al
+    # abrir el link): motivo, duracion y estado deben ser los actuales.
+    c = dentidesk.info_cita(cfg, id_agenda, fecha_original)
+    if not c:
+        return jsonify({'ok': False, 'error': 'No encontramos esa cita. Escríbenos por WhatsApp.'}), 404
+    estado_txt = (c.get('Status') or '').lower()
+    if any(s in estado_txt for s in _ESTADOS_NO_REAGENDABLES):
+        return jsonify({'ok': False, 'error': 'Esta cita ya no está vigente.'}), 409
+    doctor_real = dentidesk.doc_key_por_nombre(cfg, (c.get('ProfessionalName') or '').strip())
+    if doctor_real != doctor:
+        return jsonify({'ok': False, 'error': 'Los datos de la cita cambiaron. Intenta de nuevo.'}), 409
+    motivo_label = (c.get('Reason') or '').strip()
+    duracion_min = int(c.get('duration') or 30)
+    id_reason = dentidesk.id_reason_por_label(cfg, doctor, motivo_label)
+    if not id_reason:
+        return jsonify({'ok': False, 'error': 'No pudimos reagendar automáticamente este motivo. Escríbenos por WhatsApp.'}), 409
+
+    # Revalidar en backend: ventana + anticipacion + disponibilidad (por
+    # duracion, motivo-agnostico -- igual criterio que agenda_disponibilidad_reagendar).
+    if not scheduling.dentro_de_ventana(fecha, cfg):
+        return jsonify({'ok': False, 'error': 'No se puede agendar con mas de 60 dias de anticipacion'}), 409
+    if not scheduling.cumple_anticipacion(fecha, hora, None, cfg):
+        return jsonify({'ok': False, 'error': 'La hora no cumple la anticipacion minima'}), 409
+    libres15 = dentidesk.bloques_libres_15(cfg, doctor, fecha)
+    libres = dentidesk.horas_que_caben(libres15, duracion_min)
+    ocupados = dentidesk.bloques_ocupados(cfg, doctor, fecha)
+    if hora not in scheduling.horas_disponibles_libre(doctor, fecha, libres, ocupados, cfg):
+        return jsonify({'ok': False, 'error': 'La hora ya no esta disponible'}), 409
+
+    # Email obligatorio para DentiDesk; dedup por RUT (mismo criterio que /reservar)
+    import pacientes
+    rec = pacientes.lookup(rut) if cfg['dentidesk']['enabled'] else None
+    if rec and rec.get('email'):
+        email = rec['email']
+    else:
+        email = (data.get('email') or '').strip()
+    if '@' not in email or '.' not in email:
+        return jsonify({'ok': False, 'error': 'El email es obligatorio'}), 400
+
+    nombre = (data.get('nombres') or '').strip()
+    apellido = (data.get('apellidos') or '').strip()
+    telefono = (rec.get('telefono') if rec else '') or data.get('telefono', '')
+    if not nombre and rec:
+        nombre, apellido = rec.get('nombres', ''), rec.get('apellidos', '')
+
+    # enviar_duracion=False por ahora: el campo 'Duration' de createAgenda NO
+    # esta confirmado en vivo. Se deja apagado hasta verificar (con una cita de
+    # duracion ATIPICA) que DentiDesk lo acepta sin rechazar el createAgenda.
+    # Mientras, la cita nueva toma la duracion STANDARD de su IdReason (correcto
+    # en la gran mayoria de casos). TODO: activar tras verificar el campo.
+    res = dentidesk.crear_cita(
+        doc_id=doctor, id_reason=id_reason, duracion_min=duracion_min,
+        enviar_duracion=False, target_date=fecha, hora=hora,
+        nombre=nombre, apellido=apellido, email=email, telefono=telefono,
+        rut=scheduling.limpiar_rut(rut), cfg=cfg,
+    )
+    if not res.get('ok'):
+        return jsonify({'ok': False, 'error': 'No se pudo crear la cita'}), 502
+    _refrescar_dia_reservado(doctor, fecha, cfg)
+
+    try:
+        import confirmaciones
+        confirmaciones.marcar_enviada(res.get('id_cita'))
+    except Exception:
+        pass
+
+    # Cita vieja: marcarla "Re-agendado" y moverla fuera de horario (libera su
+    # bloque original visualmente). Si falla, se loguea pero NO rompe la
+    # reserva nueva (que sí quedó hecha).
+    id_status_reag = cfg['dentidesk'].get('id_status_reagendada')
+    if id_status_reag:
+        hora_liberar = cfg['dentidesk'].get('hora_liberar_reagendada', '20:00')
+        try:
+            dentidesk.actualizar_estado_cita(id_agenda, id_status_reag, cfg, hora=hora_liberar)
+            _refrescar_dia_reservado(doctor, fecha_original, cfg)
+        except Exception as e:
+            app.logger.error('No se pudo marcar como reagendada la cita %s: %s', id_agenda, e)
+    else:
+        app.logger.warning('id_status_reagendada no configurado -- no se marca la cita %s', id_agenda)
+
+    doctors = read_doctor_data()
+    doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
+
+    try:
+        import stats
+        stats.registrar({
+            'fecha': fecha.isoformat(), 'hora': hora,
+            'paciente_nombre': f"{nombre} {apellido}".strip(),
+            'doctor': doctor, 'doctor_nombre': doctor_nombre,
+            'motivo': motivo_label, 'motivo_label': motivo_label,
+            'especialidad': cfg['doctores'][doctor].get('especialidad', ''),
+            'paciente_conocido': bool(rec),
+        })
+    except Exception:
+        pass
+
+    # Reagenda: avisar por email Y WhatsApp (el paciente vino desde WhatsApp).
+    confirm = notify.enviar_confirmacion({
+        'nombre': nombre, 'telefono': telefono,
+        'email': email, 'fecha': fecha,
+        'fecha_legible': _fecha_legible(fecha), 'hora': hora,
+        'doctor_nombre': doctor_nombre, 'motivo_label': motivo_label,
+        'dur_min': duracion_min,
+    }, cfg, canal='ambos', reagenda=True)
+
+    return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
+                    'confirmacion': confirm, 'mock': res.get('mock', False),
+                    'reagenda': True})
 
 @rate_limit('10 per minute')
 @app.route('/api/agenda/reservar-estudio', methods=['POST'])
@@ -1300,12 +1562,16 @@ def whatsapp_test():
     # valor cualquiera -- solo viaja en el payload del boton, no se usa hasta
     # que alguien lo toque de verdad.
     id_agenda = str(data.get('id_agenda', '000000'))
+    # fecha_iso (YYYY-MM-DD): la fecha REAL de la cita, para que el boton
+    # Reagendar arme el link con &fecha= y active la precarga de doctor+motivo.
+    # Sin esto (pruebas sueltas), el link abre el wizard completo.
+    fecha_iso = str(data.get('fecha_iso', ''))
 
     envio = {
         'confirmacion_hora':      lambda: wa_cloud.enviar_confirmacion_hora(tel, nombre, doctor, fecha, hora),
-        'recordatorio_semana':    lambda: wa_cloud.enviar_recordatorio_semana(tel, nombre, doctor, fecha, hora, id_agenda),
-        'recordatorio_dia':       lambda: wa_cloud.enviar_recordatorio_dia(tel, nombre, doctor, fecha, hora, id_agenda),
-        'inasistencia_reagendar': lambda: wa_cloud.enviar_inasistencia_reagendar(tel, nombre, fecha, id_agenda),
+        'recordatorio_semana':    lambda: wa_cloud.enviar_recordatorio_semana(tel, nombre, doctor, fecha, hora, id_agenda, fecha_iso=fecha_iso),
+        'recordatorio_dia':       lambda: wa_cloud.enviar_recordatorio_dia(tel, nombre, doctor, fecha, hora, id_agenda, fecha_iso=fecha_iso),
+        'inasistencia_reagendar': lambda: wa_cloud.enviar_inasistencia_reagendar(tel, nombre, fecha, id_agenda, fecha_iso=fecha_iso),
         'conversacion_general':   lambda: wa_cloud.enviar_conversacion_general(tel, nombre, data.get('motivo', 'una consulta general')),
         'consentimiento_informado': lambda: wa_cloud.enviar_consentimiento(
             tel, nombre, data.get('tipo_label', 'Consentimiento de Ortodoncia'),
