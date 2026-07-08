@@ -691,7 +691,13 @@ def agenda_config():
                       if not k.startswith('_') and isinstance(v, dict) and k in activas]
 
     motivos = [{'key': k, 'label': v['label'], 'urgencia': v['urgencia'],
-                'especialidad': v.get('especialidad', '')}
+                'especialidad': v.get('especialidad', ''),
+                # Flujos especiales (Estudio Integral): motivos ocultos del menu
+                # + entrada compuesta que agenda 2 citas con separacion minima.
+                'oculto': bool(v.get('oculto')),
+                'compuesto': v.get('compuesto') or None,
+                'separacion_min_dias': v.get('separacion_min_dias'),
+                'solo_pacientes_existentes': bool(v.get('solo_pacientes_existentes'))}
                for k, v in cfg['motivos'].items()
                if not k.startswith('_') and isinstance(v, dict)]
     doctores = []
@@ -724,16 +730,20 @@ def agenda_paciente():
 
 import threading as _threading
 
-# Cache de disponibilidad por dia. Clave (doctor, motivo, fecha) -> (ts, horas).
+# Cache de slots libres por (doctor, fecha) -- NO por motivo. Una sola llamada
+# getAvailableHours (con el motivo mas corto como referencia) define los bloques
+# de 15 min libres del doctor ese dia; las horas de CADA motivo se derivan
+# localmente por duracion (dentidesk.horas_que_caben, validado contra DentiDesk).
+# Asi, cambiar de motivo o de doctor no vuelve a preguntar a DentiDesk.
 # Estrategia "stale-while-revalidate": si el cache esta algo viejo (> TTL) pero no
 # demasiado (< MAX_STALE), se devuelve al instante y se refresca en segundo plano.
-# Asi el paciente casi nunca espera los ~3s de una consulta en frio a DentiDesk.
+# Ademas _loop_calentador() lo mantiene tibio, y cada reserva lo refresca.
 # (La reserva SIEMPRE valida contra datos frescos, no contra este cache.)
-_DISPO_CACHE = {}
-_DISPO_TTL = 300          # 5 min: las horas a futuro cambian lento
-_DISPO_MAX_STALE = 1800   # 30 min: mas alla de esto NO servir viejo (traer sincrono)
-_DISPO_INFLIGHT = set()
-_DISPO_LOCK = _threading.Lock()
+_SLOTS_CACHE = {}
+_SLOTS_TTL = 300          # 5 min: las horas a futuro cambian lento
+_SLOTS_MAX_STALE = 1800   # 30 min: mas alla de esto NO servir viejo (traer sincrono)
+_SLOTS_INFLIGHT = set()
+_SLOTS_LOCK = _threading.Lock()
 
 # Límite GLOBAL de consultas simultáneas a DentiDesk. Sin esto, varios pacientes
 # (o la precarga) disparan decenas de llamadas a la vez y la instancia 0.5 CPU +
@@ -741,39 +751,56 @@ _DISPO_LOCK = _threading.Lock()
 # llamadas se ordenan y ninguna se ahoga.
 _DENTI_SEM = _threading.BoundedSemaphore(10)
 
-def _fetch_horas(doctor, motivo, d, cfg):
-    with _DENTI_SEM:
-        libres, ocupados = dentidesk.disponibilidad_real(doctor, d, motivo, cfg)
-    return scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
-
-def _refrescar_async(doctor, motivo, d, cfg, key):
-    """Refresca una entrada del cache en segundo plano (evita duplicar trabajo)."""
+def _slots15_dia(doctor, d, cfg, force=False):
+    """Bloques de 15 min libres del doctor ese dia, cacheados (SWR)."""
     import time as _t
-    def job():
-        try:
-            _DISPO_CACHE[key] = (_t.time(), _fetch_horas(doctor, motivo, d, cfg))
-        except Exception:
-            pass
-        finally:
-            _DISPO_INFLIGHT.discard(key)
-    _threading.Thread(target=job, daemon=True).start()
+    key = (doctor, d.isoformat())
+    hit = _SLOTS_CACHE.get(key)
+    if not force and hit and (_t.time() - hit[0]) < _SLOTS_MAX_STALE:
+        if (_t.time() - hit[0]) >= _SLOTS_TTL:
+            with _SLOTS_LOCK:
+                if key not in _SLOTS_INFLIGHT:
+                    _SLOTS_INFLIGHT.add(key)
+                    def job():
+                        try:
+                            _slots15_dia(doctor, d, cfg, force=True)
+                        except Exception:
+                            pass
+                        finally:
+                            _SLOTS_INFLIGHT.discard(key)
+                    _threading.Thread(target=job, daemon=True).start()
+        return hit[1]
+    with _DENTI_SEM:
+        slots = dentidesk.bloques_libres_15(cfg, doctor, d)
+    _SLOTS_CACHE[key] = (_t.time(), slots)
+    return slots
 
 def _horas_de_dia(doctor, motivo, d, cfg):
-    import time as _t
-    key = (doctor, motivo, d.isoformat())
-    hit = _DISPO_CACHE.get(key)
-    if hit and (_t.time() - hit[0]) < _DISPO_MAX_STALE:
-        # Cache utilizable. Si paso el TTL, refrescar en segundo plano (sin esperar).
-        if (_t.time() - hit[0]) >= _DISPO_TTL:
-            with _DISPO_LOCK:
-                if key not in _DISPO_INFLIGHT:
-                    _DISPO_INFLIGHT.add(key)
-                    _refrescar_async(doctor, motivo, d, cfg, key)
-        return hit[1]
-    # Sin cache (o demasiado viejo): traer sincrono.
-    horas = _fetch_horas(doctor, motivo, d, cfg)
-    _DISPO_CACHE[key] = (_t.time(), horas)
-    return horas
+    """Horas ofrecibles para (doctor, motivo, dia): slots cacheados del doctor
+    + derivacion local por duracion + reglas locales (ocupacion, anticipacion)."""
+    if not cfg['dentidesk']['enabled']:
+        # Modo demo: grilla simulada, sin cache.
+        libres, ocupados = dentidesk.disponibilidad_real(doctor, d, motivo, cfg)
+        return scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
+    libres15 = _slots15_dia(doctor, d, cfg)
+    libres = dentidesk.horas_que_caben(libres15, cfg['motivos'][motivo]['duracion_min'])
+    with _DENTI_SEM:
+        ocupados = dentidesk.bloques_ocupados(cfg, doctor, d)
+    return scheduling.horas_disponibles(doctor, d, motivo, libres, ocupados, cfg)
+
+def _refrescar_dia_reservado(doctor, d, cfg):
+    """Tras crear una cita, refresca en segundo plano los slots del doctor y la
+    agenda de ese dia -- la hora recien tomada desaparece al instante para el
+    siguiente paciente, sin esperar el TTL ni el calentador."""
+    if not cfg['dentidesk']['enabled']:
+        return
+    def job():
+        try:
+            dentidesk._get_agenda_day(cfg, d, force=True)
+            _slots15_dia(doctor, d, cfg, force=True)
+        except Exception:
+            pass
+    _threading.Thread(target=job, daemon=True).start()
 
 @rate_limit('30 per minute')
 @app.route('/api/agenda/disponibilidad', methods=['GET'])
@@ -931,6 +958,10 @@ def agenda_reservar():
     doctor = data.get('doctor'); motivo = data.get('motivo')
     if doctor not in cfg['doctores'] or motivo not in cfg['motivos']:
         return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+    # Los motivos compuestos (Estudio Integral) se reservan por su propio
+    # endpoint; este solo acepta motivos con IdReason real de DentiDesk.
+    if cfg['motivos'][motivo].get('compuesto') or not cfg['motivos'][motivo].get('id_reason'):
+        return jsonify({'ok': False, 'error': 'Este motivo se agenda por un flujo especial'}), 400
     try:
         fecha = datetime.strptime(data['fecha'], '%Y-%m-%d').date()
     except (KeyError, ValueError):
@@ -986,6 +1017,8 @@ def agenda_reservar():
     )
     if not res.get('ok'):
         return jsonify({'ok': False, 'error': 'No se pudo crear la cita'}), 502
+    # La hora recien tomada debe desaparecer al instante para quien este mirando.
+    _refrescar_dia_reservado(doctor, fecha, cfg)
 
     # Registrar esta cita online como "ya confirmada" para que el barrido de
     # confirmaciones (citas presenciales/telefono) no le reenvie el correo.
@@ -1078,6 +1111,156 @@ def agenda_reservar():
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'solicitud_cambio': es_no_soy_yo or es_completar,
                     'reagenda': es_reagenda})
+
+@rate_limit('10 per minute')
+@app.route('/api/agenda/reservar-estudio', methods=['POST'])
+def agenda_reservar_estudio():
+    """Estudio Integral de Ortodoncia: agenda las DOS citas (Registros +
+    Explicacion del Plan) en una sola operacion. Reglas:
+      - SOLO pacientes ya registrados en la base (deben haber tenido una
+        consulta previa en la clinica).
+      - fecha2 >= fecha1 + separacion_min_dias (config, 14 dias).
+      - Ambas horas se revalidan EN VIVO contra DentiDesk antes de crear.
+      - Si la 2a cita falla tras crear la 1a, la 1a se cancela (rollback)
+        para no dejar el estudio a medias.
+    Body: {doctor, fecha1, hora1, fecha2, hora2, rut, captcha_token}."""
+    data = request.json or {}
+    cfg = scheduling.load_config()
+
+    if not _verificar_turnstile(data.get('captcha_token', '')):
+        return jsonify({'ok': False, 'error': 'Verificación de seguridad fallida. Recarga e intenta de nuevo.'}), 403
+
+    comp = cfg['motivos'].get('estudio_integral') or {}
+    claves = comp.get('compuesto') or ['estudio_registros', 'estudio_explicacion']
+    m1_key, m2_key = claves[0], claves[1]
+    sep_min = int(comp.get('separacion_min_dias') or 14)
+
+    doctor = data.get('doctor')
+    if doctor not in cfg['doctores'] or m1_key not in cfg['motivos'] or m2_key not in cfg['motivos']:
+        return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
+
+    rut = data.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    try:
+        fecha1 = datetime.strptime(data.get('fecha1', ''), '%Y-%m-%d').date()
+        fecha2 = datetime.strptime(data.get('fecha2', ''), '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Fecha invalida'}), 400
+    hora1 = data.get('hora1', ''); hora2 = data.get('hora2', '')
+
+    if (fecha2 - fecha1).days < sep_min:
+        return jsonify({'ok': False, 'error': f'La Explicación del Plan debe ser al menos {sep_min} días después de los Registros'}), 409
+
+    # Gate: solo pacientes con ficha en la base local (consulta previa).
+    import pacientes
+    rec = pacientes.lookup(rut) if cfg['dentidesk']['enabled'] else \
+        {'nombres': data.get('nombres', 'Demo'), 'apellidos': data.get('apellidos', ''),
+         'email': data.get('email', 'demo@demo.cl'), 'telefono': data.get('telefono', '')}
+    if not rec:
+        return jsonify({'ok': False, 'error': 'El Estudio Integral está disponible solo para pacientes que ya han tenido una consulta en la clínica. Si aún no ha venido, agende primero una Primera Consulta.'}), 403
+
+    # Contacto SIEMPRE desde la ficha registrada (dedup garantizado en DentiDesk).
+    email = (rec.get('email') or '').strip()
+    telefono = (rec.get('telefono') or '').strip() or (data.get('telefono') or '').strip()
+    nombre = (rec.get('nombres') or '').strip()
+    apellido = (rec.get('apellidos') or '').strip()
+    if '@' not in email:
+        return jsonify({'ok': False, 'error': 'Su ficha no tiene email registrado. Escríbanos por WhatsApp y lo agendamos.'}), 409
+
+    # Revalidar ambas horas: reglas locales + disponibilidad FRESCA de DentiDesk.
+    for f, h, mk in ((fecha1, hora1, m1_key), (fecha2, hora2, m2_key)):
+        if not scheduling.dentro_de_ventana(f, cfg):
+            return jsonify({'ok': False, 'error': 'No se puede agendar con mas de 60 dias de anticipacion'}), 409
+        if not scheduling.cumple_anticipacion(f, h, cfg['motivos'][mk], cfg):
+            return jsonify({'ok': False, 'error': 'La hora no cumple la anticipacion minima'}), 409
+        libres_d, ocupados_d = dentidesk.disponibilidad_real(doctor, f, mk, cfg)
+        if h not in scheduling.horas_disponibles(doctor, f, mk, libres_d, ocupados_d, cfg):
+            return jsonify({'ok': False, 'error': f'La hora de las {h} del {_fecha_legible(f)} ya no está disponible'}), 409
+
+    rut_limpio = scheduling.limpiar_rut(rut)
+    res1 = dentidesk.crear_cita(doc_id=doctor, motivo_key=m1_key, target_date=fecha1, hora=hora1,
+                                nombre=nombre, apellido=apellido, email=email, telefono=telefono,
+                                rut=rut_limpio, cfg=cfg)
+    if not res1.get('ok'):
+        return jsonify({'ok': False, 'error': 'No se pudo crear la cita de Registros'}), 502
+
+    try:
+        res2 = dentidesk.crear_cita(doc_id=doctor, motivo_key=m2_key, target_date=fecha2, hora=hora2,
+                                    nombre=nombre, apellido=apellido, email=email, telefono=telefono,
+                                    rut=rut_limpio, cfg=cfg)
+    except Exception as e:
+        app.logger.error('crear_cita explicacion fallo: %s', e)
+        res2 = {'ok': False}
+    if not res2.get('ok'):
+        # Rollback: cancelar la cita de registros para no dejar el estudio cojo.
+        id_cancel = cfg['dentidesk'].get('id_status_cancelado')
+        if res1.get('id_cita') and id_cancel:
+            try:
+                dentidesk.actualizar_estado_cita(res1['id_cita'], id_cancel, cfg)
+            except Exception as e:
+                app.logger.error('Rollback de registros %s fallo: %s', res1.get('id_cita'), e)
+        return jsonify({'ok': False, 'error': 'No se pudo agendar la segunda cita, y la primera fue anulada. Intente nuevamente o escríbanos por WhatsApp.'}), 502
+
+    _refrescar_dia_reservado(doctor, fecha1, cfg)
+    _refrescar_dia_reservado(doctor, fecha2, cfg)
+
+    # Que el barrido de confirmaciones no las reenvie.
+    try:
+        import confirmaciones
+        confirmaciones.marcar_enviada(res1.get('id_cita'))
+        confirmaciones.marcar_enviada(res2.get('id_cita'))
+    except Exception:
+        pass
+
+    doctors = read_doctor_data()
+    doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
+
+    # Estadisticas: una fila por cita (con su motivo real).
+    try:
+        import stats
+        for f, h, mk in ((fecha1, hora1, m1_key), (fecha2, hora2, m2_key)):
+            stats.registrar({
+                'fecha': f.isoformat(), 'hora': h,
+                'paciente_nombre': f"{nombre} {apellido}".strip(),
+                'doctor': doctor, 'doctor_nombre': doctor_nombre,
+                'motivo': mk, 'motivo_label': cfg['motivos'][mk]['label'],
+                'especialidad': cfg['especialidades'].get(cfg['motivos'][mk].get('especialidad', ''), {}).get('label', ''),
+                'paciente_conocido': True,
+            })
+    except Exception:
+        pass
+
+    # Confirmacion al paciente: una por cita (cada una con su .ics), mismo
+    # pipeline que una reserva normal (email primero, WhatsApp de respaldo).
+    confirmaciones_env = []
+    for f, h, mk in ((fecha1, hora1, m1_key), (fecha2, hora2, m2_key)):
+        mcfg = cfg['motivos'][mk]
+        confirmaciones_env.append(notify.enviar_confirmacion({
+            'nombre': nombre, 'telefono': telefono, 'email': email,
+            'fecha': f, 'fecha_legible': _fecha_legible(f), 'hora': h,
+            'doctor_nombre': doctor_nombre, 'motivo_label': mcfg['label'],
+            'dur_min': mcfg['duracion_min'],
+        }, cfg))
+
+    # Aviso a recepcion (un solo correo con ambas citas).
+    try:
+        notify.enviar_aviso_agendamiento({
+            'nombre': f"{nombre} {apellido}".strip(),
+            'rut_fmt': scheduling.formatear_rut(rut),
+            'email': email, 'telefono': telefono,
+            'fecha_legible': f'{_fecha_legible(fecha1)} {hora1} (Registros) y {_fecha_legible(fecha2)} {hora2} (Explicación del Plan)',
+            'hora': '',
+            'doctor_nombre': doctor_nombre,
+            'motivo_label': 'Estudio Integral de Ortodoncia (2 citas)',
+        }, cfg)
+    except Exception:
+        pass
+
+    return jsonify({'ok': True,
+                    'id_cita1': res1.get('id_cita'), 'id_cita2': res2.get('id_cita'),
+                    'confirmaciones': confirmaciones_env,
+                    'mock': res1.get('mock', False)})
 
 @app.route('/api/agenda/confirmaciones/run', methods=['POST'])
 def confirmaciones_run():
@@ -2115,6 +2298,41 @@ def _loop_recordatorios():
             print('[recordatorios] error:', e)
         time.sleep(40)
 
+def _loop_calentador():
+    """Mantiene tibio el cache de disponibilidad: cada ~20 min refresca los
+    slots libres de cada doctor para los proximos ~15 dias habiles (mas la
+    agenda de cada dia, compartida). Espaciado ~0.5s entre llamadas para no
+    saturar DentiDesk. Con esto, la primera consulta de cualquier paciente
+    sale del cache (~0.2s) en vez de pagar el frio (~4-15s). La primera pasada
+    corre apenas arranca el servicio (tras 20s de gracia para el boot)."""
+    import time
+    time.sleep(20)
+    while True:
+        try:
+            cfg_dd = scheduling.load_config()
+            if cfg_dd['dentidesk']['enabled']:
+                dias = scheduling.dias_habiles_ventana(date.today(), cfg_dd)[:15]
+                docs = [k for k, v in cfg_dd['doctores'].items()
+                        if not k.startswith('_') and isinstance(v, dict)]
+                t0 = datetime.now()
+                for d in dias:
+                    try:
+                        dentidesk._get_agenda_day(cfg_dd, d, force=True)
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
+                    for doc in docs:
+                        try:
+                            _slots15_dia(doc, d, cfg_dd, force=True)
+                        except Exception:
+                            pass
+                        time.sleep(0.5)
+                print(f'[calentador] pasada completa: {len(dias)} dias x {len(docs)} doctores '
+                      f'en {(datetime.now() - t0).seconds}s')
+        except Exception as e:
+            print('[calentador] error:', e)
+        time.sleep(20 * 60)
+
 def _iniciar_scheduler():
     """Arranca el refresco de pacientes + el barrido de confirmaciones en segundo
     plano. Activo en Render (o si se define RUN_PATIENT_SYNC=true). En local no
@@ -2131,9 +2349,11 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_refresco_pacientes, daemon=True).start()
     threading.Thread(target=_loop_confirmaciones, daemon=True).start()
     threading.Thread(target=_loop_recordatorios, daemon=True).start()
+    threading.Thread(target=_loop_calentador, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
     print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
     print('[confirmaciones] scheduler iniciado (11:00, 13:30, 17:00, 19:45)')
+    print('[calentador] scheduler iniciado (disponibilidad, cada 20 min)')
 
 _iniciar_scheduler()
 

@@ -88,12 +88,14 @@ def horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo):
     resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
 
     if resp.status_code == 401:
-        # Distinguir "sin horas ese dia" (normal) de un fallo real de credenciales
+        # Distinguir "sin horas ese dia" (normal) de un fallo real de credenciales.
+        # DentiDesk tambien responde 401 en feriados ("Fecha no disponible,
+        # establecida como feriado") -- es un dia sin horas, no un error.
         try:
             desc = (resp.json() or {}).get('description', '')
         except ValueError:
             desc = resp.text
-        if 'No existen horarios' in desc or 'horarios disponibles' in desc:
+        if 'No existen horarios' in desc or 'horarios disponibles' in desc or 'feriado' in desc.lower():
             return set()
         raise DentiDeskError(f'Auth/permiso rechazado por DentiDesk: {desc[:200]}')
 
@@ -152,6 +154,62 @@ def bloques_ocupados(cfg, doc_id, target_date):
             continue
         ocupados.update(_expandir_bloques(t, c.get('duration') or 15))
     return ocupados
+
+
+# ── Sonda de slots libres por (doctor, dia) ─────────────────────────────────
+# La navegacion de la agenda online usa UNA llamada getAvailableHours por
+# doctor+dia (con el motivo mas corto de su especialidad como referencia) y
+# deriva localmente que horas caben para cada motivo. La respuesta de DentiDesk
+# ya descuenta citas, bloqueos, feriados, vacaciones y el horario real del
+# doctor -- verificado en vivo el 2026-07-07: la derivacion local coincide
+# exactamente con lo que getAvailableHours responde para motivos mas largos.
+# (getAgendaDay NO sirve para esto: no trae bloqueos ni feriados.)
+
+def _motivo_referencia(cfg, doc_id):
+    """(key, duracion_min) del motivo mas corto de la especialidad del doctor."""
+    esp = cfg['doctores'][doc_id].get('especialidad')
+    cands = [(int(v.get('duracion_min', 15)), k) for k, v in cfg['motivos'].items()
+             if not k.startswith('_') and isinstance(v, dict)
+             and v.get('especialidad') == esp and v.get('id_reason')]
+    if not cands:
+        raise DentiDeskError(f'Sin motivo de referencia para el doctor {doc_id}')
+    dur, key = min(cands)
+    return key, dur
+
+
+def _hhmm(minutos):
+    return f'{minutos // 60:02d}:{minutos % 60:02d}'
+
+
+def _a_min(hhmm):
+    return int(hhmm[:2]) * 60 + int(hhmm[3:5])
+
+
+def bloques_libres_15(cfg, doc_id, target_date):
+    """Set de bloques 'HH:MM' de 15 min realmente libres del doctor ese dia.
+    Un inicio disponible para el motivo de referencia de duracion D implica
+    que los D/15 bloques desde ahi estan libres."""
+    key, dur = _motivo_referencia(cfg, doc_id)
+    inicios = horas_disponibles_dentidesk(cfg, doc_id, target_date, cfg['motivos'][key])
+    libres = set()
+    for h in inicios:
+        if len(h) < 5:
+            continue
+        m = _a_min(h)
+        for t in range(m, m + dur, 15):
+            libres.add(_hhmm(t))
+    return libres
+
+
+def horas_que_caben(libres15, duracion_min):
+    """Horas de inicio donde cabe un motivo de 'duracion_min' minutos: todos
+    sus bloques de 15 deben estar libres (regla validada contra DentiDesk)."""
+    out = set()
+    for h in libres15:
+        m = _a_min(h)
+        if all(_hhmm(t) in libres15 for t in range(m, m + int(duracion_min), 15)):
+            out.add(h)
+    return out
 
 
 def disponibilidad_real(doc_id, target_date, motivo_key, cfg=None):

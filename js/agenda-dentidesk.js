@@ -29,6 +29,8 @@ const agenda = {
   dias: [],
   prefetch: {},   // cache de promesas de disponibilidad por doctor|motivo
   reagendaId: null,  // id_agenda de la cita vieja si se llegó por el link de reagendar
+  estudio: null,        // {etapa: 1|2, cita1: {fecha, fechaLegible, hora}} si es Estudio Integral
+  filtroMinFecha: null, // 'YYYY-MM-DD': solo mostrar días >= esta fecha (cita 2 del estudio)
 };
 
 async function agendaApi(path, opts) {
@@ -118,6 +120,8 @@ function cerrarAgenda() {
   agenda.prefetch = {};   // descartar disponibilidad precargada (puede quedar obsoleta)
   agenda.citasPreviasPromise = null;
   agenda.citaPreviaAck = false;
+  agenda.estudio = null;
+  agenda.filtroMinFecha = null;
 }
 
 function setBody(html) { document.getElementById('agendaBody').innerHTML = html; }
@@ -315,9 +319,12 @@ function elegirDoctor(key, el) {
 
 function pasoMotivo() {
   setPaso(5);
-  const motivos = agenda.config.motivos.filter(m => m.especialidad === agenda.sel.especialidad);
+  // Volver al menú de motivos cancela cualquier flujo de estudio a medias.
+  agenda.estudio = null;
+  agenda.filtroMinFecha = null;
+  const motivos = agenda.config.motivos.filter(m => m.especialidad === agenda.sel.especialidad && !m.oculto);
   const items = motivos.map(m => `
-    <button class="agenda-option" onclick="elegirMotivo('${m.key}', this)">
+    <button class="agenda-option" onclick="${m.compuesto ? `elegirMotivoEstudio('${m.key}')` : `elegirMotivo('${m.key}', this)`}">
       <span>${m.label}</span>
       ${m.urgencia ? '<span class="agenda-badge-urg">Urgencia</span>' : ''}
       <i class="fas fa-chevron-right"></i>
@@ -331,7 +338,9 @@ function pasoMotivo() {
     <div class="agenda-options">${items}</div>`);
   // Precarga SECUENCIAL (no en ráfaga) de los motivos del doctor mientras el
   // paciente lee: deja tibio para que elegir/cambiar de motivo sea instantáneo.
-  calentarMotivos(agenda.sel.doctor, motivos);
+  // Los compuestos (Estudio) se calientan por sus 2 motivos reales.
+  const aCalentar = motivos.flatMap(m => m.compuesto ? m.compuesto.map(k => ({ key: k })) : [m]);
+  calentarMotivos(agenda.sel.doctor, aCalentar);
 }
 
 /* ── Precarga de disponibilidad ──────────────────────────────────────────── */
@@ -363,12 +372,163 @@ async function calentarMotivos(doctor, motivos) {
 
 function elegirMotivo(key, el) {
   agenda.sel.motivo = key;
-  agenda.sel.motivoLabel = el.querySelector('span').textContent;
   const m = (agenda.config.motivos || []).find(x => x.key === key);
+  agenda.sel.motivoLabel = (el && el.querySelector) ? el.querySelector('span').textContent : (m ? m.label : key);
   agenda.sel.motivoUrgencia = !!(m && m.urgencia);
   track('motivo');
   agenda._horasT0 = Date.now();   // para medir cuánto tarda en cargar las horas
   pasoFechaHora();
+}
+
+/* ── Estudio Integral de Ortodoncia (motivo compuesto: 2 citas) ──────────── */
+
+function _motivoCfg(key) { return (agenda.config.motivos || []).find(m => m.key === key); }
+
+function elegirMotivoEstudio(key) {
+  const comp = _motivoCfg(key);
+  const soloExistentes = !comp || comp.solo_pacientes_existentes !== false;
+  // Gate: solo pacientes ya registrados (con consulta previa). "No soy yo"
+  // significa que quien agenda NO es el paciente de la ficha -> no aplica.
+  if (soloExistentes && (!agenda.sel.existe || agenda.sel.esNoSoyYo)) {
+    setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
+      <h3 class="agenda-q">Estudio Integral de Ortodoncia</h3>
+      <div class="agenda-urgencia">
+        <p>El Estudio Integral está disponible para pacientes que <strong>ya han tenido una consulta</strong> en nuestra clínica.</p>
+        <p>Si aún no ha venido, le invitamos a agendar primero una <strong>Primera Consulta</strong>, donde el doctor evaluará su caso e indicará si corresponde realizar el estudio.</p>
+      </div>
+      <button class="btn btn-primary btn-lg agenda-submit" onclick="elegirMotivo('primera_consulta')">Agendar Primera Consulta</button>
+      <p class="agenda-mini"><a href="#" onclick="pasoMotivo();return false;">Volver a los motivos</a></p>`);
+    return;
+  }
+  const sep = (comp && comp.separacion_min_dias) || 14;
+  setBody(`<button class="agenda-back" onclick="pasoMotivo()"><i class="fas fa-arrow-left"></i> Volver</button>
+    <h3 class="agenda-q">Estudio Integral de Ortodoncia</h3>
+    <p class="agenda-sub">Este estudio consta de <strong>2 citas</strong> que agendará a continuación:</p>
+    <ul class="agenda-detalle">
+      <li><span>1️⃣ Registros para el Estudio</span><b>30 min</b></li>
+    </ul>
+    <p class="agenda-sub" style="margin:4px 0 12px">Se toman los registros clínicos: escaneo intraoral, radiografías 2D y 3D y fotografías clínicas.</p>
+    <ul class="agenda-detalle">
+      <li><span>2️⃣ Explicación del Diagnóstico y Plan de Tratamiento</span><b>30 min</b></li>
+    </ul>
+    <p class="agenda-sub" style="margin:4px 0 12px">Le explicamos a usted y su familia el estado ortodóncico del paciente y las alternativas de tratamiento más adecuadas para su caso.</p>
+    <p class="agenda-sub"><i class="far fa-clock"></i> Entre ambas citas debe haber <strong>al menos ${sep === 14 ? '2 semanas' : sep + ' días'}</strong> de distancia, para alcanzar a realizar el estudio.</p>
+    <button class="btn btn-primary btn-lg agenda-submit" onclick="estudioComenzar()">Elegir hora de los Registros <i class="fas fa-arrow-right"></i></button>`);
+}
+
+function estudioComenzar() {
+  const comp = _motivoCfg('estudio_integral') || {};
+  const [m1] = comp.compuesto || ['estudio_registros'];
+  agenda.estudio = { etapa: 1, cita1: null, sep: comp.separacion_min_dias || 14 };
+  agenda.filtroMinFecha = null;
+  agenda.sel.motivo = m1;
+  agenda.sel.motivoLabel = 'Cita 1 de 2 · Registros para el Estudio';
+  agenda.sel.motivoUrgencia = false;
+  track('motivo');
+  agenda._horasT0 = Date.now();
+  agenda.diaSel = 0;
+  pasoFechaHora();
+}
+
+function estudioHoraElegida() {
+  const e = agenda.estudio, s = agenda.sel;
+  if (e.etapa === 1) {
+    e.cita1 = { fecha: s.fecha, fechaLegible: s.fechaLegible, hora: s.hora };
+    // Cita 2: solo fechas >= cita1 + separación mínima.
+    const dt = new Date(s.fecha + 'T00:00:00');
+    dt.setDate(dt.getDate() + e.sep);
+    agenda.filtroMinFecha = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    e.etapa = 2;
+    const comp = _motivoCfg('estudio_integral') || {};
+    s.motivo = (comp.compuesto || [])[1] || 'estudio_explicacion';
+    s.motivoLabel = 'Cita 2 de 2 · Explicación del Diagnóstico y Plan';
+    agenda.diaSel = 0;
+    agenda._horasT0 = Date.now();
+    pasoFechaHora();
+  } else {
+    e.cita2 = { fecha: s.fecha, fechaLegible: s.fechaLegible, hora: s.hora };
+    pasoResumenEstudio();
+  }
+}
+
+// Banner de progreso del estudio sobre la grilla de horas (etapa 2 recuerda la cita 1).
+function avisoEstudioHTML() {
+  const e = agenda.estudio;
+  if (!e) return '';
+  if (e.etapa === 2 && e.cita1) {
+    return `<div class="agenda-urgencia" style="margin-bottom:10px">
+      <p>✅ <strong>Cita 1 (Registros):</strong> ${e.cita1.fechaLegible} · ${e.cita1.hora} hrs</p>
+      <p>Ahora elija la hora de la <strong>Explicación del Plan</strong> (desde ${e.sep === 14 ? '2 semanas' : e.sep + ' días'} después).</p>
+    </div>`;
+  }
+  return '';
+}
+
+function pasoResumenEstudio() {
+  const s = agenda.sel, e = agenda.estudio;
+  setBody(`<button class="agenda-back" onclick="estudioVolverACita2()"><i class="fas fa-arrow-left"></i> Volver</button>
+    <h3 class="agenda-q">Revisa y confirma tu Estudio Integral</h3>
+    <div class="agenda-resumen">
+      <img src="${s.doctorFoto}" alt="">
+      <div>
+        <strong>${s.doctorNombre}</strong>
+        <span>Estudio Integral de Ortodoncia (2 citas)</span>
+        <span><i class="fas fa-calendar"></i> 1️⃣ Registros: ${e.cita1.fechaLegible} · ${e.cita1.hora} hrs</span>
+        <span><i class="fas fa-calendar"></i> 2️⃣ Explicación del Plan: ${e.cita2.fechaLegible} · ${e.cita2.hora} hrs</span>
+      </div>
+    </div>
+    <ul class="agenda-detalle">
+      <li><span>Paciente</span><b>${s.datos.nombres} ${s.datos.apellidos}</b></li>
+      <li><span>RUT</span><b>${s.rutFmt}</b></li>
+    </ul>
+    ${agenda.config.turnstile_sitekey ? '<div id="agenda-captcha" style="margin:14px 0;display:flex;justify-content:center"></div>' : ''}
+    <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReservaEstudio()"${agenda.config.turnstile_sitekey ? ' disabled' : ''}>
+      <i class="fas fa-check"></i> Confirmar ambas citas
+    </button>
+    <p class="agenda-mini">Recibirás un email de confirmación por cada cita, con archivos para agregarlas a tu calendario.</p>`);
+  montarCaptcha();
+}
+
+function estudioVolverACita2() {
+  // Volver desde el resumen: re-elegir la hora de la cita 2 (el filtro sigue activo).
+  agenda.estudio.etapa = 2;
+  agenda.diaSel = 0;
+  pasoFechaHora();
+}
+
+async function confirmarReservaEstudio() {
+  const btn = document.getElementById('agendaConfirmBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Agendando ambas citas…';
+  const s = agenda.sel, e = agenda.estudio;
+  try {
+    const r = await agendaApi('/api/agenda/reservar-estudio', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        doctor: s.doctor, rut: s.rut,
+        fecha1: e.cita1.fecha, hora1: e.cita1.hora,
+        fecha2: e.cita2.fecha, hora2: e.cita2.hora,
+        nombres: s.datos.nombres, apellidos: s.datos.apellidos,
+        email: s.datos.email || '', telefono: s.datos.telefono || '',
+        captcha_token: agenda.captchaToken || '',
+      }),
+    });
+    if (r.ok) { track('reservado'); pasoExitoEstudio(r); } else pasoError(r.error || 'No se pudo agendar.');
+  } catch (err) {
+    pasoError((err.data && err.data.error) || 'Ocurrió un problema al agendar. Intenta por WhatsApp.');
+  }
+}
+
+function pasoExitoEstudio(r) {
+  const s = agenda.sel, e = agenda.estudio;
+  setBody(`<div class="agenda-final ok">
+    <i class="fas fa-circle-check"></i>
+    <h3>¡Tu Estudio Integral quedó agendado!</h3>
+    <p>${s.doctorNombre}</p>
+    <p>1️⃣ Registros: ${e.cita1.fechaLegible} · ${e.cita1.hora} hrs<br>
+       2️⃣ Explicación del Plan: ${e.cita2.fechaLegible} · ${e.cita2.hora} hrs</p>
+    <p class="agenda-mini">Te enviamos un email de confirmación por cada cita${r.mock ? ' (modo demo)' : ''}.</p>
+    <button class="btn btn-primary" onclick="cerrarAgenda()">Listo</button>
+  </div>`);
 }
 
 // Aviso destacado para motivos de Urgencia (se muestra sobre la grilla de horas)
@@ -437,15 +597,15 @@ async function pasoFechaHora() {
     // Usa la precarga iniciada en pasoMotivo (suele estar lista -> instantáneo).
     r = await prefetchDisponibilidad(agenda.sel.doctor, agenda.sel.motivo);
   } catch (e) { return pasoError('No pudimos cargar la disponibilidad.'); }
-  agenda.dias = r.dias || [];
+  agenda.dias = _filtrarDias(r.dias);
   agenda.diasOffset = r.offset_siguiente || 0;
   agenda.diasHayMas = !!r.hay_mas;
   // Respaldo: si el servidor no alcanzó a juntar TIRA_MIN_DIAS (p.ej. tope de
-  // días por request), completar aquí — con min_dias también, para no volver
-  // al ping-pong de páginas chicas.
+  // días por request, o el filtro de fecha mínima del estudio descartó días),
+  // completar aquí — con min_dias también, para no volver al ping-pong.
   while (agenda.dias.length < TIRA_MIN_DIAS && agenda.diasHayMas) {
     const r2 = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=5`);
-    agenda.dias = agenda.dias.concat(r2.dias || []);
+    agenda.dias = agenda.dias.concat(_filtrarDias(r2.dias));
     agenda.diasOffset = r2.offset_siguiente || agenda.diasOffset;
     agenda.diasHayMas = !!r2.hay_mas;
   }
@@ -454,6 +614,12 @@ async function pasoFechaHora() {
   }
   track('horas', agenda._horasT0 ? Date.now() - agenda._horasT0 : undefined);
   renderFechaHora();
+}
+
+// Filtro de fecha mínima (cita 2 del Estudio: >= cita1 + separación).
+function _filtrarDias(arr) {
+  arr = arr || [];
+  return agenda.filtroMinFecha ? arr.filter(d => d.fecha >= agenda.filtroMinFecha) : arr;
 }
 
 /* Selector híbrido: tira de días (por defecto) + calendario mensual (opcional).
@@ -486,12 +652,13 @@ function _cabeceraFechaHora() {
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.motivoLabel}</span></div>
     </div>
     ${avisoUrgenciaHTML()}
+    ${avisoEstudioHTML()}
     <h3 class="agenda-q">Elige día y hora</h3>`;
 }
 
 function renderFechaHora() {
   if (agenda.diaSel == null || agenda.diaSel >= agenda.dias.length) agenda.diaSel = 0;
-  if (agenda.vistaCal) { setBody(_cabeceraFechaHora() + renderCalendarioHTML()); return; }
+  if (agenda.vistaCal) { setBody(_cabeceraFechaHora() + renderCalendarioHTML() + _avisoNingunaHoraHTML()); return; }
 
   const pills = agenda.dias.map((d, i) => {
     const fp = _fechaPartes(d.fecha);
@@ -506,7 +673,17 @@ function renderFechaHora() {
     <div class="agenda-tira">${pills}${masPill}</div>
     <p class="agenda-sub2">${d ? d.legible : ''}</p>
     <div class="agenda-horas-wrap">${d ? _horasJornadaHTML(d, agenda.diaSel) : ''}</div>
-    <p class="agenda-cal-link"><a href="#" onclick="abrirCalendario(event)"><i class="far fa-calendar"></i> Ver calendario</a></p>`);
+    <p class="agenda-cal-link"><a href="#" onclick="abrirCalendario(event)"><i class="far fa-calendar"></i> Ver calendario</a></p>
+    ${_avisoNingunaHoraHTML()}`);
+}
+
+// Salida humana si la grilla no le sirve al paciente (independiente del motivo).
+function _avisoNingunaHoraHTML() {
+  return `<p class="agenda-mini" style="text-align:center;margin-top:14px;color:#718096">
+    Si ninguna de las horas disponibles le acomoda,
+    <a href="https://wa.me/56933558189?text=Hola,%20ninguna%20de%20las%20horas%20online%20me%20acomoda,%20%C2%BFme%20pueden%20ayudar%3F" target="_blank" rel="noopener" style="color:#1A2E4A;font-weight:600">escríbanos</a>
+    o <a href="tel:+56222173499" style="color:#1A2E4A;font-weight:600">llámenos</a>
+    para coordinar una solución a lo que necesita.</p>`;
 }
 
 function seleccionarDia(i) { agenda.diaSel = i; renderFechaHora(); }
@@ -524,7 +701,8 @@ async function abrirCalendario(e) {
         const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=10`);
         agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
         agenda.diasHayMas = !!r.hay_mas;
-        if ((r.dias || []).length) agenda.dias = agenda.dias.concat(r.dias);
+        const nuevos = _filtrarDias(r.dias);
+        if (nuevos.length) agenda.dias = agenda.dias.concat(nuevos);
       }
     } catch (err) { /* seguimos con lo cargado */ }
   }
@@ -601,7 +779,8 @@ async function cargarMasFechas() {
       const r = await agendaApi(`/api/agenda/disponibilidad?doctor=${agenda.sel.doctor}&motivo=${agenda.sel.motivo}&offset=${agenda.diasOffset}&min_dias=5`);
       agenda.diasOffset = r.offset_siguiente || agenda.diasOffset;
       agenda.diasHayMas = !!r.hay_mas;
-      if ((r.dias || []).length) { agenda.dias = agenda.dias.concat(r.dias); cargo = true; }
+      const nuevos = _filtrarDias(r.dias);
+      if (nuevos.length) { agenda.dias = agenda.dias.concat(nuevos); cargo = true; }
     }
   } catch (e) { /* deja el boton */ }
   renderFechaHora();
@@ -611,6 +790,7 @@ function elegirHora(diaIdx, hora) {
   agenda.sel.fecha = agenda.dias[diaIdx].fecha;
   agenda.sel.fechaLegible = agenda.dias[diaIdx].legible;
   agenda.sel.hora = hora;
+  if (agenda.estudio) return estudioHoraElegida();
   irAResumen();
 }
 

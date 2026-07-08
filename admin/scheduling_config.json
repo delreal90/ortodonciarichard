@@ -106,6 +106,36 @@
       "urgencia": true,
       "notificar_agenda": true
     },
+    "estudio_integral": {
+      "label": "Estudio Integral de Ortodoncia (2 citas)",
+      "especialidad": "ortodoncia",
+      "id_reason": "",
+      "duracion_min": 30,
+      "urgencia": false,
+      "notificar_agenda": true,
+      "compuesto": ["estudio_registros", "estudio_explicacion"],
+      "separacion_min_dias": 14,
+      "solo_pacientes_existentes": true,
+      "_comment": "Entrada compuesta: agenda 2 citas (registros + explicacion) con >=14 dias de separacion, solo pacientes ya registrados. Sin id_reason propio: las citas reales usan los 2 motivos ocultos de abajo."
+    },
+    "estudio_registros": {
+      "label": "Registros para el Estudio Integral de Ortodoncia",
+      "especialidad": "ortodoncia",
+      "id_reason": "23935",
+      "duracion_min": 30,
+      "urgencia": false,
+      "notificar_agenda": true,
+      "oculto": true
+    },
+    "estudio_explicacion": {
+      "label": "Explicación del Diagnóstico y Plan de Tratamiento",
+      "especialidad": "ortodoncia",
+      "id_reason": "18167",
+      "duracion_min": 30,
+      "urgencia": false,
+      "notificar_agenda": true,
+      "oculto": true
+    },
     "rehab_evaluacion": {
       "label": "Evaluación",
       "especialidad": "rehabilitacion",
