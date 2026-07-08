@@ -322,6 +322,16 @@ def _dentro_horario(hhmm, cfg):
     return (hhmm or '')[:5] < cfg['horario'].get('cierre', '19:30')
 
 
+def es_dia_siguiente_habil(fecha, hoy=None):
+    """True si 'fecha' es el proximo dia habil (lunes-viernes) despues de hoy.
+    Uso: al reagendar para el dia siguiente, la cita nueva nace 'Confirmado por
+    WhatsApp' (el paciente viene interactuando por WhatsApp, es una hora
+    inminente). Maneja fin de semana: un viernes, el 'dia siguiente habil' del
+    aviso de 1 dia antes es el lunes."""
+    hoy = hoy or date.today()
+    return fecha == siguiente_dia_habil(hoy + timedelta(days=1))
+
+
 def restriccion_manana_reagenda(cfg, doc_key, hora_original, duracion_min):
     """True si una cita, al reagendarse, debe MANTENERSE antes de almuerzo.
 

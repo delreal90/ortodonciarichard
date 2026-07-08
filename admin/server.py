@@ -1143,8 +1143,18 @@ def agenda_reservar():
     if not nombre and rec:
         nombre, apellido = rec.get('nombres', ''), rec.get('apellidos', '')
 
+    # Si es un reagendamiento (fallback por este endpoint) PARA EL DIA SIGUIENTE
+    # habil, la cita nueva nace "Confirmado por WhatsApp" (32180): el paciente
+    # viene interactuando por WhatsApp. Solo aplica a reagenda; una reserva
+    # normal para mañana sigue naciendo "No confirmado".
+    _reag_id = ''.join(c for c in str(data.get('reagenda_id_agenda') or '') if c.isdigit())
+    id_status_nueva = None
+    if _reag_id and scheduling.es_dia_siguiente_habil(fecha):
+        id_status_nueva = cfg['dentidesk'].get('id_status_confirmado_whatsapp')
+
     res = dentidesk.crear_cita(
-        doc_id=doctor, motivo_key=motivo, target_date=fecha, hora=hora,
+        doc_id=doctor, motivo_key=motivo, id_status=id_status_nueva,
+        target_date=fecha, hora=hora,
         nombre=nombre, apellido=apellido,
         email=email, telefono=telefono,
         rut=scheduling.limpiar_rut(rut), cfg=cfg,
@@ -1331,6 +1341,14 @@ def agenda_reservar_reagenda():
     if not nombre and rec:
         nombre, apellido = rec.get('nombres', ''), rec.get('apellidos', '')
 
+    # Si reagenda para el DIA SIGUIENTE habil, la cita nueva nace "Confirmado
+    # por WhatsApp" (32180): el paciente viene interactuando por WhatsApp y
+    # eligio una hora inminente -> ya esta confirmada de hecho (pedido del
+    # usuario 2026-07-08). Si no, nace "No confirmado" (default de crear_cita).
+    id_status_nueva = None
+    if scheduling.es_dia_siguiente_habil(fecha):
+        id_status_nueva = cfg['dentidesk'].get('id_status_confirmado_whatsapp')
+
     # enviar_duracion=False por ahora: el campo 'Duration' de createAgenda NO
     # esta confirmado en vivo. Se deja apagado hasta verificar (con una cita de
     # duracion ATIPICA) que DentiDesk lo acepta sin rechazar el createAgenda.
@@ -1338,7 +1356,7 @@ def agenda_reservar_reagenda():
     # en la gran mayoria de casos). TODO: activar tras verificar el campo.
     res = dentidesk.crear_cita(
         doc_id=doctor, id_reason=id_reason, duracion_min=duracion_min,
-        enviar_duracion=False, target_date=fecha, hora=hora,
+        enviar_duracion=False, id_status=id_status_nueva, target_date=fecha, hora=hora,
         nombre=nombre, apellido=apellido, email=email, telefono=telefono,
         rut=scheduling.limpiar_rut(rut), cfg=cfg,
     )

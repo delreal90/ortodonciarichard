@@ -776,6 +776,13 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
       prioriza liberar el espacio, la única vía por API es marcarla "Hora Cancelada" (2122),
       perdiendo la etiqueta de reagenda (el registro del reagendamiento igual vive en la cita
       nueva). Mover/acortar solo es posible arrastrando a mano en la web de DentiDesk.
+  - **Reagenda para el día siguiente → "Confirmado por WhatsApp" (2026-07-08):** si el paciente
+    reagenda para el próximo día hábil (`scheduling.es_dia_siguiente_habil`, maneja fin de semana:
+    viernes → lunes), la cita NUEVA nace directamente en estado "Confirmado por WhatsApp" (32180)
+    en vez de "No confirmado" (2120) — viene interactuando por WhatsApp y eligió una hora
+    inminente. `dentidesk.crear_cita()` acepta `id_status=` para esto. Aplica a `reservar-reagenda`
+    y al fallback `/reservar` con `reagenda_id_agenda` (solo reagenda; una reserva normal para
+    mañana sigue naciendo "No confirmado").
   - **Filtro de horario (`scheduling._dentro_horario`):** la agenda online NUNCA ofrece horas en
     o después del cierre (19:30). Si la clínica abre slots "de overflow" en DentiDesk (ej. 20:00
     para arrastrar citas a mano), `getAvailableHours` los devuelve como libres pero este filtro

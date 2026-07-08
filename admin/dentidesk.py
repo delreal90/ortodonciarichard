@@ -349,7 +349,7 @@ def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
 # ── Crear cita ───────────────────────────────────────────────────────────────
 
 def crear_cita(*, doc_id, motivo_key=None, id_reason=None, duracion_min=None,
-               enviar_duracion=False, target_date, hora,
+               enviar_duracion=False, id_status=None, target_date, hora,
                nombre, apellido, email, telefono, rut='', cfg=None):
     """Crea la cita en DentiDesk. Devuelve dict con resultado.
 
@@ -359,6 +359,11 @@ def crear_cita(*, doc_id, motivo_key=None, id_reason=None, duracion_min=None,
       - id_reason: motivo RAW, sin pasar por la config -- lo usa el
         reagendamiento para preservar el motivo original de la cita vieja, que
         puede no estar en la lista de motivos online (ver id_reason_por_label).
+
+    id_status (opcional): IdStatus con el que nace la cita. Default =
+    id_status_nueva_cita (2120 'No confirmado'). El reagendamiento lo usa para
+    crear la cita ya 'Confirmado por WhatsApp' (32180) cuando el paciente
+    reagenda para el dia siguiente (viene interactuando por WhatsApp).
 
     enviar_duracion=True (solo reagendamiento): agrega el campo 'Duration' al
     payload para replicar una duracion ATIPICA de la cita original. El flujo
@@ -387,7 +392,7 @@ def crear_cita(*, doc_id, motivo_key=None, id_reason=None, duracion_min=None,
     url = f"{dd['base_url'].rstrip('/')}/api/agenda/createAgenda.php"
     payload = {
         'IdLocation': dd['id_location'],
-        'IdStatus': dd['id_status_nueva_cita'],
+        'IdStatus': id_status or dd['id_status_nueva_cita'],
         'IdReason': id_reason,
         'Professional': doc_cfg['professional_id'],
         'NamePatient': nombre,
