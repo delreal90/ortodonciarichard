@@ -488,6 +488,154 @@ documentos, reemplazar este flujo por subida directa.
 
 ---
 
+## Compras / Gastos / Stock — app online multiusuario (Fases 1 y 2 COMPLETAS, 2026-07-08)
+
+Sistema para llevar el registro de compras y gastos con seguimiento de stock. App web
+propia, servida por el MISMO backend Flask de Render, con login y roles propios (NO usa
+el ADMIN_TOKEN del resto del sitio). Datos en **SQLite** en el disco persistente (a
+diferencia de los .json del resto del proyecto: aquí hay relaciones reales
+compras↔ítems↔productos↔proveedores↔movimientos que justifican una base de datos).
+
+**Acceso:** `https://ortodonciarichard.onrender.com/compras` (login-gated). En local:
+`http://localhost:5001/compras`. El frontend es del MISMO origen que la API (sin CORS).
+
+**Roles y permisos (modelo por CAPACIDADES, 2026-07-09):** ya NO es una escala lineal
+—los roles nuevos no son subconjuntos limpios. `compras.CAPS` mapea rol→capacidades
+(`escanear, stock, compras_ver, reportes, solicitar, registrar, admin`):
+- `admin` — todas.
+- `registro` — todas menos `admin`.
+- `solicitante` — `escanear, stock, compras_ver, solicitar` (ve, escanea salidas, pide compras; NO registra compras).
+- `lectura` — `stock, compras_ver, reportes` (solo ver).
+- `escaner` — SOLO `escanear` (solo la pestaña Escanear salida; se abre directo ahí).
+El backend protege cada endpoint con `_require_compras(cap)`; el frontend muestra/oculta
+pestañas según `ME.caps` (mapa `TAB_CAP`). Login por usuario → token de sesión (30 días)
+en header `X-Compras-Token`. Contraseñas con PBKDF2-HMAC-SHA256 (200k iter, salt).
+
+### Solicitudes de compra (pendientes + sugerencias por consumo, 2026-07-09)
+Pestaña **🛒 Solicitudes** (rol `solicitar`: solicitante/registro/admin). Tabla
+`pendientes_compra` (una fila por producto pendiente; upsert si ya existía uno activo).
+- **Armar solicitud:** buscador de productos; al agregar uno, el sistema **sugiere una
+  cantidad** (`GET /solicitudes/sugerir?producto_id=`). La solicitud crea/actualiza los
+  pendientes y **avisa por email a los admins** (`_notificar_solicitud_admins` →
+  `notify._enviar_email_recepcion`, best-effort si hay SMTP).
+- **Sugerencias del sistema** (`GET /solicitudes/sugerencias`): productos a comprar por
+  stock bajo el mínimo o por proyección de quiebre (días de stock restantes < media
+  cobertura). Excluye los que ya están pendientes. Ordenado por urgencia.
+- **Fórmula de consumo** (`compras.consumo_diario`): rate = total de SALIDAS de stock en
+  los últimos 90 días / días transcurridos. `sugerir_cantidad(prod, cobertura=60)` =
+  ceil(rate×cobertura − stock). Sin salidas → cae a la última compra o al doble del mínimo.
+- **Auto-resolución:** al registrar una compra, `_resolver_pendientes` (dentro de la
+  transacción de `crear_compra`) marca `comprado` los pendientes de los productos comprados
+  → salen de la lista. Badge de pendientes en la pestaña (contador desde `me`/`_con_caps`).
+- Endpoints: `GET/POST /api/compras/solicitudes`, `GET .../sugerencias`, `GET .../sugerir`,
+  `POST .../cancelar`.
+
+### Archivos
+```
+admin/compras.py     ← capa de datos SQLite (esquema, CRUD, transacciones, reportes).
+                       Autocontenido, mismo patrón que stats.py/consentimientos.py.
+admin/compras.html   ← SPA (login/setup + 6 pestañas), paleta navy/gold, vanilla JS.
+admin/compras.js     ← toda la lógica del frontend (buscadores, modales, escaneo).
+admin/print_agent.py ← agente de impresión de etiquetas (corre en el PC de la clínica).
+admin/server.py      ← 37 rutas /api/compras/* + sirve /compras y /compras.js.
+```
+Rutas en `server.py`: bloque "COMPRAS / GASTOS / STOCK". NO están en `RUTAS_SOLO_LOCAL`
+(funcionan en producción). `/compras` y `/compras.js` se sirven también en Render.
+
+### Modelo de datos (SQLite, WAL, foreign_keys ON)
+`usuarios, sesiones, categorias, proveedores, productos, codigos_producto, compras,
+compra_items, movimientos_stock, cola_impresion`. El stock se lleva como columna
+denormalizada `productos.stock_actual` + libro mayor `movimientos_stock` (entrada/salida/
+ajuste). Cada compra suma stock (movimiento 'entrada' por ítem, transaccional).
+Hay **migraciones idempotentes** en `_migrar()` (init_db): agregan columnas nuevas a
+bases ya creadas sin perder datos (ALTER TABLE si falta la columna). Ya migradas:
+`productos.marca`, `compra_items.marca`, y en `compras`: `moneda, tipo_cambio,
+costo_despacho, costo_importacion, total_clp` (con backfill `total_clp=total` para filas
+CLP viejas). Si se agregan columnas futuras, sumarlas a `_migrar()`.
+
+### Marca por compra, moneda/USD, despacho e importación (2026-07-09)
+- **Marca variable, mismo producto:** un producto (ej. "Guantes M") es ÚNICO (stock e
+  historial únicos), pero cada compra guarda con qué **marca** vino (`compra_items.marca`).
+  Se prellena la última marca (`productos.marca`) al agregar el ítem. Se ve en el detalle,
+  Stock, historial de precios y Excel.
+- **Tipo de gasto `recurrente`** (además de fijo/variable): suscripciones mensuales
+  (Google Workspace, Render). Su propio color, filtro y tile en Reportes.
+- **Compras en dólares:** `moneda` CLP|USD + `tipo_cambio` (CLP por USD, obligatorio si
+  USD). Ítems y despacho van en la moneda de la compra; `costo_importacion` SIEMPRE en CLP
+  (boleta del courier/aduana). `total` = ítems+despacho (en moneda); `total_clp` =
+  total×tipo_cambio + importación. **Los reportes suman `total_clp`** (CASE que cae a
+  `total` en filas viejas) para mezclar CLP+USD correcto en un solo informe.
+- **Editar compra (`actualizar_compra` / `POST /api/compras/compras/actualizar`, rol
+  registro+):** edita la cabecera (NO los ítems) y recalcula total/total_clp desde los
+  ítems existentes + costos nuevos. Uso clave: **agregar el costo de importación que llega
+  después** (FedEx/DHL). Botón "✏️ Editar costos" en el detalle de la compra.
+- **Escáner — auto-descuento sin Enter:** la salida de stock detecta un escáner por la
+  VELOCIDAD ENTRE TECLAS (ráfaga: 6+ chars con gap máx <35ms → procesa solo). Tipeo manual
+  (gaps grandes) NUNCA auto-envía: exige Enter (evita el bug de "envía solo a los 4 dígitos").
+  Un lector USB normal manda Enter automático igual, así que basta escanear.
+
+### Funcionalidades (Fase 1 + Fase 2)
+- **Nueva compra multi-ítem**: fecha, proveedor (buscador + crear al vuelo), tipo/nro doc,
+  forma de pago, tipo (fijo/variable), categoría, foto factura, N productos con buscador
+  (crear al vuelo en modal), cantidad y precio → subtotales y total automáticos.
+- **Gasto SIN productos** (arriendo/luz/servicios): monto directo, no toca stock. En
+  `crear_compra`, si `items` viene vacío usa `cabecera.total` (rama sin ítems).
+- **Foto de factura/boleta**: se sube (downscale client-side a ≤1600px/JPEG para no pasar
+  el `MAX_CONTENT_LENGTH` de 3MB) y se guarda como respaldo. **OCR = Fase 3** (enchufable:
+  la decisión Gemini free-tier vs Claude API quedó PENDIENTE a propósito, no bloquea nada).
+- **Productos/Stock**: lista con stock (coloreado), última compra (fecha/proveedor/precio),
+  historial de precios (barras), movimientos, alerta bajo mínimo. Sacar del stock (botón ➖).
+- **Escaneo (barras + QR)**: usa la **API nativa `BarcodeDetector`** del navegador
+  (Chrome/Android, sin librería ni CDN) + lector USB (escribe en el campo + Enter). Un
+  código de CUALQUIER origen (barras/QR fabricante o propio) resuelve al producto —
+  **mapeo-al-primer-escaneo**: si el código no existe, ofrece asociarlo a un producto (o
+  crear uno) y de ahí en adelante lo reconoce solo. Escanear = salida de stock.
+- **Códigos propios**: para productos sin código, `generar_codigo_propio` crea `OR-<id>-<hex>`
+  y lo encola para imprimir su etiqueta.
+- **Reportes**: tiles (total, n° compras, fijos, variables), barras por mes/categoría/
+  proveedor, filtro por fechas, **export a Excel** (openpyxl, una fila por ítem).
+- **Historial** de compras con filtros; ver detalle (ítems + foto adjunta); eliminar (admin)
+  **revierte el stock** (movimiento 'ajuste', y desacopla los movimientos de la compra
+  antes de borrar — si no, la FK `movimientos_stock.compra_id` impide el DELETE).
+- **Admin**: categorías (crear/archivar), proveedores (CRUD), usuarios (crear/editar rol/
+  estado/password).
+
+### Agente de impresión de etiquetas (`print_agent.py`)
+Corre en el **PC siempre-encendido de la clínica** (el del bridge de WhatsApp), con la
+etiquetadora térmica USB. Mismo patrón cola+polling que la tablet de consentimientos: el
+PC pregunta hacia afuera (sin abrir puertos ni IP fija). Flujo: la app encola etiqueta →
+`cola_impresion` → el agente hace polling a `/api/compras/impresion/cola` (auth por
+`X-Print-Token` = env `PRINT_TOKEN`) → genera la etiqueta (QR con **segno** + nombre +
+código con Pillow) → la imprime (pywin32/win32print, respeta el driver de la térmica) →
+`marcar` impreso. Dependencias SOLO en el PC de la clínica (`requests segno pillow pywin32`),
+NO en Render. Modos: `--test` (etiqueta de ejemplo a archivo), `--guardar` (PNG en vez de
+imprimir), sin flags (loop imprimiendo). Verificado: la etiqueta de ejemplo genera QR
+escaneable + texto correctos.
+
+### Config en Render (variables de entorno)
+- `COMPRAS_SEED_EMAIL` + `COMPRAS_SEED_PASSWORD` (+ `COMPRAS_SEED_NOMBRE`): siembran el
+  PRIMER usuario admin al arrancar si no hay usuarios (evita exponer `/setup` público). Si
+  no se setean, la primera visita a `/compras` muestra la pantalla "Configuración inicial"
+  que crea el primer admin (solo funciona con 0 usuarios).
+- `PRINT_TOKEN`: mismo valor en Render y en el agente del PC (auth del agente).
+- `COMPRAS_DB_PATH` y `COMPRAS_FOTOS_DIR`: por defecto caen junto a `PATIENT_INDEX_PATH`
+  (disco persistente de Render), así que normalmente NO hay que setearlas.
+- `segno==1.6.1` agregado a `requirements.txt` (QR en el backend). SQLite/openpyxl ya estaban.
+
+### Estado y pendientes
+- **Fases 1 y 2: COMPLETAS y verificadas end-to-end** (setup, login, roles, compra
+  multi-ítem, gasto sin productos, stock+alertas, escaneo/salida, historial, reportes+Excel,
+  admin, QR, etiqueta). Falta desplegar en Render (setear las env vars de arriba) y probar
+  el agente contra la térmica física.
+- **Fase 3 (futura)**: foto/PDF/XML → formulario. Decisión OCR PENDIENTE (Gemini free-tier
+  gratis con caveat de datos, vs Claude API privado ~$10-20 CLP/factura). Para facturas
+  electrónicas conviene priorizar el **XML del SII** (estructurado, gratis, sin OCR).
+  Además: gastos fijos recurrentes (plantillas mensuales).
+- **Fase 4 (futura)**: alertas de stock bajo por WhatsApp (reusar Cloud API ya montada),
+  comparador de precios (avisar si un proveedor subió un ítem), lectura de XML del SII.
+
+---
+
 ## Infraestructura decidida (producción)
 
 | Servicio | Rol | Costo |

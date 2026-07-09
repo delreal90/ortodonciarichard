@@ -18,6 +18,13 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["admin/server.py"],
       "port": 5001
+    },
+    {
+      "name": "compras-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["admin/server.py"],
+      "port": 5057,
+      "autoPort": true
     }
   ]
 }

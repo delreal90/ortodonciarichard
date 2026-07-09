@@ -32,3 +32,10 @@ admin/wa_recordatorios_enviados.json
 admin/agendamientos.jsonl
 admin/confirmaciones_enviadas.json
 admin/eventos.jsonl
+
+# Compras/gastos/stock: base SQLite + fotos de facturas (datos privados de la clínica)
+# — NUNCA subir a git. En Render viven en el disco persistente.
+admin/compras.db
+admin/compras.db-wal
+admin/compras.db-shm
+admin/compras_fotos/

@@ -67,7 +67,7 @@ def _cors(resp):
     origin = request.headers.get('Origin', '')
     if origin in _ALLOWED_ORIGINS:
         resp.headers['Access-Control-Allow-Origin'] = origin
-    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Admin-Token, X-Kiosk-Token'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Admin-Token, X-Kiosk-Token, X-Compras-Token, X-Print-Token'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return resp
 
@@ -2518,6 +2518,612 @@ def consentimiento_reenviar_copia():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# COMPRAS / GASTOS / STOCK  (módulo autónomo, funciona en producción — Render)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# App online multi-usuario (login propio, roles admin/registro/lectura). Sirve su
+# propio frontend en /compras y su API en /api/compras/*. Datos en SQLite en el
+# disco persistente (compras.py). NO usa ADMIN_TOKEN (ese protege la parte del
+# sitio/agenda); acá la sesión es por usuario, header X-Compras-Token.
+
+import compras as _compras
+
+try:
+    _compras.init_db()
+    # Semilla opcional del primer admin desde env (para Render, sin llamar /setup).
+    if _compras.contar_usuarios() == 0:
+        _se, _sp = os.environ.get('COMPRAS_SEED_EMAIL'), os.environ.get('COMPRAS_SEED_PASSWORD')
+        if _se and _sp:
+            _compras.crear_usuario(_se, os.environ.get('COMPRAS_SEED_NOMBRE', 'Administrador'),
+                                   _sp, rol='admin')
+            print('[compras] primer usuario admin sembrado desde env')
+except Exception as _e:
+    print('[compras] init_db error:', _e)
+
+def _compras_user():
+    """Usuario dueño del X-Compras-Token, o None."""
+    tok = request.headers.get('X-Compras-Token') or ''
+    return _compras.usuario_por_sesion(tok)
+
+
+def _require_compras(cap):
+    """Devuelve (usuario, None) si el usuario tiene la CAPACIDAD 'cap', o
+    (None, respuesta_error) si no. Ver compras.CAPS para el mapa rol→capacidades."""
+    u = _compras_user()
+    if not u:
+        return None, (jsonify({'ok': False, 'error': 'No autenticado'}), 401)
+    if not _compras.tiene_cap(u['rol'], cap):
+        return None, (jsonify({'ok': False, 'error': 'Sin permiso para esta acción'}), 403)
+    return u, None
+
+
+def _print_autorizado():
+    """El agente de impresión se autentica con X-Print-Token (env PRINT_TOKEN) o
+    con una sesión admin. Sin PRINT_TOKEN configurado (local) se permite."""
+    tok_env = os.environ.get('PRINT_TOKEN')
+    if tok_env:
+        if hmac.compare_digest(request.headers.get('X-Print-Token') or '', tok_env):
+            return True
+    else:
+        return True
+    u = _compras_user()
+    return bool(u and u['rol'] == 'admin')
+
+
+# ── Frontend + assets (disponibles también en producción) ─────────────────────
+
+@app.route('/compras')
+def compras_app():
+    return send_from_directory('.', 'compras.html')
+
+@app.route('/compras.js')
+def compras_js():
+    return send_from_directory('.', 'compras.js')
+
+
+# ── Autenticación ──────────────────────────────────────────────────────────────
+
+@app.route('/api/compras/setup', methods=['POST'])
+@rate_limit("10 per hour")
+def compras_setup():
+    """Crea el PRIMER usuario admin. Solo funciona si no hay ningún usuario todavía."""
+    if _compras.contar_usuarios() > 0:
+        return jsonify({'ok': False, 'error': 'El sistema ya está configurado'}), 409
+    d = request.json or {}
+    try:
+        uid = _compras.crear_usuario(d.get('email', ''), d.get('nombre', ''),
+                                     d.get('password', ''), rol='admin')
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    token = _compras.crear_sesion(uid)
+    return jsonify({'ok': True, 'token': token, 'usuario': _con_caps(
+        {'email': d.get('email'), 'nombre': d.get('nombre'), 'rol': 'admin'})})
+
+def _con_caps(u):
+    """Adjunta al usuario sus capacidades (para que el frontend sepa qué mostrar) +
+    el contador de pendientes por comprar (badge de solicitudes)."""
+    return {**u, 'caps': sorted(_compras.CAPS.get(u['rol'], set())),
+            'pendientes': _compras.contar_pendientes()}
+
+@app.route('/api/compras/login', methods=['POST'])
+@rate_limit("30 per hour")
+def compras_login():
+    d = request.json or {}
+    u = _compras.verificar_login(d.get('email', ''), d.get('password', ''))
+    if not u:
+        return jsonify({'ok': False, 'error': 'Email o contraseña incorrectos'}), 401
+    token = _compras.crear_sesion(u['id'])
+    return jsonify({'ok': True, 'token': token, 'usuario': _con_caps(u)})
+
+@app.route('/api/compras/logout', methods=['POST'])
+def compras_logout():
+    _compras.cerrar_sesion(request.headers.get('X-Compras-Token') or '')
+    return jsonify({'ok': True})
+
+@app.route('/api/compras/me', methods=['GET'])
+def compras_me():
+    u = _compras_user()
+    if not u:
+        return jsonify({'ok': False, 'configurado': _compras.contar_usuarios() > 0}), 401
+    return jsonify({'ok': True, 'usuario': _con_caps(u)})
+
+
+# ── Usuarios (admin) ───────────────────────────────────────────────────────────
+
+@app.route('/api/compras/usuarios', methods=['GET'])
+def compras_usuarios():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    return jsonify({'ok': True, 'usuarios': _compras.listar_usuarios()})
+
+@app.route('/api/compras/usuarios', methods=['POST'])
+def compras_usuarios_crear():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        uid = _compras.crear_usuario(d.get('email', ''), d.get('nombre', ''),
+                                     d.get('password', ''), rol=d.get('rol', 'registro'))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': uid})
+
+@app.route('/api/compras/usuarios/actualizar', methods=['POST'])
+def compras_usuarios_actualizar():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.actualizar_usuario(d.get('id'), nombre=d.get('nombre'), rol=d.get('rol'),
+                                    activo=d.get('activo'), password=d.get('password') or None)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+# ── Categorías ─────────────────────────────────────────────────────────────────
+
+@app.route('/api/compras/categorias', methods=['GET'])
+def compras_categorias():
+    _, err = _require_compras('stock')
+    if err:
+        return err
+    return jsonify({'ok': True, 'categorias': _compras.listar_categorias(
+        incluir_archivadas=request.args.get('todas') == '1')})
+
+@app.route('/api/compras/categorias', methods=['POST'])
+def compras_categorias_crear():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    try:
+        cid = _compras.crear_categoria((request.json or {}).get('nombre', ''))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': cid})
+
+@app.route('/api/compras/categorias/actualizar', methods=['POST'])
+def compras_categorias_actualizar():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    if 'nombre' in d and d.get('nombre'):
+        _compras.renombrar_categoria(d.get('id'), d['nombre'])
+    if 'archivada' in d:
+        _compras.archivar_categoria(d.get('id'), bool(d['archivada']))
+    return jsonify({'ok': True})
+
+
+# ── Proveedores ────────────────────────────────────────────────────────────────
+
+@app.route('/api/compras/proveedores', methods=['GET'])
+def compras_proveedores():
+    _, err = _require_compras('compras_ver')
+    if err:
+        return err
+    return jsonify({'ok': True, 'proveedores': _compras.listar_proveedores(
+        buscar=request.args.get('buscar', ''),
+        incluir_archivados=request.args.get('todos') == '1')})
+
+@app.route('/api/compras/proveedores', methods=['POST'])
+def compras_proveedores_crear():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        pid = _compras.crear_proveedor(d.get('nombre', ''), d.get('rut', ''),
+                                       d.get('contacto', ''), d.get('notas', ''))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': pid})
+
+@app.route('/api/compras/proveedores/actualizar', methods=['POST'])
+def compras_proveedores_actualizar():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    _compras.actualizar_proveedor(d.pop('id', None), **{k: v for k, v in d.items()})
+    return jsonify({'ok': True})
+
+
+# ── Productos + códigos ────────────────────────────────────────────────────────
+
+@app.route('/api/compras/productos', methods=['GET'])
+def compras_productos():
+    _, err = _require_compras('stock')
+    if err:
+        return err
+    prods = _compras.listar_productos(buscar=request.args.get('buscar', ''),
+                                      incluir_archivados=request.args.get('todos') == '1')
+    # adjuntar última compra si se pide (para la vista de stock)
+    if request.args.get('detalle') == '1':
+        for p in prods:
+            p['ultima_compra'] = _compras.ultima_compra_producto(p['id'])
+    return jsonify({'ok': True, 'productos': prods})
+
+@app.route('/api/compras/productos/<int:pid>', methods=['GET'])
+def compras_producto_detalle(pid):
+    _, err = _require_compras('stock')
+    if err:
+        return err
+    p = _compras.obtener_producto(pid)
+    if not p:
+        return jsonify({'ok': False, 'error': 'Producto no encontrado'}), 404
+    p['ultima_compra'] = _compras.ultima_compra_producto(pid)
+    p['historial_precios'] = _compras.historial_precios(pid)
+    p['movimientos'] = _compras.movimientos_producto(pid)
+    return jsonify({'ok': True, 'producto': p})
+
+@app.route('/api/compras/productos', methods=['POST'])
+def compras_productos_crear():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        pid = _compras.crear_producto(
+            d.get('nombre', ''), d.get('categoria_prod', ''),
+            d.get('unidad', 'unidad'), d.get('stock_minimo', 0),
+            d.get('notas', ''), d.get('stock_inicial', 0))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    # opcional: mapear un código escaneado al crear
+    if d.get('codigo'):
+        try:
+            _compras.agregar_codigo(pid, d['codigo'], d.get('codigo_origen', 'fabricante'))
+        except ValueError:
+            pass
+    return jsonify({'ok': True, 'id': pid})
+
+@app.route('/api/compras/productos/actualizar', methods=['POST'])
+def compras_productos_actualizar():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    _compras.actualizar_producto(d.pop('id', None), **{k: v for k, v in d.items()})
+    return jsonify({'ok': True})
+
+@app.route('/api/compras/productos/codigo', methods=['POST'])
+def compras_producto_codigo():
+    """Mapea un código (barras/QR) a un producto (mapeo-al-primer-escaneo)."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        nuevo = _compras.agregar_codigo(d.get('producto_id'), d.get('codigo', ''),
+                                        d.get('origen', 'fabricante'))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'nuevo': nuevo})
+
+@app.route('/api/compras/productos/generar-codigo', methods=['POST'])
+def compras_producto_generar_codigo():
+    """Genera un código propio para un producto sin código de fabricante y (opcional)
+    lo encola para imprimir su etiqueta."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    pid = d.get('producto_id')
+    codigo = _compras.generar_codigo_propio(pid)
+    if d.get('imprimir'):
+        _compras.encolar_impresion(pid, codigo, int(d.get('cantidad', 1)))
+    return jsonify({'ok': True, 'codigo': codigo})
+
+
+# ── Escaneo / salida de stock ──────────────────────────────────────────────────
+
+@app.route('/api/compras/codigo/<path:codigo>', methods=['GET'])
+def compras_resolver_codigo(codigo):
+    """Resuelve un código escaneado a su producto. 404 = código no mapeado (el
+    frontend ofrece asociarlo a un producto)."""
+    _, err = _require_compras('escanear')
+    if err:
+        return err
+    p = _compras.producto_por_codigo(codigo)
+    if not p:
+        return jsonify({'ok': False, 'error': 'Código no reconocido'}), 404
+    return jsonify({'ok': True, 'producto': p})
+
+@app.route('/api/compras/salida', methods=['POST'])
+def compras_salida():
+    """Descuenta stock. Acepta {codigo} (escaneo) o {producto_id}."""
+    u, err = _require_compras('escanear')
+    if err:
+        return err
+    d = request.json or {}
+    cant = float(d.get('cantidad', 1) or 1)
+    motivo = d.get('motivo', 'Consumo')
+    if d.get('codigo'):
+        prod, nuevo = _compras.salida_por_codigo(d['codigo'], cant, motivo, u['id'])
+        if not prod:
+            return jsonify({'ok': False, 'error': 'Código no reconocido'}), 404
+    elif d.get('producto_id'):
+        nuevo = _compras.registrar_movimiento(d['producto_id'], 'salida', cant, motivo, u['id'])
+        prod = _compras.obtener_producto(d['producto_id'])
+    else:
+        return jsonify({'ok': False, 'error': 'Falta código o producto'}), 400
+    return jsonify({'ok': True, 'producto': {'id': prod['id'], 'nombre': prod['nombre'],
+                    'unidad': prod['unidad']}, 'stock_actual': nuevo})
+
+
+# ── Movimientos de stock (entrada/salida/ajuste manual) ────────────────────────
+
+@app.route('/api/compras/movimiento', methods=['POST'])
+def compras_movimiento():
+    u, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        nuevo = _compras.registrar_movimiento(d.get('producto_id'), d.get('tipo'),
+                                              d.get('cantidad'), d.get('motivo', ''), u['id'])
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'stock_actual': nuevo})
+
+@app.route('/api/compras/alertas', methods=['GET'])
+def compras_alertas():
+    _, err = _require_compras('stock')
+    if err:
+        return err
+    return jsonify({'ok': True, 'productos': _compras.productos_bajo_minimo()})
+
+
+# ── Compras (cabecera + ítems) ─────────────────────────────────────────────────
+
+@app.route('/api/compras/compras', methods=['GET'])
+def compras_listar():
+    _, err = _require_compras('compras_ver')
+    if err:
+        return err
+    a = request.args
+    return jsonify({'ok': True, 'compras': _compras.listar_compras(
+        desde=a.get('desde') or None, hasta=a.get('hasta') or None,
+        proveedor_id=a.get('proveedor_id') or None, categoria_id=a.get('categoria_id') or None,
+        tipo_gasto=a.get('tipo_gasto') or None)})
+
+@app.route('/api/compras/compras/<int:cid>', methods=['GET'])
+def compras_obtener(cid):
+    _, err = _require_compras('compras_ver')
+    if err:
+        return err
+    c = _compras.obtener_compra(cid)
+    if not c:
+        return jsonify({'ok': False, 'error': 'Compra no encontrada'}), 404
+    return jsonify({'ok': True, 'compra': c})
+
+@app.route('/api/compras/compras', methods=['POST'])
+def compras_crear():
+    u, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        cid = _compras.crear_compra(d.get('cabecera', {}), d.get('items', []), u['id'])
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': cid})
+
+@app.route('/api/compras/compras/actualizar', methods=['POST'])
+def compras_actualizar():
+    """Edita la cabecera de una compra (agregar costo de importación que llega después,
+    ajustar despacho/tipo de cambio/moneda, etc.). Recalcula el total."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        res = _compras.actualizar_compra(d.pop('id', None), d)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, **res})
+
+@app.route('/api/compras/compras/eliminar', methods=['POST'])
+def compras_eliminar():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    _compras.eliminar_compra((request.json or {}).get('id'))
+    return jsonify({'ok': True})
+
+
+# ── Foto de la factura/boleta (respaldo; OCR es Fase 3) ────────────────────────
+
+@app.route('/api/compras/foto', methods=['POST'])
+def compras_foto_subir():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'Falta el archivo'}), 400
+    _compras.FOTOS_DIR.mkdir(parents=True, exist_ok=True)
+    ext = os.path.splitext(f.filename or '')[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.webp', '.pdf'):
+        ext = '.jpg'
+    nombre = f"{_compras.ahora_cl().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(4)}{ext}"
+    f.save(str(_compras.FOTOS_DIR / nombre))
+    return jsonify({'ok': True, 'foto_path': nombre})
+
+@app.route('/api/compras/foto/<path:nombre>', methods=['GET'])
+def compras_foto_ver(nombre):
+    _, err = _require_compras('compras_ver')
+    if err:
+        return err
+    if '/' in nombre or '\\' in nombre or '..' in nombre:
+        return jsonify({'ok': False, 'error': 'Nombre inválido'}), 400
+    return send_from_directory(str(_compras.FOTOS_DIR), nombre)
+
+
+# ── Reportes + export Excel ────────────────────────────────────────────────────
+
+@app.route('/api/compras/reportes', methods=['GET'])
+def compras_reportes():
+    _, err = _require_compras('reportes')
+    if err:
+        return err
+    a = request.args
+    return jsonify({'ok': True, 'reporte': _compras.resumen_gastos(
+        desde=a.get('desde') or None, hasta=a.get('hasta') or None)})
+
+@app.route('/api/compras/export.xlsx', methods=['GET'])
+def compras_export():
+    _, err = _require_compras('reportes')
+    if err:
+        return err
+    from openpyxl import Workbook
+    from io import BytesIO
+    a = request.args
+    filas = _compras.filas_export(desde=a.get('desde') or None, hasta=a.get('hasta') or None)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Compras'
+    cols = ['Fecha', 'Proveedor', 'Tipo doc', 'N° doc', 'Forma pago', 'Tipo gasto',
+            'Categoría', 'Producto', 'Marca', 'Cantidad', 'Precio unitario', 'Subtotal',
+            'Moneda', 'Tipo cambio', 'Despacho', 'Importación (CLP)', 'Total (moneda)', 'Total CLP']
+    ws.append(cols)
+    for r in filas:
+        ws.append([r.get('fecha'), r.get('proveedor'), r.get('tipo_doc'), r.get('nro_doc'),
+                   r.get('forma_pago'), r.get('tipo_gasto'), r.get('categoria'), r.get('producto'),
+                   r.get('marca'), r.get('cantidad'), r.get('precio_unitario'), r.get('subtotal'),
+                   r.get('moneda'), r.get('tipo_cambio'), r.get('costo_despacho'),
+                   r.get('costo_importacion'), r.get('total'), r.get('total_clp')])
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from flask import Response
+    return Response(buf.read(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename=compras.xlsx'})
+
+
+# ── QR + cola de impresión (agente en el PC de la clínica) ─────────────────────
+
+@app.route('/api/compras/qr/<path:codigo>.png', methods=['GET'])
+def compras_qr(codigo):
+    """Genera el PNG del QR de un código, para mostrar/imprimir la etiqueta."""
+    try:
+        import segno
+    except ImportError:
+        return jsonify({'ok': False, 'error': 'segno no instalado'}), 500
+    from io import BytesIO
+    from flask import Response
+    buf = BytesIO()
+    segno.make(codigo, error='m').save(buf, kind='png', scale=6, border=2)
+    buf.seek(0)
+    return Response(buf.read(), mimetype='image/png')
+
+@app.route('/api/compras/impresion/cola', methods=['GET'])
+def compras_impresion_cola():
+    if not _print_autorizado():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'trabajos': _compras.cola_pendiente()})
+
+@app.route('/api/compras/impresion/marcar', methods=['POST'])
+def compras_impresion_marcar():
+    if not _print_autorizado():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.json or {}
+    _compras.marcar_impresion(d.get('id'), d.get('estado', 'impreso'))
+    return jsonify({'ok': True})
+
+@app.route('/api/compras/impresion/encolar', methods=['POST'])
+def compras_impresion_encolar():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    jid = _compras.encolar_impresion(d.get('producto_id'), d.get('codigo', ''),
+                                     int(d.get('cantidad', 1)))
+    return jsonify({'ok': True, 'id': jid})
+
+
+# ── Solicitudes de compra (pendientes + sugerencias por consumo) ───────────────
+
+@app.route('/api/compras/solicitudes', methods=['GET'])
+def compras_solicitudes():
+    _, err = _require_compras('solicitar')
+    if err:
+        return err
+    return jsonify({'ok': True, 'pendientes': _compras.listar_pendientes()})
+
+@app.route('/api/compras/solicitudes/sugerencias', methods=['GET'])
+def compras_solicitudes_sugerencias():
+    _, err = _require_compras('solicitar')
+    if err:
+        return err
+    cob = int(request.args.get('cobertura', 60) or 60)
+    return jsonify({'ok': True, 'sugerencias': _compras.productos_sugeridos(cob)})
+
+@app.route('/api/compras/solicitudes/sugerir', methods=['GET'])
+def compras_solicitudes_sugerir():
+    """Sugiere una cantidad para UN producto, según su consumo/historial."""
+    _, err = _require_compras('solicitar')
+    if err:
+        return err
+    pid = request.args.get('producto_id')
+    if not pid:
+        return jsonify({'ok': False, 'error': 'Falta producto_id'}), 400
+    cob = int(request.args.get('cobertura', 60) or 60)
+    return jsonify({'ok': True, 'sugerencia': _compras.sugerir_cantidad(int(pid), cob)})
+
+@app.route('/api/compras/solicitudes', methods=['POST'])
+def compras_solicitudes_crear():
+    u, err = _require_compras('solicitar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        n = _compras.crear_solicitud(d.get('items', []), u['id'], d.get('nota', ''))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    _notificar_solicitud_admins(u, d.get('items', []))
+    return jsonify({'ok': True, 'n': n})
+
+@app.route('/api/compras/solicitudes/cancelar', methods=['POST'])
+def compras_solicitudes_cancelar():
+    _, err = _require_compras('solicitar')
+    if err:
+        return err
+    _compras.cancelar_pendiente((request.json or {}).get('id'))
+    return jsonify({'ok': True})
+
+
+def _notificar_solicitud_admins(usuario, items):
+    """Notifica a los administradores (correo de la clínica) que hay una nueva solicitud
+    de compra. Best-effort: si el SMTP no está configurado, no rompe nada."""
+    try:
+        import notify
+        prods = _compras.listar_productos()
+        by_id = {p['id']: p for p in prods}
+        filas = ''
+        for it in (items or []):
+            p = by_id.get(it.get('producto_id'), {})
+            filas += (f"<tr><td style='padding:6px 10px'>{p.get('nombre', '—')}</td>"
+                      f"<td style='padding:6px 10px'>{it.get('cantidad', '')} {p.get('unidad', '')}</td></tr>")
+        html = (f"<h2>Nueva solicitud de compra</h2>"
+                f"<p>Solicitada por <b>{usuario.get('nombre', '')}</b> "
+                f"({usuario.get('email', '')}).</p>"
+                f"<table style='border-collapse:collapse'>"
+                f"<tr><th style='text-align:left;padding:6px 10px'>Producto</th>"
+                f"<th style='text-align:left;padding:6px 10px'>Cantidad sugerida</th></tr>"
+                f"{filas}</table>"
+                f"<p>Revísala en el sistema de compras → pestaña «Solicitudes».</p>")
+        notify._enviar_email_recepcion('🛒 Nueva solicitud de compra', html)
+    except Exception as e:
+        print('[compras] no se pudo notificar solicitud:', e)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # REFRESCO AUTOMÁTICO DE PACIENTES (2x/día) + BARRIDO DE CONFIRMACIONES (4 ciclos)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2666,6 +3272,7 @@ def _iniciar_scheduler():
 _iniciar_scheduler()
 
 if __name__ == '__main__':
+    port = int(os.environ.get('PORT', '5001'))
     print("\nPanel de administracion iniciado")
-    print("Abre tu navegador en: http://localhost:5001\n")
-    app.run(port=5001, debug=False)
+    print(f"Abre tu navegador en: http://localhost:{port}\n")
+    app.run(port=port, debug=False)
