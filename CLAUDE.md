@@ -2,6 +2,11 @@
 
 Contexto completo del proyecto para retomar en cualquier sesión futura.
 
+> **¿Sesión nueva o producto relacionado? Lee primero [`RESUMEN-PROYECTO.md`](RESUMEN-PROYECTO.md)**
+> — mapa de una página (arquitectura, infra, hechos duros de DentiDesk) con
+> punteros a las secciones de acá. Este CLAUDE.md tiene el detalle fino de cada
+> sistema; el RESUMEN es para no cargar todo el contexto.
+
 ---
 
 ## El proyecto
