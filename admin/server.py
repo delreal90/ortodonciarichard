@@ -1085,6 +1085,16 @@ def agenda_reservar():
     data = request.json or {}
     cfg = scheduling.load_config()
 
+    # Reagendar NO pasa por aqui: va SIEMPRE por /api/agenda/reservar-reagenda,
+    # que preserva el motivo/doctor EXACTOS de la cita vieja. Este endpoint
+    # (wizard libre) dejaba elegir cualquier motivo -> un reagendamiento
+    # terminaba con un tipo de cita distinto (bug real: "Imp essix" quedo como
+    # "Control Fijo"). Se rechaza aunque llegue de un navegador con JS viejo
+    # cacheado, para cortar el bug de raiz sin esperar a que refresque.
+    if str(data.get('reagenda_id_agenda') or '').strip():
+        return jsonify({'ok': False, 'reagenda_bloqueada': True,
+                        'error': 'Para reagendar esta hora, escríbenos por WhatsApp y te ayudamos.'}), 409
+
     # Captcha Cloudflare Turnstile (anti-bot). Solo se valida si esta configurado
     # el secreto en el entorno; si no, se omite (no rompe antes de activarlo).
     if not _verificar_turnstile(data.get('captcha_token', '')):

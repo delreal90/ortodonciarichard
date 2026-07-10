@@ -111,32 +111,36 @@ async function abrirAgenda() {
   // Si ya se precargó doctor+motivo en una apertura anterior de este modal
   // (cerrar y volver a abrir sin recargar la página), no volver a preguntar.
   if (agenda.reagendaExacto) { pasoRut(); return; }
-  // Link de reagendar CON fecha: intenta precargar doctor+motivo de la cita
-  // vieja (el paciente no podrá cambiarlos). Si falla por cualquier motivo
-  // (cita no encontrada, motivo no reconocido, etc.), sigue con el wizard
-  // completo de siempre -- agenda.reagendaId queda igual seteado, así que
-  // /api/agenda/reservar (flujo normal) todavía marca la cita vieja como
-  // reagendada al confirmar.
-  if (agenda.reagendaId && agenda.reagendaFecha && !agenda._reagendaInfoIntentado) {
-    agenda._reagendaInfoIntentado = true;
-    try {
-      const info = await agendaApi(`/api/agenda/reagendar-info?id_agenda=${encodeURIComponent(agenda.reagendaId)}&fecha=${encodeURIComponent(agenda.reagendaFecha)}`);
-      const doc = info.ok ? (agenda.config.doctores || []).find(d => d.key === info.doctor) : null;
-      if (doc) {
-        const esp = (agenda.config.especialidades || []).find(e => e.key === doc.especialidad);
-        agenda.reagendaExacto = true;
-        agenda.reagendaDuracion = info.duracion_min;
-        agenda.reagendaSoloManana = !!info.solo_manana;
-        agenda.sel.doctor = doc.key;
-        agenda.sel.doctorNombre = info.doctor_nombre || doc.name;
-        agenda.sel.doctorFoto = info.doctor_foto || doc.photo;
-        agenda.sel.especialidad = doc.especialidad;
-        agenda.sel.especialidadLabel = esp ? esp.label : '';
-        agenda.sel.motivoLabel = info.motivo_label;
-        pasoRut();
-        return;
-      }
-    } catch (e) { /* sigue con el wizard completo */ }
+  // Modo reagenda (se llegó por el link de WhatsApp): intentar precargar el
+  // doctor y motivo EXACTOS de la cita vieja (quedan bloqueados). Si NO se
+  // puede (link viejo sin fecha, motivo que no está en la tabla, cita movida
+  // de día, etc.), NO abrimos el wizard libre: eso dejaría al paciente elegir
+  // otro motivo/doctor y marcaría igual la cita vieja como reagendada (bug
+  // real: "Imp essix" terminó como "Control Fijo"). En su lugar derivamos a
+  // WhatsApp sin tocar la cita vieja.
+  if (agenda.reagendaId) {
+    if (agenda.reagendaFecha && !agenda._reagendaInfoIntentado) {
+      agenda._reagendaInfoIntentado = true;
+      try {
+        const info = await agendaApi(`/api/agenda/reagendar-info?id_agenda=${encodeURIComponent(agenda.reagendaId)}&fecha=${encodeURIComponent(agenda.reagendaFecha)}`);
+        const doc = info.ok ? (agenda.config.doctores || []).find(d => d.key === info.doctor) : null;
+        if (doc) {
+          const esp = (agenda.config.especialidades || []).find(e => e.key === doc.especialidad);
+          agenda.reagendaExacto = true;
+          agenda.reagendaDuracion = info.duracion_min;
+          agenda.reagendaSoloManana = !!info.solo_manana;
+          agenda.sel.doctor = doc.key;
+          agenda.sel.doctorNombre = info.doctor_nombre || doc.name;
+          agenda.sel.doctorFoto = info.doctor_foto || doc.photo;
+          agenda.sel.especialidad = doc.especialidad;
+          agenda.sel.especialidadLabel = esp ? esp.label : '';
+          agenda.sel.motivoLabel = info.motivo_label;
+          pasoRut();
+          return;
+        }
+      } catch (e) { /* cae al mensaje de reagenda-no-disponible */ }
+    }
+    return pasoReagendaNoDisponible();
   }
   pasoEspecialidad();
 }
@@ -1059,6 +1063,25 @@ function pasoError(msg) {
     <a class="btn btn-primary" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" target="_blank" rel="noopener">
       <i class="fab fa-whatsapp"></i> Agendar por WhatsApp
     </a>
+  </div>`);
+}
+
+// Reagenda que no se pudo preparar automáticamente (link sin fecha, motivo no
+// reconocido, cita movida de día, etc.). NO se abre el wizard libre — se deriva
+// a WhatsApp para que la clínica reagende con el MISMO motivo, sin riesgo de que
+// el paciente termine con un tipo de cita distinto. La cita vieja NO se toca.
+function pasoReagendaNoDisponible() {
+  const fechaTxt = agenda.reagendaFecha ? ` (mi hora del ${agenda.reagendaFecha})` : '';
+  const wa = 'https://wa.me/56933558189?text=' +
+    encodeURIComponent(`Hola, quiero reagendar mi hora${fechaTxt}. ¿Me pueden ayudar a coordinar una nueva?`);
+  setBody(`<div class="agenda-final ok">
+    <i class="fas fa-comments"></i>
+    <h3>Reagendemos tu hora juntos</h3>
+    <p>Para esta hora preferimos coordinar el nuevo horario contigo directamente, así nos aseguramos de mantener el mismo tipo de atención.</p>
+    <a class="btn btn-primary btn-lg" href="${wa}" target="_blank" rel="noopener">
+      <i class="fab fa-whatsapp"></i> Escríbenos por WhatsApp
+    </a>
+    <p class="agenda-mini">Tu hora actual sigue agendada hasta que coordinemos la nueva.</p>
   </div>`);
 }
 
