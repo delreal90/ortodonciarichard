@@ -9,6 +9,7 @@ import re
 import hmac
 import json
 import hashlib
+import secrets
 import shutil
 import subprocess
 from pathlib import Path
@@ -2518,6 +2519,555 @@ def consentimiento_reenviar_copia():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SEGUROS COMPLEMENTARIOS  (formularios de reembolso — módulo seguros.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# La secretaria abre /seguro desde el asistente F2 (query params con los datos
+# de la cita). La página llama a /api/seguro/* con X-Admin-Token (mismo token
+# del panel, guardado en localStorage). El PDF de vista previa se sirve por URL
+# con token firmado propio (un <iframe> no puede mandar headers).
+
+import seguros
+
+
+@app.route('/seguro')
+def seguro_page():
+    return send_from_directory('.', 'seguros_secretaria.html')
+
+
+@app.route('/api/seguro/init', methods=['GET'])
+def seguro_init():
+    """Catálogos para poblar la página: aseguradoras activas + doctores."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg = scheduling.load_config()
+    doctores = [{'key': k, 'nombre': f"Dr. {v.get('professional_name', k.title())}"}
+                for k, v in (cfg.get('doctores') or {}).items()
+                if isinstance(v, dict)]
+    aseguradoras = [{'key': a['key'], 'nombre': a.get('nombre', a['key']),
+                     'tiene_plantilla': bool(a.get('plantilla_pdf'))}
+                    for a in seguros.listar_aseguradoras()]
+    return jsonify({'ok': True, 'aseguradoras': aseguradoras, 'doctores': doctores})
+
+
+@app.route('/api/seguro/precarga', methods=['GET'])
+@rate_limit('60 per minute')
+def seguro_precarga():
+    """Prellenado de la página: datos del paciente (base local), preferencia de
+    aseguradora + datos extra guardados, y prestaciones sugeridas por motivo."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    rut = request.args.get('rut', '')
+    motivo = request.args.get('motivo', '')
+    import pacientes as _pac
+    rec = _pac.lookup(rut)
+    pref = seguros.paciente_seguro(rut) or {}
+    cfg = scheduling.load_config()
+    aseg = seguros.obtener_aseguradora(pref.get('ultima_aseguradora')) if pref.get('ultima_aseguradora') else None
+    return jsonify({
+        'ok': True,
+        'paciente': rec or None,
+        'datos_extra': pref.get('datos_extra', {}),
+        'ultima_aseguradora': pref.get('ultima_aseguradora'),
+        'ultima_aseguradora_nombre': (aseg or {}).get('nombre'),
+        'primera_vez': not bool(pref.get('ultima_aseguradora')),
+        'sugeridas': seguros.sugerencias_por_motivo(motivo, cfg),
+    })
+
+
+@app.route('/api/seguro/prestaciones', methods=['GET'])
+def seguro_prestaciones():
+    """Catálogo interno con la traducción de la aseguradora elegida (items:
+    [{codigo, descripcion}] — vacío si aún no hay mapeo para esa aseguradora)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    aseg = request.args.get('aseguradora', '')
+    return jsonify({'ok': True,
+                    'prestaciones': seguros.prestaciones_para_aseguradora(aseg)})
+
+
+@app.route('/api/seguro/paciente', methods=['POST'])
+def seguro_paciente_guardar():
+    """Upsert de la preferencia del paciente (última aseguradora usada) y sus
+    datos extra (fecha de nacimiento, dirección) para precargar la próxima vez."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    seguros.guardar_paciente_seguro(rut, aseguradora=data.get('aseguradora'),
+                                    datos_extra=data.get('datos_extra'))
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seguro/previsualizar', methods=['POST'])
+@rate_limit('30 per minute')
+def seguro_previsualizar():
+    """Genera el PDF rellenado (plantilla oficial si está mapeada; si no, el
+    PDF genérico propio) y lo registra en estado 'generado'. Devuelve form_id
+    + URL del PDF con token firmado para el iframe de vista previa."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    aseg_key = (data.get('aseguradora') or '').strip()
+    filas = data.get('prestaciones') or []
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT del paciente'}), 400
+    if not aseg_key:
+        return jsonify({'ok': False, 'error': 'Elige una aseguradora'}), 400
+    if not filas:
+        return jsonify({'ok': False, 'error': 'Agrega al menos una prestación'}), 400
+
+    doctor_key = (data.get('doctor') or '').strip()
+    cfg = scheduling.load_config()
+    doc_cfg = (cfg.get('doctores') or {}).get(doctor_key)
+    doctor_nombre = (f"Dr. {doc_cfg['professional_name']}"
+                     if isinstance(doc_cfg, dict) and doc_cfg.get('professional_name')
+                     else doctor_key)
+
+    valores = seguros.armar_valores({
+        'rut': rut,
+        'nombre': data.get('nombre', ''),
+        'apellido': data.get('apellido', ''),
+        'email': data.get('email', ''),
+        'telefono': data.get('telefono', ''),
+        'datos_extra': data.get('datos_extra') or {},
+        'doctor_nombre': doctor_nombre,
+    }, filas)
+    # RUT y especialidad del profesional (los piden varios formularios) viven
+    # en el indice de firmas de seguros; especialidad cae al scheduling_config.
+    doc_datos = seguros.datos_doctor(doctor_key)
+    valores['doctor_rut'] = doc_datos.get('rut', '')
+    especialidad = doc_datos.get('especialidad', '')
+    if not especialidad and isinstance(doc_cfg, dict):
+        especialidad = (doc_cfg.get('especialidad') or '').title()
+    valores['doctor_especialidad'] = especialidad
+    if doc_datos.get('nombre_visible'):
+        valores['doctor_nombre'] = doc_datos['nombre_visible']
+
+    try:
+        pdf_path = seguros.rellenar_pdf(aseg_key, valores, firma_doctor_key=doctor_key)
+    except Exception as e:
+        app.logger.error('seguro: error generando PDF: %s', e)
+        return jsonify({'ok': False, 'error': f'No se pudo generar el PDF: {e}'}), 500
+
+    form_id = seguros.crear_registro({
+        'rut': rut, 'aseguradora': aseg_key, 'doctor': doctor_key,
+        'prestaciones': filas, 'fecha_atencion': data.get('fecha_atencion', ''),
+        'id_agenda': str(data.get('id_agenda', '')), 'pdf_path': pdf_path,
+        'email': (data.get('email') or '').strip(),
+    })
+    token = seguros.generar_token_pdf(form_id)
+    return jsonify({'ok': True, 'form_id': form_id,
+                    'pdf_url': f'/api/seguro/pdf?token={token}'})
+
+
+@app.route('/api/seguro/pdf', methods=['GET'])
+@rate_limit('60 per minute')
+def seguro_pdf():
+    """Sirve el PDF generado para el iframe de vista previa. Auth por token
+    firmado en la URL (corta duración) porque un iframe no manda headers."""
+    from flask import send_file
+    info = seguros.validar_token_pdf(request.args.get('token', ''))
+    if not info:
+        return jsonify({'ok': False, 'error': 'Link inválido o vencido'}), 403
+    item = seguros.obtener_registro(info.get('form_id', ''))
+    if not item or not item.get('pdf_path') or not os.path.exists(item['pdf_path']):
+        return jsonify({'ok': False, 'error': 'PDF no encontrado'}), 404
+    return send_file(item['pdf_path'], mimetype='application/pdf',
+                     as_attachment=False, download_name='formulario-seguro.pdf')
+
+
+@app.route('/api/seguro/enviar', methods=['POST'])
+@rate_limit('30 per minute')
+def seguro_enviar():
+    """Envía el PDF generado al email del paciente (adjunto, Cc recepción) y
+    marca el registro como 'enviado'. Body: {form_id, email?} — email opcional
+    para corregir el destino sin regenerar el PDF."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    form_id = (data.get('form_id') or '').strip()
+    item = seguros.obtener_registro(form_id)
+    if not item:
+        return jsonify({'ok': False, 'error': 'Formulario no encontrado (genera la vista previa de nuevo)'}), 404
+    if not item.get('pdf_path') or not os.path.exists(item['pdf_path']):
+        return jsonify({'ok': False, 'error': 'El PDF ya no está en el servidor (genera la vista previa de nuevo)'}), 404
+
+    import pacientes as _pac
+    email_dest = (data.get('email') or item.get('email') or '').strip()
+    rec = _pac.lookup(item.get('rut', '')) or {}
+    if '@' not in email_dest:
+        email_dest = (rec.get('email') or '').strip()
+    if '@' not in email_dest:
+        return jsonify({'ok': False, 'error': 'El paciente no tiene email registrado'}), 400
+
+    aseg = seguros.obtener_aseguradora(item.get('aseguradora', '')) or {}
+    paciente = {'nombres': rec.get('nombres', ''), 'apellidos': rec.get('apellidos', ''),
+                'email': email_dest}
+    resultado = notify.enviar_formulario_seguro(
+        paciente, item['pdf_path'], aseg.get('nombre', item.get('aseguradora', '')))
+    if not resultado.get('ok'):
+        return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar el correo'}), 502
+    seguros.marcar_enviado(form_id, canal='email')
+    return jsonify({'ok': True, 'email_enmascarado': _enmascarar_email(email_dest)})
+
+
+# ── Envío 1-clic desde la boleta (botón rápido del F2) ───────────────────────
+# El F2 lee la boleta DTE del día (glosa+monto) de la web de DentiDesk con su
+# propia sesión y la manda aquí. preparar = interpretación + resumen para la
+# mini-confirmación en el panel F2; enviar = genera el PDF oficial y lo emailea.
+
+@app.route('/api/seguro/preparar-desde-boleta', methods=['POST'])
+@rate_limit('30 per minute')
+def seguro_preparar_desde_boleta():
+    """Body: {rut, glosa, monto, folio?, fecha?}. Devuelve la aseguradora del
+    paciente, las filas traducidas y el resumen para confirmar en el F2."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+
+    pref = seguros.paciente_seguro(rut) or {}
+    aseg_key = pref.get('ultima_aseguradora')
+    if not aseg_key:
+        return jsonify({'ok': False, 'sin_aseguradora': True,
+                        'error': 'El paciente no tiene aseguradora asignada. Usa "Elegir aseguradora" primero.'}), 409
+    aseg = seguros.obtener_aseguradora(aseg_key) or {}
+
+    filas, no_reconocido = seguros.filas_desde_boleta(
+        data.get('glosa', ''), data.get('monto'), aseg_key,
+        fecha=(data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y')))
+    if no_reconocido:
+        return jsonify({'ok': False,
+                        'error': 'No reconocí ninguna prestación en la glosa de la boleta. '
+                                 'Revisa los alias de glosa en el panel (pestaña Seguros) o usa la página para armarlo a mano.',
+                        'glosa': data.get('glosa', '')}), 422
+
+    total = sum(int(f.get('valor') or 0) for f in filas)
+    return jsonify({'ok': True, 'aseguradora': aseg_key,
+                    'aseguradora_nombre': aseg.get('nombre', aseg_key),
+                    'filas': filas, 'total': total,
+                    'datos_extra': pref.get('datos_extra', {})})
+
+
+@app.route('/api/seguro/enviar-desde-boleta', methods=['POST'])
+@rate_limit('20 per minute')
+def seguro_enviar_desde_boleta():
+    """Body: {rut, nombre, apellido, email, telefono, doctor, id_agenda, folio,
+    aseguradora, filas (las confirmadas en el F2), datos_extra?}. Genera el PDF
+    oficial, lo envía por email (Cc recepción) y registra el historial."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    aseg_key = (data.get('aseguradora') or '').strip()
+    filas = data.get('filas') or []
+    if not rut or not aseg_key or not filas:
+        return jsonify({'ok': False, 'error': 'Faltan rut, aseguradora o filas'}), 400
+
+    import pacientes as _pac
+    rec = _pac.lookup(rut) or {}
+    email_dest = (data.get('email') or rec.get('email') or '').strip()
+    if '@' not in email_dest:
+        return jsonify({'ok': False, 'error': 'El paciente no tiene email registrado'}), 400
+    nombre = (data.get('nombre') or rec.get('nombres', '')).strip()
+    apellido = (data.get('apellido') or rec.get('apellidos', '')).strip()
+
+    # El F2 manda el TEXTO del doctor del modal ("Dr. Octavio Del Real S."),
+    # no la key; resolver contra professional_name del scheduling_config.
+    doctor_txt = (data.get('doctor') or '').strip()
+    cfg = scheduling.load_config()
+    doctores = {k: v for k, v in (cfg.get('doctores') or {}).items() if isinstance(v, dict)}
+    doctor_key = doctor_txt if doctor_txt in doctores else ''
+    if not doctor_key:
+        txt_low = doctor_txt.lower()
+        for k, v in doctores.items():
+            pn = (v.get('professional_name') or '').lower()
+            if pn and (pn in txt_low or txt_low in pn):
+                doctor_key = k
+                break
+    doc_cfg = doctores.get(doctor_key)
+    doctor_nombre = (f"Dr. {doc_cfg['professional_name']}"
+                     if isinstance(doc_cfg, dict) and doc_cfg.get('professional_name')
+                     else (doctor_txt or doctor_key))
+    valores = seguros.armar_valores({
+        'rut': rut, 'nombre': nombre, 'apellido': apellido,
+        'email': email_dest, 'telefono': data.get('telefono', ''),
+        'datos_extra': data.get('datos_extra') or (seguros.paciente_seguro(rut) or {}).get('datos_extra', {}),
+        'doctor_nombre': doctor_nombre,
+        'fecha_atencion': data.get('fecha_atencion', ''),
+    }, filas)
+    doc_datos = seguros.datos_doctor(doctor_key)
+    valores['doctor_rut'] = doc_datos.get('rut', '')
+    valores['doctor_especialidad'] = (doc_datos.get('especialidad')
+                                      or ((doc_cfg or {}).get('especialidad', '') or '').title())
+    if doc_datos.get('nombre_visible'):
+        valores['doctor_nombre'] = doc_datos['nombre_visible']
+
+    try:
+        pdf_path = seguros.rellenar_pdf(aseg_key, valores, firma_doctor_key=doctor_key)
+    except Exception as e:
+        app.logger.error('seguro boleta: error generando PDF: %s', e)
+        return jsonify({'ok': False, 'error': f'No se pudo generar el PDF: {e}'}), 500
+
+    aseg = seguros.obtener_aseguradora(aseg_key) or {}
+    paciente = {'nombres': nombre, 'apellidos': apellido, 'email': email_dest}
+    resultado = notify.enviar_formulario_seguro(paciente, pdf_path,
+                                                aseg.get('nombre', aseg_key))
+    if not resultado.get('ok'):
+        return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar el correo'}), 502
+
+    form_id = seguros.crear_registro({
+        'rut': rut, 'aseguradora': aseg_key, 'doctor': doctor_key,
+        'prestaciones': filas, 'fecha_atencion': data.get('fecha_atencion', ''),
+        'id_agenda': str(data.get('id_agenda', '')), 'pdf_path': pdf_path,
+        'email': email_dest,
+    })
+    seguros.marcar_enviado(form_id, canal='email')
+    return jsonify({'ok': True, 'form_id': form_id,
+                    'email_enmascarado': _enmascarar_email(email_dest)})
+
+
+# ── Auto-envío: la extensión vigila las boletas nuevas y las manda aquí ──────
+# Envía SOLO si es "limpio" (aseguradora asignada + glosa reconocida + email);
+# si no, avisa a la clínica por correo y deja la boleta para el botón del F2.
+# Todo se resuelve server-side desde el RUT (la vigilancia no tiene el modal
+# abierto): email/nombre de la base local, doctor del doctor_default configurado.
+
+@app.route('/api/seguro/auto-desde-boleta', methods=['POST'])
+@rate_limit('120 per minute')
+def seguro_auto_desde_boleta():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    glosa = data.get('glosa', '')
+    folio = str(data.get('folio') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+
+    # Anti-duplicado: si esta boleta ya generó un envío, no repetir.
+    if folio and seguros.folio_ya_enviado(folio):
+        return jsonify({'ok': True, 'ya_enviado': True})
+
+    import pacientes as _pac
+    rec = _pac.lookup(rut) or {}
+    nombre_pac = f"{rec.get('nombres', '')} {rec.get('apellidos', '')}".strip() or rut
+
+    def _pendiente(motivo, http=200):
+        notify.avisar_recepcion_seguro_no_enviado(motivo, rut, glosa, folio, nombre_pac)
+        return jsonify({'ok': False, 'pendiente': True, 'motivo': motivo}), http
+
+    pref = seguros.paciente_seguro(rut) or {}
+    aseg_key = pref.get('ultima_aseguradora')
+    if not aseg_key:
+        return _pendiente('sin_aseguradora')
+
+    filas, no_reconocido = seguros.filas_desde_boleta(
+        glosa, data.get('monto'), aseg_key,
+        fecha=(data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y')))
+    if no_reconocido:
+        return _pendiente('glosa')
+
+    email_dest = (rec.get('email') or '').strip()
+    if '@' not in email_dest:
+        return _pendiente('sin_email')
+
+    cfg = scheduling.load_config()
+    doctor_key = seguros.get_auto_config().get('doctor_default', '')
+    doc_cfg = (cfg.get('doctores') or {}).get(doctor_key) if doctor_key else None
+    doctor_nombre = (f"Dr. {doc_cfg['professional_name']}"
+                     if isinstance(doc_cfg, dict) and doc_cfg.get('professional_name')
+                     else '')
+    valores = seguros.armar_valores({
+        'rut': rut, 'nombre': rec.get('nombres', ''), 'apellido': rec.get('apellidos', ''),
+        'email': email_dest, 'telefono': rec.get('telefono', ''),
+        'datos_extra': pref.get('datos_extra', {}),
+        'doctor_nombre': doctor_nombre,
+        'fecha_atencion': (data.get('fecha') or ''),
+    }, filas)
+    if doctor_key:
+        doc_datos = seguros.datos_doctor(doctor_key)
+        valores['doctor_rut'] = doc_datos.get('rut', '')
+        valores['doctor_especialidad'] = (doc_datos.get('especialidad')
+                                          or ((doc_cfg or {}).get('especialidad', '') or '').title())
+        if doc_datos.get('nombre_visible'):
+            valores['doctor_nombre'] = doc_datos['nombre_visible']
+
+    try:
+        pdf_path = seguros.rellenar_pdf(aseg_key, valores, firma_doctor_key=doctor_key or None)
+    except Exception as e:
+        app.logger.error('seguro auto: error PDF: %s', e)
+        return _pendiente('error_pdf')
+
+    aseg = seguros.obtener_aseguradora(aseg_key) or {}
+    paciente = {'nombres': rec.get('nombres', ''), 'apellidos': rec.get('apellidos', ''),
+                'email': email_dest}
+    resultado = notify.enviar_formulario_seguro(paciente, pdf_path,
+                                                aseg.get('nombre', aseg_key))
+    if not resultado.get('ok'):
+        return _pendiente('error_envio')
+
+    form_id = seguros.crear_registro({
+        'rut': rut, 'aseguradora': aseg_key, 'doctor': doctor_key,
+        'prestaciones': filas, 'fecha_atencion': data.get('fecha', ''),
+        'folio': folio, 'origen': 'auto', 'pdf_path': pdf_path, 'email': email_dest,
+    })
+    seguros.marcar_enviado(form_id, canal='email')
+    app.logger.info('seguro auto enviado: folio %s -> %s (%s)', folio, nombre_pac, aseg_key)
+    return jsonify({'ok': True, 'form_id': form_id,
+                    'email_enmascarado': _enmascarar_email(email_dest)})
+
+
+@app.route('/api/seguro/auto-config', methods=['GET', 'POST'])
+def seguro_auto_config():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'POST':
+        data = request.json or {}
+        seguros.set_auto_config(activo=data.get('activo'),
+                                doctor_default=data.get('doctor_default'))
+    return jsonify({'ok': True, **seguros.get_auto_config()})
+
+
+# ── Administración (pestaña "Seguros" del panel) ─────────────────────────────
+
+@app.route('/api/seguro/admin/aseguradoras', methods=['GET', 'POST'])
+def seguro_admin_aseguradoras():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'GET':
+        return jsonify({'ok': True, 'aseguradoras': seguros.listar_aseguradoras(solo_activas=False)})
+    data = request.json or {}
+    key = re.sub(r'[^a-z0-9_]', '', (data.get('key') or '').strip().lower().replace(' ', '_'))
+    if not key:
+        return jsonify({'ok': False, 'error': 'Falta la key de la aseguradora'}), 400
+    campos = {k: v for k, v in data.items()
+              if k in ('nombre', 'activa', 'tipo_plantilla', 'mapeo_campos',
+                       'max_prestaciones_por_form')}
+    seguros.guardar_aseguradora(key, campos)
+    return jsonify({'ok': True, 'key': key})
+
+
+@app.route('/api/seguro/admin/aseguradora/plantilla', methods=['POST'])
+def seguro_admin_plantilla():
+    """Sube el PDF oficial de una aseguradora (multipart: file + key)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    f = request.files.get('file')
+    key = re.sub(r'[^a-z0-9_]', '', (request.form.get('key') or '').strip().lower())
+    if not f or not key:
+        return jsonify({'ok': False, 'error': 'Faltan el archivo o la key'}), 400
+    if not (f.filename or '').lower().endswith('.pdf'):
+        return jsonify({'ok': False, 'error': 'La plantilla debe ser un PDF'}), 400
+    seguros.PLANTILLAS_DIR.mkdir(parents=True, exist_ok=True)
+    nombre = f'{key}.pdf'  # una plantilla por aseguradora, se reemplaza al subir otra
+    f.save(str(seguros.PLANTILLAS_DIR / nombre))
+    seguros.guardar_aseguradora(key, {'plantilla_pdf': nombre})
+    return jsonify({'ok': True, 'plantilla_pdf': nombre})
+
+
+@app.route('/api/seguro/admin/aseguradora/campos-acroform', methods=['GET'])
+def seguro_admin_campos_acroform():
+    """Lista los campos AcroForm reales del PDF subido, para armar el mapeo
+    con <select> en el panel (sin coordenadas)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    campos = seguros.campos_acroform(request.args.get('aseguradora', ''))
+    if campos is None:
+        return jsonify({'ok': False, 'error': 'Esa aseguradora no tiene plantilla subida'}), 404
+    return jsonify({'ok': True, 'campos': campos})
+
+
+@app.route('/api/seguro/admin/prestaciones', methods=['GET', 'POST'])
+def seguro_admin_prestaciones():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'GET':
+        return jsonify({'ok': True,
+                        'prestaciones': seguros.listar_prestaciones(solo_activas=False),
+                        'mapeo': seguros.mapeo_prestaciones()})
+    data = request.json or {}
+    prest_id = seguros.guardar_prestacion(data.get('id'), {
+        k: v for k, v in data.items()
+        if k in ('nombre', 'precio_arancel', 'activa', 'motivo_scheduling_key',
+                 'glosas_boleta', 'absorbe_saldo')})
+    return jsonify({'ok': True, 'id': prest_id})
+
+
+@app.route('/api/seguro/admin/prestaciones/seed-desde-motivos', methods=['POST'])
+def seguro_admin_seed():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg = scheduling.load_config()
+    creados = seguros.seed_desde_motivos(cfg)
+    return jsonify({'ok': True, 'creados': creados})
+
+
+@app.route('/api/seguro/admin/mapeo-prestaciones', methods=['POST'])
+def seguro_admin_mapeo_prestaciones():
+    """Body: {prest_id, aseguradora, items: [{codigo, descripcion}, ...]}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    if not data.get('prest_id') or not data.get('aseguradora'):
+        return jsonify({'ok': False, 'error': 'Faltan prest_id o aseguradora'}), 400
+    seguros.guardar_mapeo_prestacion(data['prest_id'], data['aseguradora'],
+                                     data.get('items') or [])
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seguro/admin/mapeo-motivos', methods=['GET', 'POST'])
+def seguro_admin_mapeo_motivos():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'GET':
+        return jsonify({'ok': True, 'mapeo': seguros.mapeo_motivos()})
+    data = request.json or {}
+    if not data.get('motivo'):
+        return jsonify({'ok': False, 'error': 'Falta el motivo'}), 400
+    seguros.guardar_mapeo_motivo(data['motivo'], data.get('prestaciones') or [])
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seguro/admin/firma', methods=['GET', 'POST'])
+def seguro_admin_firma():
+    """POST multipart: file + doctor (key) + nombre_visible. GET: lista firmas."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'GET':
+        return jsonify({'ok': True, 'firmas': seguros.listar_firmas()})
+    f = request.files.get('file')
+    doctor = re.sub(r'[^a-z0-9_]', '', (request.form.get('doctor') or '').strip().lower())
+    if not f or not doctor:
+        return jsonify({'ok': False, 'error': 'Faltan el archivo o el doctor'}), 400
+    ext = os.path.splitext(f.filename or '')[1].lower()
+    if ext not in ('.png', '.jpg', '.jpeg', '.webp'):
+        return jsonify({'ok': False, 'error': 'La firma debe ser una imagen (png/jpg/webp)'}), 400
+    seguros.FIRMAS_DIR.mkdir(parents=True, exist_ok=True)
+    nombre = f'{doctor}{ext}'
+    f.save(str(seguros.FIRMAS_DIR / nombre))
+    seguros.guardar_firma(doctor, request.form.get('nombre_visible', doctor.title()), nombre,
+                          rut=request.form.get('rut') or None,
+                          especialidad=request.form.get('especialidad') or None)
+    return jsonify({'ok': True, 'imagen': nombre})
+
+
+@app.route('/api/seguro/admin/historial', methods=['GET'])
+def seguro_admin_historial():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'items': seguros.listar_registros(
+        estado=request.args.get('estado') or None,
+        rut=request.args.get('rut') or None)})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # COMPRAS / GASTOS / STOCK  (módulo autónomo, funciona en producción — Render)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -3123,6 +3673,50 @@ def _notificar_solicitud_admins(usuario, items):
         print('[compras] no se pudo notificar solicitud:', e)
 
 
+# ── Cargos recurrentes (suscripciones) ──────────────────────────────────────────
+
+@app.route('/api/compras/suscripciones', methods=['GET'])
+def compras_suscripciones():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    return jsonify({'ok': True, 'suscripciones': _compras.listar_suscripciones(
+        solo_activas=request.args.get('activas') == '1')})
+
+@app.route('/api/compras/suscripciones', methods=['POST'])
+def compras_suscripciones_crear():
+    u, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        sid, cid = _compras.crear_suscripcion(d, u['id'])
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': sid, 'compra_id': cid})
+
+@app.route('/api/compras/suscripciones/actualizar', methods=['POST'])
+def compras_suscripciones_actualizar():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.actualizar_suscripcion(d.pop('id', None), d)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+@app.route('/api/compras/suscripciones/cortar', methods=['POST'])
+def compras_suscripciones_cortar():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    _compras.cortar_suscripcion(d.get('id'), d.get('fecha_fin'))
+    return jsonify({'ok': True})
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # REFRESCO AUTOMÁTICO DE PACIENTES (2x/día) + BARRIDO DE CONFIRMACIONES (4 ciclos)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3247,6 +3841,32 @@ def _loop_calentador():
             print('[calentador] error:', e)
         time.sleep(20 * 60)
 
+def _loop_recurrentes():
+    """Barrido diario de cargos recurrentes (compras.suscripciones): a las 09:00 hora
+    Chile revisa cuáles ya llegaron a su día de cobro este mes y genera la compra sola
+    (compras.generar_recurrentes_pendientes ya evita duplicar: una vez por mes por
+    suscripción). Independiente de DentiDesk — corre siempre que el scheduler esté
+    activo. Mismo esqueleto que _loop_confirmaciones (poll cada 60s, un disparo/día)."""
+    import time
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('America/Santiago')
+    except Exception:
+        tz = None
+    ya_corrio = None
+    while True:
+        try:
+            ahora = datetime.now(tz) if tz else datetime.now()
+            if ahora.strftime('%H:%M') == '09:00' and ya_corrio != ahora.date():
+                ya_corrio = ahora.date()
+                import compras as _c
+                gen = _c.generar_recurrentes_pendientes()
+                if gen:
+                    print('[recurrentes]', len(gen), 'cargo(s) generado(s):', gen)
+        except Exception as e:
+            print('[recurrentes] error:', e)
+        time.sleep(60)
+
 def _iniciar_scheduler():
     """Arranca el refresco de pacientes + el barrido de confirmaciones en segundo
     plano. Activo en Render (o si se define RUN_PATIENT_SYNC=true). En local no
@@ -3264,10 +3884,12 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_confirmaciones, daemon=True).start()
     threading.Thread(target=_loop_recordatorios, daemon=True).start()
     threading.Thread(target=_loop_calentador, daemon=True).start()
+    threading.Thread(target=_loop_recurrentes, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
     print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
     print('[confirmaciones] scheduler iniciado (11:00, 13:30, 17:00, 19:45)')
     print('[calentador] scheduler iniciado (disponibilidad, cada 20 min)')
+    print('[recurrentes] scheduler iniciado (barrido diario 09:00, cargos recurrentes)')
 
 _iniciar_scheduler()
 

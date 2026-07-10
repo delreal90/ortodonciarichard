@@ -114,7 +114,8 @@ function logout() {
 
 // Qué capacidad exige cada pestaña.
 const TAB_CAP = { compras: 'registrar', historial: 'compras_ver', stock: 'stock',
-  escanear: 'escanear', solicitudes: 'solicitar', reportes: 'reportes', admin: 'admin' };
+  escanear: 'escanear', solicitudes: 'solicitar', recurrentes: 'registrar',
+  reportes: 'reportes', admin: 'admin' };
 
 async function entrarApp() {
   $('#auth').classList.add('hidden');
@@ -250,6 +251,21 @@ RENDER.compras = () => {
         <label>Monto total (gasto sin productos)</label>
         <input id="cMontoDirecto" type="number" step="any" min="0" placeholder="Ej: 850000">
       </div>
+      <div id="recurBox" class="field hidden" style="margin-top:14px;padding:14px;background:var(--light-bg);border-radius:10px">
+        <label style="margin-bottom:10px">🔁 Este gasto se repite cada mes</label>
+        <div class="row c2">
+          <div class="field"><label>Nombre del cargo</label><input id="rNombre" placeholder="Ej: Google Workspace"></div>
+          <div class="field"><label>Día del mes en que se cobra</label>
+            <input id="rDiaMes" type="number" min="1" max="31" value="1"
+                   title="Si el mes no tiene ese día (ej. 31 en febrero), se cobra el último día del mes"></div>
+        </div>
+        <div class="row c2">
+          <div class="field"><label>Hasta cuándo</label>
+            <select id="rHasta"><option value="indef">Indefinido</option><option value="fecha">Hasta una fecha</option></select></div>
+          <div class="field hidden" id="rFechaFinWrap"><label>Fecha de término</label><input id="rFechaFin" type="date"></div>
+        </div>
+        <p class="muted" style="font-size:12px">Se genera solo, cada mes, hasta que lo cortes desde la pestaña 🔁 Recurrentes.</p>
+      </div>
       <div class="flex" style="margin-top:8px;border-top:2px solid var(--line);padding-top:12px">
         <div class="spacer"></div>
         <div style="font-size:13px;color:var(--text-mid)">TOTAL</div>
@@ -298,6 +314,8 @@ RENDER.compras = () => {
   $('#cTipoCambio').oninput = recalcTotal;
   $('#cDespacho').oninput = recalcTotal;
   $('#cImportacion').oninput = recalcTotal;
+  $('#cTipoGasto').onchange = () => pintarItems();
+  $('#rHasta').onchange = e => $('#rFechaFinWrap').classList.toggle('hidden', e.target.value !== 'fecha');
   pintarItems();
 };
 
@@ -315,6 +333,10 @@ function pintarItems() {
   $('#itemsEmpty').classList.toggle('hidden', hayItems);
   // el monto directo solo aplica cuando NO hay productos
   const mw = $('#montoDirectoWrap'); if (mw) mw.classList.toggle('hidden', hayItems);
+  // los campos de recurrencia (día de cobro, indefinido/hasta fecha) solo tienen
+  // sentido para un gasto sin productos marcado "recurrente" (suscripción/servicio)
+  const rb = $('#recurBox');
+  if (rb) rb.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value !== 'recurrente');
   box.innerHTML = compraItems.map((it, i) => `
     <div class="item-row">
       <div>${esc(it.producto_nombre)} <span class="muted" style="font-size:12px">(${esc(it.unidad)})</span></div>
@@ -384,6 +406,27 @@ async function guardarCompra() {
   const tipoCambio = moneda === 'USD' ? (Number($('#cTipoCambio').value) || 0) : 1;
   if (moneda === 'USD' && tipoCambio <= 0)
     return toast('Ingresa el tipo de cambio (CLP por dólar)', 'err');
+  const esRecurrente = $('#cTipoGasto').value === 'recurrente' && !compraItems.length;
+
+  if (esRecurrente) {
+    const nombre = $('#rNombre').value.trim();
+    const diaMes = Number($('#rDiaMes').value) || 0;
+    if (!nombre) return toast('Ponle un nombre al cargo recurrente', 'err');
+    if (diaMes < 1 || diaMes > 31) return toast('El día del mes debe ser entre 1 y 31', 'err');
+    const fechaFin = $('#rHasta').value === 'fecha' ? $('#rFechaFin').value : null;
+    if ($('#rHasta').value === 'fecha' && !fechaFin) return toast('Ingresa la fecha de término', 'err');
+    const body = { nombre, proveedor_id: compraProvId, categoria_id: $('#cCategoria').value || null,
+      monto: montoDirecto, moneda, tipo_cambio: tipoCambio, forma_pago: $('#cPago').value,
+      dia_mes: diaMes, fecha_inicio: $('#cFecha').value, fecha_fin: fechaFin,
+      foto_path: compraFoto, notas: $('#cNotas').value };
+    try {
+      const j = await api('/api/compras/suscripciones', { method: 'POST', body });
+      toast(j.compra_id ? `Cargo recurrente creado y cobrado este mes ✓` : `Cargo recurrente creado — se cobrará el día ${diaMes} ✓`, 'ok');
+      await recargarCaches(); refrescarPendientesBadge(); RENDER.compras();
+    } catch (e) { toast(e.message, 'err'); }
+    return;
+  }
+
   const cab = {
     fecha: $('#cFecha').value, proveedor_id: compraProvId, tipo_doc: $('#cTipoDoc').value,
     nro_doc: $('#cNroDoc').value, forma_pago: $('#cPago').value, tipo_gasto: $('#cTipoGasto').value,
@@ -485,7 +528,7 @@ async function verCompra(id) {
     const m = modal(`
       <h3>Compra #${c.id}${mon === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</h3>
       <p class="muted">${esc(c.fecha)} · ${esc(c.proveedor_nombre || 'sin proveedor')} · ${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')}</p>
-      <p class="muted" style="margin-bottom:12px">${esc(c.forma_pago || '')} · <span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span> · ${esc(c.categoria_nombre || 'sin categoría')}</p>
+      <p class="muted" style="margin-bottom:12px">${esc(c.forma_pago || '')} · <span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span> · ${esc(c.categoria_nombre || 'sin categoría')}${c.suscripcion_id ? ' · <span class="pill recurrente">🔁 generado automático</span>' : ''}</p>
       <div class="tablewrap"><table><tr><th>Producto</th><th>Marca</th><th class="num">Cant.</th><th class="num">P. unit.</th><th class="num">Subtotal</th></tr>
         ${c.items.map(i => `<tr><td>${esc(i.producto_nombre || '—')}</td><td class="muted">${esc(i.marca || '—')}</td><td class="num">${i.cantidad}</td><td class="num">${money(i.precio_unitario, mon)}</td><td class="num">${money(i.subtotal, mon)}</td></tr>`).join('')}
         ${c.items.length ? '' : `<tr><td colspan="5" class="muted">Gasto sin productos</td></tr>`}
@@ -867,6 +910,79 @@ async function enviarSolicitud() {
     toast('Solicitud enviada · se avisó a los administradores ✓', 'ok');
     solicitudItems = []; $('#solNota').value = ''; pintarSolicitudItems(); cargarPendientes(); cargarSugerencias();
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ══════════════════ TAB: CARGOS RECURRENTES ══════════════════ */
+RENDER.recurrentes = async () => {
+  const s = $('#tab-recurrentes');
+  if (!puede('registrar')) { s.innerHTML = soloLectura(); return; }
+  s.innerHTML = `
+    <div class="card">
+      <h2>🔁 Cargos recurrentes</h2>
+      <div class="sub">Se generan solos cada mes en el día que elegiste, hasta que los cortes. Para crear uno nuevo, ve a «Nueva compra», elige tipo de gasto «Recurrente» y deja los productos vacíos.</div>
+      <div class="tablewrap"><table id="recTabla"></table></div>
+    </div>`;
+  await pintarRecurrentes();
+};
+async function pintarRecurrentes() {
+  const tbl = $('#recTabla'); if (!tbl) return;
+  try {
+    const list = (await api('/api/compras/suscripciones')).suscripciones;
+    tbl.innerHTML = `<tr><th>Cargo</th><th>Proveedor</th><th class="num">Monto</th><th class="num">Día</th><th>Próximo cobro</th><th>Estado</th><th></th></tr>` +
+      (list.length ? list.map(r => `<tr>
+        <td><b>${esc(r.nombre)}</b>${r.notas ? `<div class="muted" style="font-size:11px">${esc(r.notas)}</div>` : ''}</td>
+        <td class="muted">${esc(r.proveedor_nombre || '—')}</td>
+        <td class="num">${money(r.monto, r.moneda)}</td>
+        <td class="num">${r.dia_mes}</td>
+        <td class="muted">${r.activa ? esc(r.proxima_cobranza || '—') : '—'}</td>
+        <td>${r.activa ? '<span class="pill ok">activo</span>' : '<span class="pill low">cortado</span>'}
+          ${r.fecha_fin ? `<div class="muted" style="font-size:11px">${r.activa ? 'hasta' : 'cortado'} ${esc(r.fecha_fin)}</div>` : (r.activa ? '<div class="muted" style="font-size:11px">indefinido</div>' : '')}</td>
+        <td class="right">${r.activa ? `
+          <button class="btn ghost sm" data-editar="${r.id}">Editar</button>
+          <button class="btn danger sm" data-cortar="${r.id}">Cortar</button>` : ''}</td></tr>`).join('')
+        : `<tr><td colspan="7" class="empty">No hay cargos recurrentes. Créalos desde «Nueva compra» → tipo de gasto «Recurrente».</td></tr>`);
+    tbl.querySelectorAll('[data-cortar]').forEach(b => b.onclick = () => cortarRecurrente(list.find(r => r.id == b.dataset.cortar)));
+    tbl.querySelectorAll('[data-editar]').forEach(b => b.onclick = () => editarRecurrente(list.find(r => r.id == b.dataset.editar)));
+  } catch (e) { tbl.innerHTML = `<tr><td class="empty">${esc(e.message)}</td></tr>`; }
+}
+function cortarRecurrente(r) {
+  const m = modal(`<h3>Cortar cargo recurrente</h3>
+    <p class="muted" style="margin-bottom:14px">«${esc(r.nombre)}» (${money(r.monto, r.moneda)}/mes) dejará de cobrarse. Las compras ya generadas quedan en el historial.</p>
+    <div class="field"><label>Último mes que se cobra</label>
+      <select id="ctModo"><option value="hoy">Desde ahora (no se cobra más)</option><option value="fecha">Elegir fecha de término</option></select></div>
+    <div class="field hidden" id="ctFechaWrap"><label>Fecha de término</label><input id="ctFecha" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn danger" id="ctOk">Cortar</button></div>`);
+  m.querySelector('#ctModo').onchange = e => m.querySelector('#ctFechaWrap').classList.toggle('hidden', e.target.value !== 'fecha');
+  m.querySelector('#ctOk').onclick = async () => {
+    const fechaFin = m.querySelector('#ctModo').value === 'fecha' ? m.querySelector('#ctFecha').value : null;
+    try {
+      await api('/api/compras/suscripciones/cortar', { method: 'POST', body: { id: r.id, fecha_fin: fechaFin } });
+      closeModal(); toast('Cargo recurrente cortado', 'ok'); pintarRecurrentes();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+function editarRecurrente(r) {
+  const m = modal(`<h3>Editar cargo recurrente</h3>
+    <div class="field"><label>Nombre</label><input id="erNombre" value="${esc(r.nombre)}"></div>
+    <div class="row c2">
+      <div class="field"><label>Monto (${r.moneda})</label><input id="erMonto" type="number" step="any" min="0" value="${r.monto}"></div>
+      <div class="field"><label>Día del mes</label><input id="erDia" type="number" min="1" max="31" value="${r.dia_mes}"></div>
+    </div>
+    <div class="field"><label>Notas</label><input id="erNotas" value="${esc(r.notas || '')}"></div>
+    <p class="muted" style="font-size:12px">Para cambiar moneda, proveedor o cortarlo, usa los botones de la lista.</p>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="erOk">Guardar</button></div>`);
+  m.querySelector('#erOk').onclick = async () => {
+    try {
+      await api('/api/compras/suscripciones/actualizar', { method: 'POST', body: {
+        id: r.id, nombre: m.querySelector('#erNombre').value, monto: Number(m.querySelector('#erMonto').value) || 0,
+        dia_mes: Number(m.querySelector('#erDia').value) || 1, notas: m.querySelector('#erNotas').value } });
+      closeModal(); toast('Cargo recurrente actualizado ✓', 'ok'); pintarRecurrentes();
+    } catch (e) { toast(e.message, 'err'); }
+  };
 }
 
 /* ══════════════════ TAB: REPORTES ══════════════════ */

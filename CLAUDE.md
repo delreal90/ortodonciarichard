@@ -488,6 +488,126 @@ documentos, reemplazar este flujo por subida directa.
 
 ---
 
+## Seguros Complementarios — formularios de reembolso (2026-07-09)
+
+Sistema para que la secretaria rellene y envíe por email el formulario de reembolso del
+seguro complementario del paciente, integrado al asistente F2. Aseguradoras objetivo:
+Zurich, MetLife, BUPA, Colmena, Vida Cámara, Bice Vida, Consorcio. Los PDFs fuente
+(formularios + aranceles) están en `C:\Users\ESTUDIO3D\Claude Code Playground\SEGUROS
+COMPLEMENTARIOS\` (FORMULARIOS/ y ARANCELES/; faltan aranceles de BUPA y Bice Vida).
+
+**Flujo:** botón "🛡️ Seguro complementario" en F2 (`dentidesk-assistant/content.js`,
+`abrirSeguro()`) → `window.open` a `/seguro?rut=…&nombre=…&motivo=…` (SIN token en la
+URL) → `admin/seguros_secretaria.html` (pide la clave admin una vez, la guarda en
+`localStorage['stats_token']`, mismo patrón que el panel) → precarga paciente
+(`pacientes.lookup`) + última aseguradora usada + prestaciones sugeridas por motivo →
+la secretaria ajusta filas/valores → vista previa PDF en iframe → enviar por email
+(adjunto + Cc recepción, `notify.enviar_formulario_seguro`). WhatsApp = fase futura
+(falta plantilla Meta aprobada en la WABA real).
+
+**Módulo:** `admin/seguros.py` (molde de consentimientos.py). Datos en JSON en el disco
+persistente (rutas junto a `PATIENT_INDEX_PATH`): `seguros_aseguradoras.json` (mapeo de
+campos por aseguradora), `seguros_prestaciones.json` (arancel interno), `seguros_mapeo_
+prestaciones.json` (prestación→[{codigo,descripcion}] por aseguradora, 1→N),
+`seguros_mapeo_motivos.json` (motivo→prestaciones sugeridas), `seguros_pacientes.json`
+(por RUT: última aseguradora + datos extra fecha_nacimiento/dirección),
+`seguros_firmas.json` + `seguros_firmas/` (imagen firma+timbre, rut y especialidad POR
+DOCTOR — no viven en otro lado), `seguros_registro.json` (historial generado→enviado),
+`seguros_plantillas/` (PDFs oficiales), `seguros_generados/` (PDFs rellenados).
+
+**Rellenado de PDF (`seguros.rellenar_pdf`, requiere `pypdf`):** cada aseguradora tiene
+`mapeo_campos` {campo_lógico → spec o LISTA de specs}: `{'campo': 'NombreAcroForm'}`
+(campos de formulario, pypdf `update_page_form_field_values` + NeedAppearances) o
+`{'pagina','x','y','fontsize'}` (overlay reportlab fusionado con pypdf; coordenadas PDF
+origen abajo-izquierda). `firma_doctor` SIEMPRE por coordenadas (imagen). CLAVE: el
+merge final usa `writer.append(reader)` (no add_page) para no perder el /AcroForm.
+Sin plantilla mapeada → cae a un PDF genérico propio (reportlab), el flujo nunca se
+bloquea. Campos lógicos: paciente_*(nombre, rut_fmt, email, telefono, fecha_nacimiento,
+direccion), fecha_emision/fecha_atencion, doctor_*(nombre, rut, especialidad),
+clinica_*(nombre, telefono, email, direccion), tratamiento_indicado,
+prestacion_{N}_{codigo,descripcion,fecha,valor,cantidad}, total.
+
+**Semilla versionada** `admin/seguros_seed/` (aseguradoras_seed.json + PDFs): se copia
+al disco persistente en el primer arranque (`seguros._aplicar_seed()`); después manda
+lo del disco. **Mapeadas y verificadas visualmente: Zurich (AcroForm, 130 campos — el
+formulario es de Chilena Consolidada/grupo Zurich) y Colmena (overlay por coordenadas,
+tabla de 5 filas en pág. 2).** Pendientes: MetLife y BUPA (tienen AcroForm — mapear con
+`get_fields()`), Bice Vida/Consorcio/Vida Cámara (planos → overlay, mismo método:
+renderizar con pymupdf local, buscar etiquetas con `page.search_for`, iterar).
+Los aranceles de ARANCELES/ aún NO se han volcado a `mapeo_prestaciones` (pendiente).
+
+**Endpoints** (`server.py`, bloque "SEGUROS COMPLEMENTARIOS", todos ADMIN_TOKEN salvo
+los marcados): `GET /seguro` (página), `/api/seguro/init|precarga|prestaciones`,
+`POST /api/seguro/paciente|previsualizar|enviar`, `GET /api/seguro/pdf?token=` (SIN
+header: token itsdangerous de 4h propio, porque el iframe no manda headers; secreto
+`SEGUROS_SECRET` con fallback a `CONSENT_SECRET`). Admin: `/api/seguro/admin/
+aseguradoras|aseguradora/plantilla|aseguradora/campos-acroform|prestaciones|
+prestaciones/seed-desde-motivos|mapeo-prestaciones|mapeo-motivos|firma|historial`.
+Panel: pestaña "Seguros" en panel.html (patrón remoto, mismas claves localStorage
+`stats_url`/`stats_token`).
+
+**Probar local sin producción:** lanzar `server.py` con `PATIENT_INDEX_PATH` apuntando
+a una carpeta de prueba + `DENTIDESK_ENABLED=false` (el módulo no usa DentiDesk; los
+datos llegan del F2 por query params). El envío real de email requiere SMTP_USER/PASS
+(solo Render). Para verificar PDFs visualmente: pymupdf (`fitz`) instalado local (NO va
+en requirements.txt, es solo herramienta de desarrollo).
+
+**Envío 1-clic desde la boleta (2026-07-10):** flujo principal de producción. La
+secretaria emite la boleta DTE en DentiDesk → F2 → sección colapsable "🛡️ Seguro
+complementario" → botón **"📤 Enviar formulario de <aseguradora>"** (nombre = última
+aseguradora del paciente; deshabilitado si no tiene → usar "🔁 Elegir/cambiar
+aseguradora…", que abre la página web). Al apretarlo: (1) `content.js
+buscarBoletaDelDia()` lee las boletas del mes con la SESIÓN del navegador — `POST
+/ajax/ajaxConfigIntegracionSii.php` body `accion=sii_consultar_dtes_emitidos&mes=<M>`,
+respuesta `resultado.dte_emitidos` (claves MAYÚSCULAS: DESCRIPCION, MONTO, SII_FOLIO,
+RUT, FECHA_EMISION, TIPO_DOCUMENTO, ID), paginado 15/página pero la recién emitida
+siempre viene en la 1 — filtra por RUT + fecha, excluye "Nota", toma ID más alto;
+(2) `POST /api/seguro/preparar-desde-boleta` interpreta la glosa (`seguros.
+interpretar_glosa`: alias `glosas_boleta` por prestación, sin tildes/case) y reparte
+valores (`filas_desde_boleta`: cada prestación su arancel interno; la que tenga
+`absorbe_saldo` — el control/mensualidad — vale total_boleta − resto, modelo de cobro
+del usuario); (3) el F2 muestra mini-confirmación (filas+total+email) y al confirmar
+(4) `POST /api/seguro/enviar-desde-boleta` genera el PDF oficial y lo emailea (acepta
+`doctor` como TEXTO del modal, lo resuelve contra professional_name). Los errores
+guían: sin aseguradora (409), glosa sin match (422 → configurar alias en el panel o
+usar la página). Los alias y absorbe_saldo se administran en la pestaña Seguros del
+panel (card Prestaciones). background.js ganó el mensaje genérico `SEGURO_API`.
+**Convención de glosa:** emitir las boletas DESGLOSADAS (ej. "CONTROL MENSUAL SEPT +
+RECEMENTACION BRACKET") para que el sistema detecte cada acción — decisión del usuario
+2026-07-10.
+
+**Auto-envío (vigilante de boletas, 2026-07-10):** sin que nadie toque el F2. El
+content.js corre un `setInterval` de 60s (ventana 08:50–20:00, `tickVigilante`) que lee
+los DTE del mes con la sesión del navegador y, por cada boleta NUEVA de hoy (folio no
+visto, no nota de crédito), llama `POST /api/seguro/auto-desde-boleta`. Ese endpoint
+resuelve TODO server-side desde el RUT (email/nombre de `pacientes.lookup`, doctor del
+`doctor_default` de `seguros.get_auto_config`): si es LIMPIO (aseguradora asignada +
+glosa reconocida + email válido) genera el PDF y lo envía; si no, `notify.
+avisar_recepcion_seguro_no_enviado` manda un correo a la clínica (SMTP_USER) y la boleta
+queda para el botón manual del F2. Doble anti-duplicado: folios vistos en
+`chrome.storage.local['ddAutoFolios']` (extensión) + `seguros.folio_ya_enviado(folio)`
+(backend, por registro con estado enviado). Toggle en el panel ⚙ del F2
+(`ddAutoSeguro`, OFF por defecto). Config del auto (activo + doctor_default) también por
+`GET/POST /api/seguro/auto-config`. **Requisito operativo:** un navegador con DentiDesk
+abierto y sesión iniciada (idealmente el usuario dedicado de recepción); si el PC está
+apagado no vigila (pero tampoco se emiten boletas). **Login server-side NO es viable:**
+la página de login de DentiDesk tiene reCAPTCHA (verificado 2026-07-10) — por eso la
+vigilancia vive en la extensión con sesión ya iniciada, no en Render. **Costo: nulo** —
+el sondeo pega a DentiDesk (app ya pagada, misma llamada AJAX de la página), Render solo
+se activa ante boleta nueva, interpretación determinista sin API de IA. El registro
+distingue `origen` = manual | boleta | auto.
+
+**Pendientes:** mapear MetLife/BUPA/Vida Cámara/Bice Vida/Consorcio; poblar
+`mapeo_prestaciones` desde los aranceles (análisis listo en `SEGUROS COMPLEMENTARIOS\
+ANALISIS - Desglose control mensual (...).md`); configurar alias de glosa +
+absorbe_saldo de las prestaciones reales en el panel; subir firmas reales de los
+doctores (imagen + RUT + especialidad, vía pestaña Seguros del panel); plantilla
+WhatsApp `seguro_complementario` en la WABA REAL 106738482086473; probar envío de
+email real en producción con el paciente de prueba (Alberto, RUT 17.406.985-9);
+verificar cómo viene DESCRIPCION cuando la boleta tiene varias líneas de detalle.
+
+---
+
 ## Compras / Gastos / Stock — app online multiusuario (Fases 1 y 2 COMPLETAS, 2026-07-08)
 
 Sistema para llevar el registro de compras y gastos con seguimiento de stock. App web
@@ -529,6 +649,41 @@ Pestaña **🛒 Solicitudes** (rol `solicitar`: solicitante/registro/admin). Tab
   → salen de la lista. Badge de pendientes en la pestaña (contador desde `me`/`_con_caps`).
 - Endpoints: `GET/POST /api/compras/solicitudes`, `GET .../sugerencias`, `GET .../sugerir`,
   `POST .../cancelar`.
+
+### Cargos recurrentes con generación automática mensual (2026-07-09)
+Antes, "recurrente" era solo una etiqueta de `tipo_gasto` — cada mes había que ingresar
+la compra a mano. Ahora hay una tabla **plantilla** `suscripciones` (nombre, monto,
+moneda/tipo_cambio, proveedor, categoría, forma de pago, **día del mes de cobro**,
+`fecha_inicio`, `fecha_fin` NULL=indefinido, `activa`, `ultima_generada` YYYY-MM) y un
+**barrido diario** que genera sola la `compra` del mes cuando corresponde.
+- **Crear (`crear_suscripcion`):** si al crearla el día de hoy YA alcanzó el día de
+  cobro de este mes, genera de inmediato la primera compra (no espera al barrido de
+  mañana); si no, la genera el barrido cuando llegue el día. Guarda `compras.suscripcion_id`
+  para enlazar de vuelta ("🔁 generado automático" en el detalle).
+- **Día ajustado a meses cortos (`_dia_ajustado`):** día 31 en un mes de 30/28/29 días
+  cobra el último día real de ese mes (usa `calendar.monthrange`).
+- **Barrido diario (`generar_recurrentes_pendientes`, thread `_loop_recurrentes` en
+  `server.py`, 09:00 hora Chile, independiente de si DentiDesk está habilitado):** para
+  cada suscripción `activa=1`, si `ultima_generada` != mes actual y ya llegó el día de
+  cobro (ajustado), genera la compra y marca `ultima_generada`. Anti-duplicado: nunca
+  genera dos veces el mismo mes para la misma suscripción. Si `fecha_fin` ya se pasó, se
+  auto-desactiva sin generar más.
+- **Cortar (`cortar_suscripcion` / botón en la pestaña):** pone `activa=0` y fija
+  `fecha_fin` (hoy por defecto, o una fecha elegida) — el barrido deja de generarla desde
+  ese momento. El historial de compras ya generadas NO se toca.
+- **Editar:** solo mientras está activa (`actualizar_suscripcion` rechaza editar una ya
+  cortada — evita reabrir algo que se cortó a propósito; para eso hay que crear una
+  suscripción nueva).
+- **Frontend:** en «Nueva compra», al elegir tipo de gasto **Recurrente** con productos
+  vacíos (gasto sin ítems), aparecen los campos nuevos: nombre del cargo, día del mes,
+  e Indefinido/Hasta fecha. Al guardar, llama a `POST /api/compras/suscripciones` (NO al
+  endpoint normal de compras). Nueva pestaña **🔁 Recurrentes** (cap `registrar`): lista
+  con próximo cobro calculado (`_proxima_cobranza`), botones Editar/Cortar.
+- Endpoints: `GET/POST /api/compras/suscripciones`, `POST .../actualizar`, `POST .../cortar`.
+- Verificado en vivo end-to-end: creación con cobro inmediato, listado con próxima
+  cobranza correcta, corte (desaparece el próximo cobro, queda "cortado" con fecha),
+  y en pruebas de unidad: anti-duplicado en el mismo mes, generación al pasar de mes,
+  ajuste de mes corto (31→28 feb), bloqueo de edición tras cortar, USD con tipo de cambio.
 
 ### Archivos
 ```

@@ -173,6 +173,29 @@ def init_db():
             creado      TEXT NOT NULL
         );
 
+        -- Cargos recurrentes (suscripciones): la PLANTILLA de un gasto que se repite
+        -- cada mes (Google Workspace, Render, arriendo). El barrido diario genera la
+        -- 'compra' del mes cuando llega el día de cobro. 'cortar' = activa=0, deja de
+        -- generarse pero el historial de compras ya generadas queda intacto.
+        CREATE TABLE IF NOT EXISTS suscripciones (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre           TEXT NOT NULL,
+            proveedor_id     INTEGER REFERENCES proveedores(id),
+            categoria_id     INTEGER REFERENCES categorias(id),
+            monto            REAL NOT NULL,
+            moneda           TEXT NOT NULL DEFAULT 'CLP',
+            tipo_cambio      REAL NOT NULL DEFAULT 1,
+            forma_pago       TEXT,
+            dia_mes          INTEGER NOT NULL,       -- 1-31 (se ajusta a meses cortos)
+            fecha_inicio     TEXT NOT NULL,
+            fecha_fin        TEXT,                   -- NULL = indefinido
+            activa           INTEGER NOT NULL DEFAULT 1,
+            notas            TEXT,
+            ultima_generada  TEXT,                   -- 'YYYY-MM' del último mes ya cobrado
+            usuario_id       INTEGER REFERENCES usuarios(id),
+            creado           TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS compras (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha        TEXT NOT NULL,          -- fecha de compra (YYYY-MM-DD)
@@ -190,6 +213,7 @@ def init_db():
             total_clp    REAL NOT NULL DEFAULT 0,            -- total convertido a CLP (para reportes)
             foto_path    TEXT,
             notas        TEXT,
+            suscripcion_id INTEGER REFERENCES suscripciones(id),  -- si nació de un cargo recurrente
             usuario_id   INTEGER REFERENCES usuarios(id),
             creado       TEXT NOT NULL
         );
@@ -244,6 +268,8 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS ix_pend_producto ON pendientes_compra(producto_id);
         CREATE INDEX IF NOT EXISTS ix_pend_estado   ON pendientes_compra(estado);
+        CREATE INDEX IF NOT EXISTS ix_sus_activa    ON suscripciones(activa);
+        CREATE INDEX IF NOT EXISTS ix_compras_sus   ON compras(suscripcion_id);
         CREATE INDEX IF NOT EXISTS ix_items_compra   ON compra_items(compra_id);
         CREATE INDEX IF NOT EXISTS ix_items_producto ON compra_items(producto_id);
         CREATE INDEX IF NOT EXISTS ix_mov_producto   ON movimientos_stock(producto_id);
@@ -278,6 +304,8 @@ def _migrar(con):
     # Backfill: para compras previas (CLP), el total_clp es igual al total.
     if 'total_clp' not in ccol:
         con.execute('UPDATE compras SET total_clp=total WHERE total_clp=0')
+    if 'suscripcion_id' not in ccol:
+        con.execute('ALTER TABLE compras ADD COLUMN suscripcion_id INTEGER REFERENCES suscripciones(id)')
 
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
@@ -730,12 +758,14 @@ def _total_clp(total_moneda, tipo_cambio, costo_importacion):
     return round(float(total_moneda) * float(tipo_cambio) + float(costo_importacion or 0), 2)
 
 
-def crear_compra(cab, items, usuario_id=None):
+def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
     """Registra una compra completa en UNA transacción.
     cab: dict con fecha, proveedor_id, tipo_doc, nro_doc, forma_pago, tipo_gasto,
          categoria_id, foto_path, notas, moneda, tipo_cambio, costo_despacho,
          costo_importacion, total (opcional; se recalcula de los ítems).
     items: lista de dicts {producto_id, marca, cantidad, precio_unitario}.
+    suscripcion_id: si esta compra nace de un cargo recurrente (suscripciones), enlaza
+    de vuelta para mostrar "generado automáticamente de X" en el detalle.
     Cada ítem suma stock del producto (movimiento 'entrada')."""
     fecha = _norm(cab.get('fecha')) or _hoy_cl()
     tipo_gasto = cab.get('tipo_gasto') if cab.get('tipo_gasto') in TIPOS_GASTO else 'variable'
@@ -758,12 +788,12 @@ def crear_compra(cab, items, usuario_id=None):
             cur = con.execute(
                 'INSERT INTO compras(fecha,proveedor_id,tipo_doc,nro_doc,forma_pago,'
                 'tipo_gasto,categoria_id,moneda,tipo_cambio,costo_despacho,costo_importacion,'
-                'total,total_clp,foto_path,notas,usuario_id,creado) '
-                'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                'total,total_clp,foto_path,notas,suscripcion_id,usuario_id,creado) '
+                'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (fecha, cab.get('proveedor_id'), cab.get('tipo_doc'), _norm(cab.get('nro_doc')),
                  cab.get('forma_pago'), tipo_gasto, cab.get('categoria_id'), moneda, tc,
                  despacho, importacion, total, total_clp,
-                 cab.get('foto_path'), _norm(cab.get('notas')), usuario_id, ahora))
+                 cab.get('foto_path'), _norm(cab.get('notas')), suscripcion_id, usuario_id, ahora))
             con.commit()
             return cur.lastrowid
         finally:
@@ -790,12 +820,12 @@ def crear_compra(cab, items, usuario_id=None):
         cur = con.execute(
             'INSERT INTO compras(fecha,proveedor_id,tipo_doc,nro_doc,forma_pago,'
             'tipo_gasto,categoria_id,moneda,tipo_cambio,costo_despacho,costo_importacion,'
-            'total,total_clp,foto_path,notas,usuario_id,creado) '
-            'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            'total,total_clp,foto_path,notas,suscripcion_id,usuario_id,creado) '
+            'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             (fecha, cab.get('proveedor_id'), cab.get('tipo_doc'), _norm(cab.get('nro_doc')),
              cab.get('forma_pago'), tipo_gasto, cab.get('categoria_id'), moneda, tc,
              despacho, importacion, total, total_clp,
-             cab.get('foto_path'), _norm(cab.get('notas')), usuario_id, ahora))
+             cab.get('foto_path'), _norm(cab.get('notas')), suscripcion_id, usuario_id, ahora))
         compra_id = cur.lastrowid
         for pid, marca, cant, precio, sub in norm_items:
             con.execute(
@@ -820,6 +850,198 @@ def crear_compra(cab, items, usuario_id=None):
         raise
     finally:
         con.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CARGOS RECURRENTES (suscripciones): se cargan solos mes a mes hasta que se cortan
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _dia_ajustado(anio, mes, dia):
+    """Si el día pedido no existe en ese mes (31 en abril, etc.), usa el último día
+    real del mes. Así una suscripción del día 31 cobra el 30 en los meses cortos."""
+    import calendar
+    return min(int(dia), calendar.monthrange(anio, mes)[1])
+
+
+def _marcar_generada(sub_id, mes_iso):
+    con = _conn()
+    try:
+        con.execute('UPDATE suscripciones SET ultima_generada=? WHERE id=?', (mes_iso, sub_id))
+        con.commit()
+    finally:
+        con.close()
+
+
+def _proxima_cobranza(sub, hoy):
+    """Próxima fecha en que se generará el cargo (o None si ya no corresponde por
+    fecha_fin). No mira si YA se generó este mes; el llamador decide qué mostrar."""
+    dia_obj = _dia_ajustado(hoy.year, hoy.month, sub['dia_mes'])
+    mes_actual = hoy.strftime('%Y-%m')
+    if sub.get('ultima_generada') == mes_actual or hoy.day >= dia_obj:
+        anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
+        cand = date(anio, mes, _dia_ajustado(anio, mes, sub['dia_mes']))
+    else:
+        cand = date(hoy.year, hoy.month, dia_obj)
+    if sub.get('fecha_fin') and cand.isoformat() > sub['fecha_fin']:
+        return None
+    return cand.isoformat()
+
+
+def crear_suscripcion(datos, usuario_id=None):
+    """Crea un cargo recurrente. Si hoy ya alcanzó (o pasó) el día de cobro del mes
+    actual, genera de una vez la compra de ESTE mes (para no esperar al barrido de
+    mañana); si no, el barrido diario la generará cuando llegue el día.
+    datos: nombre, proveedor_id, categoria_id, monto, moneda, tipo_cambio, forma_pago,
+           dia_mes (1-31), fecha_inicio, fecha_fin (None/'' = indefinido), notas.
+    Devuelve (suscripcion_id, compra_id_generada_o_None)."""
+    nombre = _norm(datos.get('nombre'))
+    if not nombre:
+        raise ValueError('Falta el nombre del cargo recurrente')
+    dia_mes = int(datos.get('dia_mes') or 0)
+    if not (1 <= dia_mes <= 31):
+        raise ValueError('El día del mes debe estar entre 1 y 31')
+    monto = round(float(datos.get('monto') or 0), 2)
+    if monto <= 0:
+        raise ValueError('Falta el monto del cargo')
+    moneda, tc = _moneda_de(datos)
+    fecha_inicio = _norm(datos.get('fecha_inicio')) or _hoy_cl()
+    fecha_fin = _norm(datos.get('fecha_fin')) or None
+    if fecha_fin and fecha_fin < fecha_inicio:
+        raise ValueError('La fecha de término no puede ser anterior al inicio')
+    ahora = ahora_cl().isoformat(timespec='seconds')
+    con = _conn()
+    try:
+        cur = con.execute(
+            'INSERT INTO suscripciones(nombre,proveedor_id,categoria_id,monto,moneda,'
+            'tipo_cambio,forma_pago,dia_mes,fecha_inicio,fecha_fin,activa,notas,'
+            'ultima_generada,usuario_id,creado) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,NULL,?,?)',
+            (nombre, datos.get('proveedor_id'), datos.get('categoria_id'), monto, moneda, tc,
+             datos.get('forma_pago'), dia_mes, fecha_inicio, fecha_fin,
+             _norm(datos.get('notas')), usuario_id, ahora))
+        sub_id = cur.lastrowid
+        con.commit()
+    finally:
+        con.close()
+
+    compra_id = None
+    hoy = ahora_cl().date()
+    dia_obj = _dia_ajustado(hoy.year, hoy.month, dia_mes)
+    ya_llego = (hoy.day >= dia_obj and hoy.isoformat() >= fecha_inicio
+                and (not fecha_fin or hoy.isoformat() <= fecha_fin))
+    if ya_llego:
+        compra_id = crear_compra({
+            'fecha': hoy.isoformat(), 'proveedor_id': datos.get('proveedor_id'),
+            'tipo_doc': 'otro', 'forma_pago': datos.get('forma_pago'),
+            'tipo_gasto': 'recurrente', 'categoria_id': datos.get('categoria_id'),
+            'moneda': moneda, 'tipo_cambio': tc, 'foto_path': datos.get('foto_path'),
+            'notas': f'{nombre} (cargo recurrente)', 'total': monto,
+        }, [], usuario_id, suscripcion_id=sub_id)
+        _marcar_generada(sub_id, hoy.strftime('%Y-%m'))
+    return sub_id, compra_id
+
+
+def listar_suscripciones(solo_activas=False):
+    con = _conn()
+    try:
+        q = ('SELECT s.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre '
+             'FROM suscripciones s LEFT JOIN proveedores pr ON pr.id=s.proveedor_id '
+             'LEFT JOIN categorias cat ON cat.id=s.categoria_id')
+        if solo_activas:
+            q += ' WHERE s.activa=1'
+        q += ' ORDER BY s.activa DESC, s.nombre'
+        rows = _rows(con.execute(q))
+    finally:
+        con.close()
+    hoy = ahora_cl().date()
+    for r in rows:
+        r['proxima_cobranza'] = _proxima_cobranza(r, hoy) if r['activa'] else None
+    return rows
+
+
+def actualizar_suscripcion(sub_id, campos):
+    """Edita una suscripción activa (monto, día de cobro, proveedor, categoría, forma
+    de pago, notas, o acortar la fecha_fin). NO reabre una ya cortada — usar
+    crear_suscripcion de nuevo para eso (evita reactivar algo que se cortó a propósito)."""
+    permit = {'nombre', 'proveedor_id', 'categoria_id', 'monto', 'forma_pago', 'dia_mes',
+              'fecha_fin', 'notas'}
+    campos = {k: v for k, v in (campos or {}).items() if k in permit}
+    if 'dia_mes' in campos:
+        campos['dia_mes'] = int(campos['dia_mes'])
+        if not (1 <= campos['dia_mes'] <= 31):
+            raise ValueError('El día del mes debe estar entre 1 y 31')
+    if 'monto' in campos:
+        campos['monto'] = round(float(campos['monto']), 2)
+        if campos['monto'] <= 0:
+            raise ValueError('Monto inválido')
+    if 'nombre' in campos:
+        campos['nombre'] = _norm(campos['nombre'])
+    if not campos:
+        return
+    con = _conn()
+    try:
+        actual = con.execute('SELECT activa FROM suscripciones WHERE id=?', (sub_id,)).fetchone()
+        if not actual:
+            raise ValueError('Cargo recurrente no encontrado')
+        if not actual['activa']:
+            raise ValueError('Este cargo ya está cortado; no se puede editar')
+        sets = ','.join(f'{k}=?' for k in campos)
+        con.execute(f'UPDATE suscripciones SET {sets} WHERE id=?', [*campos.values(), sub_id])
+        con.commit()
+    finally:
+        con.close()
+
+
+def cortar_suscripcion(sub_id, fecha_fin=None):
+    """Corta la recurrencia: desde ahora el barrido diario ya no la genera más. El
+    historial de compras ya generadas por este cargo se conserva intacto."""
+    fin = _norm(fecha_fin) or _hoy_cl()
+    con = _conn()
+    try:
+        con.execute('UPDATE suscripciones SET activa=0, fecha_fin=? WHERE id=?', (fin, sub_id))
+        con.commit()
+    finally:
+        con.close()
+
+
+def generar_recurrentes_pendientes(usuario_id=None):
+    """Barrido diario: para cada suscripción activa que ya llegó a su día de cobro
+    (ajustado a meses cortos) y no se ha generado este mes, crea la compra del mes.
+    Si una suscripción ya pasó su fecha_fin, se auto-desactiva sin generar más.
+    Devuelve la lista de lo generado (para logging)."""
+    hoy = ahora_cl().date()
+    mes_actual = hoy.strftime('%Y-%m')
+    con = _conn()
+    try:
+        subs = _rows(con.execute('SELECT * FROM suscripciones WHERE activa=1'))
+    finally:
+        con.close()
+    generadas = []
+    for s in subs:
+        if s.get('ultima_generada') == mes_actual:
+            continue
+        if s.get('fecha_fin') and hoy.isoformat() > s['fecha_fin']:
+            con2 = _conn()
+            try:
+                con2.execute('UPDATE suscripciones SET activa=0 WHERE id=?', (s['id'],))
+                con2.commit()
+            finally:
+                con2.close()
+            continue
+        if s.get('fecha_inicio') and hoy.isoformat() < s['fecha_inicio']:
+            continue
+        dia_obj = _dia_ajustado(hoy.year, hoy.month, s['dia_mes'])
+        if hoy.day < dia_obj:
+            continue
+        compra_id = crear_compra({
+            'fecha': hoy.isoformat(), 'proveedor_id': s['proveedor_id'], 'tipo_doc': 'otro',
+            'forma_pago': s['forma_pago'], 'tipo_gasto': 'recurrente',
+            'categoria_id': s['categoria_id'], 'moneda': s['moneda'], 'tipo_cambio': s['tipo_cambio'],
+            'notas': f"{s['nombre']} (cargo recurrente automático)", 'total': s['monto'],
+        }, [], usuario_id or s.get('usuario_id'), suscripcion_id=s['id'])
+        _marcar_generada(s['id'], mes_actual)
+        generadas.append({'suscripcion_id': s['id'], 'nombre': s['nombre'], 'compra_id': compra_id,
+                          'monto': s['monto'], 'moneda': s['moneda']})
+    return generadas
 
 
 def actualizar_compra(compra_id, campos):

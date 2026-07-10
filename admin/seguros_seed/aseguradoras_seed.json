@@ -1,0 +1,353 @@
+{
+  "zurich": {
+    "nombre": "Zurich",
+    "activa": true,
+    "mapeo_campos": {
+      "paciente_nombre_completo": [
+        {
+          "campo": "Nombre del pacienteRow1"
+        },
+        {
+          "campo": "Nombre PacienteRow1"
+        }
+      ],
+      "paciente_rut_fmt": {
+        "campo": "Rut PacienteRow1"
+      },
+      "paciente_telefono": {
+        "campo": "Fono ContactoRow1"
+      },
+      "paciente_email": {
+        "campo": "Email de ContactoRow1"
+      },
+      "doctor_nombre": {
+        "campo": "Nombre del profesionalRow1"
+      },
+      "doctor_rut": {
+        "campo": "Rut del profesionalRow1"
+      },
+      "doctor_especialidad": {
+        "campo": "EspecialidadRow1"
+      },
+      "total": {
+        "campo": "Total Presupuesto"
+      },
+      "firma_doctor": {
+        "pagina": 1,
+        "x": 432,
+        "y": 478,
+        "ancho": 130,
+        "alto": 55
+      },
+      "prestacion_1_descripcion": {
+        "campo": "PrestaciónRow1"
+      },
+      "prestacion_1_fecha": {
+        "campo": "Fecha AtenciónRow1"
+      },
+      "prestacion_1_valor": [
+        {
+          "campo": "Valor UnitarioRow1"
+        },
+        {
+          "campo": "TotalRow1"
+        }
+      ],
+      "prestacion_2_descripcion": {
+        "campo": "PrestaciónRow2"
+      },
+      "prestacion_2_fecha": {
+        "campo": "Fecha AtenciónRow2"
+      },
+      "prestacion_2_valor": [
+        {
+          "campo": "Valor UnitarioRow2"
+        },
+        {
+          "campo": "TotalRow2"
+        }
+      ],
+      "prestacion_3_descripcion": {
+        "campo": "PrestaciónRow3"
+      },
+      "prestacion_3_fecha": {
+        "campo": "Fecha AtenciónRow3"
+      },
+      "prestacion_3_valor": [
+        {
+          "campo": "Valor UnitarioRow3"
+        },
+        {
+          "campo": "TotalRow3"
+        }
+      ],
+      "prestacion_4_descripcion": {
+        "campo": "PrestaciónRow4"
+      },
+      "prestacion_4_fecha": {
+        "campo": "Fecha AtenciónRow4"
+      },
+      "prestacion_4_valor": [
+        {
+          "campo": "Valor UnitarioRow4"
+        },
+        {
+          "campo": "TotalRow4"
+        }
+      ],
+      "prestacion_5_descripcion": {
+        "campo": "PrestaciónRow5"
+      },
+      "prestacion_5_fecha": {
+        "campo": "Fecha AtenciónRow5"
+      },
+      "prestacion_5_valor": [
+        {
+          "campo": "Valor UnitarioRow5"
+        },
+        {
+          "campo": "TotalRow5"
+        }
+      ]
+    },
+    "max_prestaciones_por_form": 5,
+    "plantilla_pdf": "zurich.pdf",
+    "tipo_plantilla": "acroform"
+  },
+  "colmena": {
+    "nombre": "Colmena",
+    "plantilla_pdf": "colmena.pdf",
+    "tipo_plantilla": "overlay",
+    "mapeo_campos": {
+      "paciente_nombre_completo": {
+        "pagina": 1,
+        "x": 70,
+        "y": 520,
+        "fontsize": 10
+      },
+      "fecha_emision": {
+        "pagina": 1,
+        "x": 448,
+        "y": 520,
+        "fontsize": 10
+      },
+      "paciente_email": {
+        "pagina": 1,
+        "x": 68,
+        "y": 562,
+        "fontsize": 10
+      },
+      "tratamiento_indicado": {
+        "pagina": 1,
+        "x": 72,
+        "y": 276,
+        "fontsize": 10
+      },
+      "fecha_atencion": {
+        "pagina": 1,
+        "x": 210,
+        "y": 246,
+        "fontsize": 10
+      },
+      "doctor_nombre": {
+        "pagina": 1,
+        "x": 75,
+        "y": 200,
+        "fontsize": 10
+      },
+      "doctor_rut": {
+        "pagina": 1,
+        "x": 80,
+        "y": 158,
+        "fontsize": 10
+      },
+      "clinica_telefono": {
+        "pagina": 1,
+        "x": 298,
+        "y": 158,
+        "fontsize": 10
+      },
+      "clinica_email": {
+        "pagina": 1,
+        "x": 78,
+        "y": 128,
+        "fontsize": 10
+      },
+      "firma_doctor": {
+        "pagina": 1,
+        "x": 445,
+        "y": 150,
+        "ancho": 120,
+        "alto": 60
+      },
+      "total": {
+        "pagina": 2,
+        "x": 470,
+        "y": 516,
+        "fontsize": 10
+      },
+      "prestacion_1_fecha": {
+        "pagina": 2,
+        "x": 63,
+        "y": 625,
+        "fontsize": 8
+      },
+      "prestacion_1_cantidad": {
+        "pagina": 2,
+        "x": 160,
+        "y": 625,
+        "fontsize": 8
+      },
+      "prestacion_1_descripcion": {
+        "pagina": 2,
+        "x": 212,
+        "y": 625,
+        "fontsize": 8
+      },
+      "prestacion_1_valor": [
+        {
+          "pagina": 2,
+          "x": 432,
+          "y": 625,
+          "fontsize": 8
+        },
+        {
+          "pagina": 2,
+          "x": 505,
+          "y": 625,
+          "fontsize": 8
+        }
+      ],
+      "prestacion_2_fecha": {
+        "pagina": 2,
+        "x": 63,
+        "y": 603,
+        "fontsize": 8
+      },
+      "prestacion_2_cantidad": {
+        "pagina": 2,
+        "x": 160,
+        "y": 603,
+        "fontsize": 8
+      },
+      "prestacion_2_descripcion": {
+        "pagina": 2,
+        "x": 212,
+        "y": 603,
+        "fontsize": 8
+      },
+      "prestacion_2_valor": [
+        {
+          "pagina": 2,
+          "x": 432,
+          "y": 603,
+          "fontsize": 8
+        },
+        {
+          "pagina": 2,
+          "x": 505,
+          "y": 603,
+          "fontsize": 8
+        }
+      ],
+      "prestacion_3_fecha": {
+        "pagina": 2,
+        "x": 63,
+        "y": 581,
+        "fontsize": 8
+      },
+      "prestacion_3_cantidad": {
+        "pagina": 2,
+        "x": 160,
+        "y": 581,
+        "fontsize": 8
+      },
+      "prestacion_3_descripcion": {
+        "pagina": 2,
+        "x": 212,
+        "y": 581,
+        "fontsize": 8
+      },
+      "prestacion_3_valor": [
+        {
+          "pagina": 2,
+          "x": 432,
+          "y": 581,
+          "fontsize": 8
+        },
+        {
+          "pagina": 2,
+          "x": 505,
+          "y": 581,
+          "fontsize": 8
+        }
+      ],
+      "prestacion_4_fecha": {
+        "pagina": 2,
+        "x": 63,
+        "y": 559,
+        "fontsize": 8
+      },
+      "prestacion_4_cantidad": {
+        "pagina": 2,
+        "x": 160,
+        "y": 559,
+        "fontsize": 8
+      },
+      "prestacion_4_descripcion": {
+        "pagina": 2,
+        "x": 212,
+        "y": 559,
+        "fontsize": 8
+      },
+      "prestacion_4_valor": [
+        {
+          "pagina": 2,
+          "x": 432,
+          "y": 559,
+          "fontsize": 8
+        },
+        {
+          "pagina": 2,
+          "x": 505,
+          "y": 559,
+          "fontsize": 8
+        }
+      ],
+      "prestacion_5_fecha": {
+        "pagina": 2,
+        "x": 63,
+        "y": 537,
+        "fontsize": 8
+      },
+      "prestacion_5_cantidad": {
+        "pagina": 2,
+        "x": 160,
+        "y": 537,
+        "fontsize": 8
+      },
+      "prestacion_5_descripcion": {
+        "pagina": 2,
+        "x": 212,
+        "y": 537,
+        "fontsize": 8
+      },
+      "prestacion_5_valor": [
+        {
+          "pagina": 2,
+          "x": 432,
+          "y": 537,
+          "fontsize": 8
+        },
+        {
+          "pagina": 2,
+          "x": 505,
+          "y": 537,
+          "fontsize": 8
+        }
+      ]
+    },
+    "max_prestaciones_por_form": 5,
+    "activa": true
+  }
+}
