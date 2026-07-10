@@ -303,6 +303,31 @@ def _enviar_email_recepcion(asunto, html):
         return False
 
 
+def enviar_reporte_evoluciones(asunto, html):
+    """Reporte diario de revision de evoluciones (sistema local de las 6:15).
+    Destinatario fijo por env var (no es un relay abierto): el endpoint que llama
+    esto no acepta 'para' del cliente."""
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    destino = os.getenv('REPORTE_EVOLUCIONES_EMAIL', 'alberto@delreal.cl').strip()
+    if not smtp_user or not smtp_pass:
+        return False
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Revisión de Evoluciones <{smtp_user}>'
+    msg['To'] = destino
+    msg['Subject'] = asunto
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destino], msg.as_bytes())
+        return True
+    except Exception as e:
+        log.error('SMTP reporte evoluciones error: %s', e)
+        return False
+
+
 def avisar_recepcion_anulacion(id_agenda, telefono, nombre=''):
     """El paciente anulo su hora tocando el boton -- avisar de inmediato para
     que recepcion lo vea (DentiDesk ya quedo actualizado por separado)."""

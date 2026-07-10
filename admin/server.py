@@ -2069,6 +2069,27 @@ def _enmascarar_email(email):
     return mask(local, 2) + '@' + dom_masked
 
 
+@app.route('/api/reporte/evoluciones', methods=['POST'])
+def reporte_evoluciones():
+    """Recibe el reporte diario de revision de evoluciones (generado por el
+    sistema local de las 6:15) y lo envia por email al destinatario fijo
+    (env REPORTE_EVOLUCIONES_EMAIL, default alberto@delreal.cl).
+
+    Body JSON: { "asunto": "...", "html": "..." }
+    El destinatario NO viene en el body (no es un relay abierto).
+    Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    asunto = (data.get('asunto') or '').strip()
+    html = (data.get('html') or '').strip()
+    if not asunto or not html:
+        return jsonify({'ok': False, 'error': 'Faltan asunto o html'}), 400
+    if notify.enviar_reporte_evoluciones(asunto, html):
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': 'SMTP no configurado o fallo el envio'}), 502
+
+
 @app.route('/api/asistente/confirmar-cita', methods=['POST'])
 def asistente_confirmar_cita():
     """
