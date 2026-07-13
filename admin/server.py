@@ -2090,6 +2090,51 @@ def reporte_evoluciones():
     return jsonify({'ok': False, 'error': 'SMTP no configurado o fallo el envio'}), 502
 
 
+@app.route('/api/reporte/evoluciones-rodrigo', methods=['POST'])
+def reporte_evoluciones_rodrigo():
+    """Recibe el reporte diario de fichas SIN evolucion escrita del Dr. Rodrigo
+    Oyonarte y lo envia por email al destinatario fijo (env
+    REPORTE_EVOLUCIONES_RODRIGO_EMAIL, default royonarte@miuandes.cl). Solo
+    lista de fichas faltantes, sin seccion de oportunidades de contacto.
+
+    Body JSON: { "asunto": "...", "html": "..." }
+    El destinatario NO viene en el body (no es un relay abierto).
+    Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    asunto = (data.get('asunto') or '').strip()
+    html = (data.get('html') or '').strip()
+    if not asunto or not html:
+        return jsonify({'ok': False, 'error': 'Faltan asunto o html'}), 400
+    if notify.enviar_reporte_evoluciones_rodrigo(asunto, html):
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': 'SMTP no configurado o fallo el envio'}), 502
+
+
+@app.route('/api/reporte/alineadores', methods=['POST'])
+def reporte_alineadores():
+    """Recibe el reporte de pacientes con alineadores (Digitrack/Invisalign) con
+    9+ meses de tratamiento agendados para el dia siguiente, y lo envia por email
+    al destinatario fijo (env REPORTE_ALINEADORES_EMAIL, default
+    recepcion@ortodonciarichard.cl). Aviso anticipado de la politica de cuota
+    mensual tras 12 meses de tratamiento.
+
+    Body JSON: { "asunto": "...", "html": "..." }
+    El destinatario NO viene en el body (no es un relay abierto).
+    Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    asunto = (data.get('asunto') or '').strip()
+    html = (data.get('html') or '').strip()
+    if not asunto or not html:
+        return jsonify({'ok': False, 'error': 'Faltan asunto o html'}), 400
+    if notify.enviar_reporte_alineadores(asunto, html):
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': 'SMTP no configurado o fallo el envio'}), 502
+
+
 @app.route('/api/asistente/confirmar-cita', methods=['POST'])
 def asistente_confirmar_cita():
     """

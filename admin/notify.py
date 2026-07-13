@@ -328,6 +328,58 @@ def enviar_reporte_evoluciones(asunto, html):
         return False
 
 
+def enviar_reporte_evoluciones_rodrigo(asunto, html):
+    """Reporte diario de fichas SIN evolucion escrita del Dr. Rodrigo Oyonarte
+    (mismo sistema que enviar_reporte_evoluciones, sin la seccion de
+    oportunidades). Destinatario fijo por env var (no es un relay abierto):
+    el endpoint que llama esto no acepta 'para' del cliente."""
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    destino = os.getenv('REPORTE_EVOLUCIONES_RODRIGO_EMAIL', 'royonarte@miuandes.cl').strip()
+    if not smtp_user or not smtp_pass:
+        return False
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Revisión de Evoluciones <{smtp_user}>'
+    msg['To'] = destino
+    msg['Subject'] = asunto
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destino], msg.as_bytes())
+        return True
+    except Exception as e:
+        log.error('SMTP reporte evoluciones Rodrigo error: %s', e)
+        return False
+
+
+def enviar_reporte_alineadores(asunto, html):
+    """Reporte de pacientes con alineadores (Digitrack/Invisalign) con 9+ meses
+    de tratamiento agendados para el dia siguiente (aviso anticipado de la
+    politica de cuota mensual tras 12 meses). Destinatario fijo por env var (no
+    es un relay abierto): el endpoint que llama esto no acepta 'para' del cliente."""
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    destino = os.getenv('REPORTE_ALINEADORES_EMAIL', 'recepcion@ortodonciarichard.cl').strip()
+    if not smtp_user or not smtp_pass:
+        return False
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Aviso Alineadores <{smtp_user}>'
+    msg['To'] = destino
+    msg['Subject'] = asunto
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destino], msg.as_bytes())
+        return True
+    except Exception as e:
+        log.error('SMTP reporte alineadores error: %s', e)
+        return False
+
+
 def avisar_recepcion_anulacion(id_agenda, telefono, nombre=''):
     """El paciente anulo su hora tocando el boton -- avisar de inmediato para
     que recepcion lo vea (DentiDesk ya quedo actualizado por separado)."""
