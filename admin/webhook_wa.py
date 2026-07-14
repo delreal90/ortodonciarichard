@@ -30,6 +30,7 @@ Meta Business Suite, no los procesa este bot.
 """
 
 import logging
+from datetime import datetime
 
 import dentidesk
 import notify
@@ -55,16 +56,24 @@ def procesar_evento(payload, cfg):
     for entry in payload.get('entry', []) or []:
         for change in entry.get('changes', []) or []:
             valor = change.get('value', {}) or {}
+            # Nombre de perfil de WhatsApp por wa_id -- fallback para el email de
+            # anulacion cuando no se puede resolver el nombre desde DentiDesk.
+            contactos = {}
+            for contacto in valor.get('contacts', []) or []:
+                wa_id = contacto.get('wa_id')
+                nombre_perfil = (contacto.get('profile') or {}).get('name')
+                if wa_id and nombre_perfil:
+                    contactos[wa_id] = nombre_perfil
             for msg in valor.get('messages', []) or []:
                 try:
-                    if _procesar_mensaje(msg, cfg):
+                    if _procesar_mensaje(msg, cfg, contactos):
                         procesados += 1
                 except Exception as e:
                     log.error('Error procesando mensaje de webhook: %s', e)
     return {'ok': True, 'procesados': procesados}
 
 
-def _procesar_mensaje(msg, cfg):
+def _procesar_mensaje(msg, cfg, contactos=None):
     if msg.get('type') != 'button':
         return False  # texto libre / estados de entrega: no los maneja el bot
 
@@ -84,10 +93,12 @@ def _procesar_mensaje(msg, cfg):
         log.warning('Boton sin id_agenda en el payload: %r', crudo)
         return False
 
+    perfil_nombre = (contactos or {}).get(telefono, '')
+
     if texto == ACCION_CONFIRMAR:
         _confirmar(id_agenda, tipo, telefono, cfg)
     elif texto == ACCION_ANULAR:
-        _anular(id_agenda, telefono, cfg)
+        _anular(id_agenda, telefono, cfg, fecha, perfil_nombre)
     elif texto == ACCION_REAGENDAR:
         _reagendar(id_agenda, telefono, cfg, fecha)
     else:
@@ -114,14 +125,27 @@ def _confirmar(id_agenda, tipo, telefono, cfg):
     notify.enviar_texto_libre(telefono, '¡Gracias! Su asistencia quedó confirmada. Le esperamos.')
 
 
-def _anular(id_agenda, telefono, cfg):
+def _anular(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
     id_status = cfg['dentidesk'].get('id_status_cancelado')
     if id_status:
         _actualizar_dentidesk(id_agenda, id_status, cfg, 'anular')
     else:
         log.warning('id_status_cancelado no configurado -- no se actualiza DentiDesk (cita %s)', id_agenda)
+    # Nombre del paciente: DentiDesk (autoritativo, necesita fecha) y si no,
+    # el nombre de perfil de WhatsApp del propio evento (fallback botones viejos).
+    nombre = ''
+    if fecha:
+        try:
+            f = datetime.strptime(fecha, '%Y-%m-%d').date()
+            c = dentidesk.info_cita(cfg, id_agenda, f)
+            if c:
+                nombre = (c.get('PatientName') or '').strip()
+        except Exception as e:
+            log.warning('No se pudo obtener el nombre de la cita %s: %s', id_agenda, e)
+    if not nombre:
+        nombre = (perfil_nombre or '').strip()
     notify.enviar_texto_libre(telefono, 'Su hora quedó anulada. Si desea reagendar, puede escribirnos por este mismo medio.')
-    notify.avisar_recepcion_anulacion(id_agenda, telefono)
+    notify.avisar_recepcion_anulacion(id_agenda, telefono, nombre)
 
 
 def _reagendar(id_agenda, telefono, cfg, fecha=''):
