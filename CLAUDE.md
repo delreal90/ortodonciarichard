@@ -894,6 +894,14 @@ bases ya creadas sin perder datos (ALTER TABLE si falta la columna). Ya migradas
 `productos.marca`, `compra_items.marca`, y en `compras`: `moneda, tipo_cambio,
 costo_despacho, costo_importacion, total_clp` (con backfill `total_clp=total` para filas
 CLP viejas). Si se agregan columnas futuras, sumarlas a `_migrar()`.
+⚠️ **Orden dentro de `init_db()`: tablas → `_migrar(con)` → índices.** Los `CREATE INDEX`
+viven en un `executescript` SEPARADO que corre DESPUÉS de las migraciones, porque un índice
+sobre una columna que todavía no existe aborta el `executescript` entero y `_migrar` nunca
+llega a correr — la base queda a medio migrar. El síntoma es traicionero: **en una base
+NUEVA no se manifiesta** (la columna nace en el CREATE TABLE), solo revienta en las
+preexistentes. Pasó de verdad con `ix_compras_sus` sobre `compras.suscripcion_id`
+(`[compras] init_db error: no such column: suscripcion_id`, arreglado 2026-07-21). Si se
+agrega un índice sobre una columna nueva, va en ese segundo bloque.
 
 ### Marca por compra, moneda/USD, despacho e importación (2026-07-09)
 - **Marca variable, mismo producto:** un producto (ej. "Guantes M") es ÚNICO (stock e
