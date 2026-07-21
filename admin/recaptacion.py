@@ -31,6 +31,10 @@ _LOCK = threading.Lock()
 
 _DEFAULT_CONFIG = {
     'dias_minimos_reenvio': 90,
+    # Hora (Chile) a la que el scheduler procesa los recordatorios PROGRAMADOS
+    # (ver _loop_recaptacion_programados en server.py). Mismo formato/criterio
+    # de validacion que recordatorios_wa (HH:MM).
+    'hora_envio_programados': '10:00',
 }
 
 # Copiadas de recordatorios_wa.py (NO importar de alla): fecha_legible_larga
@@ -64,6 +68,10 @@ def load_config():
                 cfg['dias_minimos_reenvio'] = dias
         except (TypeError, ValueError):
             pass
+    if isinstance(data, dict) and 'hora_envio_programados' in data:
+        hora = str(data['hora_envio_programados']).strip()
+        if len(hora) == 5 and hora[2] == ':':
+            cfg['hora_envio_programados'] = hora
     return cfg
 
 
@@ -79,6 +87,10 @@ def save_config(updates):
                     cfg['dias_minimos_reenvio'] = dias
             except (TypeError, ValueError):
                 pass
+        if isinstance(updates, dict) and 'hora_envio_programados' in updates:
+            hora = str(updates['hora_envio_programados']).strip()
+            if len(hora) == 5 and hora[2] == ':':
+                cfg['hora_envio_programados'] = hora
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp = CONFIG_PATH.with_suffix('.json.tmp')
         tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -95,10 +107,15 @@ def _load_registro():
             if isinstance(reg, dict):
                 reg.setdefault('envios', {})
                 reg.setdefault('no_molestar', [])
+                # 'programados' (recordatorios de control a futuro, agregado
+                # 2026-07-21): viven en el MISMO registro, no en un archivo
+                # aparte -- son datos chicos y ya comparten disco/lock con
+                # envios/no_molestar.
+                reg.setdefault('programados', [])
                 return reg
         except (ValueError, OSError):
             pass
-    return {'envios': {}, 'no_molestar': []}
+    return {'envios': {}, 'no_molestar': [], 'programados': []}
 
 
 def _save_registro(reg):
@@ -250,3 +267,117 @@ def historial(limite=100):
             plano.append({**e, 'rut': rut})
     plano.sort(key=lambda e: e.get('fecha_envio', ''), reverse=True)
     return plano[:limite]
+
+
+# ── Recordatorios PROGRAMADOS (fecha futura, se envian solos) ───────────────
+#
+# La asistente F2 puede elegir una fecha futura en vez de mandar el WhatsApp
+# al instante. El envio real lo hace el scheduler de server.py
+# (_loop_recaptacion_programados) el dia elegido, a la hora
+# 'hora_envio_programados' de arriba.
+#
+# fecha_cita (de la cita de ORIGEN, la ultima atencion) se guarda junto al
+# programado porque DentiDesk no tiene "buscar cita por id" -- para releer el
+# telefono FRESCO el dia del envio hay que saber en que dia buscarla
+# (dentidesk.info_cita exige fecha + id_agenda). Mismo problema que ya
+# resuelve webhook_wa.py al reaccionar a un boton de una plantilla vieja.
+
+
+def _siguiente_id_programado(reg, clave, fecha_programada):
+    """Id corto y legible: '{rut}-{fecha_programada}', con sufijo numerico si
+    ya existe (puede pasar si se anulo uno y se programa otro para el mismo
+    RUT+fecha, o si el reemplazo de un pendiente deja el id 'libre' pero el
+    viejo registro sigue en la lista con ese mismo id)."""
+    base = f'{clave}-{fecha_programada}'
+    existentes = {p.get('id') for p in reg.get('programados', [])}
+    if base not in existentes:
+        return base
+    n = 2
+    while f'{base}-{n}' in existentes:
+        n += 1
+    return f'{base}-{n}'
+
+
+def programar(rut, id_agenda, fecha_cita, doctor, nombre, fecha_programada):
+    """Crea un recordatorio de control PROGRAMADO para 'fecha_programada'
+    (YYYY-MM-DD). Si el RUT ya tiene un 'pendiente', lo REEMPLAZA -- pasa el
+    viejo a 'anulado' (motivo_omision explica el porque, queda en el
+    historial) y crea el nuevo. Asi nunca hay dos programados pendientes para
+    el mismo paciente (evita mandarle el WhatsApp dos veces si la secretaria
+    reprograma la fecha).
+
+    Devuelve el dict creado."""
+    clave = _rut_key(rut)
+    with _LOCK:
+        reg = _load_registro()
+        for p in reg.get('programados', []):
+            if p.get('rut') == clave and p.get('estado') == 'pendiente':
+                p['estado'] = 'anulado'
+                p['motivo_omision'] = 'reemplazado por una nueva programacion'
+        nuevo = {
+            'id': _siguiente_id_programado(reg, clave, fecha_programada),
+            'rut': clave,
+            'id_agenda': str(id_agenda or ''),
+            'fecha_cita': fecha_cita,
+            'doctor': doctor or '',
+            'nombre': nombre or '',
+            'fecha_programada': fecha_programada,
+            'creado': datetime.now().isoformat(timespec='seconds'),
+            'estado': 'pendiente',
+            'motivo_omision': '',
+        }
+        reg.setdefault('programados', []).append(nuevo)
+        _save_registro(reg)
+        return nuevo
+
+
+def listar_programados(incluir_cerrados=True):
+    """Todos los programados ordenados por fecha_programada (ascendente). Si
+    incluir_cerrados=False, solo devuelve los 'pendiente' (para el scheduler;
+    el panel en cambio quiere ver todo, incluido lo ya enviado/anulado/omitido)."""
+    programados = list(_load_registro().get('programados') or [])
+    if not incluir_cerrados:
+        programados = [p for p in programados if p.get('estado') == 'pendiente']
+    programados.sort(key=lambda p: p.get('fecha_programada', ''))
+    return programados
+
+
+def anular_programado(id_):
+    """Pasa un programado 'pendiente' a 'anulado'. Devuelve True si lo
+    encontro y estaba pendiente, False si no existe o ya estaba cerrado (no
+    tiene sentido 'anular' algo que ya se envio u omitio)."""
+    with _LOCK:
+        reg = _load_registro()
+        for p in reg.get('programados', []):
+            if p.get('id') == id_ and p.get('estado') == 'pendiente':
+                p['estado'] = 'anulado'
+                _save_registro(reg)
+                return True
+        return False
+
+
+def pendientes_vencidos(hoy):
+    """Programados 'pendiente' cuya fecha_programada ya llego (<=hoy). 'hoy'
+    es un date (o string ISO YYYY-MM-DD, comparacion lexicografica funciona
+    igual para ese formato)."""
+    hoy_iso = hoy.isoformat() if hasattr(hoy, 'isoformat') else str(hoy)
+    return [
+        p for p in _load_registro().get('programados', [])
+        if p.get('estado') == 'pendiente' and p.get('fecha_programada', '') <= hoy_iso
+    ]
+
+
+def marcar_programado(id_, estado, motivo_omision=''):
+    """Cambia el estado de un programado (usado por el scheduler: 'enviado' u
+    'omitido'). No valida transiciones -- el scheduler es el unico llamador
+    y sabe lo que hace; anular_programado() de arriba si tiene la guarda de
+    'solo si esta pendiente' porque ese si lo llama el panel a mano."""
+    with _LOCK:
+        reg = _load_registro()
+        for p in reg.get('programados', []):
+            if p.get('id') == id_:
+                p['estado'] = estado
+                p['motivo_omision'] = motivo_omision
+                _save_registro(reg)
+                return True
+        return False

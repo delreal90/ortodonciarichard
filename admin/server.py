@@ -2342,6 +2342,58 @@ def asistente_confirmar_cita():
 # paciente, abierta en DentiDesk con F2)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _resolver_cita_recordatorio_control(cfg, id_agenda, fecha, fecha_str):
+    """Logica COMPARTIDA por el envio inmediato (asistente_recordatorio_control)
+    y el envio PROGRAMADO (asistente_recordatorio_control_programar): trae la
+    cita fresca de DentiDesk (o la simula en modo mock), saca rut/nombre/
+    doctor/telefono y valida que el telefono sea un celular chileno.
+
+    Devuelve (datos, None) si todo OK, o (None, (response, status)) si hay
+    que cortar ahi mismo -- el llamador solo necesita "if err: return err".
+    """
+    import pacientes as _pacientes
+
+    # Modo mock (sin credenciales DentiDesk): cita simulada -- evita llamar a
+    # _get_agenda_day sin credenciales reales. Las guardas de recaptacion
+    # basadas en registro (no_molestar/enviado_reciente) SI corren normal en
+    # este modo -- son locales, no dependen de DentiDesk.
+    if not cfg['dentidesk']['enabled']:
+        rut = f'MOCK{id_agenda}'
+        nombre = 'Paciente'
+        doctor = 'Dr. Patricio Vial'
+        telefono = '+56 9 1111 2222'
+    else:
+        try:
+            citas_dia = dentidesk._get_agenda_day(cfg, fecha, force=True)
+        except Exception as e:
+            return None, (jsonify({'ok': False, 'error': f'Error al consultar DentiDesk: {e}'}), 502)
+
+        cita_raw = next(
+            (c for c in citas_dia if str(c.get('IdAgenda', '')) == id_agenda),
+            None
+        )
+        if not cita_raw:
+            return None, (jsonify({'ok': False, 'error': f'No se encontró la cita {id_agenda} en la agenda del {fecha_str}'}), 404)
+
+        rut = (cita_raw.get('PatientDocument') or '').strip()
+        nombres_raw, _ = _pacientes._split_nombre(cita_raw.get('PatientName', ''))
+        nombre = nombres_raw or 'Paciente'
+        doctor = (cita_raw.get('ProfessionalName') or '').strip()
+        telefono = (cita_raw.get('Phone') or '').strip()
+
+    # Telefono: celular chileno E.164 sin '+' (569XXXXXXXX, 11 digitos). Dato
+    # objetivamente invalido -- ni forzar lo salta (puede_forzar: False).
+    tel_norm = wa_cloud._normalizar_telefono(telefono)
+    if len(tel_norm) != 11 or not tel_norm.startswith('569'):
+        return None, (jsonify({
+            'ok': False,
+            'error': 'La cita no tiene un celular chileno válido registrado (formato 9XXXXXXXX). Agrégalo en DentiDesk, guarda, y vuelve a intentar.',
+            'puede_forzar': False,
+        }), 400)
+
+    return {'rut': rut, 'nombre': nombre, 'doctor': doctor, 'telefono': telefono}, None
+
+
 @app.route('/api/asistente/recordatorio-control', methods=['POST'])
 def asistente_recordatorio_control():
     """
@@ -2390,46 +2442,10 @@ def asistente_recordatorio_control():
     cfg = scheduling.load_config()
     import pacientes as _pacientes
 
-    # Modo mock (sin credenciales DentiDesk): cita simulada -- evita llamar a
-    # _get_agenda_day sin credenciales reales (mismo criterio que
-    # asistente_confirmar_cita). Las guardas de recaptacion basadas en
-    # registro (no_molestar/enviado_reciente) SI corren normal aca -- son
-    # locales, no dependen de DentiDesk. La guarda ya_tiene_hora nunca
-    # dispara en este modo (citas_futuras_paciente devuelve [] con
-    # dentidesk deshabilitado); para probarla hay que simularla aparte.
-    if not cfg['dentidesk']['enabled']:
-        rut = f'MOCK{id_agenda}'
-        nombre = 'Paciente'
-        doctor = 'Dr. Patricio Vial'
-        telefono = '+56 9 1111 2222'
-    else:
-        try:
-            citas_dia = dentidesk._get_agenda_day(cfg, fecha, force=True)
-        except Exception as e:
-            return jsonify({'ok': False, 'error': f'Error al consultar DentiDesk: {e}'}), 502
-
-        cita_raw = next(
-            (c for c in citas_dia if str(c.get('IdAgenda', '')) == id_agenda),
-            None
-        )
-        if not cita_raw:
-            return jsonify({'ok': False, 'error': f'No se encontró la cita {id_agenda} en la agenda del {fecha_str}'}), 404
-
-        rut = (cita_raw.get('PatientDocument') or '').strip()
-        nombres_raw, _ = _pacientes._split_nombre(cita_raw.get('PatientName', ''))
-        nombre = nombres_raw or 'Paciente'
-        doctor = (cita_raw.get('ProfessionalName') or '').strip()
-        telefono = (cita_raw.get('Phone') or '').strip()
-
-    # Telefono: celular chileno E.164 sin '+' (569XXXXXXXX, 11 digitos). Dato
-    # objetivamente invalido -- ni forzar lo salta (puede_forzar: False).
-    tel_norm = wa_cloud._normalizar_telefono(telefono)
-    if len(tel_norm) != 11 or not tel_norm.startswith('569'):
-        return jsonify({
-            'ok': False,
-            'error': 'La cita no tiene un celular chileno válido registrado (formato 9XXXXXXXX). Agrégalo en DentiDesk, guarda, y vuelve a intentar.',
-            'puede_forzar': False,
-        }), 400
+    datos, err = _resolver_cita_recordatorio_control(cfg, id_agenda, fecha, fecha_str)
+    if err:
+        return err
+    rut, nombre, doctor, telefono = datos['rut'], datos['nombre'], datos['doctor'], datos['telefono']
 
     advertencia = None
     if fecha > date.today():
@@ -2517,6 +2533,95 @@ def set_recaptacion_no_molestar():
     else:
         lista = recaptacion.agregar_no_molestar(rut)
     return jsonify({'ok': True, 'no_molestar': lista})
+
+
+@app.route('/api/asistente/recordatorio-control/programar', methods=['POST'])
+def asistente_recordatorio_control_programar():
+    """
+    Programa el recordatorio de control para una fecha FUTURA en vez de
+    mandarlo al instante -- el envio real lo hace el scheduler
+    (_loop_recaptacion_programados) el dia elegido, a la hora
+    'hora_envio_programados' (panel).
+
+    Body JSON: { "id_agenda", "fecha" (de la cita de ORIGEN), "fecha_programada"
+    (YYYY-MM-DD, hoy o futura), "forzar": false }
+
+    Reusa _resolver_cita_recordatorio_control (misma logica que el envio
+    inmediato: cita fresca de DentiDesk + validacion de telefono) y
+    recaptacion.evaluar() con el mismo formato de bloqueo 409 -- la secretaria
+    ve la MISMA advertencia ya tenga hora o se le haya mandado hace poco, solo
+    que aca ademas puede forzar la PROGRAMACION (el reintento de verdad, el
+    que importa, ocurre igual el dia del envio -- ver
+    _procesar_programados_vencidos).
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+
+    data = request.json or {}
+    id_agenda = str(data.get('id_agenda', '')).strip()
+    fecha_str = (data.get('fecha') or '').strip()
+    fecha_programada_str = (data.get('fecha_programada') or '').strip()
+    forzar = bool(data.get('forzar', False))
+
+    if not id_agenda:
+        return jsonify({'ok': False, 'error': 'Falta id_agenda'}), 400
+    try:
+        fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Fecha inválida (esperado YYYY-MM-DD)'}), 400
+    try:
+        fecha_programada = datetime.strptime(fecha_programada_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Fecha programada inválida (esperado YYYY-MM-DD)'}), 400
+    if fecha_programada < date.today():
+        return jsonify({'ok': False, 'error': 'La fecha programada no puede ser anterior a hoy'}), 400
+
+    cfg = scheduling.load_config()
+    datos, err = _resolver_cita_recordatorio_control(cfg, id_agenda, fecha, fecha_str)
+    if err:
+        return err
+    rut, nombre, doctor, telefono = datos['rut'], datos['nombre'], datos['doctor'], datos['telefono']
+
+    # Misma guarda que el envio inmediato: corre SIEMPRE (para detectar
+    # no_molestar), y con forzar solo se saltan las otras dos.
+    bloqueo = recaptacion.evaluar(rut)
+    if bloqueo and (not forzar or bloqueo['motivo'] == 'no_molestar'):
+        return jsonify({'ok': False, **bloqueo}), 409
+
+    import pacientes as _pacientes
+    recaptacion.programar(rut, id_agenda, fecha.isoformat(), doctor, nombre, fecha_programada_str)
+
+    return jsonify({
+        'ok': True,
+        'fecha_programada': fecha_programada_str,
+        'nombre': nombre,
+        'doctor': doctor,
+        'telefono_enmascarado': _pacientes.enmascarar_telefono(telefono),
+    })
+
+
+@app.route('/api/recaptacion/programados', methods=['GET'])
+def get_recaptacion_programados():
+    """Lista completa de programados (pendiente/enviado/anulado/omitido) para
+    la pestania del panel."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'programados': recaptacion.listar_programados()})
+
+
+@app.route('/api/recaptacion/programados/anular', methods=['POST'])
+def anular_recaptacion_programado():
+    """Anula un recordatorio programado (body: {id}). 404 si no existe o ya
+    no esta pendiente (no tiene sentido 'anular' algo ya enviado/omitido)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    id_ = (data.get('id') or '').strip()
+    if not id_:
+        return jsonify({'ok': False, 'error': 'Falta id'}), 400
+    if not recaptacion.anular_programado(id_):
+        return jsonify({'ok': False, 'error': 'No se encontró un programado pendiente con ese id'}), 404
+    return jsonify({'ok': True})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4134,6 +4239,138 @@ def _loop_recordatorios():
             print('[recordatorios] error:', e)
         time.sleep(40)
 
+def _procesar_programados_vencidos(cfg_dd, hoy):
+    """Procesa los recordatorios de control programados que ya vencieron
+    (recaptacion.pendientes_vencidos). Por cada uno:
+      1. Relee la cita en DentiDesk con fecha_cita+id_agenda (dentidesk.info_cita)
+         para tomar el TELEFONO FRESCO -- pudo cambiar desde que se programo.
+         Si la cita ya no esta ese dia -> omitido.
+      2. Vuelve a correr recaptacion.evaluar(rut) -- este es el punto central
+         de la feature: el paciente pudo agendar solo en el intertanto
+         (ya_tiene_hora) o ya se le mando otro recordatorio (enviado_reciente),
+         y mandarle el programado igual seria absurdo. Si bloquea -> omitido
+         con el motivo.
+      3. Si pasa, envia con notify.enviar_recordatorio_control(); si sale ok,
+         marca 'enviado' + recaptacion.marcar_enviado() (mismo registro
+         anti-duplicados que el envio manual).
+    Los fallos de RED (DentiDesk o el envio del WhatsApp) NO marcan nada --
+    el programado sigue 'pendiente' y se reintenta manana (pendientes_vencidos
+    lo vuelve a traer porque su fecha_programada ya paso). Dentro del MISMO
+    dia no hay reintento infinito porque el loop llamador solo dispara una vez
+    por dia (guardia 'ya_corrio')."""
+    import pacientes as _pacientes
+    stats = {'enviados': 0, 'omitidos': 0, 'con_error': 0}
+    for p in recaptacion.pendientes_vencidos(hoy):
+        rut = p.get('rut', '')
+        id_agenda = p.get('id_agenda', '')
+        try:
+            fecha_cita = date.fromisoformat((p.get('fecha_cita') or '')[:10])
+        except (TypeError, ValueError):
+            recaptacion.marcar_programado(p['id'], 'omitido', 'fecha_cita invalida en el registro')
+            stats['omitidos'] += 1
+            continue
+
+        try:
+            cita_raw = dentidesk.info_cita(cfg_dd, id_agenda, fecha_cita)
+        except Exception as e:
+            print('[recaptacion-programados] error releyendo cita', id_agenda, e)
+            stats['con_error'] += 1
+            continue  # no se marca nada -- reintenta manana
+
+        if not cita_raw:
+            recaptacion.marcar_programado(p['id'], 'omitido', 'la cita de origen ya no existe en DentiDesk')
+            stats['omitidos'] += 1
+            continue
+
+        telefono = (cita_raw.get('Phone') or '').strip()
+        doctor = (cita_raw.get('ProfessionalName') or '').strip() or p.get('doctor', '')
+        nombres_raw, _ = _pacientes._split_nombre(cita_raw.get('PatientName', ''))
+        nombre = nombres_raw or p.get('nombre') or 'Paciente'
+
+        tel_norm = wa_cloud._normalizar_telefono(telefono)
+        if len(tel_norm) != 11 or not tel_norm.startswith('569'):
+            recaptacion.marcar_programado(p['id'], 'omitido', 'la cita ya no tiene un celular chileno valido')
+            stats['omitidos'] += 1
+            continue
+
+        bloqueo = recaptacion.evaluar(rut)
+        if bloqueo:
+            # Se guarda el 'detalle' (texto legible), NO el 'motivo' (slug
+            # interno): este campo lo muestra tal cual la pestania del panel, y
+            # "ya_tiene_hora" no le dice nada a quien lo lee. El detalle ademas
+            # trae la fecha de la hora que el paciente saco por su cuenta, que
+            # es justo el dato que explica por que no se envio.
+            recaptacion.marcar_programado(p['id'], 'omitido', bloqueo['detalle'])
+            stats['omitidos'] += 1
+            continue
+
+        cita_dict = {
+            'nombre': nombre,
+            'telefono': telefono,
+            'doctor_nombre': doctor,
+            'fecha_legible': recaptacion.fecha_legible_larga(fecha_cita),
+            'fecha': fecha_cita.isoformat(),
+            'id_agenda': id_agenda,
+        }
+        resultado = notify.enviar_recordatorio_control(cita_dict)
+        if not resultado.get('ok'):
+            print('[recaptacion-programados] fallo al enviar', id_agenda, resultado.get('error'))
+            stats['con_error'] += 1
+            continue  # no se marca nada -- reintenta manana
+
+        recaptacion.marcar_enviado(rut, id_agenda, doctor, nombre)
+        recaptacion.marcar_programado(p['id'], 'enviado')
+        stats['enviados'] += 1
+    return stats
+
+
+# Hora tope para procesar programados atrasados (ver la ventana en el loop):
+# despues de esto se deja para maniana antes que escribirle a un paciente de
+# noche.
+_LIMITE_PROGRAMADOS = '20:00'
+
+
+def _loop_recaptacion_programados():
+    """Dispara los recordatorios de control PROGRAMADOS (recaptacion.programar),
+    una vez por dia a la hora 'hora_envio_programados' (panel). Mismo
+    esqueleto que _loop_recordatorios (poll 40s, un disparo por dia con
+    'ya_corrio'). Se gatilla con el MISMO criterio que _loop_recordatorios
+    (cfg_dd['dentidesk']['enabled']): procesar un programado exige releer la
+    cita en DentiDesk y volver a evaluar citas_futuras_paciente, que sin
+    DentiDesk habilitado no tiene con que trabajar."""
+    import time
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('America/Santiago')
+    except Exception:
+        tz = None
+    ya_corrio = None
+    while True:
+        try:
+            ahora = datetime.now(tz) if tz else datetime.now()
+            slot = ahora.strftime('%H:%M')
+            cfg_dd = scheduling.load_config()
+            rcfg = recaptacion.load_config()
+            hora_cfg = rcfg.get('hora_envio_programados', '10:00')
+            # VENTANA, no minuto exacto (a diferencia de _loop_recordatorios):
+            # dispara en el primer tick a partir de la hora configurada y hasta
+            # _LIMITE_PROGRAMADOS. Con igualdad exacta bastaba que Render
+            # reiniciara a las 10:01 para que ese dia no saliera NADA y nadie se
+            # enterara. La cota de arriba evita el otro extremo: que tras una
+            # caida larga el sistema despierte a las 23:00 y le mande WhatsApp a
+            # pacientes de noche. Si se pierde la ventana completa, no se pierde
+            # el envio: pendientes_vencidos() usa <=, asi que el programado sale
+            # al dia siguiente.
+            if (cfg_dd['dentidesk']['enabled']
+                    and hora_cfg <= slot < _LIMITE_PROGRAMADOS
+                    and ya_corrio != ahora.date()):
+                ya_corrio = ahora.date()
+                r = _procesar_programados_vencidos(cfg_dd, ahora.date())
+                print('[recaptacion-programados]', slot, r)
+        except Exception as e:
+            print('[recaptacion-programados] error:', e)
+        time.sleep(40)
+
 def _loop_calentador():
     """Mantiene tibio el cache de disponibilidad: cada ~20 min refresca los
     slots libres de cada doctor para los proximos ~15 dias habiles (mas la
@@ -4213,10 +4450,12 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_refresco_pacientes, daemon=True).start()
     threading.Thread(target=_loop_confirmaciones, daemon=True).start()
     threading.Thread(target=_loop_recordatorios, daemon=True).start()
+    threading.Thread(target=_loop_recaptacion_programados, daemon=True).start()
     threading.Thread(target=_loop_calentador, daemon=True).start()
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
     print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
+    print('[recaptacion-programados] scheduler iniciado (hora configurable en el panel)')
     print('[confirmaciones] scheduler iniciado (11:00, 13:30, 17:00, 19:45)')
     print('[calentador] scheduler iniciado (disponibilidad, cada 20 min)')
     print('[recurrentes] scheduler iniciado (barrido diario 09:00, cargos recurrentes)')

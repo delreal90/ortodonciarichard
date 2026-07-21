@@ -228,6 +228,30 @@
         <p style="font-size:.78rem;color:#718096;margin-bottom:12px">Las 20 más recientes. Elimina alguna si fue una prueba y está alterando las estadísticas de arriba (no afecta la agenda real ni DentiDesk).</p>
         <div id="stats-ultimas">Carga la conexión para ver las reservas.</div>
       </div>
+
+      <!-- ── Base de pacientes ──────────────────── -->
+      <div class="card" style="margin-top:18px">
+        <h3 style="margin-bottom:6px">👥 Base de pacientes</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:14px">
+          Siembra nombre, RUT, email, teléfono, género, dirección y comuna desde el export
+          <strong>"Listado de Pacientes"</strong> del panel de DentiDesk. Conviene repetirlo cada
+          cierto tiempo para incorporar a los pacientes nuevos — esta base la usan la agenda online
+          (evita duplicar pacientes), seguros y los recordatorios de control.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <input type="file" id="pac-archivo" accept=".xlsx">
+          <button class="btn btn-primary btn-sm" id="pac-btn-importar" onclick="importarPacientes()">Importar</button>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;margin-bottom:4px">
+          <input type="checkbox" id="pac-reemplazar" style="margin-top:3px">
+          <span>Reemplazar la base completa</span>
+        </label>
+        <p style="font-size:.78rem;color:#e53e3e;margin-bottom:10px">
+          ⚠️ Con el casillero marcado se <strong>borra la base antes de cargar</strong> el Excel.
+          Desmarcado (lo normal) hace <em>merge</em>: agrega pacientes nuevos y actualiza los existentes sin borrar nada.
+        </p>
+        <div id="pac-resultado" style="font-size:.85rem"></div>
+      </div>
     </div>
 
     <!-- ── CONSENTIMIENTOS ─────────────────────────────────────── -->
@@ -368,6 +392,14 @@
           </div>
           <button class="btn btn-primary btn-sm" onclick="guardarRecapConfig()">Guardar</button>
         </div>
+
+        <hr>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0 8px">
+          <h4 style="font-size:.85rem;margin:0">📅 Programados</h4>
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadRecaptacion()">🔄 Recargar</button>
+        </div>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">Recordatorios agendados para una fecha futura; se envían a las 10:00 de ese día.</p>
+        <div id="recap-programados">Carga la conexión para ver los programados.</div>
 
         <hr>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0 8px">
@@ -746,6 +778,48 @@ async function eliminarCita(ts, btn) {
   } catch (e) {
     toast('No se pudo conectar', false);
     btn.disabled = false; btn.textContent = 'Eliminar';
+  }
+}
+
+// ── Base de pacientes (resembrar desde el Excel de DentiDesk) ──
+async function importarPacientes() {
+  const url    = document.getElementById('stats-url').value.trim().replace(/\/$/, '');
+  const token  = document.getElementById('stats-token').value.trim();
+  const fileEl = document.getElementById('pac-archivo');
+  const reemplazar = document.getElementById('pac-reemplazar').checked;
+  const btn = document.getElementById('pac-btn-importar');
+  const out = document.getElementById('pac-resultado');
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  if (!fileEl.files.length) { toast('Elige el archivo .xlsx primero', false); return; }
+
+  const form = new FormData();
+  form.append('file', fileEl.files[0]);
+  form.append('reemplazar', reemplazar ? 'true' : 'false');
+
+  btn.disabled = true;
+  btn.textContent = 'Importando…';
+  out.innerHTML = '<span style="color:#718096">Importando… puede tardar, el archivo pesa varios MB.</span>';
+  try {
+    // OJO: sin Content-Type a mano — el navegador lo pone solo (con el boundary
+    // del multipart). _waHeaders()/api() no sirven acá porque fijan JSON.
+    const r = await fetch(url + '/api/pacientes/importar', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': token },
+      body: form,
+    });
+    const d = await r.json();
+    if (d.ok) {
+      out.innerHTML = `<span style="color:#2f855a">✅ ${d.total.toLocaleString('es-CL')} pacientes en la base, ${d.nuevos.toLocaleString('es-CL')} nuevos.</span>`;
+      toast('✅ Base de pacientes actualizada');
+      fileEl.value = '';
+    } else {
+      out.innerHTML = `<span style="color:#e53e3e">❌ ${_esc(d.error || 'Error al importar')}</span>`;
+    }
+  } catch (e) {
+    out.innerHTML = `<span style="color:#e53e3e">No se pudo conectar con el backend: ${_esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Importar';
   }
 }
 
@@ -1244,6 +1318,7 @@ async function loadRecaptacion() {
   histEl.innerHTML = 'Cargando…';
   nmEl.innerHTML = 'Cargando…';
   loadRecaptacionConfig();
+  loadRecapProgramados();
   let d;
   try {
     const r = await fetch(url + '/api/recaptacion/historial', { headers: _waHeaders() });
@@ -1265,6 +1340,89 @@ async function loadRecaptacion() {
   }
   renderRecapHistorial(d.envios || []);
   renderRecapNoMolestar(d.no_molestar || []);
+}
+
+// ── Recordatorios de control programados (fecha futura, se envían a las 10:00) ──
+const RECAP_PROG_ESTADO_LABEL = { pendiente: 'Pendiente', enviado: 'Enviado', anulado: 'Anulado', omitido: 'Omitido' };
+const RECAP_PROG_ESTADO_COLOR = { pendiente: '#C9A84C', enviado: '#38a169', anulado: '#a0aec0', omitido: '#e53e3e' };
+
+async function loadRecapProgramados() {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const cont = document.getElementById('recap-programados');
+  cont.innerHTML = 'Cargando…';
+  try {
+    const r = await fetch(url + '/api/recaptacion/programados', { headers: _waHeaders() });
+    if (r.status === 403) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Token incorrecto.</p>'; return; }
+    const d = await r.json();
+    if (!d.ok) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar los programados.</p>'; return; }
+    renderRecapProgramados(d.programados || []);
+  } catch (e) {
+    cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+  }
+}
+
+function renderRecapProgramados(items) {
+  const cont = document.getElementById('recap-programados');
+  if (!items.length) {
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">No hay recordatorios programados.</p>';
+    return;
+  }
+  // Pendientes primero y bien visibles (son lo accionable); el resto queda como historial apagado.
+  const pendientes = items.filter(p => p.estado === 'pendiente');
+  const otros = items.filter(p => p.estado !== 'pendiente');
+
+  const filaPendiente = p => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:8px;background:#fffbeb;border:1px solid #f0d999;border-radius:6px">
+      <div>
+        <strong style="font-size:.88rem">${_esc(p.nombre || '—')}</strong>
+        <span style="font-size:.78rem;color:#718096"> · ${_esc(_rutFmt(p.rut))}</span><br>
+        <span style="font-size:.8rem;color:#4A5568;text-transform:capitalize">${_esc(p.doctor || '—')}</span>
+        <span style="font-size:.8rem;color:#718096"> · se envía el ${_esc(_fechaCorta(p.fecha_programada))}</span>
+        <span style="font-size:.76rem;color:#a0aec0"> · último control ${_esc(_fechaCorta(p.fecha_cita))}</span>
+      </div>
+      <button class="btn btn-sm" style="background:#fff;border-color:#e53e3e;color:#e53e3e" onclick="anularRecapProgramado('${_esc(p.id)}')">Anular</button>
+    </div>`;
+
+  const filaOtro = p => {
+    const color = RECAP_PROG_ESTADO_COLOR[p.estado] || '#a0aec0';
+    const label = RECAP_PROG_ESTADO_LABEL[p.estado] || p.estado;
+    // "omitido" es el caso que hay que entender de un vistazo: llegó la fecha y el
+    // sistema NO envió porque el paciente ya había agendado por su cuenta (u otro motivo).
+    const motivo = p.estado === 'omitido' && p.motivo_omision
+      ? `<div style="font-size:.78rem;color:#e53e3e;margin-top:2px">No se envió: ${_esc(p.motivo_omision)}</div>` : '';
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid #e2e8f0;opacity:.8">
+        <div>
+          <span style="font-size:.85rem">${_esc(p.nombre || '—')}</span>
+          <span style="font-size:.78rem;color:#718096"> · ${_esc(_rutFmt(p.rut))} · ${_esc(p.doctor || '—')} · programado para ${_esc(_fechaCorta(p.fecha_programada))}</span>
+          ${motivo}
+        </div>
+        <span class="tag" style="border-color:${color};color:${color}">${_esc(label)}</span>
+      </div>`;
+  };
+
+  cont.innerHTML = `
+    ${pendientes.length ? pendientes.map(filaPendiente).join('') : '<p style="color:#718096;font-size:.85rem;margin-bottom:8px">Sin pendientes.</p>'}
+    ${otros.length ? `<div style="margin-top:6px">${otros.map(filaOtro).join('')}</div>` : ''}`;
+}
+
+async function anularRecapProgramado(id) {
+  if (!confirm('¿Anular este recordatorio programado? No se enviará.')) return;
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  try {
+    const r = await fetch(url + '/api/recaptacion/programados/anular', {
+      method: 'POST', headers: _waHeaders(), body: JSON.stringify({ id }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      toast('✅ Recordatorio anulado');
+      loadRecapProgramados();
+    } else {
+      toast('❌ ' + (d.error || 'No se pudo anular'), false);
+    }
+  } catch (e) {
+    toast('❌ Error de conexión', false);
+  }
 }
 
 function renderRecapHistorial(envios) {

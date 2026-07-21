@@ -732,6 +732,36 @@ en el registro y **avisa a recepción por email** (`notify.avisar_recepcion_inte
 — ese aviso es lo que hace que alguien conteste. **No toca DentiDesk** (no hay cita que
 actualizar). Los botones URL y de teléfono NO generan evento de webhook.
 
+**Recordatorios PROGRAMADOS (2026-07-21):** además del envío inmediato, la asistente puede
+elegir una fecha futura y el sistema envía ese día a las **10:00 hora Chile**
+(`hora_envio_programados` en la config). Viven en la clave `programados` del mismo
+`recaptacion_registro.json`; estados `pendiente` → `enviado` | `anulado` | `omitido`.
+- **La garantía central es que se re-evalúa al momento de enviar, no al programar.**
+  `_procesar_programados_vencidos()` en server.py relee la cita de origen en DentiDesk (para
+  el teléfono FRESCO — por eso se guarda `fecha_cita`, DentiDesk no sabe buscar cita por id) y
+  vuelve a correr `recaptacion.evaluar(rut)`. Si en el intertanto el paciente agendó solo, el
+  recordatorio NO sale y queda `omitido`. En `motivo_omision` se guarda el **`detalle`** (texto
+  legible con la fecha de la hora que sacó), NO el `motivo` (slug interno) — el panel lo
+  muestra tal cual.
+- **Un solo `pendiente` por paciente:** reprogramar marca el anterior `anulado` (no lo borra).
+- Un envío que falla por red NO cambia de estado: queda `pendiente` y se reintenta.
+- `_loop_recaptacion_programados()` dispara en una **VENTANA** (`hora_envio_programados` ≤
+  ahora < `_LIMITE_PROGRAMADOS` 20:00), no en el minuto exacto como `_loop_recordatorios`: con
+  igualdad exacta bastaba que Render reiniciara a las 10:01 para que ese día no saliera nada y
+  nadie se enterara. La cota de las 20:00 evita el extremo opuesto (despertar tras una caída
+  larga y escribirle a pacientes de noche). Si se pierde la ventana completa no se pierde el
+  envío: `pendientes_vencidos()` usa `<=`, así que sale al día siguiente.
+- Endpoints: `POST /api/asistente/recordatorio-control/programar` `{id_agenda, fecha,
+  fecha_programada, forzar?}` (mismas guardas y mismo 409 que el envío inmediato),
+  `GET /api/recaptacion/programados`, `POST /api/recaptacion/programados/anular` `{id}`.
+
+**F2 — jerarquía del panel:** dentro de "Confirmación", bajo "Enviar por WhatsApp", un
+desplegable **"🔔 Recordatorio de Control"** (patrón de `toggleConsent`) con: enviar ahora con
+el doctor de la cita, "🚫 No volver a recordar", y "📅 Programar recordatorio" (que despliega
+un `<input type="date">` con `min` = hoy). ⚠️ Es el primer control nativo de fecha dentro del
+Shadow DOM colgado de `#modal_cita`: si el calendario del navegador parpadea o se cierra solo,
+sospechar del `enforceFocus` de Bootstrap (ver el quirk documentado en la sección del F2).
+
 **Archivos:** `admin/recaptacion.py` (config + registro + guardas, molde `recordatorios_wa.py`;
 `recaptacion_config.json` / `recaptacion_registro.json` en el disco persistente vía
 `PATIENT_INDEX_PATH`), y cambios en `wa_cloud.py`, `notify.py`, `webhook_wa.py`, `server.py`,
