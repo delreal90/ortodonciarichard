@@ -4324,10 +4324,12 @@ def _procesar_programados_vencidos(cfg_dd, hoy):
     return stats
 
 
-# Hora tope para procesar programados atrasados (ver la ventana en el loop):
-# despues de esto se deja para maniana antes que escribirle a un paciente de
-# noche.
-_LIMITE_PROGRAMADOS = '20:00'
+# Hora tope para procesar programados atrasados (ver la ventana en el loop).
+# Pasada esta hora se deja para el dia siguiente: un recordatorio que llega al
+# final de la tarde ya no alcanza a ser contestado por recepcion el mismo dia,
+# y el paciente que toca "Agendar por WhatsApp" abre una ventana de 24h que
+# conviene que empiece con alguien disponible para responderle.
+_LIMITE_PROGRAMADOS = '17:00'
 
 
 def _loop_recaptacion_programados():
@@ -4357,10 +4359,10 @@ def _loop_recaptacion_programados():
             # _LIMITE_PROGRAMADOS. Con igualdad exacta bastaba que Render
             # reiniciara a las 10:01 para que ese dia no saliera NADA y nadie se
             # enterara. La cota de arriba evita el otro extremo: que tras una
-            # caida larga el sistema despierte a las 23:00 y le mande WhatsApp a
-            # pacientes de noche. Si se pierde la ventana completa, no se pierde
-            # el envio: pendientes_vencidos() usa <=, asi que el programado sale
-            # al dia siguiente.
+            # caida larga el sistema despierte a media tarde y mande los
+            # recordatorios cuando ya nadie alcanza a contestarlos. Si se pierde
+            # la ventana completa, no se pierde el envio: pendientes_vencidos()
+            # usa <=, asi que el programado sale al dia siguiente.
             if (cfg_dd['dentidesk']['enabled']
                     and hora_cfg <= slot < _LIMITE_PROGRAMADOS
                     and ya_corrio != ahora.date()):

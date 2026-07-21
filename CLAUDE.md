@@ -746,11 +746,13 @@ elegir una fecha futura y el sistema envía ese día a las **10:00 hora Chile**
 - **Un solo `pendiente` por paciente:** reprogramar marca el anterior `anulado` (no lo borra).
 - Un envío que falla por red NO cambia de estado: queda `pendiente` y se reintenta.
 - `_loop_recaptacion_programados()` dispara en una **VENTANA** (`hora_envio_programados` ≤
-  ahora < `_LIMITE_PROGRAMADOS` 20:00), no en el minuto exacto como `_loop_recordatorios`: con
+  ahora < `_LIMITE_PROGRAMADOS` 17:00), no en el minuto exacto como `_loop_recordatorios`: con
   igualdad exacta bastaba que Render reiniciara a las 10:01 para que ese día no saliera nada y
-  nadie se enterara. La cota de las 20:00 evita el extremo opuesto (despertar tras una caída
-  larga y escribirle a pacientes de noche). Si se pierde la ventana completa no se pierde el
-  envío: `pendientes_vencidos()` usa `<=`, así que sale al día siguiente.
+  nadie se enterara. La cota de las 17:00 evita el extremo opuesto: un recordatorio que sale
+  al final de la tarde ya no alcanza a ser contestado el mismo día, y el paciente que toca
+  "Agendar por WhatsApp" abre una ventana de 24h que conviene que empiece con recepción
+  disponible. Si se pierde la ventana completa no se pierde el envío:
+  `pendientes_vencidos()` usa `<=`, así que sale al día siguiente.
 - Endpoints: `POST /api/asistente/recordatorio-control/programar` `{id_agenda, fecha,
   fecha_programada, forzar?}` (mismas guardas y mismo 409 que el envío inmediato),
   `GET /api/recaptacion/programados`, `POST /api/recaptacion/programados/anular` `{id}`.
