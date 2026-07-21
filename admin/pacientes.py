@@ -245,11 +245,37 @@ def importar_export_excel(path, reemplazar=False):
     # apenas pasan los meses y nadie se acuerda de que esta podrido) -- mejor
     # ni tenerlo en la base que confiar en un dato que miente solo.
 
+    # RUT-BASURERO: el export de DentiDesk usa un RUT falso compartido para
+    # todo lo que no es un paciente real -- bloqueos de agenda, reuniones,
+    # fichas de prueba ('BLOQUEO BLOQUEO', 'SORTCH REUNION', 'xxxxx') -- y
+    # ademas algun paciente al que nunca le tomaron el RUT. Verificado en el
+    # export del 21-07-2026: UN solo RUT (46266, invalido) agrupaba 186
+    # nombres distintos. Sin filtrarlo, los 186 colapsan en un unico registro
+    # (gana el ultimo) y queda una ficha Frankenstein en la base.
+    #
+    # El filtro es por CANTIDAD DE NOMBRES DISTINTOS, no por validez del RUT:
+    # descartar todo RUT invalido tambien botaria a los extranjeros con
+    # pasaporte, que son pacientes legitimos y para los que la base sirve
+    # igual (los reconoce por su documento tal cual). Un documento repetido
+    # con >3 nombres distintos, en cambio, no es un paciente: es un basurero.
+    filas = list(rows)
+    _nombres_por_rut = {}
+    for r in filas:
+        rut_k = _limpiar_rut(str(r[c_rut]) if c_rut is not None and r[c_rut] else '')
+        if rut_k:
+            nom = str(r[c_nom]).strip() if c_nom is not None and r[c_nom] else ''
+            _nombres_por_rut.setdefault(rut_k, set()).add(nom)
+    ruts_basurero = {k for k, v in _nombres_por_rut.items() if len(v) > 3}
+
     idx = {} if reemplazar else _load_index()
     agregados = 0
-    for r in rows:
+    descartados = 0
+    for r in filas:
         rut = _limpiar_rut(str(r[c_rut]) if c_rut is not None and r[c_rut] else '')
         if not rut:
+            continue
+        if rut in ruts_basurero:
+            descartados += 1
             continue
         # El email puede faltar (pacientes antiguos sin correo en ficha): igual los
         # guardamos para reconocerlos por RUT y precargar su nombre. Al agendar, si
@@ -279,7 +305,11 @@ def importar_export_excel(path, reemplazar=False):
                 if v:
                     existente[k] = v
     _save_index(idx)
-    return {'total': len(idx), 'nuevos': agregados}
+    # 'descartados' se devuelve para que el panel pueda mostrarlo: si un dia
+    # ese numero se dispara, es senial de que el export cambio de forma (o de
+    # que hay un RUT nuevo haciendo de basurero), no de que se perdieron
+    # pacientes.
+    return {'total': len(idx), 'nuevos': agregados, 'descartados': descartados}
 
 
 # ── Construccion de la base desde la agenda (getAgendaDay) ────────────────────

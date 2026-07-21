@@ -266,6 +266,13 @@ def init_db():
             compra_id         INTEGER REFERENCES compras(id)
         );
 
+        """)
+        # Las migraciones van ANTES de los indices: en una base creada antes de una
+        # feature, las columnas nuevas todavia no existen (CREATE TABLE IF NOT EXISTS
+        # no las agrega) y un CREATE INDEX sobre una columna faltante aborta el
+        # executescript entero, dejando la base a medio migrar.
+        _migrar(con)
+        con.executescript("""
         CREATE INDEX IF NOT EXISTS ix_pend_producto ON pendientes_compra(producto_id);
         CREATE INDEX IF NOT EXISTS ix_pend_estado   ON pendientes_compra(estado);
         CREATE INDEX IF NOT EXISTS ix_sus_activa    ON suscripciones(activa);
@@ -276,7 +283,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS ix_compras_fecha  ON compras(fecha);
         CREATE INDEX IF NOT EXISTS ix_cod_producto   ON codigos_producto(producto_id);
         """)
-        _migrar(con)
         con.commit()
     finally:
         con.close()
