@@ -228,6 +228,27 @@ profesionales Octavio 9412 / Rodrigo 8452 / Alberto 639 / Patricio 9308.
 - DentiDesk NO expone IdPatient ni endpoint de pacientes → este es el único camino.
 - Ruta de la base configurable por env `PATIENT_INDEX_PATH` (para disco persistente).
 
+**Campos extra sembrados desde el Excel (2026-07-21):** además de nombres/apellidos/email/
+telefono, la base guarda `genero` (normalizado a `'F'`/`'M'`/`''`), `direccion`, `comuna`,
+`prevision` y `convenio` — el export del panel DentiDesk ya los traía y se estaban botando al
+importar. Columnas reales del Excel: `Nombre Paciente, RUT, Edad, Género, Teléfono, Correo,
+Dirección, Comuna, Convenio, Previsión`. **`Edad` se omite a propósito** (envejece y quedaría
+podrida en la base). Cargados del export del 18-jun-2026: 4.173 pacientes (de 4.426 filas: 82
+sin RUT y 171 RUT repetidos), **4.173 con género (100%)**, 3.962 con dirección.
+- `pacientes.saludo(rut_o_rec)` → `'o'` | `'a'` | **`'o/a'`** para armar "Estimad{o,a,o/a}".
+  El fallback neutro es deliberado: tratar de "Estimado" a una paciente es peor que el
+  genérico, así que ante la duda NUNCA se adivina — **en particular no se infiere por el
+  nombre** ("María José" / "José María" rompen cualquier heurística). Para USARLO hay que
+  cambiar las plantillas de Meta: hoy "Estimado/a" es texto FIJO del cuerpo aprobado, no una
+  variable (opción evaluada: cuerpo `Estimad{{1}} {{2}},` — el riesgo es que Meta no acepta
+  dos variables pegadas, hay que probarlo en el editor).
+- ⚠️ **`construir_desde_agenda()` hace merge POR REGISTRO, no `idx.update()`.** getAgendaDay
+  solo trae 4 campos, así que un update plano reemplazaba la ficha entera y borraba los campos
+  de arriba. Ese barrido corre 2×/día → sin el merge, la siembra se perdía a las pocas horas.
+  Si se agregan campos nuevos a la base, respetar ese patrón.
+- El módulo de **seguros** usa `direccion` de esta base como FALLBACK en `/api/seguro/precarga`
+  (lo que la secretaria escribió a mano en seguros siempre manda). Ahorra tipeo por paciente.
+
 **Pendiente para ir 100% live:**
 1. Setear env vars en Render: `DENTIDESK_EMAIL`, `DENTIDESK_PASSWORD`, `DENTIDESK_ENABLED=true`.
 2. DECIDIR dónde vive la base de pacientes en producción (Render tiene disco efímero):

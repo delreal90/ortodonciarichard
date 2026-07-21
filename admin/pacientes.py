@@ -22,6 +22,7 @@ Modular: el bot de WhatsApp puede usar las mismas funciones (lookup, display).
 import os
 import re
 import json
+import unicodedata
 from pathlib import Path
 from datetime import date, timedelta
 
@@ -56,8 +57,29 @@ def _limpiar_rut(rut):
 
 
 def lookup(rut):
-    """Devuelve el registro {nombres, apellidos, email, telefono} o None."""
+    """Devuelve el registro {nombres, apellidos, email, telefono, genero,
+    direccion, comuna, prevision, convenio} o None. Los campos sembrados solo
+    desde la agenda (nunca desde el Excel) pueden faltar -- usar .get()."""
     return _load_index().get(_limpiar_rut(rut))
+
+
+def saludo(rut_o_rec):
+    """'o' | 'a' | 'o/a' segun el genero de la ficha.
+
+    Acepta un RUT (hace lookup) o un registro ya cargado (dict).
+
+    El fallback 'o/a' cuando no se sabe el genero es DELIBERADO: tratarla de
+    'Estimado' a una paciente es peor que el generico 'Estimado/a', asi que
+    ante la duda NUNCA se adivina. En particular, no se infiere por el
+    nombre -- 'Maria Jose' y 'Jose Maria' romperian cualquier heuristica
+    basada en el primer o el ultimo token."""
+    rec = rut_o_rec if isinstance(rut_o_rec, dict) else lookup(rut_o_rec)
+    genero = (rec or {}).get('genero', '')
+    if genero == 'M':
+        return 'o'
+    if genero == 'F':
+        return 'a'
+    return 'o/a'
 
 
 def total():
@@ -129,6 +151,24 @@ def display(rec):
 
 # ── Importar export completo de pacientes (Excel del panel DentiDesk) ─────────
 
+def _normalizar_genero(texto):
+    """'Femenino'/'Masculino' (o variantes con tilde/mayuscula/otro idioma)
+    -> 'F'/'M'/''. Se guarda SIEMPRE normalizado (nunca el texto crudo del
+    Excel): si el dia de manana el export cambia de idioma o capitalizacion,
+    el resto del codigo (saludo(), etc.) sigue funcionando igual."""
+    t = (texto or '').strip()
+    if not t:
+        return ''
+    t = unicodedata.normalize('NFKD', t)
+    t = ''.join(c for c in t if not unicodedata.combining(c))
+    primera = t[0].lower()
+    if primera == 'f':
+        return 'F'
+    if primera == 'm':
+        return 'M'
+    return ''
+
+
 _DEV_CODE = re.compile(r'^-?[A-Z]{1,3}$')  # codigos de dispositivo: D, DD, DE, -D, -DE
 
 
@@ -176,7 +216,8 @@ def _split_nombre_export(full):
 
 def importar_export_excel(path, reemplazar=False):
     """Siembra/actualiza la base desde el Excel 'Listado de Pacientes Totales'.
-    Columnas esperadas: Nombre Paciente, RUT, Edad, Genero, Telefono, Correo, ...
+    Columnas reales del export: Nombre Paciente, RUT, Edad (se descarta, ver
+    abajo), Genero, Telefono, Correo, Direccion, Comuna, Convenio, Prevision.
     reemplazar=True -> parte de cero (borra la base anterior antes de cargar)."""
     import openpyxl
     wb = openpyxl.load_workbook(path, read_only=True)
@@ -193,6 +234,16 @@ def importar_export_excel(path, reemplazar=False):
 
     c_nom = col('nombre'); c_rut = col('rut')
     c_tel = col('tel');    c_mail = col('correo', 'email', 'mail')
+    # 'Genero' y 'Prevision' traen tilde en el header del Excel ('Género',
+    # 'Previsión'): se busca por un fragmento SIN tilde que igual matchea
+    # (cae dentro del header con tilde igual, ya que la tilde no rompe la
+    # subcadena buscada) en vez de normalizar todos los headers.
+    c_gen = col('nero');   c_dir = col('direcc')
+    c_com = col('comuna'); c_prev = col('visi')
+    c_conv = col('convenio')
+    # NO se guarda 'Edad': es un numero que envejece mal (queda desactualizado
+    # apenas pasan los meses y nadie se acuerda de que esta podrido) -- mejor
+    # ni tenerlo en la base que confiar en un dato que miente solo.
 
     idx = {} if reemplazar else _load_index()
     agregados = 0
@@ -208,9 +259,25 @@ def importar_export_excel(path, reemplazar=False):
             email = ''
         nombres, apellidos = _split_nombre_export(str(r[c_nom]) if c_nom is not None and r[c_nom] else '')
         tel = str(r[c_tel]).strip() if c_tel is not None and r[c_tel] else ''
+        genero = _normalizar_genero(str(r[c_gen]) if c_gen is not None and r[c_gen] else '')
+        direccion = str(r[c_dir]).strip() if c_dir is not None and r[c_dir] else ''
+        comuna = str(r[c_com]).strip() if c_com is not None and r[c_com] else ''
+        prevision = str(r[c_prev]).strip() if c_prev is not None and r[c_prev] else ''
+        convenio = str(r[c_conv]).strip() if c_conv is not None and r[c_conv] else ''
+        nuevo = {'nombres': nombres, 'apellidos': apellidos, 'email': email, 'telefono': tel,
+                 'genero': genero, 'direccion': direccion, 'comuna': comuna,
+                 'prevision': prevision, 'convenio': convenio}
         if rut not in idx:
             agregados += 1
-        idx[rut] = {'nombres': nombres, 'apellidos': apellidos, 'email': email, 'telefono': tel}
+            idx[rut] = nuevo
+        else:
+            # Merge, no reemplazo: solo pisa los campos que vengan con valor,
+            # para no borrar con vacio lo que ya estaba (p.ej. si esta fila del
+            # Excel no trae comuna pero la ficha ya la tenia de una carga previa).
+            existente = idx[rut]
+            for k, v in nuevo.items():
+                if v:
+                    existente[k] = v
     _save_index(idx)
     return {'total': len(idx), 'nuevos': agregados}
 
@@ -262,6 +329,15 @@ def construir_desde_agenda(cfg, dias_atras=120, dias_adelante=120, max_workers=6
     # otra reserva durante el escaneo) y combinar SIN pisar. Nunca borra la semilla.
     idx = _load_index()
     agregados = sum(1 for r in recolectado if r not in idx)
-    idx.update(recolectado)
+    # Merge POR REGISTRO (no idx.update(recolectado) plano): recolectado[rut] solo
+    # trae 4 campos (nombres/apellidos/email/telefono, lo unico que expone
+    # getAgendaDay). Un update() de diccionario reemplaza la ficha ENTERA, asi que
+    # borraria genero/direccion/comuna/prevision/convenio sembrados desde el Excel.
+    # Este barrido corre 2x al dia, asi que sin este merge la siembra se perderia
+    # a las pocas horas de haberla cargado.
+    for rut, nuevo in recolectado.items():
+        existente = idx.get(rut, {})
+        existente.update({k: v for k, v in nuevo.items() if v})
+        idx[rut] = existente
     _save_index(idx)
     return {'total': len(idx), 'nuevos': agregados, 'dias': len(dias)}

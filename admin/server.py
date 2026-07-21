@@ -2887,10 +2887,17 @@ def seguro_precarga():
     pref = seguros.paciente_seguro(rut) or {}
     cfg = scheduling.load_config()
     aseg = seguros.obtener_aseguradora(pref.get('ultima_aseguradora')) if pref.get('ultima_aseguradora') else None
+    # datos_extra es lo que la secretaria escribio A MANO en el modulo de seguros
+    # (siempre manda, puede haberla corregido a proposito); direccion de la base
+    # local (sembrada desde el Excel de pacientes) solo se usa como FALLBACK si
+    # datos_extra no trae direccion o viene vacia.
+    datos_extra = dict(pref.get('datos_extra', {}))
+    if not datos_extra.get('direccion') and rec and rec.get('direccion'):
+        datos_extra['direccion'] = rec['direccion']
     return jsonify({
         'ok': True,
         'paciente': rec or None,
-        'datos_extra': pref.get('datos_extra', {}),
+        'datos_extra': datos_extra,
         'ultima_aseguradora': pref.get('ultima_aseguradora'),
         'ultima_aseguradora_nombre': (aseg or {}).get('nombre'),
         'primera_vez': not bool(pref.get('ultima_aseguradora')),
