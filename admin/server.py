@@ -1596,7 +1596,9 @@ def whatsapp_test():
     Sirve para verificar la Cloud API sin agendar una cita real.
     Body JSON: { telefono, plantilla?, nombre?, doctor?, fecha?, hora? }
       plantilla: 'confirmacion_hora' (default) | 'recordatorio_semana' |
-                 'recordatorio_dia' | 'inasistencia_reagendar'
+                 'recordatorio_dia' | 'inasistencia_reagendar' |
+                 'conversacion_general' | 'consentimiento_informado' |
+                 'reagenda_confirmada' | 'recordatorio_control_dr_vial'
     El destinatario debe estar registrado como número de prueba en Meta."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
@@ -1629,6 +1631,12 @@ def whatsapp_test():
             tel, nombre, data.get('tipo_label', 'Consentimiento de Ortodoncia'),
             data.get('link', 'https://ortodonciarichard.cl/consentimiento?token=PRUEBA')),
         'reagenda_confirmada':    lambda: wa_cloud.enviar_reagenda_confirmada(tel, nombre, doctor, fecha, hora),
+        # Recordatorio de control (recaptacion): 'fecha' aca es la del ULTIMO
+        # control, no la de una cita futura. El boton que responde es el
+        # tercero ("Agendar por WhatsApp"); tocarlo dispara el webhook igual
+        # que en un envio real, asi que sirve para probar el circuito completo.
+        'recordatorio_control_dr_vial': lambda: wa_cloud.enviar_recordatorio_control(
+            tel, nombre, doctor, fecha, id_agenda, fecha_iso=fecha_iso),
     }.get(plantilla)
     if not envio:
         return jsonify({'ok': False, 'error': f'Plantilla no valida: {plantilla}'}), 400

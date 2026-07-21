@@ -319,6 +319,35 @@
 
       <button class="btn btn-primary" onclick="saveWhatsapp()">Guardar configuración</button>
 
+      <!-- Envío de prueba: dispara UNA plantilla a un teléfono cualquiera, sin
+           agendar ni tocar ninguna cita real. Sirve para ver cómo llega el
+           mensaje y para probar los botones (tocarlos dispara el webhook de
+           verdad). El endpoint ya existía; antes solo se podía llamar por API. -->
+      <div class="card" style="margin-top:18px">
+        <h3 style="margin-bottom:6px">🧪 Envío de prueba</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:10px">Manda una plantilla suelta para revisarla. Usa el celular de prueba, nunca el de un paciente real.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div>
+            <label style="font-size:.82rem;color:#4A5568;display:block;margin-bottom:4px">Celular</label>
+            <input type="text" id="wa-test-tel" value="+56 9 8903 2888" style="width:170px;padding:6px;border:1px solid #cbd5e0;border-radius:6px">
+          </div>
+          <div>
+            <label style="font-size:.82rem;color:#4A5568;display:block;margin-bottom:4px">Plantilla</label>
+            <select id="wa-test-plantilla" style="padding:6px;border:1px solid #cbd5e0;border-radius:6px">
+              <option value="recordatorio_control_dr_vial">Recordatorio de control (Dr. Vial)</option>
+              <option value="confirmacion_hora">Confirmación de hora</option>
+              <option value="recordatorio_semana">Recordatorio 4 días hábiles</option>
+              <option value="recordatorio_dia">Recordatorio 1 día antes</option>
+              <option value="inasistencia_reagendar">Aviso de inasistencia</option>
+              <option value="reagenda_confirmada">Reagenda confirmada</option>
+              <option value="conversacion_general">Conversación general</option>
+            </select>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="enviarWaTest()">Enviar prueba</button>
+        </div>
+        <div id="wa-test-res" style="font-size:.85rem;margin-top:10px"></div>
+      </div>
+
       <!-- ── Recordatorios de control ──────────────────── -->
       <div class="card" style="margin-top:26px;margin-bottom:18px">
         <h3 style="margin-bottom:6px">🦷 Recordatorios de control</h3>
@@ -1100,6 +1129,34 @@ async function guardarRecapConfig() {
     toast(d.ok ? '✅ Configuración guardada' : '❌ ' + (d.error || 'Error'), d.ok);
   } catch (e) {
     toast('❌ No se pudo conectar con el backend', false);
+  }
+}
+
+// Envío de prueba de una plantilla suelta. El backend responde 200 aunque Meta
+// después no entregue el mensaje (p.ej. el tope de frecuencia de las plantillas
+// de marketing), así que "enviado" acá significa "Meta lo aceptó", no "llegó".
+async function enviarWaTest() {
+  const url  = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const tel  = document.getElementById('wa-test-tel').value.trim();
+  const tpl  = document.getElementById('wa-test-plantilla').value;
+  const out  = document.getElementById('wa-test-res');
+  if (!tel) { out.innerHTML = '<span style="color:#e53e3e">Ingresa un celular.</span>'; return; }
+  out.textContent = 'Enviando…';
+  try {
+    const r = await fetch(url + '/api/whatsapp/test', {
+      method: 'POST', headers: _waHeaders(),
+      body: JSON.stringify({
+        telefono: tel, plantilla: tpl,
+        nombre: 'Alberto', doctor: 'Dr. Patricio Vial',
+        fecha: 'martes 1 de abril del 2025', hora: '10:30',
+      }),
+    });
+    const d = await r.json();
+    out.innerHTML = d.ok
+      ? '<span style="color:#2f855a">✅ Meta aceptó el envío. Revisa el celular.</span>'
+      : `<span style="color:#e53e3e">${_esc(d.error || 'Error desconocido')}</span>`;
+  } catch (e) {
+    out.innerHTML = `<span style="color:#e53e3e">No se pudo conectar: ${_esc(e.message)}</span>`;
   }
 }
 
