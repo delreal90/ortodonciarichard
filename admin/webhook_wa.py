@@ -189,10 +189,8 @@ def _reagendar(id_agenda, telefono, cfg, fecha=''):
 def _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
     """El paciente toco 'Agendar por WhatsApp' desde el recordatorio de
     control -- NO toca DentiDesk (no hay cita que actualizar, la de origen ya
-    quedo atras). Responde texto libre en el mismo tono que _reagendar (una
-    persona del equipo coordina + el link de la agenda online como
-    alternativa para elegir hora solo, esta vez SIN precargar id -- el
-    paciente elige doctor/motivo/hora desde cero, es una cita nueva).
+    quedo atras). Responde texto libre avisando que el equipo lo contactara;
+    NO le reofrece la agenda online (ver comentario abajo).
 
     id_agenda aca es el de la cita VIEJA (la que disparo el recordatorio),
     solo sirve para resolver nombre/RUT via info_cita -- no se actualiza."""
@@ -208,14 +206,16 @@ def _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
         except Exception as e:
             log.warning('No se pudo obtener rut/nombre de la cita %s: %s', id_agenda, e)
 
+    # A proposito NO se ofrece de nuevo la agenda online: el paciente acaba de
+    # elegir el canal humano teniendo el boton "Agendar Online" justo al lado.
+    # Repetirle el link suena insistente y contradice lo que acaba de pedir
+    # (a diferencia de _reagendar, donde el paciente NO eligio canal).
     notify.enviar_texto_libre(
         telefono,
-        '¡Qué bueno! Para agendar su control tiene dos opciones:\n\n'
-        '1️⃣ *Escríbanos por aquí mismo* y una persona de nuestro equipo lo '
-        'coordina con usted. Le responderemos a la brevedad.\n\n'
-        '2️⃣ *Elegir un horario usted mismo*, a cualquier hora, en este '
-        'enlace:\nhttps://www.ortodonciarichard.cl/#agendar\n\n'
-        '¡Le esperamos! 🦷'
+        '¡Qué bueno! Una persona de nuestro equipo lo contactará a la brevedad '
+        'para coordinar la hora de su control.\n\n'
+        'Si prefiere, puede escribirnos por aquí mismo con los días y horarios '
+        'que le acomoden. ¡Le esperamos! 🦷'
     )
     if rut:
         recaptacion.marcar_respondio(rut)
