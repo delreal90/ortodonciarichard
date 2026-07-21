@@ -655,30 +655,39 @@ es otro mensaje y por lo tanto **otra plantilla en Meta** + un selector en el F2
 soporta cualquier doctor (la etiqueta del botón se arma sola con `cita.doctor`); lo que está
 casado con Vial es el texto de la plantilla.
 
-**Largo del cuerpo — el "Leer más":** WhatsApp colapsa el mensaje pasado cierto largo que
-Meta no publica. Medido en vivo (2026-07-21): un cuerpo de **453 caracteres enviados SE
-TRUNCA**; **380 se ve completo** (probado con mensajes de texto libre de largo creciente,
-botón "🔬 Buscar el límite" en el panel → `/api/whatsapp/test-texto-libre`). El resto de las
-plantillas del proyecto va de 139 a 208 crudos. **Regla práctica: quedarse bajo ~320
-enviados.** Ojo con la unidad: `/api/whatsapp/plantillas` mide el cuerpo CRUDO (con los
-`{{n}}` sin reemplazar) y los valores reales suman ~35 caracteres más.
+**Largo del cuerpo — el "Leer más" (medido en vivo 2026-07-21):** WhatsApp colapsa el cuerpo
+pasado cierto largo que Meta no publica. **Calibrar SIEMPRE contra otra PLANTILLA, nunca con
+texto libre:** se probó primero con `/api/whatsapp/test-texto-libre` y dio 380 caracteres sin
+truncarse, pero ese número **NO aplica** — un mensaje suelto no lleva pie de página, ni
+botones, ni la tarjeta de vista previa que agrega el botón URL, y todo eso ocupa burbuja y
+adelanta el corte. Confiar en ese 380 costó dos ediciones de plantilla (cada edición manda la
+plantilla de vuelta a revisión de Meta).
 
-**Texto aprobado (275 crudo / 310 enviado):**
+Números reales, en CRUDO (con los `{{n}}` sin reemplazar, que es como los mide
+`/api/whatsapp/plantillas`; los valores reales suman ~35 más):
+- **180 crudo se ve completo** — `recordatorio_semana`, 3 botones, comprobado enviándolo.
+- **275 crudo se trunca** — primera versión de este recordatorio.
+- El resto de las plantillas del proyecto va de 139 a 208 crudos.
+
+**Regla práctica: no pasar de ~180 crudo** en plantillas con botones. Para dudas futuras, el
+método barato es mandarse una plantilla YA aprobada de largo conocido desde la card de prueba
+del panel y ver si se trunca — no gasta ediciones.
+
+**Texto (169 crudo / 204 enviado):**
 ```
 Estimado/a {{1}},
 
-Según lo planificado en su tratamiento dental con el {{2}}, ha llegado el momento de
-agendar un control de seguimiento. Su última atención fue el {{3}}.
+Le corresponde su control de seguimiento con el {{2}}. Su última atención fue el {{3}}.
 
 Estos controles detectan a tiempo lo que aún no da molestias.
-
-Puede agendar con los botones de abajo.
 ```
-Criterios de redacción, por si hay que reescribirlo: "según lo planificado" ancla en el plan
-de tratamiento que el paciente sí acordó (no depende de que recuerde una conversación);
-la fecha de la última atención va en frase aparte porque es lo que prueba que hay una ficha
-real detrás y no un envío masivo; y el cierre de cortesía se omite porque el pie de página
-ya firma la clínica.
+Criterios de redacción, por si hay que reescribirlo: la fecha de la última atención va en
+frase aparte porque es lo que prueba que hay una ficha real detrás y no un envío masivo;
+"lo que aún no da molestias" contesta la objeción real del paciente (se siente bien, por eso
+no viene) en vez de la recomendación genérica de salud que nadie acciona; y NO se pone una
+línea tipo "puede agendar con los botones de abajo" — los botones están ahí y dicen
+"Agendar Online" / "Agendar por WhatsApp", esa línea era la que sobraba al recortar. Se
+descartaron versiones más largas y cálidas solo por el límite del "Leer más" (ver arriba).
 
 **Plantilla Meta `recordatorio_control_dr_vial`** (es_CL, categoría **Utility** solicitada,
 **Meta la reclasificó a MARKETING** — sin cambio de código, pero implica tope de frecuencia
