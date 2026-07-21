@@ -1692,6 +1692,61 @@ def whatsapp_subscribed_apps():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 502
 
+@app.route('/api/whatsapp/plantillas', methods=['GET'])
+def whatsapp_plantillas():
+    """Diagnostico (protegido por ADMIN_TOKEN): lista las plantillas de la WABA
+    con su estado, categoria y el LARGO del cuerpo en caracteres.
+
+    Motivo del largo: WhatsApp colapsa el cuerpo con un "Leer mas" cuando se
+    pasa de cierto tamanio (Meta no publica el umbral). Comparar contra las
+    plantillas que ya funcionan sin truncarse da el limite empirico -- es la
+    unica forma honesta de saber cuanto hay que recortar. El cuerpo vive solo
+    en Meta, no en este repo, por eso hay que preguntarselo a la Graph API.
+
+    Query: waba_id (default: WA_WABA_ID, y si tampoco esta, la WABA real)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    waba_id = (request.args.get('waba_id') or os.environ.get('WA_WABA_ID')
+               or '106738482086473').strip()
+    cfg = wa_cloud._config()
+    if not cfg['token']:
+        return jsonify({'ok': False, 'error': 'Falta WA_TOKEN'}), 400
+
+    url = f"https://graph.facebook.com/{cfg['api_version']}/{waba_id}/message_templates"
+    params = {'fields': 'name,status,category,language,components', 'limit': 100}
+    headers = {'Authorization': f"Bearer {cfg['token']}"}
+    try:
+        resp = wa_cloud.requests.get(url, params=params, headers=headers, timeout=15)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+    if resp.status_code >= 400:
+        return jsonify({'ok': False, 'error': f'Meta respondio {resp.status_code}: {resp.text[:300]}'}), 502
+
+    out = []
+    for t in (resp.json() or {}).get('data', []):
+        cuerpo = ''
+        n_botones = 0
+        for c in t.get('components', []) or []:
+            if c.get('type') == 'BODY':
+                cuerpo = c.get('text') or ''
+            elif c.get('type') == 'BUTTONS':
+                n_botones = len(c.get('buttons') or [])
+        out.append({
+            'nombre': t.get('name'),
+            'estado': t.get('status'),
+            'categoria': t.get('category'),
+            'idioma': t.get('language'),
+            # Largo del cuerpo CRUDO (con los {{n}} sin reemplazar): al enviarlo
+            # los valores reales suelen ser mas largos que el placeholder, asi
+            # que este numero es un piso, no el largo final.
+            'largo_cuerpo': len(cuerpo),
+            'botones': n_botones,
+            'cuerpo': cuerpo,
+        })
+    out.sort(key=lambda x: x['largo_cuerpo'], reverse=True)
+    return jsonify({'ok': True, 'waba_id': waba_id, 'plantillas': out})
+
+
 @rate_limit('20 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
 def agenda_citas_futuras():

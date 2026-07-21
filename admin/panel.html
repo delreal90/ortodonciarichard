@@ -344,8 +344,10 @@
             </select>
           </div>
           <button class="btn btn-sm btn-primary" onclick="enviarWaTest()">Enviar prueba</button>
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="verPlantillas()">📏 Ver plantillas y su largo</button>
         </div>
         <div id="wa-test-res" style="font-size:.85rem;margin-top:10px"></div>
+        <div id="wa-plantillas" style="font-size:.85rem;margin-top:10px"></div>
       </div>
 
       <!-- ── Recordatorios de control ──────────────────── -->
@@ -1155,6 +1157,36 @@ async function enviarWaTest() {
     out.innerHTML = d.ok
       ? '<span style="color:#2f855a">✅ Meta aceptó el envío. Revisa el celular.</span>'
       : `<span style="color:#e53e3e">${_esc(d.error || 'Error desconocido')}</span>`;
+  } catch (e) {
+    out.innerHTML = `<span style="color:#e53e3e">No se pudo conectar: ${_esc(e.message)}</span>`;
+  }
+}
+
+// Lista las plantillas de la WABA con el largo de su cuerpo. Sirve para saber
+// hasta dónde se puede estirar un texto sin que WhatsApp lo colapse con
+// "Leer más": las que ya funcionan sin truncarse son el límite empírico.
+async function verPlantillas() {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const out = document.getElementById('wa-plantillas');
+  out.textContent = 'Consultando a Meta…';
+  try {
+    const r = await fetch(url + '/api/whatsapp/plantillas', { headers: _waHeaders() });
+    const d = await r.json();
+    if (!d.ok) { out.innerHTML = `<span style="color:#e53e3e">${_esc(d.error || 'Error')}</span>`; return; }
+    if (!d.plantillas.length) { out.textContent = 'La WABA no tiene plantillas.'; return; }
+    out.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.82rem">
+      <tr style="text-align:left;color:#718096">
+        <th style="padding:4px 6px">Plantilla</th><th style="padding:4px 6px">Largo</th>
+        <th style="padding:4px 6px">Botones</th><th style="padding:4px 6px">Categoría</th>
+        <th style="padding:4px 6px">Estado</th></tr>
+      ${d.plantillas.map(p => `<tr style="border-top:1px solid #edf2f7">
+        <td style="padding:4px 6px">${_esc(p.nombre)}</td>
+        <td style="padding:4px 6px;font-weight:600">${p.largo_cuerpo}</td>
+        <td style="padding:4px 6px">${p.botones}</td>
+        <td style="padding:4px 6px">${_esc(p.categoria || '')}</td>
+        <td style="padding:4px 6px">${_esc(p.estado || '')}</td></tr>`).join('')}
+    </table>
+    <p style="color:#718096;margin-top:6px">Largo del cuerpo con los {{n}} sin reemplazar: al enviarse, los datos reales lo alargan un poco más.</p>`;
   } catch (e) {
     out.innerHTML = `<span style="color:#e53e3e">No se pudo conectar: ${_esc(e.message)}</span>`;
   }
