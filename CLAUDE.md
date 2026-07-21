@@ -644,7 +644,46 @@ cita por `IdAgenda` (mismo truco que `asistente_confirmar_cita`).
 Las forzables devuelven **409** con `motivo`/`detalle`/`puede_forzar`; el F2 lo muestra como
 advertencia (no error rojo) con un botón **"Enviar igual"** que reintenta con `forzar:true`.
 
-**Plantilla Meta `recordatorio_control_dr_vial`** (es_CL, categoría **Utility**), `{{1}}`=nombre
+**A QUIÉN se le manda (importante para el texto):** pacientes **del Dr. Vial**, que es
+**rehabilitador oral e implantólogo**, NO ortodoncista. Son pacientes de operatoria,
+rehabilitación e implantes que ya terminaron su tratamiento y a los que les corresponde el
+control periódico. Por eso el mensaje habla de "control de seguimiento" y de que las
+alteraciones no dan molestias al comienzo (es la objeción real: el paciente se siente bien).
+⚠️ **Si algún día se usa con los tres ortodoncistas, el texto NO sirve** — a esos pacientes
+les corresponde control de RETENCIÓN (retenedores que se sueltan, dientes que se mueven), que
+es otro mensaje y por lo tanto **otra plantilla en Meta** + un selector en el F2. El código ya
+soporta cualquier doctor (la etiqueta del botón se arma sola con `cita.doctor`); lo que está
+casado con Vial es el texto de la plantilla.
+
+**Largo del cuerpo — el "Leer más":** WhatsApp colapsa el mensaje pasado cierto largo que
+Meta no publica. Medido en vivo (2026-07-21): un cuerpo de **453 caracteres enviados SE
+TRUNCA**; **380 se ve completo** (probado con mensajes de texto libre de largo creciente,
+botón "🔬 Buscar el límite" en el panel → `/api/whatsapp/test-texto-libre`). El resto de las
+plantillas del proyecto va de 139 a 208 crudos. **Regla práctica: quedarse bajo ~320
+enviados.** Ojo con la unidad: `/api/whatsapp/plantillas` mide el cuerpo CRUDO (con los
+`{{n}}` sin reemplazar) y los valores reales suman ~35 caracteres más.
+
+**Texto aprobado (275 crudo / 310 enviado):**
+```
+Estimado/a {{1}},
+
+Según lo planificado en su tratamiento dental con el {{2}}, ha llegado el momento de
+agendar un control de seguimiento. Su última atención fue el {{3}}.
+
+Estos controles detectan a tiempo lo que aún no da molestias.
+
+Puede agendar con los botones de abajo.
+```
+Criterios de redacción, por si hay que reescribirlo: "según lo planificado" ancla en el plan
+de tratamiento que el paciente sí acordó (no depende de que recuerde una conversación);
+la fecha de la última atención va en frase aparte porque es lo que prueba que hay una ficha
+real detrás y no un envío masivo; y el cierre de cortesía se omite porque el pie de página
+ya firma la clínica.
+
+**Plantilla Meta `recordatorio_control_dr_vial`** (es_CL, categoría **Utility** solicitada,
+**Meta la reclasificó a MARKETING** — sin cambio de código, pero implica tope de frecuencia
+por usuario (Meta puede NO entregar el mensaje aunque la API responda "aceptado") y más peso
+en la calidad del número si la gente bloquea → mandar en tandas chicas), `{{1}}`=nombre
 `{{2}}`=doctor `{{3}}`=fecha legible larga ("martes 1 de abril del 2025"). **Meta SÍ acepta
 los 3 botones de tipos MEZCLADOS** (verificado 2026-07-21). Orden real con que quedó creada:
 **0 = "Agendar Online"** (URL → `ortodonciarichard.cl/#agendar`), **1 = "Llamar por teléfono"**
@@ -676,10 +715,21 @@ historial con marca de quién respondió, lista de no molestar) y `dentidesk-ass
 `no_molestar` juntos, una sola llamada para la card), `POST /api/recaptacion/no-molestar`
 `{rut, quitar?}`. Todos con `ADMIN_TOKEN`.
 
-**Pendientes:** crear y aprobar la plantilla en la **WABA real 106738482086473**; confirmar
-que Meta acepte la mezcla quick-reply + CTA (si no, se deja solo el quick-reply y el link y
-el teléfono se pasan al cuerpo del texto) y fijar `IDX_BOTON_AGENDAR_WA` con la posición
-real; probar el envío a Alberto (+56 9 8903 2888) y el toque del botón end-to-end.
+**Verificado en vivo (2026-07-21):** plantilla creada y APROBADA en la WABA real; Meta SÍ
+acepta la mezcla quick-reply + CTA; envío a Alberto OK; toque de "Agendar por WhatsApp" →
+respuesta al paciente + correo a recepción, ambos confirmados. Falta solo reeditar el cuerpo
+con el texto definitivo de arriba (la primera versión salía con "Leer más" por larga).
+
+**Herramientas de diagnóstico que quedaron en el panel** (pestaña WhatsApp, card "🧪 Envío de
+prueba"): envío de una plantilla suelta a un teléfono (`/api/whatsapp/test`, ahora incluye
+`recordatorio_control_dr_vial`), listado de todas las plantillas con estado/categoría/largo
+del cuerpo (`/api/whatsapp/plantillas`), y la sonda del "Leer más". Antes el endpoint de
+prueba solo se podía llamar por API teniendo el ADMIN_TOKEN a mano.
+
+**Pendientes:** cargar la extensión actualizada en el PC de la asistente dental (los cambios
+de `content.js`/`background.js` NO viajan por Render — hay que copiar la carpeta y recargar
+la extensión, con el ADMIN_TOKEN en `config.js`); definir con la clínica el ritmo de envío
+(tandas chicas, con alguien disponible para contestar los que respondan).
 
 ---
 
