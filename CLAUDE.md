@@ -613,6 +613,76 @@ verificar cómo viene DESCRIPCION cuando la boleta tiene varias líneas de detal
 
 ---
 
+## Recordatorio de control — recaptación desde F2 (2026-07-21)
+
+Aviso por WhatsApp a pacientes que dejaron de venir, para que agenden su próximo control.
+Lo dispara **a mano la asistente dental**, no un scheduler: abre en DentiDesk la cita de la
+**última atención** del paciente, aprieta **F2**, y el panel muestra
+**"🔔 Recordatorio de control {doctor}"** (etiqueta dinámica: en el PC de la asistente del
+Dr. Vial se lee "Recordatorio de control Dr. Vial"). El criterio de a quién le corresponde
+control sigue siendo humano.
+
+**Reemplazó a un flujo manual de 3 pasos** (la asistente armaba un Google Sheet
+`PACIENTES POR LLAMAR PV` → se lo pasaba a la secretaria → esta mandaba los WhatsApp uno a
+uno). Se evaluó automatizar la lectura de ese Sheet con la cuenta de servicio de Drive y
+**se descartó a propósito**: el modal de la cita abierta ya trae los tres datos que el
+mensaje necesita (nombre, doctor, fecha del último control), así que la planilla sobra y con
+ella desaparecen el copiado manual y los celulares mal tipeados. **No revivir el Sheet.**
+
+**Datos:** todos salen de la cita abierta. `content.js leerCita()` ya devuelve
+`idAgenda/fecha/doctor/nombre/rut` — no hubo que leer nada nuevo del DOM. El **teléfono** NO
+está en el modal: el backend lo saca FRESCO de `getAgendaDay(fecha, force=True)` ubicando la
+cita por `IdAgenda` (mismo truco que `asistente_confirmar_cita`).
+
+**Las 3 guardas (`recaptacion.evaluar`)** — son el valor real del sistema, en este orden:
+1. `no_molestar` — RUT marcado a mano desde el F2 (botón "🚫 No volver a recordar", reemplaza
+   la nota suelta "NO INSISTIR AL PACIENTE" que vivía en la planilla). **Nunca se salta.**
+2. `ya_tiene_hora` — `dentidesk.citas_futuras_paciente(rut)` devuelve cita activa futura.
+   Detalle en texto legible ("ya tiene hora agendada el sábado 8 de agosto…"). Forzable.
+3. `enviado_reciente` — dentro de `dias_minimos_reenvio` (default **90**, editable en el panel).
+   Forzable.
+Las forzables devuelven **409** con `motivo`/`detalle`/`puede_forzar`; el F2 lo muestra como
+advertencia (no error rojo) con un botón **"Enviar igual"** que reintenta con `forzar:true`.
+
+**Plantilla Meta `recordatorio_control_dr_vial`** (es_CL, categoría **Utility**), `{{1}}`=nombre
+`{{2}}`=doctor `{{3}}`=fecha legible larga ("martes 1 de abril del 2025"). **Meta SÍ acepta
+los 3 botones de tipos MEZCLADOS** (verificado 2026-07-21). Orden real con que quedó creada:
+**0 = "Agendar Online"** (URL → `ortodonciarichard.cl/#agendar`), **1 = "Llamar por teléfono"**
+(+56 2 2217 3499), **2 = "Agendar por WhatsApp"** (quick-reply). Solo el quick-reply acepta
+payload (`control:{id_agenda}:{fecha}`) → por eso `_enviar_plantilla()` ganó el parámetro
+`boton_indices` (índices CONCRETOS, en vez de asumir que `0..num_botones-1` son todos
+quick-reply) y `wa_cloud.IDX_BOTON_AGENDAR_WA = 2` marca su posición. ⚠️ **Si algún día se
+reordenan los botones al editar la plantilla, hay que ajustar ese índice** — si no, el
+payload se le pone al botón equivocado y el webhook no sabe de qué paciente vino el toque.
+Mientras Meta no la apruebe, `notify.enviar_recordatorio_control()` cae a
+`conversacion_general` (mismo fallback que usó `consentimiento_informado`).
+
+**Webhook:** `ACCION_AGENDAR_WA = 'Agendar por WhatsApp'` → `webhook_wa._agendar_por_whatsapp()`
+responde texto libre (link de agenda + ofrecer coordinar por ahí mismo), marca `respondio`
+en el registro y **avisa a recepción por email** (`notify.avisar_recepcion_interes_control`)
+— ese aviso es lo que hace que alguien conteste. **No toca DentiDesk** (no hay cita que
+actualizar). Los botones URL y de teléfono NO generan evento de webhook.
+
+**Archivos:** `admin/recaptacion.py` (config + registro + guardas, molde `recordatorios_wa.py`;
+`recaptacion_config.json` / `recaptacion_registro.json` en el disco persistente vía
+`PATIENT_INDEX_PATH`), y cambios en `wa_cloud.py`, `notify.py`, `webhook_wa.py`, `server.py`,
+`admin/panel.html` (card "Recordatorios de control" en la pestaña WhatsApp: días mínimos,
+historial con marca de quién respondió, lista de no molestar) y `dentidesk-assistant/`
+(`content.js` + handler genérico `ASISTENTE_API` en `background.js`, que a diferencia de
+`SEGURO_API` devuelve también el `status` HTTP porque el 409 es un caso de negocio).
+
+**Endpoints:** `POST /api/asistente/recordatorio-control` `{id_agenda, fecha, forzar?}` (F2),
+`GET/POST /api/recaptacion/config`, `GET /api/recaptacion/historial` (devuelve `envios` +
+`no_molestar` juntos, una sola llamada para la card), `POST /api/recaptacion/no-molestar`
+`{rut, quitar?}`. Todos con `ADMIN_TOKEN`.
+
+**Pendientes:** crear y aprobar la plantilla en la **WABA real 106738482086473**; confirmar
+que Meta acepte la mezcla quick-reply + CTA (si no, se deja solo el quick-reply y el link y
+el teléfono se pasan al cuerpo del texto) y fijar `IDX_BOTON_AGENDAR_WA` con la posición
+real; probar el envío a Alberto (+56 9 8903 2888) y el toque del botón end-to-end.
+
+---
+
 ## Compras / Gastos / Stock — app online multiusuario (Fases 1 y 2 COMPLETAS, 2026-07-08)
 
 Sistema para llevar el registro de compras y gastos con seguimiento de stock. App web

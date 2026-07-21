@@ -219,6 +219,47 @@ def enviar_recordatorio_dia(cita):
         return {'ok': False, 'error': str(e)}
 
 
+def enviar_recordatorio_control(cita):
+    """Recordatorio de control (recaptacion de pacientes que dejaron de venir),
+    disparado a mano desde el asistente F2. cita: nombre, telefono,
+    doctor_nombre, fecha_legible, fecha, id_agenda (de la ULTIMA cita del
+    paciente, que es de donde salen todos los datos).
+
+    Igual que _enviar_whatsapp() (fallback de la confirmacion): si la
+    plantilla dedicada 'recordatorio_control_dr_vial' todavia no existe o no
+    esta aprobada en Meta, cae de vuelta a 'conversacion_general' con un
+    motivo libre -- mismo patron que _enviar_whatsapp_consentimiento(), para
+    no dejar de enviar mientras se aprueba."""
+    if not cita.get('telefono'):
+        return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
+    try:
+        r = wa_cloud.enviar_recordatorio_control(
+            telefono=cita['telefono'], nombre=cita['nombre'],
+            doctor=cita['doctor_nombre'], fecha_legible=cita['fecha_legible'],
+            id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
+        )
+        return {'ok': bool(r.get('ok'))}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.warning('recordatorio_control_dr_vial no disponible (%s); uso conversacion_general', e)
+        try:
+            motivo = (f"le corresponde su control con {cita['doctor_nombre']}. "
+                      "Puede agendar hora directamente respondiendo por este medio.")
+            r2 = wa_cloud.enviar_conversacion_general(cita['telefono'], cita['nombre'], motivo)
+            return {'ok': bool(r2.get('ok'))}
+        except wa_cloud.WhatsAppCloudError as e2:
+            log.error('WhatsApp Cloud API error (recordatorio_control, fallback): %s', e2)
+            return {'ok': False, 'error': str(e2)}
+
+
+def avisar_recepcion_interes_control(nombre, telefono):
+    """El paciente toco 'Agendar por WhatsApp' desde el recordatorio de
+    control -- avisar de inmediato para que recepcion le conteste y coordine
+    la hora (mismo patron que avisar_recepcion_anulacion)."""
+    filas = _fila('Paciente', nombre) + _fila('Teléfono', telefono)
+    html = _aviso_recepcion_html('Un paciente quiere agendar su control por WhatsApp', filas)
+    return _enviar_email_recepcion(f'Interés en agendar control — {nombre or telefono}', html)
+
+
 def enviar_inasistencia(cita):
     """cita: nombre, telefono, fecha_legible, id_agenda, fecha."""
     if not cita.get('telefono'):

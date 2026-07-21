@@ -53,6 +53,17 @@ class WhatsAppCloudError(Exception):
 
 IDIOMA = 'es_CL'
 
+# Posicion del boton quick-reply ("Agendar por WhatsApp") dentro de la
+# plantilla 'recordatorio_control_dr_vial'. Meta SI acepto los 3 botones
+# MEZCLADOS y el orden REAL con que quedo creada (verificado 2026-07-21) es:
+#   0 = "Agendar Online"        (URL)
+#   1 = "Llamar por telefono"   (telefono)
+#   2 = "Agendar por WhatsApp"  (quick-reply)  <-- el unico que acepta payload
+# Los botones URL/telefono NO llevan componente 'button' en el envio (Meta los
+# resuelve solo con lo aprobado) y NO generan evento de webhook. Si algun dia
+# se reordenan los botones al editar la plantilla, hay que ajustar este indice.
+IDX_BOTON_AGENDAR_WA = 2
+
 
 def _config():
     return {
@@ -116,12 +127,19 @@ def _param(texto):
 
 
 def _enviar_plantilla(telefono, nombre_plantilla, parametros_body, header_video_url=None,
-                       boton_payload=None, num_botones=0):
+                       boton_payload=None, num_botones=0, boton_indices=None):
     """Arma y envia un mensaje de plantilla. parametros_body: lista ordenada
     de valores para {{1}}, {{2}}, ... del cuerpo. boton_payload/num_botones:
     si la plantilla tiene botones quick-reply, se les fija el MISMO payload
-    (usado para identificar la cita al recibir el toque via webhook) en cada
-    indice 0..num_botones-1."""
+    (usado para identificar la cita al recibir el toque via webhook).
+
+    boton_indices: lista opcional de indices CONCRETOS (0-based) a los que
+    ponerle el payload -- para plantillas con botones MEZCLADOS (URL/telefono
+    + quick-reply), donde NO todos los indices 0..num_botones-1 son
+    quick-reply (los CTA de tipo URL/telefono no aceptan componente 'button'
+    en el envio, Meta los resuelve solo con lo aprobado). Si no viene, se
+    mantiene el comportamiento de siempre: range(num_botones) -- no rompe a
+    los llamadores existentes (todos con botones 100% quick-reply)."""
     to = _normalizar_telefono(telefono)
     components = []
     if header_video_url:
@@ -135,7 +153,8 @@ def _enviar_plantilla(telefono, nombre_plantilla, parametros_body, header_video_
             'parameters': [_param(v) for v in parametros_body],
         })
     if boton_payload and num_botones:
-        for i in range(num_botones):
+        indices = boton_indices if boton_indices is not None else range(num_botones)
+        for i in indices:
             components.append({
                 'type': 'button',
                 'sub_type': 'quick_reply',
@@ -214,6 +233,20 @@ def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora
     return _enviar_plantilla(telefono, 'primera_consulta',
                               [nombre, doctor_nombre, fecha_legible, hora],
                               header_video_url=video_url)
+
+
+def enviar_recordatorio_control(telefono, nombre, doctor, fecha_legible, id_agenda, fecha_iso=''):
+    """Recordatorio de control (recaptacion), disparado a mano desde el
+    asistente F2. Plantilla 'recordatorio_control_dr_vial', {{1}}=nombre
+    {{2}}=doctor {{3}}=fecha_legible. Botones MEZCLADOS (ver
+    IDX_BOTON_AGENDAR_WA arriba): solo el quick-reply "Agendar por WhatsApp"
+    lleva payload 'control:{id_agenda}:{fecha_iso}' (mismo formato
+    tipo:id:fecha que recordatorio_semana/dia, para que webhook_wa.py lo
+    parsee con el mismo split(':'))."""
+    return _enviar_plantilla(telefono, 'recordatorio_control_dr_vial',
+                              [nombre, doctor, fecha_legible],
+                              boton_payload=f'control:{id_agenda}:{fecha_iso}',
+                              num_botones=1, boton_indices=[IDX_BOTON_AGENDAR_WA])
 
 
 # ── Mensaje libre (respuesta dentro de la ventana de 24h) ───────────────────

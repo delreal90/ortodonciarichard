@@ -667,6 +667,7 @@ import notify
 import wa_cloud
 import recordatorios_wa
 import webhook_wa
+import recaptacion
 from datetime import date, datetime
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -2270,6 +2271,189 @@ def asistente_confirmar_cita():
             'motivo':   cita_dict['motivo_label'],
         }
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RECAPTACION — recordatorio de control (recordatorios_wa.py escanea solo;
+# aca la secretaria dispara UN envio puntual desde la ULTIMA cita del
+# paciente, abierta en DentiDesk con F2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/asistente/recordatorio-control', methods=['POST'])
+def asistente_recordatorio_control():
+    """
+    Envia el recordatorio de control (recaptacion) de un paciente que dejo de
+    venir. Llamado por el asistente F2 con la ULTIMA cita del paciente abierta
+    en DentiDesk -- todos los datos (telefono, nombre, doctor) salen de esa
+    cita, no hay escaneo.
+
+    Body JSON: { "id_agenda": "13350327", "fecha": "2026-04-01", "forzar": false }
+    "forzar" (opcional): salta las guardas ya_tiene_hora / enviado_reciente,
+    pero NUNCA no_molestar ni la validacion de telefono -- esas dos son
+    objetivas (dato invalido / decision explicita de no contactar), no
+    "por si las dudas".
+    Protegido por ADMIN_TOKEN (mismo patron que asistente_confirmar_cita).
+
+    Flujo:
+      1. Trae la cita del dia desde DentiDesk (getAgendaDay, FRESCA, force=True)
+         -- misma razon que asistente_confirmar_cita: F2 se usa justo despues
+         de abrir/revisar la cita, no hay que arriesgarse a cache vieja.
+      2. Localiza la cita por IdAgenda; saca telefono/nombre/doctor/RUT.
+      3. Valida el telefono (celular chileno, 569XXXXXXXX) -- si no, 400.
+      4. recaptacion.evaluar(rut) -- salvo forzar, cualquier guarda bloquea
+         (409); con forzar, solo no_molestar sigue bloqueando.
+      5. Envia con notify.enviar_recordatorio_control() y, si sale ok,
+         recaptacion.marcar_enviado() (no se marca si el envio fallo -- asi
+         un reintento no queda contaminado por un "enviado" que no llego).
+      6. Devuelve { ok, telefono_enmascarado, nombre, doctor, fecha_legible }
+         (+ 'advertencia' si la fecha de la cita es futura -- no bloquea, es
+         un dato raro para un recordatorio de CONTROL pero no un error).
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+
+    data = request.json or {}
+    id_agenda = str(data.get('id_agenda', '')).strip()
+    fecha_str = (data.get('fecha') or '').strip()
+    forzar = bool(data.get('forzar', False))
+
+    if not id_agenda:
+        return jsonify({'ok': False, 'error': 'Falta id_agenda'}), 400
+    try:
+        fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Fecha inválida (esperado YYYY-MM-DD)'}), 400
+
+    cfg = scheduling.load_config()
+    import pacientes as _pacientes
+
+    # Modo mock (sin credenciales DentiDesk): cita simulada -- evita llamar a
+    # _get_agenda_day sin credenciales reales (mismo criterio que
+    # asistente_confirmar_cita). Las guardas de recaptacion basadas en
+    # registro (no_molestar/enviado_reciente) SI corren normal aca -- son
+    # locales, no dependen de DentiDesk. La guarda ya_tiene_hora nunca
+    # dispara en este modo (citas_futuras_paciente devuelve [] con
+    # dentidesk deshabilitado); para probarla hay que simularla aparte.
+    if not cfg['dentidesk']['enabled']:
+        rut = f'MOCK{id_agenda}'
+        nombre = 'Paciente'
+        doctor = 'Dr. Patricio Vial'
+        telefono = '+56 9 1111 2222'
+    else:
+        try:
+            citas_dia = dentidesk._get_agenda_day(cfg, fecha, force=True)
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'Error al consultar DentiDesk: {e}'}), 502
+
+        cita_raw = next(
+            (c for c in citas_dia if str(c.get('IdAgenda', '')) == id_agenda),
+            None
+        )
+        if not cita_raw:
+            return jsonify({'ok': False, 'error': f'No se encontró la cita {id_agenda} en la agenda del {fecha_str}'}), 404
+
+        rut = (cita_raw.get('PatientDocument') or '').strip()
+        nombres_raw, _ = _pacientes._split_nombre(cita_raw.get('PatientName', ''))
+        nombre = nombres_raw or 'Paciente'
+        doctor = (cita_raw.get('ProfessionalName') or '').strip()
+        telefono = (cita_raw.get('Phone') or '').strip()
+
+    # Telefono: celular chileno E.164 sin '+' (569XXXXXXXX, 11 digitos). Dato
+    # objetivamente invalido -- ni forzar lo salta (puede_forzar: False).
+    tel_norm = wa_cloud._normalizar_telefono(telefono)
+    if len(tel_norm) != 11 or not tel_norm.startswith('569'):
+        return jsonify({
+            'ok': False,
+            'error': 'La cita no tiene un celular chileno válido registrado (formato 9XXXXXXXX). Agrégalo en DentiDesk, guarda, y vuelve a intentar.',
+            'puede_forzar': False,
+        }), 400
+
+    advertencia = None
+    if fecha > date.today():
+        advertencia = 'La fecha de la cita de origen es futura -- verifica que sea la cita correcta.'
+
+    # recaptacion.evaluar() siempre corre (para saber si no_molestar aplica);
+    # con forzar=True se ignoran las otras dos guardas.
+    bloqueo = recaptacion.evaluar(rut)
+    if bloqueo and (not forzar or bloqueo['motivo'] == 'no_molestar'):
+        return jsonify({'ok': False, **bloqueo}), 409
+
+    fecha_legible = recaptacion.fecha_legible_larga(fecha)
+    cita_dict = {
+        'nombre': nombre,
+        'telefono': telefono,
+        'doctor_nombre': doctor,
+        'fecha_legible': fecha_legible,
+        'fecha': fecha.isoformat(),
+        'id_agenda': id_agenda,
+    }
+    resultado = notify.enviar_recordatorio_control(cita_dict)
+    if not resultado.get('ok'):
+        return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar el WhatsApp'}), 502
+
+    recaptacion.marcar_enviado(rut, id_agenda, doctor, nombre)
+
+    respuesta = {
+        'ok': True,
+        'telefono_enmascarado': _pacientes.enmascarar_telefono(telefono),
+        'nombre': nombre,
+        'doctor': doctor,
+        'fecha_legible': fecha_legible,
+    }
+    if advertencia:
+        respuesta['advertencia'] = advertencia
+    return jsonify(respuesta)
+
+
+@app.route('/api/recaptacion/config', methods=['GET'])
+def get_recaptacion_config():
+    """Protegido por ADMIN_TOKEN: dias_minimos_reenvio."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'config': recaptacion.load_config()})
+
+
+@app.route('/api/recaptacion/config', methods=['POST'])
+def set_recaptacion_config():
+    """Guarda cambios parciales (dias_minimos_reenvio). Toma efecto de
+    inmediato -- no requiere deploy, vive en el disco persistente."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    cfg = recaptacion.save_config(data)
+    return jsonify({'ok': True, 'config': cfg})
+
+
+@app.route('/api/recaptacion/historial', methods=['GET'])
+def get_recaptacion_historial():
+    """Envios de recordatorio de control, mas reciente primero (para la
+    pestania del panel)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    limite = request.args.get('limite', 100, type=int)
+    # Las dos listas viajan juntas a proposito: la pestania del panel pinta el
+    # historial y la lista de "no molestar" en la misma card, con una sola
+    # llamada (mismo criterio que el resto del panel remoto).
+    return jsonify({'ok': True,
+                    'envios': recaptacion.historial(limite),
+                    'no_molestar': recaptacion.lista_no_molestar()})
+
+
+@app.route('/api/recaptacion/no-molestar', methods=['POST'])
+def set_recaptacion_no_molestar():
+    """Agrega o quita un RUT de la lista de 'no molestar' (nunca recibe
+    recordatorio de control, ni con forzar). Body: {rut, quitar?: bool}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta rut'}), 400
+    if data.get('quitar'):
+        lista = recaptacion.quitar_no_molestar(rut)
+    else:
+        lista = recaptacion.agregar_no_molestar(rut)
+    return jsonify({'ok': True, 'no_molestar': lista})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

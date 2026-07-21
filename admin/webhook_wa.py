@@ -24,6 +24,13 @@ Reglas de negocio:
                   vigente hasta que confirme la nueva (asi no queda sin hora si
                   abandona el flujo).
 
+  - Agendar por WhatsApp (recaptacion) -> viene del recordatorio de control
+                  (ver recaptacion.py), payload "control:{id_agenda}:{fecha}".
+                  Responde texto libre + link a la agenda online (cita
+                  NUEVA, no precarga nada), marca el envio como respondido
+                  (recaptacion.marcar_respondio) y avisa a recepcion. NO toca
+                  DentiDesk -- no hay cita vigente que actualizar.
+
 Ignora cualquier evento que no sea un toque de boton (mensajes de texto libre,
 recibos de entrega/lectura, etc.) -- esos se ven manualmente en la bandeja de
 Meta Business Suite, no los procesa este bot.
@@ -34,12 +41,17 @@ from datetime import datetime
 
 import dentidesk
 import notify
+import recaptacion
 
 log = logging.getLogger(__name__)
 
 ACCION_CONFIRMAR = 'Confirmo'
 ACCION_ANULAR = 'Anular'
 ACCION_REAGENDAR = 'Reagendar'
+# Texto EXACTO del quick-reply de la plantilla 'recordatorio_control_dr_vial'
+# (recaptacion) -- igual que las otras 3 acciones, Meta manda siempre el
+# mismo texto aprobado, asi que se identifica por texto, no por indice.
+ACCION_AGENDAR_WA = 'Agendar por WhatsApp'
 
 # Link a la agenda online con el id (y la fecha) de la cita vieja codificados
 # en el hash. El frontend usa la fecha para pedirle a /api/agenda/reagendar-info
@@ -101,6 +113,8 @@ def _procesar_mensaje(msg, cfg, contactos=None):
         _anular(id_agenda, telefono, cfg, fecha, perfil_nombre)
     elif texto == ACCION_REAGENDAR:
         _reagendar(id_agenda, telefono, cfg, fecha)
+    elif texto == ACCION_AGENDAR_WA:
+        _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha, perfil_nombre)
     else:
         log.info('Boton no manejado: %r (cita %s)', texto, id_agenda)
         return False
@@ -170,3 +184,39 @@ def _reagendar(id_agenda, telefono, cfg, fecha=''):
         'enlace:\n' + link + '\n\n'
         'Su hora actual se mantiene agendada hasta que confirme la nueva. 🦷'
     )
+
+
+def _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
+    """El paciente toco 'Agendar por WhatsApp' desde el recordatorio de
+    control -- NO toca DentiDesk (no hay cita que actualizar, la de origen ya
+    quedo atras). Responde texto libre en el mismo tono que _reagendar (una
+    persona del equipo coordina + el link de la agenda online como
+    alternativa para elegir hora solo, esta vez SIN precargar id -- el
+    paciente elige doctor/motivo/hora desde cero, es una cita nueva).
+
+    id_agenda aca es el de la cita VIEJA (la que disparo el recordatorio),
+    solo sirve para resolver nombre/RUT via info_cita -- no se actualiza."""
+    rut = ''
+    nombre = perfil_nombre or ''
+    if fecha:
+        try:
+            f = datetime.strptime(fecha, '%Y-%m-%d').date()
+            c = dentidesk.info_cita(cfg, id_agenda, f)
+            if c:
+                rut = (c.get('PatientDocument') or '').strip()
+                nombre = (c.get('PatientName') or '').strip() or nombre
+        except Exception as e:
+            log.warning('No se pudo obtener rut/nombre de la cita %s: %s', id_agenda, e)
+
+    notify.enviar_texto_libre(
+        telefono,
+        '¡Qué bueno! Para agendar su control tiene dos opciones:\n\n'
+        '1️⃣ *Escríbanos por aquí mismo* y una persona de nuestro equipo lo '
+        'coordina con usted. Le responderemos a la brevedad.\n\n'
+        '2️⃣ *Elegir un horario usted mismo*, a cualquier hora, en este '
+        'enlace:\nhttps://www.ortodonciarichard.cl/#agendar\n\n'
+        '¡Le esperamos! 🦷'
+    )
+    if rut:
+        recaptacion.marcar_respondio(rut)
+    notify.avisar_recepcion_interes_control(nombre, telefono)

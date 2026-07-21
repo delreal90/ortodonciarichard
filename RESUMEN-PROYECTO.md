@@ -78,6 +78,10 @@ getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
 - **Seguros complementarios** — F2 tras emitir boleta → rellena el PDF OFICIAL de la
   aseguradora (Zurich/Colmena mapeadas) con datos+glosa de la boleta → email. Auto-envío
   opcional (vigilante en la extensión, APAGADO por defecto). → "Seguros Complementarios".
+- **Recordatorio de control (recaptación)** — la asistente abre la cita de la última
+  atención, F2 → WhatsApp al paciente para que agende. 3 guardas (no molestar / ya tiene
+  hora / enviado hace poco). Reemplazó al Google Sheet "PACIENTES POR LLAMAR" — no
+  revivirlo. → "Recordatorio de control".
 - **Compras / Gastos / Stock** — app con login/roles propios, SQLite, escaneo, etiquetas. → "Compras".
 - **Asistente F2** — extensión MV3: `content.js` lee el modal, `background.js` hace los
   fetch, `config.js` (apiBase + adminToken en texto plano → no subir a repo público). → "Asistente F2".

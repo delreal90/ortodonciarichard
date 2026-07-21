@@ -318,6 +318,37 @@
       </div>
 
       <button class="btn btn-primary" onclick="saveWhatsapp()">Guardar configuración</button>
+
+      <!-- ── Recordatorios de control ──────────────────── -->
+      <div class="card" style="margin-top:26px;margin-bottom:18px">
+        <h3 style="margin-bottom:6px">🦷 Recordatorios de control</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:14px">
+          La asistente F2 le escribe por WhatsApp a los pacientes que dejaron de venir a control,
+          invitándolos a agendar de nuevo. Acá se ajusta el mínimo entre reintentos, se revisa a
+          quién se le escribió y quién respondió, y se administra la lista de "no molestar".
+        </p>
+
+        <h4 style="font-size:.85rem;margin-bottom:8px">Configuración</h4>
+        <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+          <div>
+            <label style="font-size:.82rem;color:#4A5568;display:block;margin-bottom:4px">Días mínimos entre recordatorios al mismo paciente</label>
+            <input type="number" min="1" id="recap-dias-minimos" style="width:120px;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="guardarRecapConfig()">Guardar</button>
+        </div>
+
+        <hr>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0 8px">
+          <h4 style="font-size:.85rem;margin:0">📋 Historial de envíos</h4>
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadRecaptacion()">🔄 Recargar</button>
+        </div>
+        <div id="recap-historial">Carga la conexión para ver el historial.</div>
+
+        <hr>
+        <h4 style="font-size:.85rem;margin:14px 0 8px">🚫 No molestar</h4>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">Pacientes que pidieron no recibir más este recordatorio.</p>
+        <div id="recap-no-molestar">Carga la conexión para ver la lista.</div>
+      </div>
     </div>
 
     <!-- ── SEGUROS ─────────────────────────────────────── -->
@@ -1044,6 +1075,131 @@ async function loadWhatsapp() {
   document.getElementById('wa-inasistencia-hora').value = c.inasistencia_reagendar.hora || '12:00';
 
   renderWaEstado(estData);
+  loadRecaptacion();
+}
+
+// ── Recordatorios de control (recaptación) ────────────
+async function loadRecaptacionConfig() {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  try {
+    const r = await fetch(url + '/api/recaptacion/config', { headers: _waHeaders() });
+    const d = await r.json();
+    if (d.ok) document.getElementById('recap-dias-minimos').value = d.config.dias_minimos_reenvio;
+  } catch (e) { /* silencioso: el bloque de historial ya muestra el error de conexión */ }
+}
+
+async function guardarRecapConfig() {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const dias = parseInt(document.getElementById('recap-dias-minimos').value, 10);
+  if (!dias || dias < 1) { toast('Ingresa un número de días válido', false); return; }
+  try {
+    const r = await fetch(url + '/api/recaptacion/config', {
+      method: 'POST', headers: _waHeaders(), body: JSON.stringify({ dias_minimos_reenvio: dias }),
+    });
+    const d = await r.json();
+    toast(d.ok ? '✅ Configuración guardada' : '❌ ' + (d.error || 'Error'), d.ok);
+  } catch (e) {
+    toast('❌ No se pudo conectar con el backend', false);
+  }
+}
+
+async function loadRecaptacion() {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const histEl = document.getElementById('recap-historial');
+  const nmEl = document.getElementById('recap-no-molestar');
+  histEl.innerHTML = 'Cargando…';
+  nmEl.innerHTML = 'Cargando…';
+  loadRecaptacionConfig();
+  let d;
+  try {
+    const r = await fetch(url + '/api/recaptacion/historial', { headers: _waHeaders() });
+    if (r.status === 403) {
+      histEl.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Token incorrecto.</p>';
+      nmEl.innerHTML = '';
+      return;
+    }
+    d = await r.json();
+  } catch (e) {
+    histEl.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+    nmEl.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+    return;
+  }
+  if (!d.ok) {
+    histEl.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar el historial.</p>';
+    nmEl.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar la lista.</p>';
+    return;
+  }
+  renderRecapHistorial(d.envios || []);
+  renderRecapNoMolestar(d.no_molestar || []);
+}
+
+function renderRecapHistorial(envios) {
+  const cont = document.getElementById('recap-historial');
+  if (!envios.length) {
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Aún no se ha enviado ningún recordatorio de control.</p>';
+    return;
+  }
+  const filas = envios.slice(0, 100);
+  cont.innerHTML = `<div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem;min-width:600px">
+      <thead><tr style="background:#f8fafc;text-align:left">
+        <th style="padding:10px 14px">Paciente</th>
+        <th style="padding:10px 14px">Doctor</th>
+        <th style="padding:10px 14px">Fecha de envío</th>
+        <th style="padding:10px 14px">Respondió</th>
+      </tr></thead>
+      <tbody>
+        ${filas.map(e => `
+          <tr style="border-top:1px solid #e2e8f0">
+            <td style="padding:10px 14px">${_esc(e.nombre || '—')}<br><span style="font-size:.78rem;color:#718096">${_esc(_rutFmt(e.rut))}</span></td>
+            <td style="padding:10px 14px;text-transform:capitalize">${_esc(e.doctor || '—')}</td>
+            <td style="padding:10px 14px;color:#718096">${_esc(_fechaCorta(e.fecha_envio))}</td>
+            <td style="padding:10px 14px">${e.respondio
+              ? '<span class="tag" style="border-color:#38a169;color:#38a169;font-weight:600">✅ Respondió</span>'
+              : '<span class="tag" style="border-color:#e53e3e;color:#e53e3e">Sin respuesta</span>'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function renderRecapNoMolestar(ruts) {
+  const cont = document.getElementById('recap-no-molestar');
+  if (!ruts.length) {
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Nadie en la lista.</p>';
+    return;
+  }
+  cont.innerHTML = ruts.map(rut => {
+    const rutLimpio = String(rut).replace(/[^a-zA-Z0-9]/g, '_');
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid #e2e8f0">
+      <span style="font-size:.88rem">${_esc(_rutFmt(rut))}</span>
+      <button class="btn btn-sm" id="btn-quitar-nm-${_esc(rutLimpio)}" style="background:#e2e8f0;color:#2d3748"
+        onclick="quitarNoMolestar('${_esc(rut)}')">Quitar de la lista</button>
+    </div>`;
+  }).join('');
+}
+
+async function quitarNoMolestar(rut) {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const rutLimpio = String(rut).replace(/[^a-zA-Z0-9]/g, '_');
+  const btn = document.getElementById('btn-quitar-nm-' + rutLimpio);
+  if (btn) { btn.disabled = true; btn.textContent = 'Quitando...'; }
+  try {
+    const r = await fetch(url + '/api/recaptacion/no-molestar', {
+      method: 'POST', headers: _waHeaders(), body: JSON.stringify({ rut, quitar: true }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      toast('✅ Sacado de la lista de no molestar');
+      loadRecaptacion();
+    } else {
+      toast('❌ ' + (d.error || 'No se pudo quitar'), false);
+      if (btn) { btn.disabled = false; btn.textContent = 'Quitar de la lista'; }
+    }
+  } catch (e) {
+    toast('❌ Error de conexión', false);
+    if (btn) { btn.disabled = false; btn.textContent = 'Quitar de la lista'; }
+  }
 }
 
 function renderWaEstado(d) {
