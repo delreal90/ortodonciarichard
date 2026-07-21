@@ -345,6 +345,7 @@
           </div>
           <button class="btn btn-sm btn-primary" onclick="enviarWaTest()">Enviar prueba</button>
           <button class="btn btn-sm" style="background:#e2e8f0" onclick="verPlantillas()">📏 Ver plantillas y su largo</button>
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="probarLargos()">🔬 Buscar el límite del "Leer más"</button>
         </div>
         <div id="wa-test-res" style="font-size:.85rem;margin-top:10px"></div>
         <div id="wa-plantillas" style="font-size:.85rem;margin-top:10px"></div>
@@ -1165,6 +1166,50 @@ async function enviarWaTest() {
 // Lista las plantillas de la WABA con el largo de su cuerpo. Sirve para saber
 // hasta dónde se puede estirar un texto sin que WhatsApp lo colapse con
 // "Leer más": las que ya funcionan sin truncarse son el límite empírico.
+// Sonda del "Leer más": manda varios mensajes de TEXTO LIBRE de largo creciente
+// para ver a partir de cuántos caracteres WhatsApp colapsa el cuerpo. Meta no
+// publica ese umbral y editar una plantilla aprobada cuesta una revisión, así
+// que medirlo por texto libre sale gratis y no toca ninguna plantilla.
+// OJO: solo funciona dentro de la ventana de 24h (el destinatario tiene que
+// haber escrito o tocado un botón hace menos de un día). El texto libre no
+// lleva el pie ni los botones de una plantilla, así que el umbral real de una
+// plantilla puede ser algo menor — esto da el orden de magnitud, no el número
+// exacto al carácter.
+const LARGOS_SONDA = [180, 230, 280, 330, 380];
+
+async function probarLargos() {
+  const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
+  const tel = document.getElementById('wa-test-tel').value.trim();
+  const out = document.getElementById('wa-plantillas');
+  if (!tel) { out.innerHTML = '<span style="color:#e53e3e">Ingresa un celular.</span>'; return; }
+  if (!confirm(`Se enviarán ${LARGOS_SONDA.length} mensajes de prueba a ${tel}. ¿Continuar?`)) return;
+
+  // Relleno con frases reales del recordatorio para que las líneas corten como
+  // en el mensaje de verdad (un texto artificial tipo "aaa..." envolvería
+  // distinto y falsearía la prueba).
+  const base = 'Su último control con el Dr. Patricio Vial fue el martes 1 de abril del 2025 y ya corresponde agendar el siguiente. Para mantener su tratamiento al día es importante seguir los controles que el doctor le indicó. Puede agendar respondiendo este mensaje o llamándonos por teléfono. Estamos aquí para atender todas sus consultas y resolver cualquier duda que tenga.';
+  const filas = [];
+  for (const n of LARGOS_SONDA) {
+    const cabecera = `[PRUEBA ${n}] `;
+    let cuerpo = base;
+    while (cuerpo.length < n) cuerpo += ' ' + base;
+    const texto = (cabecera + cuerpo).slice(0, n);
+    try {
+      const r = await fetch(url + '/api/whatsapp/test-texto-libre', {
+        method: 'POST', headers: _waHeaders(),
+        body: JSON.stringify({ telefono: tel, texto }),
+      });
+      const d = await r.json();
+      filas.push(`${n} caracteres: ${d.ok ? '✅ enviado' : '❌ ' + _esc(d.error || 'error')}`);
+    } catch (e) {
+      filas.push(`${n} caracteres: ❌ ${_esc(e.message)}`);
+    }
+  }
+  out.innerHTML = `<p>${filas.join('<br>')}</p>
+    <p style="color:#718096;margin-top:6px">Mira el celular: cada mensaje empieza con su largo entre corchetes.
+    El primero que aparezca con <b>"Leer más"</b> marca el límite. Si ninguno se trunca, el tope está más arriba de 380.</p>`;
+}
+
 async function verPlantillas() {
   const url = document.getElementById('wa-url').value.trim().replace(/\/$/, '');
   const out = document.getElementById('wa-plantillas');
