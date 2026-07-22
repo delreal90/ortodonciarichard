@@ -108,6 +108,7 @@
     <a onclick="show('consentimientos')" id="nav-consentimientos"><i class="fa fa-file-signature"></i> Consentimientos</a>
     <a onclick="show('whatsapp')" id="nav-whatsapp"><i class="fab fa-whatsapp"></i> WhatsApp</a>
     <a onclick="show('seguros')" id="nav-seguros"><i class="fa fa-file-medical"></i> Seguros</a>
+    <a onclick="show('controldental')" id="nav-controldental"><i class="fa fa-tooth"></i> Control dental</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
   </nav>
@@ -549,6 +550,141 @@
       </div>
     </div>
 
+    <!-- ── CONTROL DENTAL ─────────────────────────────────────── -->
+    <div class="section" id="sec-controldental">
+      <h2>Control dental</h2>
+      <p class="desc">Recordatorio automático por email cada cierto tiempo a pacientes con aparatos fijos o alineadores para que vayan a su dentista general (limpieza/revisión de caries). La inscripción es automática (barrido diario de la agenda); acá se ajusta la configuración, se revisa la cartera inscrita y el historial de envíos.</p>
+
+      <div class="card" id="cd-config-conexion" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="cd-url" value="https://ortodonciarichard.onrender.com" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="cd-token" type="password" placeholder="ADMIN_TOKEN" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <button class="btn btn-primary" onclick="loadControlDental()">Cargar</button>
+        </div>
+        <p style="font-size:.78rem;color:#718096;margin-top:8px">El token se guarda solo en este navegador (no se publica). Es el mismo <code>ADMIN_TOKEN</code> de Render.</p>
+      </div>
+
+      <!-- 1. Configuración -->
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:10px">⚙️ Configuración</h3>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+          <div style="display:flex;align-items:flex-end;padding-bottom:8px">
+            <label style="font-weight:400"><input type="checkbox" id="cd-cfg-activo"> Sistema activo (envía correos de verdad)</label>
+          </div>
+          <div style="min-width:160px">
+            <label>Frecuencia por defecto</label>
+            <select id="cd-cfg-frecuencia">
+              <option value="3">Cada 3 meses</option>
+              <option value="6">Cada 6 meses</option>
+              <option value="12">Cada 12 meses</option>
+            </select>
+          </div>
+          <div style="min-width:130px">
+            <label>Hora de envío</label>
+            <input type="time" id="cd-cfg-hora">
+          </div>
+          <div style="min-width:150px">
+            <label>Máx. envíos por día</label>
+            <input type="number" min="1" id="cd-cfg-max-envios">
+          </div>
+          <div style="min-width:200px">
+            <label>Meses sin actividad antes de pausar</label>
+            <input type="number" min="1" id="cd-cfg-meses-pausa">
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn btn-primary" onclick="guardarControlDentalConfig()">Guardar configuración</button>
+          <button class="btn btn-gold" onclick="ejecutarControlDentalAhora()">▶️ Ejecutar ahora</button>
+        </div>
+        <div id="cd-run-resultado" style="font-size:.85rem;margin-top:10px"></div>
+      </div>
+
+      <!-- 2. Inscritos -->
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:10px">📋 Inscritos</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+          <div class="tab-bar" id="cd-inscritos-filtros" style="margin-bottom:0">
+            <button class="active" onclick="filtrarCdInscritos('', this)">Todos</button>
+            <button onclick="filtrarCdInscritos('activo', this)">Activos</button>
+            <button onclick="filtrarCdInscritos('dado_de_baja', this)">Dados de baja</button>
+            <button onclick="filtrarCdInscritos('sin_email', this)">Sin email</button>
+            <button onclick="filtrarCdInscritos('pausado_inactivo', this)">Pausados</button>
+            <button onclick="filtrarCdInscritos('desactivado_manual', this)">Desactivados a mano</button>
+          </div>
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadCdInscritos()">🔄 Recargar</button>
+        </div>
+        <div id="cd-inscritos">Carga la conexión para ver los inscritos.</div>
+
+        <hr>
+        <h4 style="font-size:.85rem;margin-bottom:6px;color:#c05621">⚠️ Bajas por retiro de fase — revisar</h4>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">Pacientes dados de baja por un retiro de fase (disyuntor, 2x4, Forsus, etc.) — clínicamente suelen SEGUIR en tratamiento. Revisa y reactiva si corresponde.</p>
+        <div id="cd-fin-fase">Carga la conexión para ver esta lista.</div>
+      </div>
+
+      <!-- 3. Historial -->
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:10px">🕓 Historial de envíos</h3>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadCdHistorial()">🔄 Recargar</button>
+        </div>
+        <div id="cd-historial">Carga la conexión para ver el historial.</div>
+      </div>
+
+      <!-- 4. Motivos sin clasificar -->
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">❓ Motivos sin clasificar</h3>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">
+          El barrido vio estos motivos (Reason) en la agenda y no supo en qué categoría caen — mientras tanto no inscribe
+          ni da de baja a nadie por ellos. Clasifícalos con el <code>Reason</code> exacto tal como lo escribió el barrido;
+          al guardar, el backend los aprende y desaparecen de esta lista.
+        </p>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadCdMotivosDesconocidos()">🔄 Recargar</button>
+        </div>
+        <div id="cd-motivos-desconocidos">Carga la conexión para ver los motivos pendientes.</div>
+
+        <details style="margin-top:16px">
+          <summary style="cursor:pointer;font-size:.82rem;color:#718096">Clasificar un motivo a mano (uno que aún no apareció en la lista de arriba)</summary>
+          <div class="row" style="margin-top:10px">
+            <div style="flex:2;min-width:220px">
+              <label>Motivo (texto exacto de DentiDesk)</label>
+              <input type="text" id="cd-motivo-reason" placeholder="ej: Retiro Marpe">
+            </div>
+            <div style="min-width:200px">
+              <label>Categoría</label>
+              <select id="cd-motivo-categoria">
+                <option value="inicio_fijos">Inicio — aparatos fijos</option>
+                <option value="inicio_alineadores">Inicio — alineadores</option>
+                <option value="fin_definitivo">Fin definitivo</option>
+                <option value="fin_fase">Fin de fase (revisar)</option>
+                <option value="control">Control (solo señal de vida)</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="guardarCdMotivo()">Guardar clasificación</button>
+          </div>
+        </details>
+      </div>
+
+      <!-- 5. Backfill -->
+      <div class="card">
+        <h3 style="margin-bottom:6px">📥 Inscribir cartera actual</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:12px">
+          Barre la agenda de los últimos meses e inscribe a los pacientes que ya tienen aparatos/alineadores instalados
+          (para que empiecen a recibir el recordatorio sin esperar su próxima instalación). Corre en segundo plano en el
+          servidor y puede demorar varios minutos — no cierres esta pestaña de inmediato, pero tampoco hace falta esperar aquí.
+        </p>
+        <button class="btn btn-gold" id="cd-backfill-btn" onclick="ejecutarCdBackfill()">Inscribir cartera actual (6 meses atrás)</button>
+        <div id="cd-backfill-resultado" style="font-size:.85rem;margin-top:10px"></div>
+      </div>
+    </div>
+
     <!-- ── PUBLICAR ─────────────────────────────────────── -->
     <div class="section" id="sec-publicar">
       <h2>Publicar en el sitio web</h2>
@@ -679,6 +815,7 @@ function show(sec) {
   if (sec === 'consentimientos') initConsentimientos();
   if (sec === 'whatsapp') initWhatsapp();
   if (sec === 'seguros') initSeguros();
+  if (sec === 'controldental') initControlDental();
 }
 
 // ══════════════════════════════════════════════════════
@@ -2743,6 +2880,356 @@ async function subirFirma() {
     if (d.ok) { toast('✅ Firma subida'); document.getElementById('seg-firma-file').value = ''; loadSegFirmas(); }
     else toast('❌ ' + (d.error || 'Error'), false);
   } catch (e) { toast('❌ No se pudo conectar', false); }
+}
+
+// ══════════════════════════════════════════════════════
+// CONTROL DENTAL — recordatorio automático por email (control_dental.py)
+// ══════════════════════════════════════════════════════
+let CD_INSCRITOS = [], CD_FILTRO = '';
+
+function initControlDental() {
+  // Comparte token/URL con Estadísticas/Consentimientos/WhatsApp/Seguros: mismo
+  // ADMIN_TOKEN, mismo backend (patrón "remoto" — habla directo a Render).
+  const t = localStorage.getItem('stats_token') || '';
+  const u = localStorage.getItem('stats_url') || 'https://ortodonciarichard.onrender.com';
+  document.getElementById('cd-token').value = t;
+  document.getElementById('cd-url').value = u;
+  if (t) loadControlDental();
+}
+
+function _cdUrl() { return document.getElementById('cd-url').value.trim().replace(/\/$/, ''); }
+function _cdToken() { return document.getElementById('cd-token').value.trim(); }
+function _cdHeaders(json = true) {
+  const h = { 'X-Admin-Token': _cdToken() };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+async function _cdFetch(path, method = 'GET', body = null) {
+  const opts = { method, headers: _cdHeaders() };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(_cdUrl() + path, opts);
+  return r.json();
+}
+
+async function loadControlDental() {
+  const token = _cdToken();
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  localStorage.setItem('stats_token', token);
+  localStorage.setItem('stats_url', _cdUrl());
+  ['cd-inscritos', 'cd-fin-fase', 'cd-historial', 'cd-motivos-desconocidos'].forEach(id => {
+    document.getElementById(id).innerHTML = 'Cargando…';
+  });
+  try {
+    const r = await fetch(_cdUrl() + '/api/control-dental/config', { headers: _cdHeaders(false) });
+    if (r.status === 403) { toast('Token incorrecto', false); return; }
+    const d = await r.json();
+    if (!d.ok) { toast('Error al cargar la configuración', false); return; }
+    renderCdConfig(d.config);
+  } catch (e) {
+    toast('No se pudo conectar con el backend', false);
+    return;
+  }
+  loadCdInscritos();
+  loadCdHistorial();
+  loadCdMotivosDesconocidos();
+}
+
+// ── 1. Configuración ──────────────────────────────────
+function renderCdConfig(c) {
+  document.getElementById('cd-cfg-activo').checked = !!c.activo;
+  document.getElementById('cd-cfg-frecuencia').value = String(c.frecuencia_meses || 6);
+  document.getElementById('cd-cfg-hora').value = c.hora_envio || '11:00';
+  document.getElementById('cd-cfg-max-envios').value = c.max_envios_por_dia || 30;
+  document.getElementById('cd-cfg-meses-pausa').value = c.meses_sin_actividad_pausa || 9;
+}
+
+async function guardarControlDentalConfig() {
+  const body = {
+    activo: document.getElementById('cd-cfg-activo').checked,
+    frecuencia_meses: +document.getElementById('cd-cfg-frecuencia').value,
+    hora_envio: document.getElementById('cd-cfg-hora').value,
+    max_envios_por_dia: +document.getElementById('cd-cfg-max-envios').value || 30,
+    meses_sin_actividad_pausa: +document.getElementById('cd-cfg-meses-pausa').value || 9,
+  };
+  const r = await _cdFetch('/api/control-dental/config', 'POST', body);
+  if (r.ok) { toast('✅ Configuración guardada'); renderCdConfig(r.config); }
+  else toast('❌ ' + (r.error || 'Error'), false);
+}
+
+async function ejecutarControlDentalAhora() {
+  const out = document.getElementById('cd-run-resultado');
+  out.textContent = '⏳ Ejecutando (barre la agenda y envía los correos vencidos)…';
+  try {
+    const r = await _cdFetch('/api/control-dental/run', 'POST', {});
+    if (r.ok) {
+      out.innerHTML = `<span style="color:#2f855a">✅ Enviados: ${r.enviados ?? 0} · Omitidos: ${r.omitidos ?? 0} · Sin email: ${r.sin_email ?? 0} · Quedan para mañana: ${r.pendientes_manana ?? 0}</span>`;
+      loadCdInscritos();
+      loadCdHistorial();
+    } else {
+      out.innerHTML = `<span style="color:#e53e3e">${_esc(r.error || 'Error desconocido')}</span>`;
+    }
+  } catch (e) {
+    out.innerHTML = `<span style="color:#e53e3e">No se pudo conectar con el backend.</span>`;
+  }
+}
+
+// ── 2. Inscritos ──────────────────────────────────────
+function filtrarCdInscritos(estado, btn) {
+  CD_FILTRO = estado;
+  document.querySelectorAll('#cd-inscritos-filtros button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadCdInscritos();
+}
+
+const CD_ESTADO_LABEL = {
+  activo: 'Activo', dado_de_baja: 'Dado de baja', sin_email: 'Sin email',
+  pausado_inactivo: 'Pausado (inactivo)', desactivado_manual: 'Desactivado a mano',
+};
+const CD_ESTADO_COLOR = {
+  activo: '#38a169', dado_de_baja: '#a0aec0', sin_email: '#e53e3e',
+  pausado_inactivo: '#C9A84C', desactivado_manual: '#718096',
+};
+const CD_TIPO_LABEL_PANEL = { fijos: 'Fijos', alineadores: 'Alineadores', ambos: 'Ambos', manual: 'Manual' };
+const CD_MOTIVO_BAJA_LABEL_PANEL = { fin_definitivo: 'Retiro definitivo', fin_fase: 'Retiro de fase' };
+
+async function loadCdInscritos() {
+  const cont = document.getElementById('cd-inscritos');
+  const contFase = document.getElementById('cd-fin-fase');
+  try {
+    const url = _cdUrl() + '/api/control-dental/inscritos' + (CD_FILTRO ? '?estado=' + encodeURIComponent(CD_FILTRO) : '');
+    const r = await fetch(url, { headers: _cdHeaders(false) });
+    if (r.status === 403) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Token incorrecto.</p>'; return; }
+    const d = await r.json();
+    if (!d.ok) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar los inscritos.</p>'; return; }
+    CD_INSCRITOS = d.items || [];
+  } catch (e) {
+    cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+    return;
+  }
+  renderCdInscritos();
+
+  // Sub-lista "Bajas por retiro de fase": si el filtro activo no es ya
+  // 'dado_de_baja', se pide aparte (no queremos que dependa del filtro elegido
+  // arriba — esta lista siempre debe estar visible).
+  try {
+    const items = CD_FILTRO === 'dado_de_baja' ? CD_INSCRITOS : (await (
+      await fetch(_cdUrl() + '/api/control-dental/inscritos?estado=dado_de_baja', { headers: _cdHeaders(false) })
+    ).json()).items || [];
+    renderCdFinFase((items || []).filter(i => i.motivo_baja === 'fin_fase'));
+  } catch (e) {
+    contFase.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+  }
+}
+
+function renderCdInscritos() {
+  const cont = document.getElementById('cd-inscritos');
+  if (!CD_INSCRITOS.length) {
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin inscritos que coincidan con este filtro.</p>';
+    return;
+  }
+  cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
+    <thead><tr style="background:#f8fafc;text-align:left">
+      <th style="padding:8px 10px">Paciente</th><th style="padding:8px 10px">Tipo</th>
+      <th style="padding:8px 10px">Estado</th><th style="padding:8px 10px">Próximo aviso</th>
+      <th style="padding:8px 10px">Frecuencia</th><th style="padding:8px 10px"></th>
+    </tr></thead>
+    <tbody>${CD_INSCRITOS.map(i => _cdFilaInscrito(i)).join('')}</tbody>
+  </table></div>`;
+}
+
+function _cdFilaInscrito(i) {
+  const rutSafe = _esc(String(i.rut || '').replace(/[^a-zA-Z0-9]/g, '_'));
+  const activo = i.estado === 'activo';
+  return `
+    <tr style="border-top:1px solid #e2e8f0">
+      <td style="padding:8px 10px">${_esc(i.nombre || '—')}<br><span style="font-size:.78rem;color:#718096">${_esc(_rutFmt(i.rut))}</span></td>
+      <td style="padding:8px 10px">${_esc(CD_TIPO_LABEL_PANEL[i.tipo] || i.tipo || '—')}</td>
+      <td style="padding:8px 10px">
+        <span class="tag" style="border-color:${CD_ESTADO_COLOR[i.estado] || '#a0aec0'};color:${CD_ESTADO_COLOR[i.estado] || '#a0aec0'}">${_esc(CD_ESTADO_LABEL[i.estado] || i.estado)}</span>
+        ${i.motivo_baja ? `<br><span style="font-size:.75rem;color:#718096">${_esc(CD_MOTIVO_BAJA_LABEL_PANEL[i.motivo_baja] || i.motivo_baja)}</span>` : ''}
+      </td>
+      <td style="padding:8px 10px;color:#718096">${i.proximo_envio ? _esc(_fechaCorta(i.proximo_envio)) : '—'}</td>
+      <td style="padding:8px 10px">${i.frecuencia_meses ? i.frecuencia_meses + ' meses' : '—'}</td>
+      <td style="padding:8px 10px;white-space:nowrap">
+        <button class="btn btn-sm" id="cd-btn-toggle-${rutSafe}" style="background:#e2e8f0" onclick="cdToggleActivo('${_esc(i.rut)}', ${activo})">${activo ? 'Desactivar' : 'Activar'}</button>
+        <button class="btn btn-sm" id="cd-btn-nm-${rutSafe}" style="background:#e2e8f0" onclick="cdNoMolestar('${_esc(i.rut)}')">🚫 No molestar</button>
+      </td>
+    </tr>`;
+}
+
+async function cdToggleActivo(rut, estabaActivo) {
+  const rutSafe = String(rut).replace(/[^a-zA-Z0-9]/g, '_');
+  const btn = document.getElementById('cd-btn-toggle-' + rutSafe);
+  if (btn) { btn.disabled = true; }
+  const r = await _cdFetch('/api/control-dental/paciente', 'POST', { rut, activo: !estabaActivo });
+  if (r.ok) { toast(estabaActivo ? '✅ Desactivado' : '✅ Activado'); loadCdInscritos(); }
+  else { toast('❌ ' + (r.error || 'Error'), false); if (btn) btn.disabled = false; }
+}
+
+async function cdNoMolestar(rut) {
+  if (!confirm('¿Marcar a este paciente para que NO se le vuelvan a enviar recordatorios de control dental?')) return;
+  const r = await _cdFetch('/api/control-dental/no-molestar', 'POST', { rut });
+  toast(r.ok ? '✅ Marcado — no se le enviarán más recordatorios' : '❌ ' + (r.error || 'Error'), r.ok);
+}
+
+function renderCdFinFase(items) {
+  const cont = document.getElementById('cd-fin-fase');
+  if (!items.length) {
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin bajas de este tipo pendientes de revisar.</p>';
+    return;
+  }
+  cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
+    <thead><tr style="background:#fffaf0;text-align:left">
+      <th style="padding:8px 10px">Paciente</th><th style="padding:8px 10px">Dado de baja el</th><th style="padding:8px 10px"></th>
+    </tr></thead>
+    <tbody>${items.map(i => {
+      const rutSafe = _esc(String(i.rut || '').replace(/[^a-zA-Z0-9]/g, '_'));
+      return `<tr style="border-top:1px solid #fbd38d">
+        <td style="padding:8px 10px">${_esc(i.nombre || '—')}<br><span style="font-size:.78rem;color:#718096">${_esc(_rutFmt(i.rut))}</span></td>
+        <td style="padding:8px 10px;color:#718096">${i.fecha_baja ? _esc(_fechaCorta(i.fecha_baja)) : '—'}</td>
+        <td style="padding:8px 10px"><button class="btn btn-sm btn-gold" id="cd-btn-reactivar-${rutSafe}" onclick="cdReactivar('${_esc(i.rut)}')">↩️ Reactivar</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+async function cdReactivar(rut) {
+  const rutSafe = String(rut).replace(/[^a-zA-Z0-9]/g, '_');
+  const btn = document.getElementById('cd-btn-reactivar-' + rutSafe);
+  if (btn) btn.disabled = true;
+  const r = await _cdFetch('/api/control-dental/paciente', 'POST', { rut, activo: true });
+  if (r.ok) { toast('✅ Reactivado'); loadCdInscritos(); }
+  else { toast('❌ ' + (r.error || 'Error'), false); if (btn) btn.disabled = false; }
+}
+
+// ── 3. Historial ──────────────────────────────────────
+async function loadCdHistorial() {
+  const cont = document.getElementById('cd-historial');
+  try {
+    const r = await fetch(_cdUrl() + '/api/control-dental/historial', { headers: _cdHeaders(false) });
+    const d = await r.json();
+    if (!d.ok) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar el historial.</p>'; return; }
+    renderCdHistorial(d.items || []);
+  } catch (e) {
+    cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+  }
+}
+
+function renderCdHistorial(items) {
+  const cont = document.getElementById('cd-historial');
+  if (!items.length) {
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin envíos registrados aún.</p>';
+    return;
+  }
+  cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
+    <thead><tr style="background:#f8fafc;text-align:left">
+      <th style="padding:8px 10px">Fecha</th><th style="padding:8px 10px">Paciente</th><th style="padding:8px 10px">Email</th>
+    </tr></thead>
+    <tbody>${items.map(e => `
+      <tr style="border-top:1px solid #e2e8f0">
+        <td style="padding:8px 10px;color:#718096">${_esc(_fechaCorta(e.fecha))}</td>
+        <td style="padding:8px 10px">${_esc(e.nombre || '—')}<br><span style="font-size:.78rem;color:#718096">${_esc(_rutFmt(e.rut))}</span></td>
+        <td style="padding:8px 10px">${_esc(e.email || '—')}</td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// ── 4. Motivos sin clasificar ──────────────────────────
+const CD_CATEGORIA_OPCIONES = [
+  ['inicio_fijos', 'Inicio — aparatos fijos'],
+  ['inicio_alineadores', 'Inicio — alineadores'],
+  ['fin_definitivo', 'Fin definitivo'],
+  ['fin_fase', 'Fin de fase (revisar)'],
+  ['control', 'Control (solo señal de vida)'],
+];
+
+async function loadCdMotivosDesconocidos() {
+  const cont = document.getElementById('cd-motivos-desconocidos');
+  cont.innerHTML = 'Cargando…';
+  try {
+    const r = await fetch(_cdUrl() + '/api/control-dental/motivos-desconocidos', { headers: _cdHeaders(false) });
+    if (r.status === 403) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Token incorrecto.</p>'; return; }
+    const d = await r.json();
+    if (!d.ok) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar los motivos.</p>'; return; }
+    renderCdMotivosDesconocidos(d.motivos || []);
+  } catch (e) {
+    cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+  }
+}
+
+function renderCdMotivosDesconocidos(motivos) {
+  const cont = document.getElementById('cd-motivos-desconocidos');
+  if (!motivos.length) {
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">No hay motivos sin clasificar.</p>';
+    return;
+  }
+  // Ya viene ordenado por el backend (más frecuentes primero) — no reordenar.
+  cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
+    <thead><tr style="background:#f8fafc;text-align:left">
+      <th style="padding:8px 10px">Motivo (Reason)</th><th style="padding:8px 10px">Veces visto</th>
+      <th style="padding:8px 10px">Última vez</th><th style="padding:8px 10px">Categoría</th><th style="padding:8px 10px"></th>
+    </tr></thead>
+    <tbody>${motivos.map((m, idx) => `
+      <tr style="border-top:1px solid #e2e8f0">
+        <td style="padding:8px 10px">${_esc(m.reason)}</td>
+        <td style="padding:8px 10px">${m.n ?? 0}</td>
+        <td style="padding:8px 10px;color:#718096">${m.ultima ? _esc(_fechaCorta(m.ultima)) : '—'}</td>
+        <td style="padding:8px 10px">
+          <select id="cd-md-categoria-${idx}">
+            ${CD_CATEGORIA_OPCIONES.map(([v, l]) => `<option value="${v}">${_esc(l)}</option>`).join('')}
+          </select>
+        </td>
+        <td style="padding:8px 10px">
+          <button class="btn btn-sm btn-primary" onclick='clasificarCdMotivoDesconocido(${JSON.stringify(m.reason)}, ${idx})'>Guardar</button>
+        </td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+async function clasificarCdMotivoDesconocido(reason, idx) {
+  const categoria = document.getElementById('cd-md-categoria-' + idx).value;
+  const r = await _cdFetch('/api/control-dental/motivo', 'POST', { reason, categoria });
+  if (r.ok) { toast('✅ Motivo clasificado'); loadCdMotivosDesconocidos(); }
+  else toast('❌ ' + (r.error || 'Error'), false);
+}
+
+// Formulario secundario (details plegado): clasificar a mano un motivo que
+// todavía no apareció en el barrido (no viene en la lista de arriba porque
+// esa lista solo trae lo que el barrido YA vio en la agenda).
+async function guardarCdMotivo() {
+  const reason = document.getElementById('cd-motivo-reason').value.trim();
+  const categoria = document.getElementById('cd-motivo-categoria').value;
+  if (!reason) { toast('Ingresa el texto exacto del motivo', false); return; }
+  const r = await _cdFetch('/api/control-dental/motivo', 'POST', { reason, categoria });
+  if (r.ok) {
+    toast('✅ Motivo clasificado');
+    document.getElementById('cd-motivo-reason').value = '';
+    loadCdMotivosDesconocidos();
+  } else toast('❌ ' + (r.error || 'Error'), false);
+}
+
+// ── 5. Backfill ────────────────────────────────────────
+async function ejecutarCdBackfill() {
+  if (!confirm('Esto barre ~6 meses de agenda en DentiDesk e inscribe a la cartera actual. Puede demorar varios minutos. ¿Continuar?')) return;
+  const btn = document.getElementById('cd-backfill-btn');
+  const out = document.getElementById('cd-backfill-resultado');
+  btn.disabled = true;
+  btn.textContent = '⏳ Corriendo en segundo plano (puede demorar varios minutos)…';
+  out.innerHTML = '';
+  try {
+    const r = await _cdFetch('/api/control-dental/backfill', 'POST', { meses: 6 });
+    if (r.ok) {
+      out.innerHTML = '<span style="color:#2f855a">✅ Iniciado. Corre en el servidor; vuelve a esta pestaña en unos minutos y recarga los inscritos.</span>';
+    } else {
+      out.innerHTML = `<span style="color:#e53e3e">${_esc(r.error || 'Error desconocido')}</span>`;
+    }
+  } catch (e) {
+    out.innerHTML = '<span style="color:#e53e3e">No se pudo conectar con el backend.</span>';
+  }
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = 'Inscribir cartera actual (6 meses atrás)';
+  }, 3 * 60 * 1000);
 }
 
 // Iniciar

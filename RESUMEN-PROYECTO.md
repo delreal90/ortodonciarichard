@@ -82,6 +82,11 @@ getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
   atención, F2 → WhatsApp al paciente para que agende. 3 guardas (no molestar / ya tiene
   hora / enviado hace poco). Reemplazó al Google Sheet "PACIENTES POR LLAMAR" — no
   revivirlo. → "Recordatorio de control".
+- **Recordatorio de Control Dental** — al paciente con aparatos fijos/alineadores le llega un
+  email cada 6 meses para que vaya a su dentista general. La inscripción es automática: un
+  barrido diario de la agenda detecta instalaciones y retiros. Control manual desde F2 y
+  panel. ⚠️ En el barrido de días pasados NO se usa `dentidesk._ESTADOS_INACTIVOS` (incluye
+  "Atendido", que ahí es justo la señal buena). → "Recordatorio de Control Dental".
 - **Compras / Gastos / Stock** — app con login/roles propios, SQLite, escaneo, etiquetas. → "Compras".
 - **Asistente F2** — extensión MV3: `content.js` lee el modal, `background.js` hace los
   fetch, `config.js` (apiBase + adminToken en texto plano → no subir a repo público). → "Asistente F2".

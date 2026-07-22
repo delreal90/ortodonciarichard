@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 
 from scheduling import generar_ics, load_config
 import wa_cloud
+import pacientes
 
 
 # ── Email (primario) ─────────────────────────────────────────────────────────
@@ -861,6 +862,113 @@ def enviar_formulario_seguro(paciente, pdf_path, aseguradora_nombre):
     except Exception as e:
         log.error('SMTP formulario seguro error: %s', e)
         return {'ok': False, 'error': str(e)}
+
+
+def _frecuencia_label(frecuencia_meses):
+    """Convierte la frecuencia en meses a texto legible ('6 meses', '3 meses',
+    'un año'). No se hardcodea el '6 meses' del texto -- sale de la
+    frecuencia real del paciente (config o override por F2)."""
+    n = frecuencia_meses or 6
+    if n == 12:
+        return 'un año'
+    if n == 1:
+        return 'un mes'
+    return f'{n} meses'
+
+
+def _html_control_dental(nombre, saludo_sufijo, frecuencia_meses=6):
+    """HTML del recordatorio de control dental (limpieza y revision de
+    caries con el dentista general del paciente, mientras dura el
+    tratamiento de ortodoncia). Molde: _html_formulario_seguro. saludo_sufijo
+    es 'o' | 'a' | 'o/a' (pacientes.saludo). La ultima linea (nota de
+    escape) va atenuada -- es un pie de pagina, no un parrafo mas."""
+    frecuencia_txt = _frecuencia_label(frecuencia_meses)
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recordatorio de control dental</title></head>
+<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
+  <tr>
+    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
+      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
+      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Recordatorio: control con tu dentista</h1>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:32px 32px 24px;">
+      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Estimad{saludo_sufijo} <strong>{nombre}</strong>,</p>
+      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Han pasado {frecuencia_txt} desde nuestro último recordatorio. Durante el tratamiento de ortodoncia te recomendamos agendar un control con tu dentista para limpieza y revisión de caries.</p>
+      <p style="margin:0 0 20px;color:#4A5568;font-size:15px;">Mantener una buena higiene permite que el tratamiento de ortodoncia avance en los tiempos esperados, además de poder terminarlo de la mejor manera.</p>
+      <p style="margin:0;color:#a0aec0;font-size:12px;">Si ya fuiste recientemente a tu control dental, por favor no consideres este correo.</p>
+    </td>
+  </tr>
+  <tr>
+    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
+      <p style="margin:0;color:#8fa8c8;font-size:12px;">
+        Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago<br>
+        📞 <a href="tel:+56222173499" style="color:#C9A84C;text-decoration:none;">+56 2 2217 3499</a> &nbsp;|&nbsp;
+        <a href="https://www.ortodonciarichard.cl" style="color:#C9A84C;text-decoration:none;">www.ortodonciarichard.cl</a>
+      </p>
+    </td>
+  </tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
+def enviar_recordatorio_control_dental(paciente, cfg=None):
+    """Envia el recordatorio de control dental (limpieza/revision de caries
+    con el dentista general) a un paciente inscrito del modulo
+    control_dental. Mismo patron que enviar_formulario_seguro pero SIN
+    adjunto. paciente: dict con al menos rut, nombre, email (y opcionalmente
+    frecuencia_meses). Devuelve {ok, canal|error}."""
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    dest = (paciente.get('email') or '').strip()
+    if not smtp_user or not smtp_pass or '@' not in dest:
+        return {'ok': False, 'error': 'sin SMTP o email'}
+
+    nombre = paciente.get('nombre', 'Paciente')
+    saludo_sufijo = pacientes.saludo(paciente.get('rut', ''))
+    frecuencia_meses = paciente.get('frecuencia_meses', 6)
+
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
+    msg['To'] = dest
+    msg['Subject'] = 'Recordatorio: control con tu dentista'
+    msg['Reply-To'] = smtp_user
+    msg.attach(MIMEText(_html_control_dental(nombre, saludo_sufijo, frecuencia_meses), 'html', 'utf-8'))
+
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [dest], msg.as_bytes())
+        log.info('Recordatorio de control dental enviado a %s', dest)
+        return {'ok': True, 'canal': 'email'}
+    except Exception as e:
+        log.error('SMTP recordatorio control dental error: %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
+def avisar_recepcion_control_dental_sin_email(lista):
+    """Aviso agrupado a recepcion con los pacientes inscritos en control
+    dental que no tienen email registrado, para que se los pidan en la
+    proxima cita. UN solo correo con la lista completa (no uno por
+    paciente). lista: [{nombre, rut, ...}]. Si viene vacia, no manda nada."""
+    if not lista:
+        return False
+    filas = ''.join(_fila('Paciente', p.get('nombre', '')) + _fila('RUT', p.get('rut', ''))
+                     for p in lista)
+    html = _aviso_recepcion_html(
+        f'Pacientes sin email para control dental ({len(lista)})', filas)
+    return _enviar_email_recepcion(
+        f'Control dental — {len(lista)} paciente(s) sin email', html)
 
 
 def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento informado'):

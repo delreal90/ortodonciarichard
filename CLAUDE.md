@@ -795,6 +795,131 @@ la extensión, con el ADMIN_TOKEN en `config.js`); definir con la clínica el ri
 
 ---
 
+## Recordatorio de Control Dental — email cada 6 meses al paciente con aparatos (2026-07-22)
+
+Al paciente con aparatos fijos o alineadores le sube mucho el riesgo de caries y
+descalcificación, y la mala higiene alarga el tratamiento y empeora el resultado. Este
+sistema le manda **un email cada 6 meses** recomendándole ir a su **dentista general**
+(limpieza y revisión de caries) mientras dure el tratamiento de ortodoncia.
+
+A diferencia del **Recordatorio de control** de la sección anterior (que lo dispara la
+asistente a mano y va por WhatsApp), acá la inscripción es **automática por barrido de la
+agenda** y el canal es **email** — no necesita plantilla de Meta, no tiene tope de
+frecuencia ni riesgo de calidad del número.
+
+**Módulo:** `admin/control_dental.py` (molde `recaptacion.py`). Config y registro en el
+disco persistente vía `PATIENT_INDEX_PATH` (`control_dental_config.json` /
+`control_dental_registro.json`, env vars propias `CONTROL_DENTAL_*_PATH`).
+
+### La idea central: una sola pasada por la agenda resuelve todo
+`control_dental.barrer()` recorre `getAgendaDay` de **−7 a +45 días hábiles** (~38
+llamadas) y de esa única pasada sale TODO, para toda la cartera: instalaciones (inscribe),
+retiros (da de baja), `ultima_cita` de cada inscrito y `tiene_cita_futura`. La alternativa
+ingenua —llamar `dentidesk.citas_futuras_paciente(rut)` al momento de enviar— cuesta ~12 s
+**por paciente**. Los −7 días (en vez de solo ayer) hacen el barrido idempotente y
+auto-reparable si Render se reinicia; la dedup es por `IdAgenda` en `registro['vistos']`
+(podado a 90 días).
+
+### ⚠️ Los dos bugs que costó encontrar (no repetirlos)
+1. **`dentidesk._ESTADOS_INACTIVOS` NO sirve para el barrido de días pasados.** Esa tupla
+   incluye `'atendid'` porque está escrita para citas FUTURAS (una cita ya atendida no es
+   una "hora próxima"). Pero en el pasado **"Atendido" es justo la prueba de que la
+   instalación ocurrió** — la clínica marca las citas como atendidas después de la visita,
+   así que filtrarlas dejaba al sistema sin ver casi ninguna instalación real. Por eso
+   existe `control_dental._ESTADOS_NO_OCURRIO` (sin `'atendid'`), que es la que se usa para
+   los días pasados; los días futuros sí usan la de `dentidesk`.
+2. **`tiene_cita_futura` se RECALCULA en cada `barrer()`, no se acumula.** El procesador de
+   citas solo sabe ponerlo en `True`; sin el reset explícito al inicio del barrido el flag
+   quedaba pegado en `True` para siempre en cuanto el paciente agendaba una hora una sola
+   vez — y como la guarda `pausado_inactivo` corta apenas ese flag es `True`, el paciente
+   que después dejaba de venir recibía correos para siempre. El reset va **solo en
+   `barrer()`** y NO en `backfill()`, que barre únicamente hacia atrás y no tiene con qué
+   volver a poblarlo.
+
+### Las 4 guardas de `evaluar(rut)` (mismo contrato que `recaptacion.evaluar`)
+1. `no_molestar` — nunca se salta. 2. `estado != 'activo'`. 3. **señal de vida**: sin cita
+en los últimos `meses_sin_actividad_pausa` (9) y sin hora futura → `pausado_inactivo`; es
+la que atrapa al paciente que dejó de venir sin pasar nunca por una cita de retiro.
+4. email inválido → `sin_email` (se acumula y sale **un solo** aviso agrupado a recepción,
+nunca uno por paciente).
+
+### Clasificación de motivos
+Por **nombre** (`Reason`), que es lo único que devuelve `getAgendaDay` — nunca trae el
+`IdReason` numérico. Constantes en el .py (versionadas, con el IdReason como comentario),
+más un override `cfg['motivos_extra']` que el panel puede poblar **sin deploy**. Los
+`Reason` que no calzan con nada se acumulan en `motivos_desconocidos` y el panel los lista
+para clasificarlos (así se resuelven con datos reales los ambiguos del diccionario:
+*Aligner/Essix*, *Placa*, *Disyuntor*, *Cementar Bracket*, *Reinicio*).
+- **INICIO** — Montaje Total/Parcial/Lingual, Instalar 2x4/Herbst/Forsus/Hyrax/Distal Jet/
+  Carriere/Péndulo, Cementar Marpe, Instalar Digitrack/Invisalign/Clear Correct. Los
+  **refinamientos** (25091/25092/27672) NO inscriben: son ajuste a mitad de tratamiento.
+- **FIN_DEFINITIVO** — Retiro Total, retiros de alineadores, Retenedor Fijo, Control
+  Contención, Retiro Retenedores fijos, Retiro por Alergia.
+- **FIN_FASE** (baja **reactivable**) — Retiro Parcial, Retiro 2x4/Disyuntor/Forsus/
+  Péndulo/Máscara de Laire/Barra Palatina. Clínicamente estos pacientes **suelen seguir en
+  tratamiento**, por eso el panel los muestra en una lista aparte ("Bajas por retiro de
+  fase — revisar") con botón de reactivar. Decisión explícita del usuario 2026-07-22.
+- **NUNCA cuentan como fin** — Retiro Aptos. para Resonancia Magnética (es temporal),
+  Retiro Microtornillo, Retiro Topes.
+- Se excluye **Control / Evaluación PV (24798)**: es del Dr. Vial (rehabilitación).
+
+### Precedencia: el barrido propone, la asistente manda
+Todo lo que la asistente toca desde el F2 marca `bloqueo_manual=True`. Con ese flag el
+barrido **no** puede reactivar ni desactivar al paciente — **salvo** una baja
+`fin_definitivo`, que siempre gana (es la realidad: el tratamiento de verdad terminó). Una
+baja `fin_fase` jamás se re-aplica sobre una reactivación manual.
+
+### Anti-oleada (la lección de `confirmaciones.py`)
+El backfill de 6 meses inscribe gente cuya instalación fue hace 5-6 meses, así que su
+`proximo_envio` cae en el pasado y saldrían decenas de correos de golpe. Por eso: el
+backfill nunca fija un `proximo_envio` anterior a **hoy + 2 días** (y los reparte en días
+consecutivos por antigüedad), y el loop respeta **`max_envios_por_dia`** (30), procesando
+los más vencidos primero y **logueando cuántos quedan para mañana** (no se silencia).
+
+### Envío
+`_procesar_control_dental(cfg_cd, hoy)` + `_loop_control_dental()` en `server.py`, con el
+patrón de **VENTANA** (`hora_envio <= slot < 17:00`) igual que los programados de
+recaptación — con igualdad exacta de minuto bastaba un reinicio de Render para perder el
+día. **Un fallo de SMTP NO marca nada**: el paciente conserva su `proximo_envio` y se
+reintenta, así un problema de red no le come el ciclo de 6 meses.
+`notify.enviar_recordatorio_control_dental()` + `_html_control_dental()` (molde
+`_html_formulario_seguro`, usa `pacientes.saludo(rut)` para "Estimad{o/a/o-a}" — acá SÍ se
+puede, a diferencia de WhatsApp donde el saludo es texto fijo de la plantilla aprobada).
+Al enviar, `marcar_enviado()` adelanta `fecha_base` al día del envío, así el ciclo se
+ancla en el envío real y no acumula corrimiento respecto de la instalación.
+
+**Texto** (asunto "Recordatorio: control con tu dentista"): dice "han pasado 6 meses desde
+**nuestro último recordatorio**" — deliberadamente NO afirma nada sobre las visitas reales
+al dentista, porque DentiDesk solo tiene las citas de ortodoncia de esta clínica y el
+sistema no puede saberlo. Cierra con la línea de escape que pidió el usuario: *"Si ya
+fuiste recientemente a tu control dental, por favor no consideres este correo."*
+
+### F2 y panel
+- **F2** (`dentidesk-assistant/content.js`): desplegable "🦷 Recordatorio Control Dental"
+  (patrón `toggleConsent`) con el estado en texto legible, Activar/Desactivar, frecuencia
+  3/6/12 meses, **"Fue al dentista el…"** (`<input type="date">` → fija `fecha_base` y
+  recalcula el próximo envío; el caso real: los avisos caían enero/julio, el paciente fue
+  en abril → pasan a octubre/abril) y "🚫 No volver a recordar". `background.js` NO
+  necesitó cambios (el handler genérico `ASISTENTE_API` ya devuelve el `status` HTTP).
+- **Panel** (`admin/panel.html`): pestaña "🦷 Control dental", patrón remoto con
+  `stats_url`/`stats_token`. Cards: Conexión · Configuración (+ "Ejecutar ahora") ·
+  Inscritos (filtrable, con la sub-lista de bajas por retiro de fase) · Historial ·
+  Motivos sin clasificar · botón "Inscribir cartera actual (6 meses atrás)".
+
+**Endpoints** (`server.py`, bloque "CONTROL DENTAL", todos con ADMIN_TOKEN):
+`GET/POST /api/control-dental/paciente`, `POST .../no-molestar`, `GET/POST .../config`,
+`GET .../inscritos?estado=`, `GET .../historial`, `POST .../backfill` (corre en hilo,
+one-off), `POST .../run`, `GET .../motivos-desconocidos`, `POST .../motivo`.
+
+**Estado:** código completo y verificado con pruebas locales (24 unitarias + una de
+integración que ejercita control_dental + notify + server reales, con `getAgendaDay` y
+`smtplib` interceptados: cero red y cero correo). **Falta en producción:** desplegar,
+correr el backfill de 6 meses UNA vez fuera de horario de atención, revisar la lista de
+inscritos con la clínica y recién ahí poner `activo=true` (viene en `false` a propósito).
+Y copiar la extensión actualizada al PC de la asistente (no viaja por Render).
+
+---
+
 ## Compras / Gastos / Stock — app online multiusuario (Fases 1 y 2 COMPLETAS, 2026-07-08)
 
 Sistema para llevar el registro de compras y gastos con seguimiento de stock. App web

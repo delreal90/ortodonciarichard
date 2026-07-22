@@ -33,6 +33,23 @@ admin/agendamientos.jsonl
 admin/confirmaciones_enviadas.json
 admin/eventos.jsonl
 
+# Recordatorio de control / recaptación (RUT + nombres de pacientes) — NUNCA subir a git.
+# En Render viven en el disco persistente.
+admin/recaptacion_config.json
+admin/recaptacion_registro.json
+
+# Control dental: config editable desde el panel + registro de inscritos
+# (RUT, nombre, email de pacientes) — NUNCA subir a git. En Render viven en el
+# disco persistente, y así la config toma efecto sin deploy.
+admin/control_dental_config.json
+admin/control_dental_registro.json
+
+# Seguros complementarios: mapeos, firmas de los doctores y PDFs generados
+# (datos personales + de facturación) — NUNCA subir a git.
+admin/seguros_*.json
+admin/seguros_firmas/
+admin/seguros_generados/
+
 # Compras/gastos/stock: base SQLite + fotos de facturas (datos privados de la clínica)
 # — NUNCA subir a git. En Render viven en el disco persistente.
 admin/compras.db

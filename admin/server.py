@@ -668,6 +668,7 @@ import wa_cloud
 import recordatorios_wa
 import webhook_wa
 import recaptacion
+import control_dental
 from datetime import date, datetime
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -3503,6 +3504,198 @@ def seguro_admin_historial():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CONTROL DENTAL  (recordatorio de control dental — módulo control_dental.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Recordatorio por EMAIL (no WhatsApp -- no requiere plantilla de Meta ni tiene
+# tope de frecuencia) a pacientes con aparatos fijos/alineadores para que vayan
+# a su dentista general cada ~6 meses (limpieza/revision de caries). A
+# diferencia de recaptacion.py (dispara a mano desde el F2 por cada paciente),
+# aca la inscripcion es AUTOMATICA: un barrido diario de la agenda de
+# DentiDesk detecta solo instalaciones y retiros (ver control_dental.py).
+
+@app.route('/api/control-dental/paciente', methods=['GET'])
+def control_dental_paciente_get():
+    """F2: estado del paciente en control dental (inscrito, tipo, proximo
+    envio, frecuencia, historial de envios, no_molestar). Si no esta
+    inscrito devuelve {'ok': True, 'inscrito': False} -- NO un error -- para
+    que el F2 ofrezca el boton 'Inscribir'."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    rut = request.args.get('rut', '')
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    clave = control_dental._rut_key(rut)
+    reg = control_dental._load_registro()
+    no_molestar = clave in (reg.get('no_molestar') or [])
+    p = (reg.get('inscritos') or {}).get(clave)
+    if not p:
+        return jsonify({'ok': True, 'inscrito': False, 'no_molestar': no_molestar})
+    return jsonify({'ok': True, 'inscrito': True, 'rut': clave, 'no_molestar': no_molestar, **p})
+
+
+@app.route('/api/control-dental/paciente', methods=['POST'])
+def control_dental_paciente_post():
+    """F2: ajusta a mano un inscrito (activar/desactivar, frecuencia, o
+    correr la fecha base -- ej. 'el paciente fue al dentista el 2026-04-15')
+    o inscribe uno nuevo manualmente si 'inscribir' viene en true. Cualquier
+    llamada aca marca bloqueo_manual=True (lo hace control_dental.set_manual)
+    -- es, por definicion, la asistente tocando al paciente a mano."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+
+    clave = control_dental._rut_key(rut)
+    reg = control_dental._load_registro()
+    existe = clave in (reg.get('inscritos') or {})
+
+    if not existe:
+        if not data.get('inscribir'):
+            return jsonify({'ok': False, 'error': 'El paciente no esta inscrito en control dental'}), 404
+        hoy = date.today().isoformat()
+        control_dental.inscribir(
+            rut, data.get('nombre', ''), data.get('email', ''), 'manual',
+            hoy, '', 'Inscripcion manual (F2)', '', manual=True)
+
+    p = control_dental.set_manual(
+        rut,
+        activo=data.get('activo'),
+        frecuencia_meses=data.get('frecuencia_meses'),
+        fecha_base=data.get('fecha_base'),
+    )
+    if p is None:
+        return jsonify({'ok': False, 'error': 'No se pudo actualizar el registro'}), 500
+    return jsonify({'ok': True, 'rut': clave, **p})
+
+
+@app.route('/api/control-dental/no-molestar', methods=['POST'])
+def control_dental_no_molestar():
+    """F2/panel: boton 'No volver a recordar' (y su reverso)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    if data.get('quitar'):
+        lista = control_dental.quitar_no_molestar(rut)
+    else:
+        lista = control_dental.agregar_no_molestar(rut)
+    return jsonify({'ok': True, 'no_molestar': lista})
+
+
+@app.route('/api/control-dental/config', methods=['GET', 'POST'])
+def control_dental_config():
+    """Panel: ver/editar la config (activo, frecuencia, hora de envio, tope
+    diario, meses sin actividad antes de pausar)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'POST':
+        cfg = control_dental.save_config(request.json or {})
+    else:
+        cfg = control_dental.load_config()
+    return jsonify({'ok': True, 'config': cfg})
+
+
+@app.route('/api/control-dental/inscritos', methods=['GET'])
+def control_dental_inscritos():
+    """Panel: tabla de inscritos, opcionalmente filtrada por estado (activo,
+    dado_de_baja, sin_email, pausado_inactivo, desactivado_manual)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'items': control_dental.listar(request.args.get('estado') or None)})
+
+
+@app.route('/api/control-dental/historial', methods=['GET'])
+def control_dental_historial():
+    """Panel: envios recientes (mas nuevo primero)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        limite = int(request.args.get('limite', 100))
+    except (TypeError, ValueError):
+        limite = 100
+    return jsonify({'ok': True, 'items': control_dental.historial(limite)})
+
+
+@app.route('/api/control-dental/backfill', methods=['POST'])
+def control_dental_backfill():
+    """Panel: 'Inscribir cartera actual (N meses atras)'. Son ~130 consultas
+    a DentiDesk (barre N meses hacia atras, dias habiles) -- correrlo dentro
+    del request bloquearia al cliente varios segundos/minutos, asi que se
+    lanza en un hilo daemon y se responde de inmediato; el resultado queda
+    en el log de Render."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg_dd = scheduling.load_config()
+    if not cfg_dd['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk'}), 400
+    data = request.json or {}
+    try:
+        meses = int(data.get('meses', 6))
+    except (TypeError, ValueError):
+        meses = 6
+
+    def job():
+        try:
+            r = control_dental.backfill(meses=meses)
+            print('[control-dental] backfill:', r)
+        except Exception as e:
+            print('[control-dental] error en backfill:', e)
+    _threading.Thread(target=job, daemon=True).start()
+    return jsonify({'ok': True, 'iniciado': True})
+
+
+@app.route('/api/control-dental/run', methods=['POST'])
+def control_dental_run():
+    """Corre a mano el barrido + envio (para probar) -- respeta el mismo
+    anti-duplicados que el loop automatico (_loop_control_dental)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg_cd = control_dental.load_config()
+    r = _procesar_control_dental(cfg_cd, date.today())
+    return jsonify({'ok': True, **r})
+
+
+@app.route('/api/control-dental/motivo', methods=['POST'])
+def control_dental_motivo():
+    """Panel: clasificar un Reason visto en la agenda que no calzo con
+    ninguna categoria (queda en cfg['motivos_extra'], sin esperar un
+    deploy)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    reason = (data.get('reason') or '').strip()
+    categoria = (data.get('categoria') or '').strip()
+    if not reason or not categoria:
+        return jsonify({'ok': False, 'error': 'Falta reason o categoria'}), 400
+    control_dental.clasificar_motivo_desconocido(reason, categoria)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/control-dental/motivos-desconocidos', methods=['GET'])
+def control_dental_motivos_desconocidos():
+    """Panel: los Reason que el barrido vio en la agenda y no supo clasificar,
+    con cuantas veces aparecieron y cuando fue la ultima. Alimenta la card que
+    deja clasificarlos desde el panel (POST /api/control-dental/motivo), asi
+    los motivos ambiguos del diccionario de DentiDesk (Aligner/Essix, Placa,
+    Disyuntor, Cementar Bracket, Reinicio) se van resolviendo con datos reales
+    en vez de a puro criterio."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    desconocidos = control_dental.motivos_desconocidos() or {}
+    # Los mas frecuentes primero: son los que mas rinde clasificar.
+    items = sorted(
+        ({'reason': r, 'n': (info or {}).get('n', 0), 'ultima': (info or {}).get('ultima', '')}
+         for r, info in desconocidos.items()),
+        key=lambda x: x['n'], reverse=True)
+    return jsonify({'ok': True, 'motivos': items})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # COMPRAS / GASTOS / STOCK  (módulo autónomo, funciona en producción — Render)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -4373,6 +4566,103 @@ def _loop_recaptacion_programados():
             print('[recaptacion-programados] error:', e)
         time.sleep(40)
 
+def _procesar_control_dental(cfg_cd, hoy):
+    """Barre la agenda y envia (email) los recordatorios de control dental
+    vencidos. Mismo criterio que _procesar_programados_vencidos: los fallos
+    de RED (SMTP) NO marcan nada -- el paciente sigue con su proximo_envio
+    viejo y se reintenta en el proximo barrido, asi un problema de SMTP no le
+    come el ciclo de 6 meses al paciente.
+
+    1. control_dental.barrer() -- una sola pasada por la agenda (-7/+45 dias)
+       que resuelve inscripciones/bajas/señal de vida para TODA la cartera.
+    2. control_dental.pendientes_hoy(hoy) -- ya viene ordenado por
+       proximo_envio ASCENDENTE (los mas vencidos primero).
+    3. Respeta cfg_cd['max_envios_por_dia'] (anti-oleada): corta ahi y
+       LOGUEA cuantos quedaron para mañana (no se silencia).
+    4. Por cada uno, control_dental.evaluar(rut) -- si bloquea, NO se envia;
+       si el motivo es 'sin_email' se acumula para el aviso agrupado a
+       recepcion; si es 'pausado_inactivo' (u otro) se deja el estado tal
+       como quedo (evaluar() no muta nada, solo informa).
+    5. Si evaluar() no bloquea, se envia con
+       notify.enviar_recordatorio_control_dental(); SOLO si 'ok' es True se
+       llama a control_dental.marcar_enviado(rut).
+    6. Al final, un UNICO aviso agrupado a recepcion con los sin_email
+       (nunca uno por paciente).
+
+    Devuelve {'enviados','omitidos','sin_email','pendientes_manana'}."""
+    control_dental.barrer(cfg_cd)
+    pendientes = control_dental.pendientes_hoy(hoy)
+
+    max_envios = cfg_cd.get('max_envios_por_dia', 30)
+    a_procesar = pendientes[:max_envios]
+    pendientes_manana = len(pendientes) - len(a_procesar)
+    if pendientes_manana > 0:
+        print(f'[control-dental] {pendientes_manana} pendiente(s) quedan para '
+              f'manana (tope {max_envios}/dia)')
+
+    stats = {'enviados': 0, 'omitidos': 0, 'sin_email': 0, 'pendientes_manana': pendientes_manana}
+    sin_email = []
+    for p in a_procesar:
+        rut = p.get('rut', '')
+        bloqueo = control_dental.evaluar(rut, cfg_cd)
+        if bloqueo:
+            if bloqueo.get('motivo') == 'sin_email':
+                sin_email.append(p)
+                stats['sin_email'] += 1
+            else:
+                stats['omitidos'] += 1
+            continue
+
+        resultado = notify.enviar_recordatorio_control_dental(p, cfg_cd)
+        if not resultado.get('ok'):
+            print('[control-dental] fallo al enviar a', rut, resultado.get('error'))
+            stats['omitidos'] += 1
+            continue  # no se marca nada -- reintenta manana, no consume el ciclo
+
+        control_dental.marcar_enviado(rut)
+        stats['enviados'] += 1
+
+    if sin_email:
+        notify.avisar_recepcion_control_dental_sin_email(sin_email)
+
+    return stats
+
+
+def _loop_control_dental():
+    """Barrido diario de control dental. Mismo esqueleto que
+    _loop_recaptacion_programados, INCLUYENDO el patron de VENTANA
+    (hora_envio <= slot < '17:00') en vez de igualdad exacta de minuto: con
+    igualdad exacta bastaba que Render reiniciara justo en ese minuto para
+    que ese dia no saliera nada y nadie se enterara. Respeta
+    cfg_cd['activo'] (False por defecto -- se enciende solo cuando la
+    clinica reviso la cartera inscrita por el backfill) y
+    cfg_dd['dentidesk']['enabled'] (el barrido necesita leer getAgendaDay)."""
+    import time
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('America/Santiago')
+    except Exception:
+        tz = None
+    ya_corrio = None
+    while True:
+        try:
+            ahora = datetime.now(tz) if tz else datetime.now()
+            slot = ahora.strftime('%H:%M')
+            cfg_dd = scheduling.load_config()
+            cfg_cd = control_dental.load_config()
+            hora_cfg = cfg_cd.get('hora_envio', '11:00')
+            if (cfg_cd.get('activo')
+                    and cfg_dd['dentidesk']['enabled']
+                    and hora_cfg <= slot < '17:00'
+                    and ya_corrio != ahora.date()):
+                ya_corrio = ahora.date()
+                r = _procesar_control_dental(cfg_cd, ahora.date())
+                print('[control-dental]', slot, r)
+        except Exception as e:
+            print('[control-dental] error:', e)
+        time.sleep(40)
+
+
 def _loop_calentador():
     """Mantiene tibio el cache de disponibilidad: cada ~20 min refresca los
     slots libres de cada doctor para los proximos ~15 dias habiles (mas la
@@ -4455,6 +4745,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_recaptacion_programados, daemon=True).start()
     threading.Thread(target=_loop_calentador, daemon=True).start()
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
+    threading.Thread(target=_loop_control_dental, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
     print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
     print('[recaptacion-programados] scheduler iniciado (hora configurable en el panel)')
