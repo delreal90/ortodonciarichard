@@ -579,6 +579,37 @@ def pendientes_hoy(hoy=None):
     return pendientes
 
 
+def proximos_envios(fecha=None, doctor=None, cfg=None):
+    """Inscritos a los que se les ENVIARIA el recordatorio en/antes de 'fecha'
+    (proximo_envio <= fecha), opcionalmente filtrado por 'doctor' (subcadena,
+    case-insensitive, contra el campo 'doctor' = profesional que instalo los
+    aparatos). Corre evaluar() y devuelve SOLO los que de verdad saldrian (las
+    guardas no los bloquean) -- asi la lista es honesta con "se les enviara",
+    no un simple filtro de fecha. evaluar() es 100% local (no toca DentiDesk),
+    asi que esto es barato.
+
+    Lo consume el reporte de evoluciones del Dr. Alberto (runbook
+    revision-evoluciones) para avisarle a que pacientes suyos les llega el
+    recordatorio dental al dia siguiente. Ordenado por proximo_envio."""
+    hoy_iso = (fecha.isoformat() if hasattr(fecha, 'isoformat') else str(fecha)) \
+        if fecha else date.today().isoformat()
+    doc_norm = _normalizar(doctor) if doctor else ''
+    cfg = cfg or load_config()
+    reg = _load_registro()
+
+    out = []
+    for rut, p in (reg.get('inscritos') or {}).items():
+        if p.get('estado') != 'activo' or p.get('proximo_envio', '') > hoy_iso:
+            continue
+        if doc_norm and doc_norm not in _normalizar(p.get('doctor', '')):
+            continue
+        if evaluar(rut, cfg) is not None:  # alguna guarda lo bloquea -> no sale
+            continue
+        out.append({'rut': rut, **p})
+    out.sort(key=lambda x: x.get('proximo_envio', ''))
+    return out
+
+
 def marcar_enviado(rut):
     """Registra el envio y recalcula proximo_envio = fecha_base +
     frecuencia_meses, adelantando fecha_base al dia del envio (asi cada

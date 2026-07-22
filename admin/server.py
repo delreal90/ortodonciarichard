@@ -3722,6 +3722,29 @@ def control_dental_test():
     })
 
 
+@app.route('/api/control-dental/proximos', methods=['GET'])
+def control_dental_proximos():
+    """Pacientes a los que se les ENVIARA el recordatorio dental en/antes de
+    'fecha' (query, YYYY-MM-DD; default hoy), opcionalmente de un 'doctor'
+    (query, subcadena del profesional que instalo los aparatos). Lo usa el
+    reporte diario de evoluciones del Dr. Alberto para incluir "a estos
+    pacientes tuyos les llega el recordatorio dental manana". Solo lectura."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    from datetime import date as _date
+    fecha_arg = (request.args.get('fecha') or '').strip()
+    try:
+        fecha = _date.fromisoformat(fecha_arg) if fecha_arg else None
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'fecha invalida (usar YYYY-MM-DD)'}), 400
+    doctor = (request.args.get('doctor') or '').strip() or None
+    items = control_dental.proximos_envios(fecha=fecha, doctor=doctor)
+    # Se devuelve solo lo que el reporte necesita (sin volcar todo el registro).
+    campos = ('rut', 'nombre', 'email', 'doctor', 'tipo', 'motivo_inicio',
+              'fecha_inicio', 'proximo_envio', 'frecuencia_meses')
+    return jsonify({'ok': True, 'items': [{k: p.get(k) for k in campos} for p in items]})
+
+
 @app.route('/api/control-dental/motivos-desconocidos', methods=['GET'])
 def control_dental_motivos_desconocidos():
     """Panel: los Reason que el barrido vio en la agenda y no supo clasificar,
