@@ -679,6 +679,10 @@
           Envía el correo de control dental a la dirección que quieras, para ver cómo le llega al paciente.
           No inscribe a nadie ni toca el registro. <strong>El correo se manda de verdad</strong>, así que usa
           una dirección tuya.
+          <br>
+          <strong>Pon el RUT</strong> si quieres ver el correo tal cual le llega al paciente: el saludo
+          («Estimado» / «Estimada») sale del género de su ficha. Sin RUT no hay ficha que consultar y
+          queda el genérico «Estimado/a», que no es lo que recibiría.
         </p>
         <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
           <div style="flex:2;min-width:220px">
@@ -689,6 +693,11 @@
           <div style="flex:1;min-width:150px">
             <label style="font-size:.82rem;color:#4A5568">Nombre del paciente</label>
             <input id="cd-test-nombre" value="Paciente de Prueba"
+                   style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:150px">
+            <label style="font-size:.82rem;color:#4A5568">RUT (opcional)</label>
+            <input id="cd-test-rut" placeholder="17.406.985-9"
                    style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
           </div>
           <div style="min-width:120px">
@@ -3255,11 +3264,20 @@ async function enviarCdPrueba() {
     const d = await _cdFetch('/api/control-dental/test', 'POST', {
       email,
       nombre: document.getElementById('cd-test-nombre').value.trim(),
+      rut: document.getElementById('cd-test-rut').value.trim(),
       frecuencia_meses: parseInt(document.getElementById('cd-test-frecuencia').value, 10),
     });
-    out.innerHTML = d.ok
-      ? `<span style="color:#276749">✅ Enviado a ${d.enviado_a}. Revisa la bandeja (y el spam la primera vez).</span>`
-      : `<span style="color:#c53030">❌ ${d.error || 'No se pudo enviar'}</span>`;
+    if (!d.ok) {
+      out.innerHTML = `<span style="color:#c53030">❌ ${d.error || 'No se pudo enviar'}</span>`;
+      return;
+    }
+    // Se avisa con qué saludo salió: es la diferencia entre la prueba y el
+    // envío real más fácil de pasar por alto (sin RUT queda "Estimado/a").
+    const nota = d.ficha_encontrada
+      ? `Saludo usado: «${d.saludo}» (según el género de la ficha).`
+      : `Saludo usado: «${d.saludo}» — genérico, porque no se encontró ficha para ese RUT. En un envío real siempre hay RUT.`;
+    out.innerHTML = `<span style="color:#276749">✅ Enviado a ${d.enviado_a}. Revisa la bandeja (y el spam la primera vez).</span>`
+      + `<br><span style="color:#718096">${nota}</span>`;
   } catch (e) {
     out.innerHTML = `<span style="color:#c53030">❌ ${e.message}</span>`;
   } finally {

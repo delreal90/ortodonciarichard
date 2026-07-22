@@ -3708,7 +3708,18 @@ def control_dental_test():
     resultado = notify.enviar_recordatorio_control_dental(paciente)
     if not resultado.get('ok'):
         return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar'}), 502
-    return jsonify({'ok': True, 'enviado_a': email})
+    # Se devuelve el saludo que se uso (y si se resolvio contra una ficha real)
+    # porque sin eso la prueba engaña: sin RUT el saludo cae al generico
+    # "Estimado/a" y parece que al paciente le fuera a llegar asi, cuando en un
+    # envio real el RUT siempre va y sale "Estimado" o "Estimada".
+    import pacientes  # perezoso, igual que el resto de server.py
+    sufijo = pacientes.saludo(paciente['rut']) if paciente['rut'] else ''
+    return jsonify({
+        'ok': True,
+        'enviado_a': email,
+        'saludo': f'Estimad{sufijo}' if sufijo else 'Estimado/a',
+        'ficha_encontrada': bool(paciente['rut'] and pacientes.lookup(paciente['rut'])),
+    })
 
 
 @app.route('/api/control-dental/motivos-desconocidos', methods=['GET'])
