@@ -3676,6 +3676,41 @@ def control_dental_motivo():
     return jsonify({'ok': True})
 
 
+@app.route('/api/control-dental/test', methods=['POST'])
+def control_dental_test():
+    """Envia el email de control dental de prueba a una direccion cualquiera
+    (protegido por ADMIN_TOKEN). Mismo espiritu que /api/whatsapp/test: poder
+    ver como queda el correo SIN inscribir a un paciente real ni esperar a que
+    a alguien le toque su ciclo de 6 meses.
+
+    Body JSON: { email, nombre?, frecuencia_meses? }
+
+    Manda el correo DE VERDAD (no es un simulacro), asi que el destinatario
+    tiene que ser de la clinica. Usa exactamente la misma funcion que el
+    scheduler, para que lo que se ve en la prueba sea lo que le llega al
+    paciente."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    email = (data.get('email') or '').strip()
+    if '@' not in email:
+        return jsonify({'ok': False, 'error': 'Falta un email valido'}), 400
+    try:
+        frecuencia = int(data.get('frecuencia_meses') or 6)
+    except (TypeError, ValueError):
+        frecuencia = 6
+    paciente = {
+        'rut': (data.get('rut') or '').strip(),
+        'nombre': (data.get('nombre') or 'Paciente de Prueba').strip(),
+        'email': email,
+        'frecuencia_meses': frecuencia,
+    }
+    resultado = notify.enviar_recordatorio_control_dental(paciente)
+    if not resultado.get('ok'):
+        return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar'}), 502
+    return jsonify({'ok': True, 'enviado_a': email})
+
+
 @app.route('/api/control-dental/motivos-desconocidos', methods=['GET'])
 def control_dental_motivos_desconocidos():
     """Panel: los Reason que el barrido vio en la agenda y no supo clasificar,

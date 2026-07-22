@@ -672,7 +672,39 @@
         </details>
       </div>
 
-      <!-- 5. Backfill -->
+      <!-- 5. Envío de prueba -->
+      <div class="card">
+        <h3 style="margin-bottom:6px">🧪 Envío de prueba</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:12px">
+          Envía el correo de control dental a la dirección que quieras, para ver cómo le llega al paciente.
+          No inscribe a nadie ni toca el registro. <strong>El correo se manda de verdad</strong>, así que usa
+          una dirección tuya.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:2;min-width:220px">
+            <label style="font-size:.82rem;color:#4A5568">Email de destino</label>
+            <input id="cd-test-email" type="email" placeholder="tucorreo@ejemplo.cl"
+                   style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:150px">
+            <label style="font-size:.82rem;color:#4A5568">Nombre del paciente</label>
+            <input id="cd-test-nombre" value="Paciente de Prueba"
+                   style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="min-width:120px">
+            <label style="font-size:.82rem;color:#4A5568">Frecuencia</label>
+            <select id="cd-test-frecuencia" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+              <option value="3">3 meses</option>
+              <option value="6" selected>6 meses</option>
+              <option value="12">12 meses</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="cd-test-btn" onclick="enviarCdPrueba()">Enviar prueba</button>
+        </div>
+        <div id="cd-test-resultado" style="font-size:.85rem;margin-top:10px"></div>
+      </div>
+
+      <!-- 6. Backfill -->
       <div class="card">
         <h3 style="margin-bottom:6px">📥 Inscribir cartera actual</h3>
         <p style="font-size:.82rem;color:#718096;margin-bottom:12px">
@@ -3208,7 +3240,34 @@ async function guardarCdMotivo() {
   } else toast('❌ ' + (r.error || 'Error'), false);
 }
 
-// ── 5. Backfill ────────────────────────────────────────
+// ── 5. Envío de prueba ─────────────────────────────────
+async function enviarCdPrueba() {
+  const email = document.getElementById('cd-test-email').value.trim();
+  const out   = document.getElementById('cd-test-resultado');
+  if (!email || email.indexOf('@') < 0) {
+    out.innerHTML = '<span style="color:#c53030">Ingresa un email válido.</span>';
+    return;
+  }
+  const btn = document.getElementById('cd-test-btn');
+  btn.disabled = true;
+  out.innerHTML = '<span style="color:#718096">Enviando…</span>';
+  try {
+    const d = await _cdFetch('/api/control-dental/test', 'POST', {
+      email,
+      nombre: document.getElementById('cd-test-nombre').value.trim(),
+      frecuencia_meses: parseInt(document.getElementById('cd-test-frecuencia').value, 10),
+    });
+    out.innerHTML = d.ok
+      ? `<span style="color:#276749">✅ Enviado a ${d.enviado_a}. Revisa la bandeja (y el spam la primera vez).</span>`
+      : `<span style="color:#c53030">❌ ${d.error || 'No se pudo enviar'}</span>`;
+  } catch (e) {
+    out.innerHTML = `<span style="color:#c53030">❌ ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── 6. Backfill ────────────────────────────────────────
 async function ejecutarCdBackfill() {
   if (!confirm('Esto barre ~6 meses de agenda en DentiDesk e inscribe a la cartera actual. Puede demorar varios minutos. ¿Continuar?')) return;
   const btn = document.getElementById('cd-backfill-btn');
