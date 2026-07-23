@@ -637,15 +637,15 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     if not plantilla or not plantilla.exists() or not (aseg.get('mapeo_campos') or {}):
         return generar_pdf_generico(aseguradora_key, valores, firma_doctor_key)
 
-    from pypdf import PdfReader, PdfWriter
-
     mapeo = aseg.get('mapeo_campos') or {}
     tipo = aseg.get('tipo_plantilla', 'overlay')
 
-    # 1) Separar: campos AcroForm vs posiciones overlay vs imagen de firma
+    # 1) Separar: campos AcroForm vs posiciones overlay vs imagen de firma.
+    # Las coordenadas (x, y) del overlay/firma van en el sistema del PDF (origen
+    # ABAJO-izquierda), igual que reportlab.
     campos_acro = {}     # nombre_campo_pdf -> valor
-    textos = {}          # pagina -> [(x, y, texto, fontsize)]
-    imagenes = {}        # pagina -> [(x, y, w, h, ruta)]
+    textos = {}          # pagina(1-based) -> [(x, y, texto, fontsize)]
+    imagenes = {}        # pagina(1-based) -> [(x, y, w, h, ruta)]
     for campo_logico, spec in mapeo.items():
         # Un campo logico puede ir a VARIOS lugares del PDF (ej. "Nombre del
         # paciente" aparece en la seccion medica Y en la declaracion) — el
@@ -668,40 +668,51 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                 textos.setdefault(s['pagina'], []).append(
                     (s['x'], s['y'], str(valor), s.get('fontsize', 9)))
 
-    # 2) AcroForm primero (si aplica), sobre un archivo intermedio en memoria
-    origen = plantilla
-    buf_acro = None
-    if campos_acro:
-        reader = PdfReader(str(plantilla))
-        writer = PdfWriter()
-        writer.append(reader)
-        for page in writer.pages:
-            writer.update_page_form_field_values(page, campos_acro)
-        # NeedAppearances: que el visor regenere la apariencia de los campos
-        # (sin esto, algunos visores muestran los campos vacios hasta clicarlos)
-        try:
-            writer.set_need_appearances_writer(True)
-        except Exception:
-            pass
-        buf_acro = io.BytesIO()
-        writer.write(buf_acro)
-        buf_acro.seek(0)
-        origen = buf_acro
-
-    # 3) Overlay (texto plano + firma) fusionado sobre el resultado
-    writer_final = _overlay_pdf(origen, textos, imagenes)
-    if campos_acro:
-        # NeedAppearances tambien en el writer FINAL (el intermedio se re-lee
-        # y la marca no sobrevive el append)
-        try:
-            writer_final.set_need_appearances_writer(True)
-        except Exception:
-            pass
-
     GENERADOS_DIR.mkdir(parents=True, exist_ok=True)
     rut = _limpiar_rut(valores.get('paciente_rut', '')) or 'sinrut'
     ruta_out = GENERADOS_DIR / (
         f"{rut}_{aseguradora_key}_{ahora_chile().strftime('%Y%m%d-%H%M%S')}.pdf")
+
+    # 2) Formularios AcroForm (campos rellenables): PyMuPDF. Setea cada campo con
+    # tamaño de fuente AUTO (0) para que el texto largo se encoja y quepa en la
+    # casilla, y HORNEA la apariencia en el PDF (no depende del visor del
+    # paciente, a diferencia de NeedAppearances). La firma y cualquier texto por
+    # coordenadas se dibujan encima (convertimos y: PDF abajo-izq -> fitz arriba-izq).
+    if tipo == 'acroform' or campos_acro:
+        import fitz
+        doc = fitz.open(str(plantilla))
+        for page in doc:
+            for w in (page.widgets() or []):
+                if w.field_name in campos_acro:
+                    try:
+                        w.field_value = campos_acro[w.field_name]
+                        w.text_fontsize = 0  # 0 = auto-ajuste al ancho del campo
+                        w.update()
+                    except Exception:
+                        pass  # un campo problematico no debe botar el formulario
+        for pnum, imgs in imagenes.items():
+            if 0 <= pnum - 1 < len(doc):
+                page = doc[pnum - 1]; H = page.rect.height
+                for (x, y, anc, alt, ruta) in imgs:
+                    try:
+                        page.insert_image(fitz.Rect(x, H - (y + alt), x + anc, H - y),
+                                          filename=str(ruta), keep_proportion=True)
+                    except Exception:
+                        pass
+        for pnum, txts in textos.items():
+            if 0 <= pnum - 1 < len(doc):
+                page = doc[pnum - 1]; H = page.rect.height
+                for (x, y, texto, fs) in txts:
+                    try:
+                        page.insert_text((x, H - y), texto, fontsize=fs or 9)
+                    except Exception:
+                        pass
+        doc.save(str(ruta_out))
+        doc.close()
+        return ruta_out
+
+    # 3) Formularios PLANOS (sin campos): overlay reportlab + pypdf (Colmena, etc.)
+    writer_final = _overlay_pdf(plantilla, textos, imagenes)
     with open(ruta_out, 'wb') as f:
         writer_final.write(f)
     return ruta_out
@@ -832,6 +843,8 @@ def armar_valores(datos, filas):
         'clinica_telefono': '+56 2 2217 3499',
         'clinica_email': 'recepcion@ortodonciarichard.cl',
         'clinica_direccion': 'Paul Harris 10.349, of. 305, Las Condes',
+        'clinica_ciudad': 'Santiago',
+        'clinica_dir_tel': 'Paul Harris 10.349, of. 305, Las Condes — Tel +56 2 2217 3499',
     }
     total = 0
     for i, fila in enumerate(filas, start=1):

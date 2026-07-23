@@ -10,3 +10,4 @@ google-auth==2.35.0
 tzdata==2025.2
 segno==1.6.1
 pypdf==6.14.2
+pymupdf==1.28.0
