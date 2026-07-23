@@ -2818,7 +2818,7 @@ async function segGuardarMapeo(prestId, asegKey) {
     codigo: row.querySelector('.seg-item-codigo').value.trim(),
     descripcion: row.querySelector('.seg-item-desc').value.trim(),
   })).filter(it => it.codigo || it.descripcion);
-  const r = await _segFetch('/api/seguro/admin/mapeo-prestaciones', 'POST', { prest_id: +prestId, aseguradora: asegKey, items });
+  const r = await _segFetch('/api/seguro/admin/mapeo-prestaciones', 'POST', { prest_id: prestId, aseguradora: asegKey, items });
   if (r.ok) {
     toast('✅ Mapeo guardado');
     if (!SEG_MAPEO[prestId]) SEG_MAPEO[prestId] = {};
