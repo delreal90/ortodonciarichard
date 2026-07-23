@@ -644,6 +644,7 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     # Las coordenadas (x, y) del overlay/firma van en el sistema del PDF (origen
     # ABAJO-izquierda), igual que reportlab.
     campos_acro = {}     # nombre_campo_pdf -> valor
+    campos_acro_fs = {}  # nombre_campo_pdf -> fontsize fijo (si el spec lo pide)
     textos = {}          # pagina(1-based) -> [(x, y, texto, fontsize)]
     imagenes = {}        # pagina(1-based) -> [(x, y, w, h, ruta)]
     for campo_logico, spec in mapeo.items():
@@ -664,6 +665,10 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
         for s in specs:
             if 'campo' in s:
                 campos_acro[s['campo']] = str(valor)
+                # fontsize fijo opcional (ej. para uniformar una sección);
+                # si no se especifica, queda 0 = auto-ajuste al ancho del campo.
+                if s.get('fontsize'):
+                    campos_acro_fs[s['campo']] = s['fontsize']
             elif all(k in s for k in ('pagina', 'x', 'y')):
                 textos.setdefault(s['pagina'], []).append(
                     (s['x'], s['y'], str(valor), s.get('fontsize', 9)))
@@ -686,7 +691,8 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                 if w.field_name in campos_acro:
                     try:
                         w.field_value = campos_acro[w.field_name]
-                        w.text_fontsize = 0  # 0 = auto-ajuste al ancho del campo
+                        # fontsize fijo si el mapeo lo pidio; si no, 0 = auto-ajuste
+                        w.text_fontsize = campos_acro_fs.get(w.field_name, 0)
                         w.update()
                     except Exception:
                         pass  # un campo problematico no debe botar el formulario
@@ -827,6 +833,13 @@ def _fmt_monto(v):
     return f'{n:,}'.replace(',', '.') if n else ''
 
 
+def _fecha_ddmmyyyy(fecha):
+    """Normaliza a DD-MM-YYYY (los formularios chilenos lo piden así).
+    Acepta YYYY-MM-DD o DD-MM-YYYY (o con /). Deja igual lo que no parsea."""
+    d, m, y = _partes_fecha(fecha)
+    return f'{d}-{m}-{y}' if d and m and y else (fecha or '')
+
+
 def _partes_fecha(fecha):
     """'24-07-2026' o '2026-07-24' -> ('24','07','2026'). ('','','') si no parsea."""
     import re
@@ -895,7 +908,7 @@ def armar_valores(datos, filas):
         'paciente_edad': _calcular_edad(extra.get('fecha_nacimiento', '')),
         'paciente_direccion': extra.get('direccion', ''),
         'fecha_emision': ahora_chile().strftime('%d-%m-%Y'),
-        'fecha_atencion': datos.get('fecha_atencion', ''),
+        'fecha_atencion': _fecha_ddmmyyyy(datos.get('fecha_atencion', '')),
         'doctor_nombre': datos.get('doctor_nombre', ''),
         # Naturaleza de la atencion (Zurich pide "lesion" / naturaleza)
         'lesion': 'Tratamiento de ortodoncia',
@@ -913,12 +926,14 @@ def armar_valores(datos, filas):
         'clinica_direccion': 'Paul Harris 10.349, of. 305, Las Condes',
         'clinica_ciudad': 'Santiago',
         'clinica_dir_tel': 'Paul Harris 10.349, of. 305, Las Condes — Tel +56 2 2217 3499',
+        'clinica_rut': '79.609.080-4',   # Clínica de Ortodoncia C. Richard Ltda.
+        'clinica_razon_social': 'Clínica de Ortodoncia C. Richard Ltda.',
     }
     total = 0
     for i, fila in enumerate(filas, start=1):
         valores[f'prestacion_{i}_codigo'] = fila.get('codigo', '')
         valores[f'prestacion_{i}_descripcion'] = fila.get('descripcion', '')
-        _fecha = fila.get('fecha', '')
+        _fecha = _fecha_ddmmyyyy(fila.get('fecha', ''))
         valores[f'prestacion_{i}_fecha'] = _fecha
         # Partes de la fecha (formularios con casillas Día/Mes/Año, ej. Vida Cámara)
         _dp = _partes_fecha(_fecha)

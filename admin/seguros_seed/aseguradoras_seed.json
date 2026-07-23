@@ -143,55 +143,55 @@
    "paciente_nombre_completo": {
     "pagina": 1,
     "x": 70,
-    "y": 524,
+    "y": 528,
     "fontsize": 10
    },
    "fecha_emision": {
     "pagina": 1,
     "x": 448,
-    "y": 524,
+    "y": 528,
     "fontsize": 10
    },
    "paciente_email": {
     "pagina": 1,
-    "x": 115,
-    "y": 579,
+    "x": 118,
+    "y": 583,
     "fontsize": 8
    },
    "tratamiento_indicado": {
     "pagina": 1,
     "x": 72,
-    "y": 280,
+    "y": 284,
     "fontsize": 10
    },
    "fecha_atencion": {
     "pagina": 1,
     "x": 210,
-    "y": 250,
+    "y": 254,
     "fontsize": 10
    },
    "doctor_nombre": {
     "pagina": 1,
     "x": 75,
-    "y": 204,
+    "y": 208,
     "fontsize": 10
    },
    "doctor_rut": {
     "pagina": 1,
     "x": 80,
-    "y": 162,
+    "y": 166,
     "fontsize": 10
    },
    "clinica_telefono": {
     "pagina": 1,
     "x": 298,
-    "y": 162,
+    "y": 166,
     "fontsize": 10
    },
    "clinica_email": {
     "pagina": 1,
     "x": 78,
-    "y": 132,
+    "y": 136,
     "fontsize": 10
    },
    "firma_doctor": {
@@ -567,66 +567,81 @@
   "mapeo_campos": {
    "paciente_nombre_completo": [
     {
-     "campo": "Nombre del pacienteasegurado que efectúa el gasto"
+     "campo": "Nombre del pacienteasegurado que efectúa el gasto",
+     "fontsize": 9
     },
     {
-     "campo": "Nombre de paciente"
+     "campo": "Nombre de paciente",
+     "fontsize": 9
     }
    ],
    "paciente_fecha_nacimiento": {
-    "campo": "Fecha nacimiento ddmmaaaa"
-   },
-   "paciente_email": {
-    "campo": "Correo electrónico titular"
+    "campo": "Fecha nacimiento ddmmaaaa",
+    "fontsize": 9
    },
    "paciente_telefono": {
-    "campo": "Celular"
+    "campo": "Celular",
+    "fontsize": 9
    },
    "fecha_atencion": [
     {
-     "campo": "Gasto fecha de gasto ddmmaaaa"
+     "campo": "Gasto fecha de gasto ddmmaaaa",
+     "fontsize": 9
     },
     {
-     "campo": "Fecha de consulta o inicio tratamiento"
+     "campo": "Fecha de consulta o inicio tratamiento",
+     "fontsize": 9
     }
    ],
    "fecha_emision": {
-    "campo": "Fecha presentación del gasto a la Cía  ddmmaaaa"
+    "campo": "Fecha presentación del gasto a la Cía  ddmmaaaa",
+    "fontsize": 9
    },
    "doctor_nombre": {
-    "campo": "Nombre odontólogo"
+    "campo": "Nombre odontólogo",
+    "fontsize": 9
    },
    "doctor_rut": {
-    "campo": "Rut odontólogo"
+    "campo": "Rut odontólogo",
+    "fontsize": 9
    },
    "clinica_dir_tel": {
-    "campo": "Dirección y Teléfono"
+    "campo": "Dirección y Teléfono",
+    "fontsize": 9
    },
    "total": [
     {
-     "campo": "Monto del gasto a cobrar a la Cía"
+     "campo": "Monto del gasto a cobrar a la Cía",
+     "fontsize": 9
     },
     {
-     "campo": "TotalTotal"
+     "campo": "TotalTotal",
+     "fontsize": 9
     }
    ],
    "orto_tipo_aparatos": {
-    "campo": "Tipo de Aparatos"
+    "campo": "Tipo de Aparatos",
+    "fontsize": 9
    },
    "orto_fecha_instalacion": {
-    "campo": "Fecha de Instalación Aparatos"
+    "campo": "Fecha de Instalación Aparatos",
+    "fontsize": 9
    },
    "orto_fecha_primer_control": {
-    "campo": "Fecha primer control"
+    "campo": "Fecha primer control",
+    "fontsize": 9
    },
    "orto_duracion": {
-    "campo": "Duración total aproximada tratamiento"
+    "campo": "Duración total aproximada tratamiento",
+    "fontsize": 9
    },
    "orto_valor_aparatos": {
-    "campo": "Costo Total Instalación"
+    "campo": "Costo Total Instalación",
+    "fontsize": 9
    },
    "orto_valor_controles": {
-    "campo": "Valor controles mensuales"
+    "campo": "Valor controles mensuales",
+    "fontsize": 9
    },
    "prestacion_1_descripcion": {
     "campo": "Detalle de prestaciónRow1"
@@ -789,130 +804,130 @@
    "prestacion_1_descripcion": {
     "pagina": 1,
     "x": 48,
-    "y": 305,
+    "y": 299,
     "fontsize": 7
    },
    "prestacion_1_fecha": {
     "pagina": 1,
     "x": 346,
-    "y": 305,
+    "y": 299,
     "fontsize": 7
    },
    "prestacion_1_valor": [
     {
      "pagina": 1,
      "x": 440,
-     "y": 305,
+     "y": 299,
      "fontsize": 7
     },
     {
      "pagina": 1,
      "x": 518,
-     "y": 305,
+     "y": 299,
      "fontsize": 7
     }
    ],
    "prestacion_2_descripcion": {
     "pagina": 1,
     "x": 48,
-    "y": 292,
+    "y": 286,
     "fontsize": 7
    },
    "prestacion_2_fecha": {
     "pagina": 1,
     "x": 346,
-    "y": 292,
+    "y": 286,
     "fontsize": 7
    },
    "prestacion_2_valor": [
     {
      "pagina": 1,
      "x": 440,
-     "y": 292,
+     "y": 286,
      "fontsize": 7
     },
     {
      "pagina": 1,
      "x": 518,
-     "y": 292,
+     "y": 286,
      "fontsize": 7
     }
    ],
    "prestacion_3_descripcion": {
     "pagina": 1,
     "x": 48,
-    "y": 279,
+    "y": 273,
     "fontsize": 7
    },
    "prestacion_3_fecha": {
     "pagina": 1,
     "x": 346,
-    "y": 279,
+    "y": 273,
     "fontsize": 7
    },
    "prestacion_3_valor": [
     {
      "pagina": 1,
      "x": 440,
-     "y": 279,
+     "y": 273,
      "fontsize": 7
     },
     {
      "pagina": 1,
      "x": 518,
-     "y": 279,
+     "y": 273,
      "fontsize": 7
     }
    ],
    "prestacion_4_descripcion": {
     "pagina": 1,
     "x": 48,
-    "y": 266,
+    "y": 260,
     "fontsize": 7
    },
    "prestacion_4_fecha": {
     "pagina": 1,
     "x": 346,
-    "y": 266,
+    "y": 260,
     "fontsize": 7
    },
    "prestacion_4_valor": [
     {
      "pagina": 1,
      "x": 440,
-     "y": 266,
+     "y": 260,
      "fontsize": 7
     },
     {
      "pagina": 1,
      "x": 518,
-     "y": 266,
+     "y": 260,
      "fontsize": 7
     }
    ],
    "prestacion_5_descripcion": {
     "pagina": 1,
     "x": 48,
-    "y": 253,
+    "y": 247,
     "fontsize": 7
    },
    "prestacion_5_fecha": {
     "pagina": 1,
     "x": 346,
-    "y": 253,
+    "y": 247,
     "fontsize": 7
    },
    "prestacion_5_valor": [
     {
      "pagina": 1,
      "x": 440,
-     "y": 253,
+     "y": 247,
      "fontsize": 7
     },
     {
      "pagina": 1,
      "x": 518,
-     "y": 253,
+     "y": 247,
      "fontsize": 7
     }
    ],
@@ -970,50 +985,50 @@
    "paciente_nombre_completo": {
     "pagina": 1,
     "x": 120,
-    "y": 759,
-    "fontsize": 8
+    "y": 762,
+    "fontsize": 10
    },
    "paciente_rut_fmt": {
     "pagina": 1,
     "x": 470,
-    "y": 758,
-    "fontsize": 8
+    "y": 761,
+    "fontsize": 10
    },
    "doctor_nombre": {
     "pagina": 1,
     "x": 95,
-    "y": 546,
-    "fontsize": 8
+    "y": 549,
+    "fontsize": 10
    },
    "doctor_rut": {
     "pagina": 1,
     "x": 480,
-    "y": 546,
-    "fontsize": 8
+    "y": 549,
+    "fontsize": 10
    },
    "clinica_direccion": {
     "pagina": 1,
     "x": 88,
-    "y": 528,
-    "fontsize": 8
+    "y": 531,
+    "fontsize": 10
    },
    "clinica_ciudad": {
     "pagina": 1,
     "x": 370,
-    "y": 528,
-    "fontsize": 8
+    "y": 531,
+    "fontsize": 10
    },
    "clinica_telefono": {
     "pagina": 1,
     "x": 485,
-    "y": 529,
-    "fontsize": 8
+    "y": 532,
+    "fontsize": 10
    },
    "total": {
     "pagina": 2,
     "x": 470,
     "y": 651,
-    "fontsize": 9
+    "fontsize": 10
    },
    "firma_doctor": {
     "pagina": 2,
@@ -1026,191 +1041,191 @@
     "pagina": 1,
     "x": 130,
     "y": 412,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_1_cantidad": {
     "pagina": 1,
     "x": 208,
     "y": 412,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_1_descripcion": {
     "pagina": 1,
     "x": 240,
     "y": 412,
-    "fontsize": 6
+    "fontsize": 8
    },
    "prestacion_1_valor": [
     {
      "pagina": 1,
      "x": 499,
      "y": 412,
-     "fontsize": 7
+     "fontsize": 8
     },
     {
      "pagina": 1,
      "x": 545,
      "y": 412,
-     "fontsize": 7
+     "fontsize": 8
     }
    ],
    "prestacion_2_fecha": {
     "pagina": 1,
     "x": 130,
     "y": 400,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_2_cantidad": {
     "pagina": 1,
     "x": 208,
     "y": 400,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_2_descripcion": {
     "pagina": 1,
     "x": 240,
     "y": 400,
-    "fontsize": 6
+    "fontsize": 8
    },
    "prestacion_2_valor": [
     {
      "pagina": 1,
      "x": 499,
      "y": 400,
-     "fontsize": 7
+     "fontsize": 8
     },
     {
      "pagina": 1,
      "x": 545,
      "y": 400,
-     "fontsize": 7
+     "fontsize": 8
     }
    ],
    "prestacion_3_fecha": {
     "pagina": 1,
     "x": 130,
     "y": 388,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_3_cantidad": {
     "pagina": 1,
     "x": 208,
     "y": 388,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_3_descripcion": {
     "pagina": 1,
     "x": 240,
     "y": 388,
-    "fontsize": 6
+    "fontsize": 8
    },
    "prestacion_3_valor": [
     {
      "pagina": 1,
      "x": 499,
      "y": 388,
-     "fontsize": 7
+     "fontsize": 8
     },
     {
      "pagina": 1,
      "x": 545,
      "y": 388,
-     "fontsize": 7
+     "fontsize": 8
     }
    ],
    "prestacion_4_fecha": {
     "pagina": 1,
     "x": 130,
     "y": 376,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_4_cantidad": {
     "pagina": 1,
     "x": 208,
     "y": 376,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_4_descripcion": {
     "pagina": 1,
     "x": 240,
     "y": 376,
-    "fontsize": 6
+    "fontsize": 8
    },
    "prestacion_4_valor": [
     {
      "pagina": 1,
      "x": 499,
      "y": 376,
-     "fontsize": 7
+     "fontsize": 8
     },
     {
      "pagina": 1,
      "x": 545,
      "y": 376,
-     "fontsize": 7
+     "fontsize": 8
     }
    ],
    "prestacion_5_fecha": {
     "pagina": 1,
     "x": 130,
     "y": 364,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_5_cantidad": {
     "pagina": 1,
     "x": 208,
     "y": 364,
-    "fontsize": 7
+    "fontsize": 8
    },
    "prestacion_5_descripcion": {
     "pagina": 1,
     "x": 240,
     "y": 364,
-    "fontsize": 6
+    "fontsize": 8
    },
    "prestacion_5_valor": [
     {
      "pagina": 1,
      "x": 499,
      "y": 364,
-     "fontsize": 7
+     "fontsize": 8
     },
     {
      "pagina": 1,
      "x": 545,
      "y": 364,
-     "fontsize": 7
+     "fontsize": 8
     }
    ],
    "orto_tipo_aparatos": {
     "pagina": 2,
     "x": 34,
     "y": 790,
-    "fontsize": 7
+    "fontsize": 8
    },
    "orto_fecha_instalacion": {
     "pagina": 2,
     "x": 136,
     "y": 790,
-    "fontsize": 7
+    "fontsize": 8
    },
    "orto_fecha_primer_control": {
     "pagina": 2,
     "x": 234,
     "y": 790,
-    "fontsize": 7
+    "fontsize": 8
    },
    "orto_duracion": {
     "pagina": 2,
     "x": 316,
     "y": 790,
-    "fontsize": 7
+    "fontsize": 8
    },
    "orto_valor_aparatos": {
     "pagina": 2,
     "x": 540,
     "y": 790,
-    "fontsize": 7
+    "fontsize": 8
    }
   },
   "max_prestaciones_por_form": 5
@@ -1224,31 +1239,31 @@
    "paciente_nombre_completo": {
     "pagina": 1,
     "x": 185,
-    "y": 250,
+    "y": 254,
     "fontsize": 8
    },
    "paciente_rut_fmt": {
     "pagina": 1,
     "x": 115,
-    "y": 234,
+    "y": 238,
     "fontsize": 8
    },
    "doctor_nombre": {
     "pagina": 1,
     "x": 205,
-    "y": 162,
+    "y": 166,
     "fontsize": 8
    },
    "doctor_rut": {
     "pagina": 1,
     "x": 132,
-    "y": 144,
+    "y": 148,
     "fontsize": 8
    },
    "clinica_nombre": {
     "pagina": 1,
     "x": 158,
-    "y": 129,
+    "y": 133,
     "fontsize": 8
    },
    "total": {
@@ -1488,6 +1503,12 @@
     "pagina": 2,
     "x": 392,
     "y": 280,
+    "fontsize": 8
+   },
+   "clinica_rut": {
+    "pagina": 1,
+    "x": 170,
+    "y": 106,
     "fontsize": 8
    }
   },
