@@ -81,23 +81,51 @@ _SEED_DIR = Path(__file__).parent / 'seguros_seed'
 
 
 def _aplicar_seed():
+    """Auto-reparable en cada arranque. Copia los PDFs de plantilla si faltan y,
+    por cada aseguradora del seed, RELLENA su mapeo_campos/tipo_plantilla/
+    plantilla_pdf SOLO si están vacíos en el disco — sin pisar lo que el usuario
+    haya editado (nombre, activa) ni un mapeo no vacío. Antes solo sembraba si el
+    archivo NO existía; eso hacía que, una vez creada cualquier aseguradora desde
+    el panel, el mapeo correcto del seed nunca se re-aplicara en los deploys."""
     try:
-        seed_aseg = _SEED_DIR / 'aseguradoras_seed.json'
-        if seed_aseg.exists() and not ASEGURADORAS_PATH.exists():
-            ASEGURADORAS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            data = json.loads(seed_aseg.read_text(encoding='utf-8'))
-            _save(ASEGURADORAS_PATH, data)
+        # 1) PDFs de plantilla al disco persistente (si faltan)
         if _SEED_DIR.exists():
             PLANTILLAS_DIR.mkdir(parents=True, exist_ok=True)
             for pdf in _SEED_DIR.glob('*.pdf'):
                 destino = PLANTILLAS_DIR / pdf.name
                 if not destino.exists():
                     destino.write_bytes(pdf.read_bytes())
+
+        seed_aseg = _SEED_DIR / 'aseguradoras_seed.json'
+        if not seed_aseg.exists():
+            return
+        seed = json.loads(seed_aseg.read_text(encoding='utf-8'))
+        idx = _load(ASEGURADORAS_PATH)
+        cambiado = False
+        for key, sv in seed.items():
+            cur = idx.get(key)
+            if cur is None:
+                idx[key] = sv                      # no existe → sembrar completa
+                cambiado = True
+                continue
+            # existe → rellenar SOLO lo que falta (self-heal), sin tocar nombre/activa
+            if not (cur.get('mapeo_campos') or {}) and (sv.get('mapeo_campos') or {}):
+                cur['mapeo_campos'] = sv['mapeo_campos']; cambiado = True
+            if not cur.get('tipo_plantilla') and sv.get('tipo_plantilla'):
+                cur['tipo_plantilla'] = sv['tipo_plantilla']; cambiado = True
+            if not cur.get('plantilla_pdf') and sv.get('plantilla_pdf'):
+                cur['plantilla_pdf'] = sv['plantilla_pdf']; cambiado = True
+        if cambiado:
+            ASEGURADORAS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _save(ASEGURADORAS_PATH, idx)
     except Exception:
         pass  # la semilla es best-effort; sin ella el panel permite configurar a mano
 
 
-_aplicar_seed()
+# NOTA: la llamada a _aplicar_seed() va al FINAL del módulo, después de que
+# _load/_save estén definidas. Si se llama aquí (antes de definirlas), lanza
+# NameError que el except se traga en silencio y el seed nunca se aplica — ése
+# fue exactamente el bug que dejó a todas las aseguradoras sin mapeo de campos.
 
 # Vida util del token que protege la URL del PDF de vista previa (el iframe
 # no puede mandar headers). Corto a proposito: solo cubre la sesion de trabajo.
@@ -822,3 +850,7 @@ def armar_valores(datos, filas):
     if filas:
         valores['tratamiento_indicado'] = filas[0].get('descripcion', '')
     return valores
+
+
+# ── Semilla al final: todas las funciones (_load/_save) ya están definidas ────
+_aplicar_seed()
