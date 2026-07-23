@@ -818,26 +818,94 @@ def campos_acroform(aseguradora_key):
             for k, v in fields.items()]
 
 
+def _fmt_monto(v):
+    """'130000' o 130000 -> '130.000'. '' si no hay valor."""
+    try:
+        n = int(str(v).replace('.', '').replace('$', '').replace(' ', '').strip() or 0)
+    except (TypeError, ValueError):
+        return ''
+    return f'{n:,}'.replace(',', '.') if n else ''
+
+
+def _partes_fecha(fecha):
+    """'24-07-2026' o '2026-07-24' -> ('24','07','2026'). ('','','') si no parsea."""
+    import re
+    s = (fecha or '').strip()
+    m = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$', s)   # DD-MM-YYYY
+    if m:
+        return (m.group(1).zfill(2), m.group(2).zfill(2), m.group(3))
+    m = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', s)   # YYYY-MM-DD
+    if m:
+        return (m.group(3).zfill(2), m.group(2).zfill(2), m.group(1))
+    return ('', '', '')
+
+
+def _limpiar_nombre(full):
+    """Quita los codigos internos de ficha de DentiDesk del nombre
+    (ej. 'Alberto Jose Del Real Valdes 4269D-D' -> 'Alberto Jose Del Real
+    Valdes'). Reutiliza pacientes._es_codigo para detectar los tokens-codigo."""
+    import re
+    s = (full or '').replace('▲', ' ')
+    s = re.sub(r'-[A-Za-z]{1,3}\b', '', s)   # codigos pegados por guion (Esparza-DD)
+    try:
+        toks = [t for t in s.split() if not pacientes._es_codigo(t)]
+    except Exception:
+        toks = s.split()
+    return ' '.join(toks).strip()
+
+
+def _calcular_edad(fecha_nac):
+    """Edad en años desde una fecha de nacimiento en varios formatos
+    (YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY). '' si no se puede parsear."""
+    s = (fecha_nac or '').strip()
+    if not s:
+        return ''
+    import re
+    m = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', s)      # YYYY-MM-DD
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        m = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$', s)  # DD-MM-YYYY
+        if not m:
+            return ''
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    hoy = ahora_chile()
+    edad = hoy.year - y - ((hoy.month, hoy.day) < (mo, d))
+    return str(edad) if 0 <= edad < 130 else ''
+
+
 def armar_valores(datos, filas):
     """Aplana el payload del frontend al dict de campos logicos que consume
     rellenar_pdf(). datos: rut,nombre,apellido,email,telefono,fecha_atencion,
     doctor_nombre,datos_extra. filas: [{codigo,descripcion,valor,fecha}]."""
     extra = datos.get('datos_extra') or {}
-    nombre = (datos.get('nombre') or '').strip()
-    apellido = (datos.get('apellido') or '').strip()
+    # Nombre SIN codigos internos de DentiDesk (nunca deben ir al formulario)
+    nombre = _limpiar_nombre((datos.get('nombre') or '').strip())
+    apellido = _limpiar_nombre((datos.get('apellido') or '').strip())
+    nombre_completo = _limpiar_nombre(f"{datos.get('nombre','')} {datos.get('apellido','')}")
     valores = {
         'paciente_nombre': nombre,
         'paciente_apellido': apellido,
-        'paciente_nombre_completo': f'{nombre} {apellido}'.strip(),
+        'paciente_nombre_completo': nombre_completo,
         'paciente_rut': datos.get('rut', ''),
         'paciente_rut_fmt': _formatear_rut(datos.get('rut', '')),
         'paciente_email': datos.get('email', ''),
         'paciente_telefono': datos.get('telefono', ''),
         'paciente_fecha_nacimiento': extra.get('fecha_nacimiento', ''),
+        'paciente_edad': _calcular_edad(extra.get('fecha_nacimiento', '')),
         'paciente_direccion': extra.get('direccion', ''),
         'fecha_emision': ahora_chile().strftime('%d-%m-%Y'),
         'fecha_atencion': datos.get('fecha_atencion', ''),
         'doctor_nombre': datos.get('doctor_nombre', ''),
+        # Naturaleza de la atencion (Zurich pide "lesion" / naturaleza)
+        'lesion': 'Tratamiento de ortodoncia',
+        # Datos de ortodoncia por paciente (guardados en datos_extra por RUT)
+        'orto_tipo_aparatos': extra.get('tipo_aparatos', ''),
+        'orto_fecha_instalacion': extra.get('fecha_instalacion', ''),
+        'orto_fecha_primer_control': extra.get('fecha_primer_control', ''),
+        'orto_duracion': extra.get('duracion_tratamiento', ''),
+        'orto_valor_aparatos': _fmt_monto(extra.get('valor_aparatos', '')),
+        'orto_valor_controles': _fmt_monto(extra.get('valor_controles', '')),
         # Datos fijos de la clinica (algunos formularios los piden)
         'clinica_nombre': 'Clínica de Ortodoncia C. Richard',
         'clinica_telefono': '+56 2 2217 3499',
@@ -850,7 +918,13 @@ def armar_valores(datos, filas):
     for i, fila in enumerate(filas, start=1):
         valores[f'prestacion_{i}_codigo'] = fila.get('codigo', '')
         valores[f'prestacion_{i}_descripcion'] = fila.get('descripcion', '')
-        valores[f'prestacion_{i}_fecha'] = fila.get('fecha', '')
+        _fecha = fila.get('fecha', '')
+        valores[f'prestacion_{i}_fecha'] = _fecha
+        # Partes de la fecha (formularios con casillas Día/Mes/Año, ej. Vida Cámara)
+        _dp = _partes_fecha(_fecha)
+        valores[f'prestacion_{i}_fecha_dia'] = _dp[0]
+        valores[f'prestacion_{i}_fecha_mes'] = _dp[1]
+        valores[f'prestacion_{i}_fecha_anio'] = _dp[2]
         try:
             v = int(fila.get('valor') or 0)
         except (TypeError, ValueError):
