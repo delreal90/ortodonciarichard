@@ -158,14 +158,37 @@ def _enviar_email_smtp(cita, ics, reagenda=False):
 
 # ── WhatsApp (fallback, Cloud API oficial) ───────────────────────────────────
 
-def _enviar_whatsapp(cita, ics, reagenda=False):
+def _enviar_whatsapp(cita, ics, reagenda=False, primera=False):
     """Fallback: WhatsApp Cloud API con la plantilla 'confirmacion_hora'
     (o 'reagenda_confirmada' si reagenda=True). Sin adjunto (las plantillas
     de Meta no llevan .ics); solo texto. Devuelve (ok: bool, error: str|None)
     — el error se propaga hasta F2 para que la secretaria vea la causa real
-    (token vencido, sin telefono, etc.) en vez de un mensaje generico."""
+    (token vencido, sin telefono, etc.) en vez de un mensaje generico.
+
+    primera=True: primero intenta la plantilla especial de primera consulta
+    (con video de bienvenida); si falla, cae a la confirmacion normal."""
     if not cita.get('telefono'):
         return False, 'La cita no tiene teléfono registrado'
+
+    # Primera consulta: plantilla propia con video de bienvenida. Si falla (p.ej.
+    # video no disponible), cae a la confirmacion normal -- el paciente nunca
+    # queda sin aviso por WhatsApp.
+    if primera:
+        try:
+            fecha_iso = cita['fecha'].isoformat() if hasattr(cita.get('fecha'), 'isoformat') else ''
+            resultado = wa_cloud.enviar_primera_consulta(
+                telefono=cita['telefono'], nombre=cita['nombre'],
+                doctor_nombre=cita['doctor_nombre'],
+                fecha_legible=cita['fecha_legible'], hora=cita['hora'],
+                id_agenda=str(cita.get('id_agenda') or ''),
+                fecha_iso=fecha_iso,
+            )
+            if resultado.get('ok'):
+                return True, None
+            log.warning('primera_consulta no confirmo el envio; uso confirmacion_hora')
+        except wa_cloud.WhatsAppCloudError as e:
+            log.warning('primera_consulta fallo (%s); uso confirmacion_hora', e)
+
     envio = wa_cloud.enviar_reagenda_confirmada if reagenda else wa_cloud.enviar_confirmacion_hora
     try:
         resultado = envio(
@@ -1088,7 +1111,7 @@ def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento
 
 # ── Punto de entrada ─────────────────────────────────────────────────────────
 
-def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False):
+def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False, primera=False):
     """
     Envía confirmacion de cita al paciente.
     cita: dict con nombre, telefono, email, fecha (date), fecha_legible, hora,
@@ -1101,6 +1124,9 @@ def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False):
            desde WhatsApp, asi que se le avisa por ambos canales).
     reagenda: True cuando la cita nueva viene de un reagendamiento -- usa el
            texto/plantilla 'reagenda_confirmada' en vez de 'confirmacion_hora'.
+    primera: True cuando la cita es una primera consulta -- el WhatsApp usa la
+           plantilla especial 'primera_consulta' (video de bienvenida) en vez
+           de 'confirmacion_hora', con fallback si esa plantilla falla.
     Devuelve dict con el canal usado y estado.
     """
     cfg = cfg or load_config()
@@ -1119,14 +1145,14 @@ def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False):
         # Reagendamiento: mandar por los dos canales (viene desde WhatsApp).
         # Se considera OK si al menos uno salio; se reporta cada uno.
         email_ok = _enviar_email_smtp(cita, ics, reagenda=reagenda)
-        wa_ok, wa_err = _enviar_whatsapp(cita, ics, reagenda=reagenda)
+        wa_ok, wa_err = _enviar_whatsapp(cita, ics, reagenda=reagenda, primera=primera)
         canales = [c for c, ok in (('email', email_ok), ('whatsapp', wa_ok)) if ok]
         return {'ok': bool(canales), 'canal': '+'.join(canales) or None,
                 'email_ok': email_ok, 'whatsapp_ok': wa_ok,
                 'error': None if canales else (wa_err or 'No se pudo enviar por ningún canal')}
 
     if canal == 'whatsapp':
-        ok, err = _enviar_whatsapp(cita, ics, reagenda=reagenda)
+        ok, err = _enviar_whatsapp(cita, ics, reagenda=reagenda, primera=primera)
         if ok:
             return {'ok': True, 'canal': 'whatsapp'}
         return {'ok': False, 'canal': None, 'error': err or 'No se pudo enviar por WhatsApp'}
@@ -1139,7 +1165,7 @@ def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False):
     # Automatico (online / barrido): email primero, WhatsApp de respaldo
     if _enviar_email_smtp(cita, ics, reagenda=reagenda):
         return {'ok': True, 'canal': 'email'}
-    ok, _err = _enviar_whatsapp(cita, ics, reagenda=reagenda)
+    ok, _err = _enviar_whatsapp(cita, ics, reagenda=reagenda, primera=primera)
     if ok:
         return {'ok': True, 'canal': 'whatsapp'}
 

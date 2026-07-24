@@ -1235,14 +1235,19 @@ def agenda_reservar():
             app.logger.warning('id_status_reagendada no configurado -- no se marca la cita %s', reagenda_id)
 
     # Reagenda: avisar por email Y WhatsApp (el paciente vino desde WhatsApp).
+    # Primera consulta: plantilla de WhatsApp propia (video de bienvenida) y
+    # canal 'ambos' -- el email igual va porque lleva el .ics del calendario.
     # Reserva normal: canal automatico (email primero, WhatsApp de respaldo).
+    es_primera = (motivo == 'primera_consulta')
     confirm = notify.enviar_confirmacion({
         'nombre': nombre, 'telefono': telefono_nuevo or data.get('telefono', ''),
         'email': email_notif, 'fecha': fecha,
         'fecha_legible': _fecha_legible(fecha), 'hora': hora,
         'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
         'dur_min': motivo_cfg['duracion_min'],
-    }, cfg, canal=('ambos' if es_reagenda else None), reagenda=es_reagenda)
+        'id_agenda': res.get('id_cita'),
+    }, cfg, canal=('ambos' if (es_reagenda or es_primera) else None),
+       reagenda=es_reagenda, primera=es_primera)
 
     # Aviso a recepción cuando el motivo lo tiene activado en el panel (ticket
     # "Avisar a recepción"). Independiente de la confirmación al paciente.
@@ -1600,7 +1605,8 @@ def whatsapp_test():
       plantilla: 'confirmacion_hora' (default) | 'recordatorio_semana' |
                  'recordatorio_dia' | 'inasistencia_reagendar' |
                  'conversacion_general' | 'consentimiento_informado' |
-                 'reagenda_confirmada' | 'recordatorio_control_dr_vial'
+                 'reagenda_confirmada' | 'recordatorio_control_dr_vial' |
+                 'primera_consulta'
     El destinatario debe estar registrado como número de prueba en Meta."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
@@ -1639,6 +1645,9 @@ def whatsapp_test():
         # que en un envio real, asi que sirve para probar el circuito completo.
         'recordatorio_control_dr_vial': lambda: wa_cloud.enviar_recordatorio_control(
             tel, nombre, doctor, fecha, id_agenda, fecha_iso=fecha_iso),
+        'primera_consulta':       lambda: wa_cloud.enviar_primera_consulta(
+            tel, nombre, doctor, fecha, hora, video_url=data.get('video_url'),
+            id_agenda=id_agenda, fecha_iso=fecha_iso),
     }.get(plantilla)
     if not envio:
         return jsonify({'ok': False, 'error': f'Plantilla no valida: {plantilla}'}), 400

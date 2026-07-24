@@ -226,13 +226,26 @@ def enviar_inasistencia_reagendar(telefono, nombre, fecha_legible, id_agenda, fe
                               boton_payload=f'inasistencia:{id_agenda}:{fecha_iso}', num_botones=1)
 
 
-def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora, video_url):
-    """video_url: link publico y estable al video (Meta lo descarga en cada
-    envio; no acepta subir el archivo por request). Ej: alojarlo en el propio
-    sitio -> https://ortodonciarichard.cl/images/video-primera-consulta.mp4"""
+def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora,
+                            video_url=None, id_agenda='', fecha_iso=''):
+    """Confirmacion ESPECIAL de primera consulta: misma info que
+    confirmacion_hora pero con video de bienvenida en el encabezado y botones
+    [Confirmo][Reagendar] (mismo payload que los recordatorios, para que el
+    webhook sepa a que cita corresponde el toque).
+
+    video_url: link PUBLICO y estable al video -- Meta lo descarga en cada
+    envio (el video cargado en la plantilla es solo la MUESTRA de aprobacion,
+    Meta no lo reenvia). Si es None se lee de la env var
+    WA_VIDEO_PRIMERA_CONSULTA; si queda vacia NO se manda el componente header
+    (sirve para verificar empiricamente si Meta reutiliza la muestra)."""
+    video = video_url if video_url is not None else os.getenv('WA_VIDEO_PRIMERA_CONSULTA', '')
+    video = (video or '').strip()
+    extra = {}
+    if id_agenda:
+        extra = {'boton_payload': f'primera:{id_agenda}:{fecha_iso}', 'num_botones': 2}
     return _enviar_plantilla(telefono, 'primera_consulta',
                               [nombre, doctor_nombre, fecha_legible, hora],
-                              header_video_url=video_url)
+                              header_video_url=video or None, **extra)
 
 
 def enviar_recordatorio_control(telefono, nombre, doctor, fecha_legible, id_agenda, fecha_iso=''):
