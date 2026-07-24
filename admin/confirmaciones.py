@@ -146,6 +146,10 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
         try:
             nombres, _ = pacientes._split_nombre(c.get('PatientName', ''))
             fch = datetime.strptime(c.get('Date', ''), '%Y-%m-%d').date()
+            # Primera consulta (agendada por telefono/presencial): plantilla de
+            # WhatsApp con video de bienvenida + email. canal 'ambos' porque con
+            # el automatico (email primero) el WhatsApp nunca saldria.
+            es_primera = dentidesk.es_primera_consulta(cfg, c.get('Reason'))
             r = notify.enviar_confirmacion({
                 'nombre': nombres or 'paciente',
                 'telefono': (c.get('Phone') or '').strip(),
@@ -155,7 +159,8 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
                 'doctor_nombre': (c.get('ProfessionalName') or '').strip(),
                 'motivo_label': (c.get('Reason') or 'Cita').strip(),
                 'dur_min': int(c.get('duration') or 30),
-            }, cfg)
+                'id_agenda': ida,
+            }, cfg, canal=('ambos' if es_primera else None), primera=es_primera)
             if r.get('ok'):
                 nuevos[ida] = datetime.now().isoformat(timespec='seconds')
                 enviadas += 1

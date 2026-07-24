@@ -2362,11 +2362,19 @@ def asistente_confirmar_cita():
         'doctor_nombre': (cita_raw.get('ProfessionalName') or '').strip(),
         'motivo_label':  (cita_raw.get('Reason') or 'Cita').strip(),
         'dur_min':       int(cita_raw.get('duration') or 30),
+        'id_agenda':     id_agenda,
     }
 
     # canal=None -> automatico (email, con WhatsApp de respaldo); si la
     # secretaria eligio uno en F2, se fuerza ese unico canal.
-    resultado = notify.enviar_confirmacion(cita_dict, cfg, canal=canal)
+    # Primera consulta: usa la plantilla con video. Si la secretaria NO eligio
+    # canal, se manda por ambos para que el video efectivamente salga (con el
+    # automatico el email tapa al WhatsApp). Si eligio uno, se respeta.
+    es_primera = dentidesk.es_primera_consulta(cfg, cita_raw.get('Reason'))
+    resultado = notify.enviar_confirmacion(
+        cita_dict, cfg,
+        canal=('ambos' if (es_primera and not canal) else canal),
+        primera=es_primera)
 
     # Marcar como enviada para que el barrido de 4 ciclos no la reenvíe
     if resultado.get('ok'):

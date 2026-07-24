@@ -19,6 +19,7 @@ Docs API: https://documentation-api-dd-...run.app/documentacion_api_dd_chile.php
 """
 
 import hashlib
+import unicodedata
 from datetime import date, datetime, time, timedelta
 
 try:
@@ -474,6 +475,37 @@ def doc_key_por_nombre(cfg, professional_name):
                 and (v.get('professional_name') or '').strip() == professional_name):
             return k
     return ''
+
+
+def _norm_motivo(texto):
+    """Normaliza un nombre de motivo para comparar: minusculas, sin tildes,
+    espacios colapsados."""
+    s = unicodedata.normalize('NFD', (texto or '').strip().lower())
+    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Mn')
+    return ' '.join(s.split())
+
+
+def es_primera_consulta(cfg, reason_label):
+    """True si el motivo (texto 'Reason' que devuelve DentiDesk) corresponde a
+    una PRIMERA CONSULTA -- esas reciben la plantilla de WhatsApp con video de
+    bienvenida en vez de la confirmacion normal.
+
+    Compara contra el label del motivo online 'primera_consulta' MAS las
+    variantes que la clinica liste en cfg['motivos_primera_consulta'] (asi se
+    pueden sumar nombres sin tocar codigo).
+
+    El match es EXACTO (normalizado), NO 'contiene': en DentiDesk existen
+    'Segunda Consulta' y 'Consulta Online', que NO son primera consulta."""
+    objetivo = _norm_motivo(reason_label)
+    if not objetivo:
+        return False
+    candidatos = set()
+    m = (cfg.get('motivos') or {}).get('primera_consulta') or {}
+    if m.get('label'):
+        candidatos.add(_norm_motivo(m['label']))
+    for extra in (cfg.get('motivos_primera_consulta') or []):
+        candidatos.add(_norm_motivo(extra))
+    return objetivo in candidatos
 
 
 def id_reason_por_label(cfg, doc_key, label):
