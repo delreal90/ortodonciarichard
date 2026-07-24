@@ -674,6 +674,72 @@ verificar cómo viene DESCRIPCION cuando la boleta tiene varias líneas de detal
 
 ---
 
+## Fechas de nacimiento y cumpleaños (2026-07-24)
+
+La base de pacientes no tenía fecha de nacimiento (`Edad` del Excel se descarta a propósito
+porque envejece mal). Ahora sí, desde el export **"Listado de Cumpleaños"** del panel DentiDesk.
+
+### ⚠️ El archivo NO es Excel
+Pese a la extensión `.xls`, es una **tabla HTML** (empieza con `<table id="tabla_pacientes">`).
+`openpyxl` falla; se parsea con **beautifulsoup4** (ya estaba en requirements). Estructura de
+cada fila: `<td><a href="ficha.php?id_paciente=N">Nombre</a></td>` · RUT · teléfono · correo ·
+**`<th>dd/mm/yyyy</th>`** (la fecha va en `th`, no en `td`) · edad. Las celdas se identifican
+**por patrón** (RUT, fecha, link de ficha), no por posición, para que un reordenamiento de
+columnas no rompa la importación.
+
+**`pacientes.importar_cumpleanos(path)`** agrega dos campos: `fecha_nacimiento` (ISO) e
+**`id_paciente`** (el ID interno de DentiDesk que viene en el link — el mismo que el runbook de
+evoluciones resolvía scrapeando ficha por ficha; ahora sale gratis). Es **idempotente**: se
+puede re-correr cada vez que la clínica re-exporte el listado.
+
+Carga del 24-07-2026 sobre la base sembrada del Excel de junio: **2.010 pacientes actualizados
++ 104 nuevos**, cobertura **49,4%** (2.114 de 4.276). Reporta aparte `duplicados_archivo`
+(**79 RUT repetidos** = fichas duplicadas en DentiDesk, gana la última fila) y `sospechosas`
+(≥100 años). Se descartan fechas futuras o de más de 110 años (error de tipeo).
+
+⚠️ Los campos nuevos sobreviven el barrido de agenda 2×/día gracias al **merge POR REGISTRO**
+de `construir_desde_agenda()` — verificado con test.
+
+### Seguros: la fecha se rellena sola
+`seguros.completar_datos_extra(rut, extra)` rellena los huecos de `datos_extra` desde la base
+local (**fecha_nacimiento** y **dirección**). Se llama **dentro de `armar_valores()`**, así
+cubre TODOS los caminos que generan PDF (previsualizar, enviar, desde-boleta y auto-desde-boleta,
+que no pasan por `/precarga`). **Lo que la secretaria escribió a mano SIEMPRE manda.**
+`paciente_fecha_nacimiento` ahora se normaliza con `_fecha_ddmmyyyy` (la base guarda ISO y los
+formularios chilenos piden DD-MM-YYYY; deja igual lo que no parsea).
+
+### Cumpleaños en el reporte diario
+Módulo **`admin/cumpleanos.py`**. Endpoints (ADMIN_TOKEN): `GET /api/cumpleanos/proximos?fecha=`
+(default mañana) → `{equipo:[{nombre,edad}], pacientes:[{rut,nombre,edad,id_paciente,telefono}]}`
+con los años que **cumple ese día**; `GET /api/cumpleanos/equipo`;
+`POST /api/cumpleanos/equipo/importar` `{texto}`; `POST /api/pacientes/importar-cumpleanos`
+(multipart, el .xls).
+
+**A diferencia del resto del proyecto, acá NO se salta el fin de semana**: un cumpleaños cae el
+día que cae y el reporte del viernes debe avisar el del sábado. El **29 de febrero se saluda el
+28** en años no bisiestos. La edad se calcula contra la **fecha objetivo**, no contra hoy (si no,
+un cumple del 1-ene visto desde el 31-dic daría un año menos).
+
+Consumido por `revision-evoluciones/INSTRUCCIONES.md` (**Paso 4.8** + su sección en el Paso 5).
+En el intento de respaldo de las 10:00 se piden **hoy y mañana**, porque los de hoy nunca se
+alcanzaron a avisar. El sistema **no saluda a nadie**: es informativo.
+
+### 🔒 Privacidad — el repo es PÚBLICO
+`github.com/delreal90/ortodonciarichard` es **público** (sirve el sitio por GitHub Pages).
+`cumpleaños doctores.txt` (fechas de nacimiento de 30 personas del equipo) estaba **sin trackear
+y sin ignorar** → un `git add .` lo habría publicado. Se agregó a `.gitignore` junto con
+`Listado de Cumpleaños*` y `admin/cumpleanos_equipo.json`. Los `.xls`/`.xlsx` ya estaban cubiertos.
+**Por eso la lista del equipo NO se versiona**: vive en el disco persistente y se carga por el
+endpoint de importación.
+
+**Pruebas:** `admin/test_cumpleanos.py` — 17 tests, cero red (importador, saneo, no-pisar campos,
+idempotencia, barrido que no borra, edad, 29-feb, fin de año, equipo, fallback de seguros).
+
+**Pendiente:** falta la fecha de **Felipe Pozo** (viene "PENDIENTE" en el .txt); correr la
+importación en producción (subir el .xls por el endpoint y cargar la tabla del equipo).
+
+---
+
 ## Recordatorio de control — recaptación desde F2 (2026-07-21)
 
 Aviso por WhatsApp a pacientes que dejaron de venir, para que agenden su próximo control.

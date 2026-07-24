@@ -22,6 +22,9 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
 
 ## Infra y convenciones (importantes)
 - **Deploy backend:** `cd ortodonciarichard && git add . && git commit && git push`.
+- 🔒 **El repo es PÚBLICO** (sirve el sitio por GitHub Pages). Ningún dato personal puede
+  quedar versionado: exports de pacientes, fechas de nacimiento, credenciales y tokens van
+  siempre a `.gitignore` + disco persistente. Revisar `git status` antes de un `git add .`.
 - **Secretos:** SIEMPRE como env vars en Render (`DENTIDESK_*`, `ADMIN_TOKEN`,
   `KIOSK_TOKEN`, `WA_TOKEN`/`WA_*`, `SMTP_USER`/`SMTP_PASS`, `CONSENT_SECRET`,
   `SEGUROS_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `PRINT_TOKEN`, `COMPRAS_SEED_*`).
@@ -98,6 +101,11 @@ getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
   (Excelente/Buena/Puede mejorar). Promotor → link de reseña Google con el nombre del doctor;
   detractor → aviso a recepción. Módulo `nps.py`, override manual desde F2 (Enviar/No Enviar),
   pestaña "Satisfacción" en el panel. Arranca APAGADO (falta plantilla Meta + baseline). → "NPS / Encuesta de satisfacción".
+- **Fechas de nacimiento y cumpleaños** — la base de pacientes ya tiene `fecha_nacimiento`
+  (+ `id_paciente`), importada del export "Listado de Cumpleaños" de DentiDesk (**es una tabla
+  HTML disfrazada de `.xls`**, se parsea con bs4). Cobertura ~49%. Se autorrellena en Seguros
+  y alimenta la sección de cumpleaños del reporte diario (`cumpleanos.py`). → "Fechas de
+  nacimiento y cumpleaños".
 - **Asistente F2** — extensión MV3: `content.js` lee el modal, `background.js` hace los
   fetch, `config.js` (apiBase + adminToken en texto plano → no subir a repo público). → "Asistente F2".
 
