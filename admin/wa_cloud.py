@@ -53,6 +53,13 @@ class WhatsAppCloudError(Exception):
 
 IDIOMA = 'es_CL'
 
+# Video de bienvenida del encabezado de la plantilla 'primera_consulta'. Vive
+# en el propio sitio (GitHub Pages) para tener una URL publica y estable: Meta
+# lo descarga en CADA envio -- el video cargado en la plantilla es solo la
+# muestra de aprobacion y no se reenvia. Para cambiarlo, reemplazar el archivo
+# en images/ (la URL no cambia). Override sin tocar codigo: env WA_VIDEO_PRIMERA_CONSULTA.
+VIDEO_PRIMERA_CONSULTA_URL = 'https://www.ortodonciarichard.cl/images/video-primera-consulta.mp4'
+
 # Posicion del boton quick-reply ("Agendar por WhatsApp") dentro de la
 # plantilla 'recordatorio_control_dr_vial'. Meta SI acepto los 3 botones
 # MEZCLADOS y el orden REAL con que quedo creada (verificado 2026-07-21) es:
@@ -233,12 +240,18 @@ def enviar_primera_consulta(telefono, nombre, doctor_nombre, fecha_legible, hora
     [Confirmo][Reagendar] (mismo payload que los recordatorios, para que el
     webhook sepa a que cita corresponde el toque).
 
-    video_url: link PUBLICO y estable al video -- Meta lo descarga en cada
-    envio (el video cargado en la plantilla es solo la MUESTRA de aprobacion,
-    Meta no lo reenvia). Si es None se lee de la env var
-    WA_VIDEO_PRIMERA_CONSULTA; si queda vacia NO se manda el componente header
-    (sirve para verificar empiricamente si Meta reutiliza la muestra)."""
-    video = video_url if video_url is not None else os.getenv('WA_VIDEO_PRIMERA_CONSULTA', '')
+    video_url: link PUBLICO y estable al video -- Meta lo descarga en CADA
+    envio. El video cargado en la plantilla de Meta es solo la MUESTRA de
+    aprobacion y NO se reenvia: verificado en vivo 2026-07-24, enviar sin el
+    componente header devuelve "(#132012) header: Format mismatch, expected
+    VIDEO, received UNKNOWN".
+
+    Si es None se lee de la env var WA_VIDEO_PRIMERA_CONSULTA, y si esa no
+    esta, del video alojado en el propio sitio (VIDEO_PRIMERA_CONSULTA_URL).
+    Para cambiar el video basta reemplazar ese archivo en images/ (la URL no
+    cambia); la env var queda como override sin tocar codigo."""
+    video = video_url if video_url is not None else os.getenv(
+        'WA_VIDEO_PRIMERA_CONSULTA', VIDEO_PRIMERA_CONSULTA_URL)
     video = (video or '').strip()
     extra = {}
     if id_agenda:
