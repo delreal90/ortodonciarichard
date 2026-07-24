@@ -211,7 +211,7 @@ function pasoRut() {
     <h3 class="agenda-q">Tu RUT</h3>
     <p class="agenda-sub">Lo usamos para reconocerte si ya eres paciente.</p>
     <form class="agenda-form" onsubmit="return continuarRut(event)">
-      <input id="agendaRut" inputmode="numeric" placeholder="12.345.678-9" autocomplete="off"
+      <input id="agendaRut" inputmode="text" placeholder="12.345.678-9" autocomplete="off"
              oninput="onRutInput(this)" maxlength="12" required>
       <p class="agenda-rut-msg" id="agendaRutMsg"></p>
       <button type="submit" class="btn btn-primary btn-lg agenda-submit" id="agendaRutBtn" disabled>
