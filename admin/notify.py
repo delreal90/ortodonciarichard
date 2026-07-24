@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 from scheduling import generar_ics, load_config
 import wa_cloud
 import pacientes
+import nps
 
 
 # ── Email (primario) ─────────────────────────────────────────────────────────
@@ -436,6 +437,87 @@ def avisar_recepcion_reagendar(id_agenda, telefono, nombre=''):
     filas = _fila('Cita', id_agenda) + _fila('Paciente', nombre) + _fila('Teléfono', telefono)
     html = _aviso_recepcion_html('Un paciente pidió reagendar por WhatsApp', filas)
     return _enviar_email_recepcion(f'Solicitud de reagendar — cita {id_agenda}', html)
+
+
+# ── NPS / encuesta de satisfaccion ───────────────────────────────────────────
+
+def enviar_nps(cita):
+    """Encuesta de satisfaccion (NPS) tras la atencion. cita: nombre, telefono,
+    doctor_nombre, id_agenda, fecha, cuando ('hoy'/'ayer'). Igual que
+    enviar_recordatorio_control: si
+    la plantilla dedicada de NPS todavia no existe o no esta aprobada en Meta,
+    cae de vuelta a 'conversacion_general' con un motivo libre, para no dejar
+    de enviar mientras se aprueba."""
+    if not cita.get('telefono'):
+        return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
+    try:
+        r = wa_cloud.enviar_nps(
+            telefono=cita['telefono'], nombre=cita['nombre'],
+            cuando=cita.get('cuando', 'hoy'), doctor=cita['doctor_nombre'],
+            id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
+        )
+        return {'ok': bool(r.get('ok'))}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.warning('plantilla NPS no disponible (%s); uso conversacion_general', e)
+        try:
+            bare = wa_cloud.nombre_doctor_sin_titulo(cita.get('doctor_nombre', ''))
+            con_doctor = f" con el Dr. {bare}" if bare else ""
+            motivo = (f"gracias por su visita{con_doctor}. Nos encantaría saber "
+                      "cómo estuvo su experiencia; puede contarnos respondiendo "
+                      "por este medio.")
+            r2 = wa_cloud.enviar_conversacion_general(cita['telefono'], cita['nombre'], motivo)
+            return {'ok': bool(r2.get('ok'))}
+        except wa_cloud.WhatsAppCloudError as e2:
+            log.error('WhatsApp Cloud API error (nps, fallback): %s', e2)
+            return {'ok': False, 'error': str(e2)}
+
+
+def avisar_recepcion_detractor(nombre, telefono, doctor='', id_agenda='', fecha=''):
+    """El paciente califico su atencion como 'Puede mejorar' (detractor NPS) --
+    avisar de inmediato para que recepcion haga seguimiento privado (mismo
+    patron que avisar_recepcion_anulacion)."""
+    filas = (_fila('Paciente', nombre) + _fila('Doctor', doctor)
+             + _fila('Teléfono', telefono) + _fila('Fecha atención', fecha))
+    html = _aviso_recepcion_html(
+        "Un paciente calificó su atención como 'Puede mejorar'", filas)
+    return _enviar_email_recepcion(f'Paciente insatisfecho — {nombre or telefono}', html)
+
+
+def responder_nps_promotor(telefono, nombre, doctor, review_url):
+    """Agradece al paciente promotor y le pide una reseña de Google, con una
+    frase sugerida lista para copiar que menciona al doctor. No lanza si falla
+    (usa enviar_texto_libre, que solo loguea)."""
+    # {{2}} viene sin titulo (DentiDesk lo da asi y wa_cloud lo normaliza); en
+    # la resena SI queremos el "Dr." explicito, porque mencionar al doctor por
+    # su titulo+nombre es justo lo que mejora su posicionamiento en Google.
+    bare = wa_cloud.nombre_doctor_sin_titulo(doctor)
+    mencion = f"al Dr. {bare}" if bare else "a su especialista"
+    frase = (f'"Excelente atención del Dr. {bare}, muy recomendable."'
+             if bare else '"Excelente atención, muy recomendable."')
+    texto = (
+        f"¡Muchas gracias, {nombre}! 😊 Nos alegra que haya tenido una buena experiencia.\n\n"
+        f"Si nos regala un momento, nos ayudaría muchísimo que compartiera su experiencia "
+        f"en Google y mencione {mencion} 🙏:\n{review_url}\n\n"
+        f"Puede copiar y pegar algo así:\n{frase}"
+    )
+    return enviar_texto_libre(telefono, texto)
+
+
+def responder_nps_pasivo(telefono, nombre):
+    """Agradecimiento simple al paciente pasivo (NPS), sin pedir reseña
+    publica. No lanza si falla (usa enviar_texto_libre)."""
+    texto = (f"¡Gracias por su tiempo, {nombre}! Seguiremos trabajando para que "
+             "su próxima visita sea aún mejor. 🦷")
+    return enviar_texto_libre(telefono, texto)
+
+
+def responder_nps_detractor(telefono, nombre):
+    """Respuesta empatica al paciente detractor (NPS), sin pedir reseña
+    publica. No lanza si falla (usa enviar_texto_libre)."""
+    texto = (f"Gracias por contarnos, {nombre}. Lamentamos que su experiencia no "
+             "haya sido la mejor. Una persona de nuestro equipo se pondrá en "
+             "contacto con usted para ayudar en lo que necesite. 🙏")
+    return enviar_texto_libre(telefono, texto)
 
 
 # ── Solicitud de cambio de datos ─────────────────────────────────────────────

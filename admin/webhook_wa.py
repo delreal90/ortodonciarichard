@@ -41,6 +41,7 @@ from datetime import datetime
 
 import dentidesk
 import notify
+import nps
 import recaptacion
 
 log = logging.getLogger(__name__)
@@ -52,6 +53,16 @@ ACCION_REAGENDAR = 'Reagendar'
 # (recaptacion) -- igual que las otras 3 acciones, Meta manda siempre el
 # mismo texto aprobado, asi que se identifica por texto, no por indice.
 ACCION_AGENDAR_WA = 'Agendar por WhatsApp'
+
+# Texto EXACTO de los 3 quick-reply de la plantilla 'encuesta_satisfaccion' (NPS).
+# Meta reenvia siempre el texto aprobado -- ademas estos botones traen tipo='nps'
+# en el payload, asi que se despachan por tipo (ver _procesar_mensaje) y no por
+# texto (ver _nps). SIN EMOJI: Meta NO permite emoji en los botones quick-reply
+# de plantilla (a diferencia del cuerpo del mensaje). Si algun dia se editan las
+# etiquetas en Meta, hay que actualizar estos 3 strings para que sigan calzando.
+NPS_EXCELENTE = 'Excelente'
+NPS_BUENA = 'Buena'
+NPS_MEJORAR = 'Puede mejorar'
 
 # Link a la agenda online con el id (y la fecha) de la cita vieja codificados
 # en el hash. El frontend usa la fecha para pedirle a /api/agenda/reagendar-info
@@ -115,6 +126,8 @@ def _procesar_mensaje(msg, cfg, contactos=None):
         _reagendar(id_agenda, telefono, cfg, fecha)
     elif texto == ACCION_AGENDAR_WA:
         _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha, perfil_nombre)
+    elif tipo == 'nps':
+        _nps(texto, id_agenda, telefono, cfg, fecha, perfil_nombre)
     else:
         log.info('Boton no manejado: %r (cita %s)', texto, id_agenda)
         return False
@@ -220,3 +233,52 @@ def _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
     if rut:
         recaptacion.marcar_respondio(rut)
     notify.avisar_recepcion_interes_control(nombre, telefono)
+
+
+def _nps(texto, id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
+    """El paciente toco uno de los 3 botones de la encuesta de satisfaccion
+    (NPS) de la plantilla 'encuesta_satisfaccion'. El toque abre la ventana de
+    24h igual que cualquier boton -- por eso las respuestas de aca en adelante
+    van como texto libre (notify.enviar_texto_libre), no como plantilla nueva.
+
+    id_agenda/fecha son de la cita que disparo la encuesta, solo sirven para
+    resolver nombre/RUT/doctor via info_cita (mismo patron que _anular) -- no
+    se actualiza DentiDesk, la cita ya fue atendida.
+
+    El pedido de reseña (Google Business Profile) SOLO se le hace al promotor,
+    y ahi si se incluye el nombre del doctor: un GBP tiene un solo link de
+    reseña para toda la clinica, Google no separa reseñas por profesional, asi
+    que pedirsela a un pasivo o detractor arriesga una reseña mala en el unico
+    lugar publico -- al promotor en cambio conviene reforzarle CON quien lo
+    atendio, para que la reseña lo mencione."""
+    nombre = ''
+    rut = ''
+    doctor = ''
+    if fecha:
+        try:
+            f = datetime.strptime(fecha, '%Y-%m-%d').date()
+            c = dentidesk.info_cita(cfg, id_agenda, f)
+            if c:
+                nombre = (c.get('PatientName') or '').strip()
+                rut = dentidesk.limpiar_rut(c.get('PatientDocument') or '')
+                doctor = (c.get('ProfessionalName') or '').strip()
+        except Exception as e:
+            log.warning('No se pudo obtener datos de la cita %s para NPS: %s', id_agenda, e)
+    nombre = nombre or perfil_nombre
+    rut = rut or ''
+    doctor = doctor or ''
+
+    review_url = nps.load_config().get('review_url', '')
+
+    if texto == NPS_EXCELENTE:
+        nps.registrar_respuesta(rut, 'promotor', doctor)
+        notify.responder_nps_promotor(telefono, nombre, doctor, review_url)
+    elif texto == NPS_BUENA:
+        nps.registrar_respuesta(rut, 'pasivo', doctor)
+        notify.responder_nps_pasivo(telefono, nombre)
+    elif texto == NPS_MEJORAR:
+        nps.registrar_respuesta(rut, 'detractor', doctor)
+        notify.responder_nps_detractor(telefono, nombre)
+        notify.avisar_recepcion_detractor(nombre, telefono, doctor, id_agenda, fecha)
+    else:
+        log.info('Boton NPS no manejado: %r (cita %s)', texto, id_agenda)

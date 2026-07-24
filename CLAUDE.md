@@ -132,6 +132,40 @@ images/ejemplo-*.jpg     ← fotos de casos clínicos (sección Tratamientos)
 
 ---
 
+## SEO y búsqueda por IA (sitio) — 2026-07-24
+
+Optimización del sitio estático para buscadores tradicionales y para asistentes/buscadores
+de IA (ChatGPT, Claude, Perplexity, Google AI). Todo vive en el `<head>` de `index.html`
+más dos archivos en la raíz. Commits `ef5af9d`, `63e7f48`, `c1fc64d`, `97bc69e`.
+
+**Schema.org (JSON-LD en `index.html`, `<script type="application/ld+json">`):**
+- **`Dentist`** — la clínica (nombre, dirección Paul Harris 10.349 of. 305, teléfono,
+  horario, geo, área servida), con la lista de servicios/tratamientos.
+- **4 doctores como `Physician`** (Octavio, Rodrigo, Alberto, Patricio) con `alumniOf`
+  (universidad + año de titulación), membresías (`memberOf`: AAO/WFO/SORT Chile, Colegio de
+  Cirujano Dentistas) y **credencial + `identifier` del Registro Nacional de Prestadores de
+  la Superintendencia de Salud** (N° real por doctor: 312378 / 48538 / 33401 / 40662,
+  `recognizedBy` → GovernmentOrganization `rnpi.superdesalud.gob.cl`). Esto es señal fuerte
+  de legitimidad para IA y Google.
+
+**Meta tags:** `canonical` a `https://www.ortodonciarichard.cl/`, Open Graph completo
+(og:type/title/description/url/image/site_name/locale=es_CL), y señales geográficas
+(`geo.placename` Las Condes, `geo.region` CL-RM). El schema además repite datos geográficos
+visibles en el DOM (dirección/comuna) porque los crawlers de IA ponderan lo visible.
+
+**`robots.txt`** (raíz) — `Allow: /` general + **permite explícitamente los crawlers de IA**:
+GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-Web, PerplexityBot, Google-Extended.
+Apunta al sitemap.
+
+**`sitemap.xml`** (raíz) — home (priority 1.0) + `privacidad.html`. Al agregar páginas
+nuevas indexables, sumarlas acá.
+
+⚠️ **RUT terminado en K:** el fix `97bc69e` (validación de RUT en el agendamiento) salió en
+la misma tanda pero NO es SEO — permite RUTs cuyo dígito verificador es K en el flujo de
+agendar hora online.
+
+---
+
 ## Integraciones y servicios externos
 
 | Servicio | Uso | Estado |
@@ -555,11 +589,16 @@ prestacion_{N}_{codigo,descripcion,fecha,valor,cantidad}, total.
 
 **Semilla versionada** `admin/seguros_seed/` (aseguradoras_seed.json + PDFs): se copia
 al disco persistente en el primer arranque (`seguros._aplicar_seed()`); después manda
-lo del disco. **Mapeadas y verificadas visualmente: Zurich (AcroForm, 130 campos — el
-formulario es de Chilena Consolidada/grupo Zurich) y Colmena (overlay por coordenadas,
-tabla de 5 filas en pág. 2).** Pendientes: MetLife y BUPA (tienen AcroForm — mapear con
-`get_fields()`), Bice Vida/Consorcio/Vida Cámara (planos → overlay, mismo método:
-renderizar con pymupdf local, buscar etiquetas con `page.search_for`, iterar).
+lo del disco. **Las 7 aseguradoras están mapeadas (2026-07-23, commit `a2191fa`)** con el
+motor de relleno unificado sobre PyMuPDF/pypdf:
+- **AcroForm** (campo de formulario por nombre): **Zurich** (formulario de Chilena
+  Consolidada/grupo Zurich), **MetLife**, **BUPA**.
+- **Overlay por coordenadas** (PDF plano → texto/imagen posicionados): **Colmena** (tabla
+  de 5 filas en pág. 2), **Bice Vida**, **Consorcio**, **Vida Cámara**.
+El método para los planos fue el mismo en todos: renderizar con pymupdf local, buscar las
+etiquetas con `page.search_for`, iterar coordenadas. ⚠️ Verificación **visual** confirmada
+en Zurich y Colmena; las otras 5 se mapearon con el motor pero conviene una revisión visual
+final con datos reales antes de usarlas en producción.
 Los aranceles de ARANCELES/ aún NO se han volcado a `mapeo_prestaciones` (pendiente).
 
 **Endpoints** (`server.py`, bloque "SEGUROS COMPLEMENTARIOS", todos ADMIN_TOKEN salvo
@@ -623,7 +662,8 @@ el sondeo pega a DentiDesk (app ya pagada, misma llamada AJAX de la página), Re
 se activa ante boleta nueva, interpretación determinista sin API de IA. El registro
 distingue `origen` = manual | boleta | auto.
 
-**Pendientes:** mapear MetLife/BUPA/Vida Cámara/Bice Vida/Consorcio; poblar
+**Pendientes:** revisión visual final de MetLife/BUPA/Vida Cámara/Bice Vida/Consorcio con
+datos reales (ya mapeadas con el motor, falta confirmar posiciones a ojo); poblar
 `mapeo_prestaciones` desde los aranceles (análisis listo en `SEGUROS COMPLEMENTARIOS\
 ANALISIS - Desglose control mensual (...).md`); configurar alias de glosa +
 absorbe_saldo de las prestaciones reales en el panel; subir firmas reales de los
@@ -1432,6 +1472,92 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
 - El número de prueba solo envía a destinatarios pre-registrados (máx. 5) — el de prueba es
   +56 9 8903 2888 (celular Alberto).
 - El bridge whatsmeow (sección siguiente) queda como herramienta de Claude/MCP, NO como canal de producción.
+
+---
+
+## NPS / Encuesta de satisfacción por WhatsApp (2026-07-24)
+
+Encuesta de satisfacción automática tras la atención → convierte promotores en **reseñas
+de Google que mencionan al doctor tratante** y detecta detractores para seguimiento privado.
+Reutiliza toda la infra de WhatsApp Cloud API (misma WABA real, `wa_cloud.py`,
+`webhook_wa.py`, webhook con firma). Cerebro sin red en **`admin/nps.py`** (molde
+`control_dental.py` + `recaptacion.py`), reutilizable por el futuro bot.
+
+**Flujo:** un barrido (`_procesar_nps` en `server.py`, loop `_loop_nps`) recorre las citas
+**atendidas** de ayer/hoy y envía la plantilla **`encuesta_satisfaccion`** unas horas después
+(config `horas_despues_atencion`, default 3) dentro de una ventana diurna (`ventana_inicio`/
+`ventana_fin`, default 11:00–19:00). Si la atención terminó tarde, el barrido de la mañana
+siguiente la toma (mira "ayer") → cumple "al otro día si fue tarde". **Anti-oleada:** la 1ª
+corrida solo SIEMBRA (marca como vistas las atendidas de ayer/hoy sin enviar), igual criterio
+que `confirmaciones.py` — sin esto, encender el sistema encuestaría a media cartera.
+
+**Elegibilidad del disparo (`nps.clasificar_disparo`, reutiliza `control_dental.clasificar_motivo`):**
+- **Hito** (`fin_definitivo`/`fin_fase`: retiro de aparatos, fin de tratamiento) → SIEMPRE.
+- **Periódico** (`control`/`inicio_*`: paciente en tratamiento activo de ortodoncia; excluye
+  los controles del Dr. Vial, ya excluidos en control_dental) → si `periodico_activo`.
+
+**Guardas (`nps.evaluar`, en orden):** `no_molestar` → `promotor_reciente`
+(`silencio_promotor_meses`, default 12) → `enviado_reciente` (`cooldown_meses`, default 6) →
+`frecuencia_periodica` (solo disparos no-hito, `frecuencia_meses`, default 6). Decisión del
+usuario: promotor 12m / pasivo-detractor 6m (via cooldown).
+
+**Plantilla `encuesta_satisfaccion` (es_CL, Utilidad, PENDIENTE crear/aprobar en la WABA real):**
+`{{1}}=nombre {{2}}=cuando ('hoy'/'ayer', lo calcula el server según si el envío cae el mismo
+día o al siguiente) {{3}}=doctor` (doctor SIN título: la plantilla ya dice "el Dr."; `wa_cloud.
+nombre_doctor_sin_titulo` lo normaliza), 3 botones quick-reply `Excelente` / `Buena` /
+`Puede mejorar` (SIN emoji — Meta no los permite en botones de plantilla; sí en el cuerpo). Tono personal, **sin nombrar la clínica en el cuerpo** (WhatsApp ya muestra
+de quién es). Cuerpo (~92 crudo, bajo el límite de ~180): *"Hola {{1}} 😊 Gracias por venir
+{{2}} a su cita con el Dr. {{3}}. ¿Cómo estuvo su experiencia?"*. ⚠️ Asume doctor HOMBRE (los 4
+especialistas lo son); una profesional mujer requeriría resolver "el Dr."/"la Dra." aparte (el
+género no se infiere del nombre). Payload de botones
+`nps:{id_agenda}:{fecha}` (mismo formato que recordatorios → `webhook_wa` lo parsea con
+`split(':')`). Mientras Meta la aprueba, **fallback a `conversacion_general`** (patrón de
+`enviar_recordatorio_control`) — el sistema arranca apagado igual.
+
+**Webhook (`webhook_wa._nps`, rama `tipo=='nps'`):** el toque abre la ventana de 24h → todas
+las respuestas van como **texto libre** (no plantilla):
+- **Excelente → promotor:** agradece + link de reseña (`review_url`) + **frase sugerida con el
+  nombre del doctor lista para copiar**. Un GBP = un solo link; Google no separa reseñas por
+  profesional → el nombre debe ir en el TEXTO del paciente. Link real:
+  `https://g.page/r/CfYPKRCc7nsxEBM/review`.
+- **Buena → pasivo:** agradece. SIN reseña.
+- **Puede mejorar → detractor:** empatía + `notify.avisar_recepcion_detractor` (email
+  inmediato). SIN reseña.
+
+**Control manual desde el F2 (`/api/asistente/nps-override`, sección "🌟 NPS / Satisfacción"
+en `dentidesk-assistant/content.js`):** dos botones sobre la cita abierta:
+- **👎 No Enviar:** bloquea esa cita (el barrido nunca le manda — override `no_enviar`).
+- **👍 Enviar:** fuerza esa cita: se envía tras el tiempo planificado aunque el automático no
+  la tomaría (motivo no-hito, cooldown). Respeta `no_molestar` y el timing; salta la
+  elegibilidad por tipo y el cooldown. El endpoint resuelve la cita FRESCA de DentiDesk
+  (`info_cita`) y guarda telefono/nombre/doctor/hora/duración porque la cita puede caer fuera
+  de la ventana ayer/hoy del barrido para cuando llegue la hora real (se procesa en la **Fase 1**
+  de `_procesar_nps`, directo del registro, no del scan). El automático sigue activo en paralelo.
+
+**NPS = %promotores − %detractores** con **Buena=pasivo** (estándar de 3 puntos; toggle
+`nps_buena_es` por si se quiere contar Buena como detractor). Se muestra igual el reparto crudo.
+
+**Panel → pestaña "Satisfacción"** (patrón remoto, `stats_url`/`stats_token`): estado, config,
+estadísticas (NPS, reparto + tasa de respuesta, reseñas/mes vs baseline, rating 90d vs
+baseline, mediana atención→respuesta), **entrada manual mensual** de métricas de Google
+(no hay API de reviews en el proyecto; baseline = promedio de los 3 meses previos a automatizar)
+y las 3 listas de pacientes por categoría. Nota honesta en el panel: el tiempo real hasta que
+la reseña *aparece en Google* no es atribuible por paciente (Google no expone la identidad del
+reseñador) → se muestra el tiempo hasta que el paciente RESPONDE la encuesta.
+
+**Endpoints** (`server.py`, ADMIN_TOKEN): `GET/POST /api/nps/config`, `GET /api/nps/resumen`
+(`{ok, resumen:{...}}`), `GET /api/nps/pacientes?categoria=`, `GET /api/nps/historial`,
+`POST /api/nps/run` (prueba manual, respeta el registro, no exige `activo`),
+`POST /api/nps/no-molestar`, `POST /api/nps/metrica-mensual`, `POST /api/nps/baseline`,
+`POST /api/asistente/nps-override` (F2). Config/registro en `nps_config.json`/`nps_registro.json`
+(gitignored, disco persistente vía `PATIENT_INDEX_PATH`).
+
+**Pendientes para encender:** (1) crear y aprobar `encuesta_satisfaccion` en la WABA real con
+el tono nuevo; (2) cargar el baseline (reseñas/mes + rating de los 3 meses previos) en el panel;
+(3) revisar defaults y poner `activo:true`. Probado end-to-end en mock (clasificación, guardas,
+overrides, webhook 3 botones, barrido con siembra + envío periódico + override enviar + bloqueo
+no_enviar). ⚠️ La sección del F2 se agregó en este `content.js`; sincronizar con el otro PC donde
+se desarrolla la extensión (ver memoria `asistente-f2-dentidesk`).
 
 ---
 

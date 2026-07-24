@@ -8,6 +8,10 @@ profundizar en un sistema, salta a su sección en `CLAUDE.md`.
 Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
 1. **Sitio web** estático (HTML/CSS/JS puro) — GitHub Pages, dominio
    `ortodonciarichard.cl` (DNS Cloudflare). Repo `github.com/delreal90/ortodonciarichard`.
+   Optimizado para SEO y búsqueda por IA (2026-07-24): schema.org JSON-LD
+   (Dentist + 4 doctores como Physician, con credenciales y N° de registro de la
+   Superintendencia de Salud), meta OG/canonical/geo, `robots.txt` (permite crawlers
+   de IA: GPTBot/ClaudeBot/PerplexityBot/etc.) y `sitemap.xml`.
 2. **Backend Flask** (`admin/`) — en **Render** (plan Starter, siempre activo).
    **Deploy = `git push`** (Render redespliega solo desde el mismo repo).
 3. **Extensión F2** (`dentidesk-assistant/`, Manifest V3) — asistente que la
@@ -76,8 +80,10 @@ getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
 - **Consentimientos informados** — F2 → link firmado (celular/tablet) → PDF reportlab
   + respaldo Google Drive. → "Consentimientos informados".
 - **Seguros complementarios** — F2 tras emitir boleta → rellena el PDF OFICIAL de la
-  aseguradora (Zurich/Colmena mapeadas) con datos+glosa de la boleta → email. Auto-envío
-  opcional (vigilante en la extensión, APAGADO por defecto). → "Seguros Complementarios".
+  aseguradora (**las 7 mapeadas**: Zurich, Colmena, MetLife, BUPA, Bice Vida, Consorcio,
+  Vida Cámara — motor de relleno AcroForm/overlay con PyMuPDF) con datos+glosa de la boleta
+  → email. Auto-envío opcional (vigilante en la extensión, APAGADO por defecto). → "Seguros
+  Complementarios".
 - **Recordatorio de control (recaptación)** — la asistente abre la cita de la última
   atención, F2 → WhatsApp al paciente para que agende. 3 guardas (no molestar / ya tiene
   hora / enviado hace poco). Reemplazó al Google Sheet "PACIENTES POR LLAMAR" — no
@@ -88,6 +94,10 @@ getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
   panel. ⚠️ En el barrido de días pasados NO se usa `dentidesk._ESTADOS_INACTIVOS` (incluye
   "Atendido", que ahí es justo la señal buena). → "Recordatorio de Control Dental".
 - **Compras / Gastos / Stock** — app con login/roles propios, SQLite, escaneo, etiquetas. → "Compras".
+- **NPS / Satisfacción por WhatsApp** — barrido de citas atendidas → encuesta de 3 botones
+  (Excelente/Buena/Puede mejorar). Promotor → link de reseña Google con el nombre del doctor;
+  detractor → aviso a recepción. Módulo `nps.py`, override manual desde F2 (Enviar/No Enviar),
+  pestaña "Satisfacción" en el panel. Arranca APAGADO (falta plantilla Meta + baseline). → "NPS / Encuesta de satisfacción".
 - **Asistente F2** — extensión MV3: `content.js` lee el modal, `background.js` hace los
   fetch, `config.js` (apiBase + adminToken en texto plano → no subir a repo público). → "Asistente F2".
 

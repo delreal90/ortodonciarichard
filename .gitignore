@@ -44,6 +44,12 @@ admin/recaptacion_registro.json
 admin/control_dental_config.json
 admin/control_dental_registro.json
 
+# NPS / encuestas de satisfacción: config editable desde el panel + registro
+# (RUT, respuestas, overrides F2, métricas manuales) — NUNCA subir a git.
+# En Render viven en el disco persistente y la config toma efecto sin deploy.
+admin/nps_config.json
+admin/nps_registro.json
+
 # Seguros complementarios: mapeos, firmas de los doctores y PDFs generados
 # (datos personales + de facturación) — NUNCA subir a git.
 admin/seguros_*.json

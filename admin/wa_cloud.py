@@ -249,6 +249,40 @@ def enviar_recordatorio_control(telefono, nombre, doctor, fecha_legible, id_agen
                               num_botones=1, boton_indices=[IDX_BOTON_AGENDAR_WA])
 
 
+def nombre_doctor_sin_titulo(doctor):
+    """Quita un prefijo 'Dr.'/'Dra.' del nombre del profesional. La plantilla
+    'encuesta_satisfaccion' ya dice 'con el Dr. {{2}}', asi que la variable
+    debe ir SIN titulo para no duplicarlo ('el Dr. Dr. Octavio'). DentiDesk
+    suele devolver el nombre sin titulo (ProfessionalName = 'Octavio Del
+    Real'), pero esto lo hace robusto igual. ⚠️ La plantilla asume doctor
+    HOMBRE (los 4 especialistas lo son); si algun dia atiende una profesional
+    mujer, 'el Dr.' la trataria mal y habria que resolver el articulo/titulo
+    aparte (el genero NO se infiere del nombre)."""
+    d = (doctor or '').strip()
+    low = d.lower()
+    for pref in ('dra.', 'dra ', 'dr.', 'dr '):
+        if low.startswith(pref):
+            return d[len(pref):].strip()
+    return d
+
+
+def enviar_nps(telefono, nombre, cuando, doctor, id_agenda, fecha_iso=''):
+    """Encuesta de satisfaccion (NPS) tras una atencion. Plantilla
+    'encuesta_satisfaccion' (es_CL), {{1}}=nombre {{2}}=cuando ('hoy'/'ayer',
+    lo calcula el server segun si el envio cae el mismo dia o al siguiente)
+    {{3}}=doctor (SIN titulo: la plantilla ya pone 'el Dr.'). 3 botones
+    quick-reply (Excelente/Buena/Puede mejorar) que llevan el payload
+    'nps:{id_agenda}:{fecha_iso}' -- mismo formato tipo:id:fecha que
+    recordatorio_semana/dia, para que webhook_wa.py lo parsee con el mismo
+    split(':') y sepa a que atencion corresponde la respuesta. El pedido de
+    resena (a los promotores) NO va aca: se manda como texto libre desde el
+    webhook cuando el paciente toca 'Excelente' (dentro de la ventana de 24h
+    que abre ese toque)."""
+    return _enviar_plantilla(telefono, 'encuesta_satisfaccion',
+                              [nombre, cuando or 'hoy', nombre_doctor_sin_titulo(doctor)],
+                              boton_payload=f'nps:{id_agenda}:{fecha_iso}', num_botones=3)
+
+
 # ── Mensaje libre (respuesta dentro de la ventana de 24h) ───────────────────
 
 def enviar_texto_libre(telefono, texto):

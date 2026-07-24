@@ -669,7 +669,8 @@ import recordatorios_wa
 import webhook_wa
 import recaptacion
 import control_dental
-from datetime import date, datetime
+import nps
+from datetime import date, datetime, timedelta
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
 _MESES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
@@ -2485,6 +2486,76 @@ def asistente_recordatorio_control():
     return jsonify(respuesta)
 
 
+@app.route('/api/asistente/nps-override', methods=['POST'])
+def asistente_nps_override():
+    """F2: la asistente decide, para la cita abierta en DentiDesk, si se envia
+    o NO la encuesta de satisfaccion (NPS) por esa cita.
+      accion 'no_enviar' -> bloquea esta cita: el barrido nunca le manda.
+      accion 'enviar'    -> fuerza el envio tras el tiempo planificado
+                            (horas_despues + ventana horaria), aunque el
+                            automatico no la habria tomado (motivo no-hito,
+                            cooldown). Respeta 'no molestar'; salta la
+                            elegibilidad por tipo y el cooldown.
+    Body JSON: { id_agenda, fecha: 'YYYY-MM-DD', accion }. Resuelve la cita
+    FRESCA de DentiDesk (telefono/nombre/doctor/hora/duracion) y guarda el
+    override -- mismo criterio de lectura fresca que asistente_confirmar_cita.
+    Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+
+    data = request.json or {}
+    id_agenda = str(data.get('id_agenda', '')).strip()
+    fecha_str = (data.get('fecha') or '').strip()
+    accion = (data.get('accion') or '').strip()
+
+    if not id_agenda:
+        return jsonify({'ok': False, 'error': 'Falta id_agenda'}), 400
+    if accion not in ('enviar', 'no_enviar'):
+        return jsonify({'ok': False, 'error': 'accion invalida (enviar|no_enviar)'}), 400
+    try:
+        fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Fecha inválida (esperado YYYY-MM-DD)'}), 400
+
+    cfg = scheduling.load_config()
+    import pacientes as _pacientes
+    c = None
+    try:
+        c = dentidesk.info_cita(cfg, id_agenda, fecha)
+    except Exception as e:
+        print('[nps-override] no se pudo leer la cita:', e)
+
+    telefono = nombre = doctor = rut = hora_cita = ''
+    duracion = 0
+    if c:
+        telefono = (c.get('Phone') or '').strip()
+        nombres, _ = _pacientes._split_nombre(c.get('PatientName') or '')
+        nombre = nombres or ''
+        doctor = (c.get('ProfessionalName') or '').strip()
+        rut = dentidesk.limpiar_rut(str(c.get('PatientDocument') or ''))
+        hora_cita = (c.get('time') or '')[:5]
+        try:
+            duracion = int(c.get('duration') or 0)
+        except (TypeError, ValueError):
+            duracion = 0
+
+    # 'enviar' necesita telefono (si no, no hay a quien mandarle); 'no_enviar'
+    # basta con el id_agenda (es un bloqueo, no un envio).
+    if accion == 'enviar' and not telefono:
+        return jsonify({'ok': False,
+                        'error': 'La cita no tiene teléfono registrado (no se puede programar el envío)'}), 400
+
+    nps.registrar_override(id_agenda, accion, rut=rut, telefono=telefono,
+                            nombre=nombre, doctor=doctor,
+                            fecha_cita=fecha.isoformat(), hora_cita=hora_cita,
+                            duracion=duracion)
+
+    resp = {'ok': True, 'accion': accion, 'nombre': nombre, 'doctor': doctor}
+    if telefono:
+        resp['telefono_enmascarado'] = _pacientes.enmascarar_telefono(telefono)
+    return jsonify(resp)
+
+
 @app.route('/api/recaptacion/config', methods=['GET'])
 def get_recaptacion_config():
     """Protegido por ADMIN_TOKEN: dias_minimos_reenvio."""
@@ -3765,6 +3836,116 @@ def control_dental_motivos_desconocidos():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# NPS / SATISFACCION  (encuesta de satisfaccion por WhatsApp — modulo nps.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Barrido de citas ATENDIDAS (ayer y hoy) que, unas horas despues de terminada
+# la atencion y dentro de una ventana horaria configurable, manda por WhatsApp
+# la encuesta de satisfaccion (plantilla notify.enviar_nps). Mismo espiritu que
+# CONTROL DENTAL (barrido automatico) pero con las guardas de recaptacion.py
+# (no_molestar, cooldown, frecuencia periodica) y anti-oleada al encenderse.
+
+@app.route('/api/nps/config', methods=['GET'])
+def nps_config_get():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'config': nps.load_config()})
+
+
+@app.route('/api/nps/config', methods=['POST'])
+def nps_config_post():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg = nps.save_config(request.json or {})
+    return jsonify({'ok': True, 'config': cfg})
+
+
+@app.route('/api/nps/resumen', methods=['GET'])
+def nps_resumen():
+    """Panel: metricas (volumen, tasa de respuesta, NPS, resenas vs baseline,
+    mediana de dias envio->respuesta). Forma exacta: ver nps.resumen()."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'resumen': nps.resumen()})
+
+
+@app.route('/api/nps/pacientes', methods=['GET'])
+def nps_pacientes():
+    """Panel: respuestas filtradas por categoria (promotor|pasivo|detractor)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'items': nps.lista_por_categoria(request.args.get('categoria', ''))})
+
+
+@app.route('/api/nps/historial', methods=['GET'])
+def nps_historial():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        limite = int(request.args.get('limite', 100))
+    except (TypeError, ValueError):
+        limite = 100
+    return jsonify({'ok': True, 'items': nps.historial(limite)})
+
+
+@app.route('/api/nps/run', methods=['POST'])
+def nps_run():
+    """Corre a mano el barrido + envio (prueba manual) -- respeta el registro
+    (no reenvia lo ya visto/enviado/bloqueado) pero NO exige cfg['activo'],
+    a diferencia del loop automatico."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        from zoneinfo import ZoneInfo
+        ahora = datetime.now(ZoneInfo('America/Santiago'))
+    except Exception:
+        ahora = datetime.now()
+    r = _procesar_nps(nps.load_config(), scheduling.load_config(), ahora)
+    return jsonify({'ok': True, 'resultado': r})
+
+
+@app.route('/api/nps/no-molestar', methods=['POST'])
+def nps_no_molestar():
+    """F2/panel: boton 'No volver a preguntar' (y su reverso)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    if data.get('quitar'):
+        lista = nps.quitar_no_molestar(rut)
+    else:
+        lista = nps.agregar_no_molestar(rut)
+    return jsonify({'ok': True, 'no_molestar': lista})
+
+
+@app.route('/api/nps/metrica-mensual', methods=['POST'])
+def nps_metrica_mensual():
+    """Panel: carga manual de resenas de Google de un mes (no hay API de
+    Google Reviews en este proyecto)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    mes = (data.get('mes') or '').strip()
+    if not mes:
+        return jsonify({'ok': False, 'error': 'Falta el mes (YYYY-MM)'}), 400
+    nps.set_metrica_mensual(mes, data.get('resenas'), data.get('rating'))
+    return jsonify({'ok': True})
+
+
+@app.route('/api/nps/baseline', methods=['POST'])
+def nps_baseline():
+    """Panel: guarda el promedio historico (antes de automatizar) para medir
+    el impacto real del sistema mas adelante."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    nps.set_baseline(data.get('resenas_mensuales_prom'), data.get('rating'), data.get('meses'))
+    return jsonify({'ok': True})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # COMPRAS / GASTOS / STOCK  (módulo autónomo, funciona en producción — Render)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -4732,6 +4913,261 @@ def _loop_control_dental():
         time.sleep(40)
 
 
+def _procesar_nps(cfg_nps, cfg_dd, ahora):
+    """Barre las citas ATENDIDAS de ayer y hoy y manda la encuesta de
+    satisfaccion (WhatsApp) a las que corresponda. 'ahora' es un datetime con
+    tz de Santiago (mismo criterio que _procesar_programados_vencidos).
+
+    Anti-oleada: la primera corrida (nps.esta_sembrado() False) solo marca
+    como vistas las citas ya atendidas de ayer/hoy, SIN enviar -- mismo
+    criterio que la primera corrida de confirmaciones.barrer_y_confirmar():
+    sin esto, encender el sistema mandaria encuestas a cientos de pacientes
+    que se atendieron antes de que existiera.
+
+    Timing y ventana: una cita recien atendida espera
+    cfg_nps['horas_despues_atencion'] antes de calificar, y solo se envia
+    dentro de la ventana horaria configurada -- si termino tarde, el barrido
+    de mañana la vuelve a mirar (como 'ayer') y sale en la ventana de la
+    mañana. Ninguno de estos dos casos marca 'visto': se reintentan solos en
+    el proximo barrido, no hay que reprocesar toda la agenda a mano.
+
+    Devuelve {'ok': True, 'sembrado': True} en la siembra, o
+    {'ok': True, 'enviados': N} en corridas normales."""
+    import pacientes as _pac
+    scfg = cfg_dd
+    hoy = ahora.date()
+    ayer = hoy - timedelta(days=1)
+
+    if not nps.esta_sembrado():
+        for target in (ayer, hoy):
+            try:
+                citas = dentidesk._get_agenda_day(scfg, target)
+            except Exception:
+                continue
+            for c in citas:
+                ida = str(c.get('IdAgenda') or '')
+                if not ida:
+                    continue
+                estado_txt = (c.get('Status') or '').lower()
+                if 'atendid' not in estado_txt:
+                    continue
+                nps.marcar_visto(ida, target.isoformat())
+        nps.marcar_sembrado()
+        return {'ok': True, 'sembrado': True}
+
+    enviados = 0
+    max_envios = cfg_nps.get('max_envios_por_dia', 30)
+    dentro_ventana = nps.dentro_de_ventana(cfg_nps, ahora.strftime('%H:%M'))
+    tope_alcanzado = False
+
+    # ── Fase 1: overrides 'enviar' forzados a mano desde el F2 ──────────────
+    # Se procesan directo del registro (no del scan de la agenda): la cita pudo
+    # caer fuera de la ventana ayer/hoy para cuando llega la hora real de
+    # enviar. Un 'enviar' salta la elegibilidad por tipo y el cooldown (la
+    # asistente manda), pero respeta 'no molestar' (opt-out del paciente) y el
+    # timing (horas_despues + ventana). Los datos (telefono/nombre/doctor/hora/
+    # duracion) se guardaron al hacer el click, resueltos frescos de DentiDesk.
+    for o in nps.overrides_enviar_pendientes():
+        if tope_alcanzado:
+            break
+        ida = str(o.get('id_agenda') or '')
+        if not ida:
+            continue
+        if nps.ya_visto(ida):
+            nps.marcar_override(ida, 'enviado')  # ya salio por otra via
+            continue
+        telefono = (o.get('telefono') or '').strip()
+        if not telefono:
+            nps.marcar_override(ida, 'omitido')
+            continue
+        rut = o.get('rut') or ''
+        if nps.en_no_molestar(rut):
+            nps.marcar_override(ida, 'omitido')
+            nps.marcar_visto(ida, o.get('fecha_cita') or hoy.isoformat())
+            continue
+        # Timing: fin = fecha_cita + hora_cita + duracion. Si no se puede
+        # parsear, se considera lista (el override es una decision explicita).
+        fin = None
+        try:
+            f_cita = date.fromisoformat((o.get('fecha_cita') or '')[:10])
+            hh, mm = (o.get('hora_cita') or '')[:5].split(':')
+            base = datetime(f_cita.year, f_cita.month, f_cita.day,
+                             int(hh), int(mm), tzinfo=ahora.tzinfo)
+            fin = base + timedelta(minutes=int(o.get('duracion') or 0))
+        except (ValueError, TypeError):
+            fin = None
+        terminada = True
+        if fin is not None:
+            terminada = (ahora - fin) >= timedelta(hours=cfg_nps.get('horas_despues_atencion', 3))
+        if not terminada or not dentro_ventana:
+            continue  # aun no -- queda pendiente, se reintenta solo
+        if enviados >= max_envios:
+            tope_alcanzado = True
+            break
+        # 'cuando' ({{2}}): dias entre la atencion y hoy. 0->hoy, 1->ayer,
+        # 2+->'hace unos dias' (un override viejo aprobado con retraso).
+        cuando = 'hoy'
+        try:
+            fc = date.fromisoformat((o.get('fecha_cita') or '')[:10])
+            delta = (hoy - fc).days
+            cuando = 'hoy' if delta <= 0 else ('ayer' if delta == 1 else 'hace unos días')
+        except (ValueError, TypeError):
+            cuando = 'hoy'
+        cita = {
+            'nombre': o.get('nombre') or 'paciente',
+            'telefono': telefono,
+            'doctor_nombre': o.get('doctor') or '',
+            'id_agenda': ida,
+            'fecha': o.get('fecha_cita') or '',
+            'cuando': cuando,
+        }
+        r = notify.enviar_nps(cita)
+        if r.get('ok'):
+            nps.registrar_envio(rut, ida, cita['doctor_nombre'])
+            nps.marcar_visto(ida, o.get('fecha_cita') or hoy.isoformat())
+            nps.marcar_override(ida, 'enviado')
+            enviados += 1
+        else:
+            print('[nps] fallo al enviar override a', rut, r.get('error'))
+            # queda pendiente -- reintenta en el proximo barrido
+
+    # ── Fase 2: barrido automatico de citas atendidas ──────────────────────
+    for target in (ayer, hoy):
+        if tope_alcanzado:
+            break
+        try:
+            citas = dentidesk._get_agenda_day(scfg, target)
+        except Exception:
+            continue
+        for c in citas:
+            ida = str(c.get('IdAgenda') or '')
+            if not ida or nps.ya_visto(ida):
+                continue
+
+            estado_txt = (c.get('Status') or '').lower()
+            if 'atendid' not in estado_txt:
+                continue  # puede atenderse mas tarde -- NO marcar visto
+
+            # Override manual del F2: 'no_enviar' bloquea esta cita para
+            # siempre; 'enviar' ya lo maneja la fase 1 (saltar aca para no
+            # duplicar ni pisar su timing forzado).
+            ov = nps.get_override(ida)
+            if ov:
+                if ov.get('accion') == 'no_enviar':
+                    nps.marcar_visto(ida, target.isoformat())
+                    continue
+                if ov.get('accion') == 'enviar':
+                    continue
+
+            disparo = nps.clasificar_disparo(c.get('Reason'))
+            if disparo is None:
+                # atendida pero motivo no encuestable -- no reconsiderar
+                nps.marcar_visto(ida, target.isoformat())
+                continue
+
+            es_hito = (disparo == 'hito')
+            if disparo == 'periodico' and not cfg_nps.get('periodico_activo', True):
+                nps.marcar_visto(ida, target.isoformat())
+                continue
+
+            telefono = (c.get('Phone') or '').strip()
+            if not telefono:
+                # sin telefono no se puede -- no reintentar
+                nps.marcar_visto(ida, target.isoformat())
+                continue
+
+            # Timing: hora de termino = inicio (time "HH:MM") + duration min,
+            # tz-aware en 'target'. Si no se puede parsear, se trata la cita
+            # como ya terminada (no bloquear por un dato faltante).
+            terminada = True
+            fin = None
+            hora_ini = (c.get('time') or '')[:5]
+            try:
+                hh, mm = hora_ini.split(':')
+                base = datetime(target.year, target.month, target.day,
+                                 int(hh), int(mm), tzinfo=ahora.tzinfo)
+                dur = int(c.get('duration') or 0)
+                fin = base + timedelta(minutes=dur)
+            except (ValueError, TypeError):
+                terminada = True
+            if fin is not None:
+                terminada = (ahora - fin) >= timedelta(hours=cfg_nps.get('horas_despues_atencion', 3))
+            if not terminada:
+                continue  # muy pronto -- reintenta en el proximo barrido, sin marcar visto
+
+            if not dentro_ventana:
+                continue  # fuera de la ventana -- reintenta (mañana la toma como 'ayer')
+
+            rut = dentidesk.limpiar_rut(str(c.get('PatientDocument') or ''))
+
+            bloqueo = nps.evaluar(rut, es_hito, cfg_nps)
+            if bloqueo:
+                # evaluado y bloqueado (ej. cooldown) -- no reintentar esta atencion
+                nps.marcar_visto(ida, target.isoformat())
+                continue
+
+            if enviados >= max_envios:
+                print(f'[nps] tope de {max_envios} envios/dia alcanzado, '
+                      f'se retoma en el proximo barrido')
+                tope_alcanzado = True
+                break
+
+            nombres, _ = _pac._split_nombre(c.get('PatientName') or '')
+            cita = {
+                'nombre': nombres or 'paciente',
+                'telefono': telefono,
+                'doctor_nombre': (c.get('ProfessionalName') or '').strip(),
+                'id_agenda': ida,
+                'fecha': target.isoformat(),
+                # 'hoy' si la atencion es de hoy, 'ayer' si el envio cae al dia
+                # siguiente (atencion de la tarde pasada la ventana) -> {{2}}.
+                'cuando': 'hoy' if target == hoy else 'ayer',
+            }
+            r = notify.enviar_nps(cita)
+            if r.get('ok'):
+                nps.registrar_envio(rut, ida, cita['doctor_nombre'])
+                nps.marcar_visto(ida, target.isoformat())
+                enviados += 1
+            else:
+                print('[nps] fallo al enviar a', rut, r.get('error'))
+                # no se marca visto -- reintenta en el proximo barrido
+
+    return {'ok': True, 'enviados': enviados}
+
+
+def _loop_nps():
+    """Encuestas de satisfaccion: a diferencia de control dental/recordatorios
+    (un disparo diario), este loop corre VARIAS VECES AL DIA dentro de la
+    ventana horaria configurada (una cita recien atendida a las 11:20 no
+    tiene por que esperar hasta mañana para calificar). Se espacia con
+    'ultima_corrida' (>= 30 min entre corridas) para no barrer la agenda en
+    cada poll de 40s."""
+    import time
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('America/Santiago')
+    except Exception:
+        tz = None
+    ultima_corrida = None
+    while True:
+        try:
+            ahora = datetime.now(tz) if tz else datetime.now()
+            slot = ahora.strftime('%H:%M')
+            cfg_nps = nps.load_config()
+            cfg_dd = scheduling.load_config()
+            if (cfg_nps.get('activo')
+                    and cfg_dd['dentidesk']['enabled']
+                    and nps.dentro_de_ventana(cfg_nps, slot)
+                    and (ultima_corrida is None
+                         or (ahora - ultima_corrida) >= timedelta(minutes=30))):
+                ultima_corrida = ahora
+                r = _procesar_nps(cfg_nps, cfg_dd, ahora)
+                print('[nps]', slot, r)
+        except Exception as e:
+            print('[nps] error:', e)
+        time.sleep(40)
+
+
 def _loop_calentador():
     """Mantiene tibio el cache de disponibilidad: cada ~20 min refresca los
     slots libres de cada doctor para los proximos ~15 dias habiles (mas la
@@ -4815,12 +5251,14 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_calentador, daemon=True).start()
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     threading.Thread(target=_loop_control_dental, daemon=True).start()
+    threading.Thread(target=_loop_nps, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
     print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
     print('[recaptacion-programados] scheduler iniciado (hora configurable en el panel)')
     print('[confirmaciones] scheduler iniciado (11:00, 13:30, 17:00, 19:45)')
     print('[calentador] scheduler iniciado (disponibilidad, cada 20 min)')
     print('[recurrentes] scheduler iniciado (barrido diario 09:00, cargos recurrentes)')
+    print('[nps] scheduler iniciado (encuestas de satisfaccion, ventana configurable en el panel)')
 
 _iniciar_scheduler()
 

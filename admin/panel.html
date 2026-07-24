@@ -109,6 +109,7 @@
     <a onclick="show('whatsapp')" id="nav-whatsapp"><i class="fab fa-whatsapp"></i> WhatsApp</a>
     <a onclick="show('seguros')" id="nav-seguros"><i class="fa fa-file-medical"></i> Seguros</a>
     <a onclick="show('controldental')" id="nav-controldental"><i class="fa fa-tooth"></i> Control dental</a>
+    <a onclick="show('satisfaccion')" id="nav-satisfaccion"><i class="fas fa-star"></i> Satisfacción</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
   </nav>
@@ -726,6 +727,151 @@
       </div>
     </div>
 
+    <!-- ── SATISFACCIÓN — encuestas NPS por WhatsApp ────── -->
+    <div class="section" id="sec-satisfaccion">
+      <h2>Satisfacción</h2>
+      <p class="desc">Encuesta automática de satisfacción por WhatsApp tras la atención: a los pacientes que responden bien
+        (promotores) se les invita a dejar una reseña en Google; a los que responden mal (detractores) se avisa de inmediato
+        a recepción para gestionar el caso. Acá se activa el envío, se ajustan sus reglas y se revisan los resultados.</p>
+
+      <div class="card" id="sat-config-conexion" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="sat-url" value="https://ortodonciarichard.onrender.com" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="sat-token" type="password" placeholder="ADMIN_TOKEN" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <button class="btn btn-primary" onclick="loadSatisfaccion()">Conectar</button>
+        </div>
+        <p style="font-size:.78rem;color:#718096;margin-top:8px">El token se guarda solo en este navegador (no se publica). Es el mismo <code>ADMIN_TOKEN</code> de Render.</p>
+      </div>
+
+      <!-- Configuración -->
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:10px">⚙️ Configuración</h3>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+          <div style="display:flex;align-items:flex-end;padding-bottom:8px">
+            <label style="font-weight:400"><input type="checkbox" id="sat-activo"> Activar envío automático</label>
+          </div>
+          <div style="display:flex;align-items:flex-end;padding-bottom:8px">
+            <label style="font-weight:400"><input type="checkbox" id="sat-periodico"> Disparo periódico además de hitos</label>
+          </div>
+        </div>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap;margin-top:6px">
+          <div style="flex:2;min-width:260px">
+            <label>Link de reseña Google</label>
+            <input type="text" id="sat-review-url" placeholder="https://g.page/r/.../review">
+          </div>
+        </div>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap;margin-top:6px">
+          <div style="min-width:170px">
+            <label>Horas después de la atención</label>
+            <input type="number" min="0" id="sat-horas-despues">
+          </div>
+          <div style="min-width:130px">
+            <label>Ventana desde</label>
+            <input type="time" id="sat-ventana-inicio">
+          </div>
+          <div style="min-width:130px">
+            <label>Ventana hasta</label>
+            <input type="time" id="sat-ventana-fin">
+          </div>
+        </div>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap;margin-top:6px">
+          <div style="min-width:170px">
+            <label>Frecuencia (meses entre encuestas)</label>
+            <input type="number" min="1" id="sat-frecuencia-meses">
+          </div>
+          <div style="min-width:170px">
+            <label>Cooldown (meses)</label>
+            <input type="number" min="0" id="sat-cooldown-meses">
+          </div>
+          <div style="min-width:200px">
+            <label>Silencio a promotores (meses)</label>
+            <input type="number" min="0" id="sat-silencio-promotor-meses">
+          </div>
+          <div style="min-width:170px">
+            <label>Máx. envíos por día</label>
+            <input type="number" min="1" id="sat-max-envios-dia">
+          </div>
+          <div style="min-width:200px">
+            <label>Cómo cuenta "Buena" en el NPS</label>
+            <select id="sat-buena">
+              <option value="pasivo">Pasivo</option>
+              <option value="detractor">Detractor</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn btn-primary" onclick="saveSatisfaccion()">Guardar configuración</button>
+        </div>
+      </div>
+
+      <!-- Estadísticas -->
+      <div class="card" id="sat-stats" style="margin-bottom:18px">
+        <h3 style="margin-bottom:10px">📊 Estadísticas</h3>
+        <p style="font-size:.85rem;color:#718096">Conecta para ver las estadísticas.</p>
+      </div>
+
+      <!-- Métricas de Google (entrada manual) -->
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">⭐ Métricas de Google (entrada manual)</h3>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">
+          Google no expone una API gratuita para leer reseñas/rating en tiempo real — se cargan a mano cada cierto tiempo
+          para comparar contra la línea base.
+        </p>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+          <div style="min-width:150px">
+            <label>Mes</label>
+            <input type="month" id="sat-metrica-mes">
+          </div>
+          <div style="min-width:130px">
+            <label>Reseñas del mes</label>
+            <input type="number" min="0" id="sat-metrica-resenas">
+          </div>
+          <div style="min-width:130px">
+            <label>Rating del mes</label>
+            <input type="number" min="0" max="5" step="0.1" id="sat-metrica-rating">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="saveMetricaMensual()">Guardar mes</button>
+        </div>
+        <hr>
+        <p style="font-size:.82rem;color:#4A5568;margin-bottom:8px">Línea base (promedio de los 3 meses previos a activar el sistema):</p>
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+          <div style="min-width:200px">
+            <label>Reseñas/mes promedio (línea base)</label>
+            <input type="number" min="0" step="0.1" id="sat-base-resenas">
+          </div>
+          <div style="min-width:130px">
+            <label>Rating (línea base)</label>
+            <input type="number" min="0" max="5" step="0.1" id="sat-base-rating">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="saveBaseline()">Guardar baseline</button>
+        </div>
+      </div>
+
+      <!-- Pacientes por categoría -->
+      <div class="card">
+        <h3 style="margin-bottom:10px">📋 Pacientes por categoría</h3>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+          <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadSatPacientes()">🔄 Recargar</button>
+        </div>
+
+        <h4 style="font-size:.85rem;margin-bottom:6px;color:#38a169">😀 Excelente — Promotores</h4>
+        <div id="sat-lista-promotor" style="margin-bottom:16px">Conecta para ver esta lista.</div>
+
+        <h4 style="font-size:.85rem;margin-bottom:6px;color:#C9A84C">🙂 Buena — Pasivos</h4>
+        <div id="sat-lista-pasivo" style="margin-bottom:16px">Conecta para ver esta lista.</div>
+
+        <h4 style="font-size:.85rem;margin-bottom:6px;color:#e53e3e">😕 Puede mejorar — Detractores</h4>
+        <div id="sat-lista-detractor">Conecta para ver esta lista.</div>
+      </div>
+    </div>
+
     <!-- ── PUBLICAR ─────────────────────────────────────── -->
     <div class="section" id="sec-publicar">
       <h2>Publicar en el sitio web</h2>
@@ -857,6 +1003,7 @@ function show(sec) {
   if (sec === 'whatsapp') initWhatsapp();
   if (sec === 'seguros') initSeguros();
   if (sec === 'controldental') initControlDental();
+  if (sec === 'satisfaccion') initSatisfaccion();
 }
 
 // ══════════════════════════════════════════════════════
@@ -3307,6 +3454,208 @@ async function ejecutarCdBackfill() {
     btn.disabled = false;
     btn.textContent = 'Inscribir cartera actual (6 meses atrás)';
   }, 3 * 60 * 1000);
+}
+
+// ══════════════════════════════════════════════════════
+// SATISFACCIÓN — encuestas NPS por WhatsApp
+// ══════════════════════════════════════════════════════
+function initSatisfaccion() {
+  // Comparte token/URL con Estadísticas/Consentimientos/WhatsApp/Seguros/Control
+  // dental: mismo ADMIN_TOKEN, mismo backend (patrón "remoto").
+  const t = localStorage.getItem('stats_token') || '';
+  const u = localStorage.getItem('stats_url') || 'https://ortodonciarichard.onrender.com';
+  document.getElementById('sat-token').value = t;
+  document.getElementById('sat-url').value = u;
+  if (t) loadSatisfaccion();
+}
+
+function _satUrl() { return document.getElementById('sat-url').value.trim().replace(/\/$/, ''); }
+function _satToken() { return document.getElementById('sat-token').value.trim(); }
+function _satHeaders(json = true) {
+  const h = { 'X-Admin-Token': _satToken() };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+async function _satFetch(path, method = 'GET', body = null) {
+  const opts = { method, headers: _satHeaders() };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(_satUrl() + path, opts);
+  return r.json();
+}
+
+async function loadSatisfaccion() {
+  const token = _satToken();
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  localStorage.setItem('stats_token', token);
+  localStorage.setItem('stats_url', _satUrl());
+  const statsEl = document.getElementById('sat-stats');
+  statsEl.innerHTML = '<h3 style="margin-bottom:10px">📊 Estadísticas</h3><p style="font-size:.85rem;color:#718096">Cargando…</p>';
+
+  let cfgData, resumenData;
+  try {
+    const [rCfg, rResumen] = await Promise.all([
+      fetch(_satUrl() + '/api/nps/config', { headers: _satHeaders(false) }),
+      fetch(_satUrl() + '/api/nps/resumen', { headers: _satHeaders(false) }),
+    ]);
+    if (rCfg.status === 403 || rResumen.status === 403) {
+      toast('Token incorrecto', false);
+      statsEl.innerHTML = '<h3 style="margin-bottom:10px">📊 Estadísticas</h3><p style="font-size:.85rem;color:#e53e3e">Token incorrecto.</p>';
+      return;
+    }
+    cfgData = await rCfg.json();
+    resumenData = await rResumen.json();
+  } catch (e) {
+    toast('No se pudo conectar con el backend', false);
+    statsEl.innerHTML = '<h3 style="margin-bottom:10px">📊 Estadísticas</h3><p style="font-size:.85rem;color:#e53e3e">No se pudo conectar con el backend.</p>';
+    return;
+  }
+  if (!cfgData.ok) { toast('Error al cargar la configuración', false); return; }
+  if (!resumenData.ok) { toast('Error al cargar el resumen', false); return; }
+
+  renderSatConfig(cfgData.config);
+  renderSatStats(resumenData.resumen);
+  loadSatPacientes();
+}
+
+function renderSatConfig(c) {
+  document.getElementById('sat-activo').checked = !!c.activo;
+  document.getElementById('sat-periodico').checked = !!c.periodico_activo;
+  document.getElementById('sat-review-url').value = c.review_url || '';
+  document.getElementById('sat-horas-despues').value = c.horas_despues_atencion ?? 24;
+  document.getElementById('sat-ventana-inicio').value = c.ventana_inicio || '09:00';
+  document.getElementById('sat-ventana-fin').value = c.ventana_fin || '19:30';
+  document.getElementById('sat-frecuencia-meses').value = c.frecuencia_meses ?? 6;
+  document.getElementById('sat-cooldown-meses').value = c.cooldown_meses ?? 3;
+  document.getElementById('sat-silencio-promotor-meses').value = c.silencio_promotor_meses ?? 12;
+  document.getElementById('sat-max-envios-dia').value = c.max_envios_por_dia ?? 30;
+  document.getElementById('sat-buena').value = c.nps_buena_es || 'pasivo';
+}
+
+async function saveSatisfaccion() {
+  const body = {
+    activo: document.getElementById('sat-activo').checked,
+    periodico_activo: document.getElementById('sat-periodico').checked,
+    review_url: document.getElementById('sat-review-url').value.trim(),
+    horas_despues_atencion: parseInt(document.getElementById('sat-horas-despues').value, 10) || 0,
+    ventana_inicio: document.getElementById('sat-ventana-inicio').value,
+    ventana_fin: document.getElementById('sat-ventana-fin').value,
+    frecuencia_meses: parseInt(document.getElementById('sat-frecuencia-meses').value, 10) || 1,
+    cooldown_meses: parseInt(document.getElementById('sat-cooldown-meses').value, 10) || 0,
+    silencio_promotor_meses: parseInt(document.getElementById('sat-silencio-promotor-meses').value, 10) || 0,
+    max_envios_por_dia: parseInt(document.getElementById('sat-max-envios-dia').value, 10) || 1,
+    nps_buena_es: document.getElementById('sat-buena').value,
+  };
+  const r = await _satFetch('/api/nps/config', 'POST', body);
+  if (r.ok) { toast('✅ Configuración guardada'); loadSatisfaccion(); }
+  else toast('❌ ' + (r.error || 'Error'), false);
+}
+
+function _satPct(x) {
+  if (x === null || x === undefined) return '—';
+  return Math.round(x * 100) + '%';
+}
+
+function renderSatStats(r) {
+  const el = document.getElementById('sat-stats');
+  if (!r) { el.innerHTML = '<h3 style="margin-bottom:10px">📊 Estadísticas</h3><p style="font-size:.85rem;color:#718096">Sin datos aún.</p>'; return; }
+  const navy = '#1A2E4A', gold = '#C9A84C';
+  const npsTxt = (r.nps === null || r.nps === undefined) ? '—' : r.nps;
+  const npsColor = (r.nps === null || r.nps === undefined) ? '#a0aec0' : (r.nps >= 50 ? '#38a169' : (r.nps >= 0 ? '#C9A84C' : '#e53e3e'));
+
+  // Reseñas/mes del mes más reciente en resenas_mes, vs baseline.
+  const meses = Object.keys(r.resenas_mes || {}).sort();
+  const ultimoMes = meses.length ? meses[meses.length - 1] : null;
+  const datoMes = ultimoMes ? r.resenas_mes[ultimoMes] : null;
+  const baseResenas = r.baseline ? r.baseline.resenas_mensuales_prom : null;
+  const baseRating = r.baseline ? r.baseline.rating : null;
+
+  el.innerHTML = `
+    <h3 style="margin-bottom:14px">📊 Estadísticas</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      <div class="card" style="flex:1;min-width:160px;text-align:center;border-top:3px solid ${npsColor}">
+        <div style="font-size:2.4rem;font-weight:700;color:${npsColor}">${npsTxt}</div>
+        <div style="font-size:.82rem;color:#718096">NPS</div>
+      </div>
+      ${_statCard('Promotores', r.promotores ?? 0, '#38a169')}
+      ${_statCard('Pasivos', r.pasivos ?? 0, gold)}
+      ${_statCard('Detractores', r.detractores ?? 0, '#e53e3e')}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+      ${_statCard('Encuestas enviadas', r.enviadas ?? 0, navy)}
+      ${_statCard('Tasa de respuesta', _satPct(r.tasa_respuesta), navy)}
+      ${_statCard('Mediana atención → respuesta (días)', (r.mediana_atencion_respuesta_dias ?? '—'), navy)}
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <h4 style="font-size:.88rem;margin-bottom:8px">Reseñas/mes vs línea base</h4>
+      ${ultimoMes
+        ? `<p style="font-size:.95rem">${_esc(ultimoMes)}: <strong>${datoMes.resenas}</strong> reseñas, rating <strong>${datoMes.rating}</strong>${baseResenas !== null ? ` (base: ${baseResenas}/mes, rating ${baseRating})` : ''}</p>`
+        : '<p style="font-size:.85rem;color:#718096">Sin métricas de mes cargadas aún.</p>'}
+      <p style="font-size:.9rem">Rating últimos 90 días: <strong>${r.rating_reciente ?? '—'}</strong>${baseRating !== null ? ` (base: ${baseRating})` : ''}</p>
+    </div>
+    <p style="font-size:.74rem;color:#a0aec0">
+      El tiempo real hasta que la reseña aparece en Google no es atribuible por paciente; se muestra el tiempo hasta que el paciente responde la encuesta.
+    </p>`;
+}
+
+async function saveMetricaMensual() {
+  const mes = document.getElementById('sat-metrica-mes').value;
+  const resenas = parseInt(document.getElementById('sat-metrica-resenas').value, 10);
+  const rating = parseFloat(document.getElementById('sat-metrica-rating').value);
+  if (!mes) { toast('Elige el mes', false); return; }
+  if (isNaN(resenas) || isNaN(rating)) { toast('Ingresa reseñas y rating', false); return; }
+  const r = await _satFetch('/api/nps/metrica-mensual', 'POST', { mes, resenas, rating });
+  if (r.ok) { toast('✅ Mes guardado'); loadSatisfaccion(); }
+  else toast('❌ ' + (r.error || 'Error'), false);
+}
+
+async function saveBaseline() {
+  const resenas_mensuales_prom = parseFloat(document.getElementById('sat-base-resenas').value);
+  const rating = parseFloat(document.getElementById('sat-base-rating').value);
+  if (isNaN(resenas_mensuales_prom) || isNaN(rating)) { toast('Ingresa ambos valores de la línea base', false); return; }
+  const r = await _satFetch('/api/nps/baseline', 'POST', { resenas_mensuales_prom, rating, meses: [] });
+  if (r.ok) { toast('✅ Baseline guardada'); loadSatisfaccion(); }
+  else toast('❌ ' + (r.error || 'Error'), false);
+}
+
+async function loadSatPacientes() {
+  const conts = { promotor: 'sat-lista-promotor', pasivo: 'sat-lista-pasivo', detractor: 'sat-lista-detractor' };
+  for (const cat of Object.keys(conts)) {
+    const cont = document.getElementById(conts[cat]);
+    cont.innerHTML = 'Cargando…';
+    try {
+      const r = await fetch(_satUrl() + '/api/nps/pacientes?categoria=' + encodeURIComponent(cat), { headers: _satHeaders(false) });
+      if (r.status === 403) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Token incorrecto.</p>'; continue; }
+      const d = await r.json();
+      if (!d.ok) { cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">Error al cargar.</p>'; continue; }
+      renderSatLista(cont, d.items || []);
+    } catch (e) {
+      cont.innerHTML = '<p style="color:#e53e3e;font-size:.85rem">No se pudo conectar con el backend.</p>';
+    }
+  }
+}
+
+function renderSatLista(cont, items) {
+  if (!items.length) { cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin pacientes en esta categoría.</p>'; return; }
+  cont.innerHTML = items.map(i => {
+    const rutLimpio = String(i.rut || '').replace(/[^a-zA-Z0-9]/g, '_');
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid #e2e8f0">
+      <div>
+        <span style="font-size:.88rem">${_esc(i.nombre || _rutFmt(i.rut))}</span>
+        <span style="font-size:.78rem;color:#718096"> · ${_esc(i.doctor || '—')} · ${_esc(_fechaCorta(i.fecha))}</span>
+      </div>
+      <button class="btn btn-sm" id="btn-sat-nm-${_esc(rutLimpio)}" style="background:#e2e8f0;color:#2d3748"
+        onclick="satNoMolestar('${_esc(i.rut)}')" title="No volver a encuestar a este paciente">🚫</button>
+    </div>`;
+  }).join('');
+}
+
+async function satNoMolestar(rut) {
+  const rutLimpio = String(rut).replace(/[^a-zA-Z0-9]/g, '_');
+  const btn = document.getElementById('btn-sat-nm-' + rutLimpio);
+  if (btn) { btn.disabled = true; }
+  const r = await _satFetch('/api/nps/no-molestar', 'POST', { rut });
+  if (r.ok) { toast('✅ Paciente marcado como no molestar'); loadSatPacientes(); }
+  else { toast('❌ ' + (r.error || 'Error'), false); if (btn) btn.disabled = false; }
 }
 
 // Iniciar
