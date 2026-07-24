@@ -62,3 +62,13 @@ admin/compras.db
 admin/compras.db-wal
 admin/compras.db-shm
 admin/compras_fotos/
+
+# Cumpleaños: fechas de nacimiento del EQUIPO (datos personales de 30 personas)
+# — NUNCA subir a git. ⚠️ Este repo es PÚBLICO (sirve el sitio por GitHub Pages),
+# así que una fecha de nacimiento acá queda expuesta a cualquiera. El listado de
+# pacientes ya está cubierto por las reglas *.xls / Listado de Pacientes* de arriba.
+cumpleaños doctores.txt
+cumpleanos doctores.txt
+Listado de Cumpleaños*
+Listado de Cumpleanos*
+admin/cumpleanos_equipo.json

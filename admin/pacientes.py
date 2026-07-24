@@ -58,8 +58,9 @@ def _limpiar_rut(rut):
 
 def lookup(rut):
     """Devuelve el registro {nombres, apellidos, email, telefono, genero,
-    direccion, comuna, prevision, convenio} o None. Los campos sembrados solo
-    desde la agenda (nunca desde el Excel) pueden faltar -- usar .get()."""
+    direccion, comuna, prevision, convenio, fecha_nacimiento, id_paciente}
+    o None. Los campos sembrados solo desde la agenda (nunca desde el Excel)
+    pueden faltar -- usar .get()."""
     return _load_index().get(_limpiar_rut(rut))
 
 
@@ -310,6 +311,217 @@ def importar_export_excel(path, reemplazar=False):
     # que hay un RUT nuevo haciendo de basurero), no de que se perdieron
     # pacientes.
     return {'total': len(idx), 'nuevos': agregados, 'descartados': descartados}
+
+
+# ── Fecha de nacimiento (export "Listado de Cumpleanos" de DentiDesk) ─────────
+
+_RE_FECHA_DMY = re.compile(r'^(\d{1,2})/(\d{1,2})/(\d{4})$')
+_RE_RUT_FMT = re.compile(r'^\d{1,3}(?:\.\d{3})*-[\dkK]$')
+_RE_ID_FICHA = re.compile(r'id_paciente=(\d+)')
+
+# Edad sobre la cual la fecha se considera error de tipeo y se descarta.
+# No es "imposible" en abstracto, pero en una ficha de ortodoncia una fecha
+# que implica 110+ anios es sistematicamente un digito mal tecleado en el anio.
+_EDAD_MAX_PLAUSIBLE = 110
+
+
+def _fecha_nac_a_iso(texto, hoy=None):
+    """'dd/mm/yyyy' -> 'YYYY-MM-DD'. Devuelve '' si no parsea o si la fecha no
+    es plausible (futura, o edad > _EDAD_MAX_PLAUSIBLE).
+
+    El formato del export es dd/mm/yyyy (chileno) -- confirmado con el propio
+    nombre del archivo ('24-07-2026') y con valores cuyo primer componente
+    supera 12. Si el segundo componente fuera > 12 no seria un mes valido y la
+    fila se descarta en vez de adivinar un orden distinto."""
+    m = _RE_FECHA_DMY.match((texto or '').strip())
+    if not m:
+        return ''
+    d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        f = date(y, mo, d)
+    except ValueError:
+        return ''
+    hoy = hoy or date.today()
+    if f > hoy:
+        return ''
+    if edad_a_fecha(f, hoy) > _EDAD_MAX_PLAUSIBLE:
+        return ''
+    return f.isoformat()
+
+
+def edad_a_fecha(fecha_nac, referencia=None):
+    """Edad cumplida (int) a la fecha de referencia (default hoy).
+    Acepta date o 'YYYY-MM-DD'. Devuelve -1 si no se puede calcular."""
+    if isinstance(fecha_nac, str):
+        try:
+            fecha_nac = date.fromisoformat(fecha_nac.strip())
+        except ValueError:
+            return -1
+    if not isinstance(fecha_nac, date):
+        return -1
+    ref = referencia or date.today()
+    return ref.year - fecha_nac.year - ((ref.month, ref.day) < (fecha_nac.month, fecha_nac.day))
+
+
+def dias_objetivo_cumple(fecha):
+    """Los (dia, mes) que se consideran cumpleanios en 'fecha'.
+
+    Normalmente uno solo. La excepcion es el 29 de febrero: en anios NO
+    bisiestos esos pacientes se saludan el 28, porque si no no apareceria
+    nunca su cumpleanios en 3 de cada 4 anios."""
+    objetivo = {(fecha.day, fecha.month)}
+    if (fecha.day, fecha.month) == (28, 2):
+        try:
+            date(fecha.year, 2, 29)
+        except ValueError:
+            objetivo.add((29, 2))
+    return objetivo
+
+
+def cumplen_el(fecha):
+    """Pacientes de la base que cumplen anios en 'fecha' (un date).
+
+    Devuelve [{rut, nombres, apellidos, nombre, fecha_nacimiento, edad,
+    id_paciente, email, telefono}] ordenado por nombre. 'edad' son los anios
+    que CUMPLE en esa fecha (no la edad actual): por eso se calcula contra
+    'fecha' y no contra hoy -- si no, un cumpleanios del 1 de enero visto
+    desde el 31 de diciembre daria un anio menos."""
+    objetivo = dias_objetivo_cumple(fecha)
+    out = []
+    for rut, rec in _load_index().items():
+        iso = (rec.get('fecha_nacimiento') or '').strip()
+        if not iso:
+            continue
+        try:
+            f = date.fromisoformat(iso)
+        except ValueError:
+            continue
+        if (f.day, f.month) not in objetivo:
+            continue
+        nombres = rec.get('nombres', '')
+        apellidos = rec.get('apellidos', '')
+        out.append({
+            'rut': rut,
+            'nombres': nombres,
+            'apellidos': apellidos,
+            'nombre': (nombres + ' ' + apellidos).strip(),
+            'fecha_nacimiento': iso,
+            'edad': fecha.year - f.year,
+            'id_paciente': rec.get('id_paciente', ''),
+            'email': rec.get('email', ''),
+            'telefono': rec.get('telefono', ''),
+        })
+    out.sort(key=lambda p: p['nombre'].lower())
+    return out
+
+
+def cobertura_fecha_nacimiento():
+    """{total, con_fecha, pct} -- para el reporte de calidad de datos."""
+    idx = _load_index()
+    con = sum(1 for r in idx.values() if (r.get('fecha_nacimiento') or '').strip())
+    tot = len(idx)
+    return {'total': tot, 'con_fecha': con,
+            'pct': round(100.0 * con / tot, 1) if tot else 0.0}
+
+
+def importar_cumpleanos(path, crear_nuevos=True):
+    """Importa fechas de nacimiento desde el export 'Listado de Cumpleanos'
+    del panel de DentiDesk.
+
+    ⚠️ Pese a la extension .xls, el archivo NO es Excel: es una TABLA HTML
+    (empieza con '<table id="tabla_pacientes">'). Por eso se parsea con
+    BeautifulSoup y NO con openpyxl (que fallaria con un error de formato).
+
+    Aporta dos campos que la base no tenia:
+      - fecha_nacimiento (ISO YYYY-MM-DD) -- lo que el modulo de seguros
+        necesitaba y se tipeaba a mano, y lo que habilita grupos etarios.
+      - id_paciente (ID interno de DentiDesk, viene en el link a la ficha) --
+        permite armar links directos a historial.php sin scrapear.
+
+    Las celdas se identifican POR PATRON (RUT, fecha, link de ficha), no por
+    posicion, para que un reordenamiento de columnas en el export no rompa la
+    importacion.
+
+    Merge conservador: solo escribe los dos campos nuevos y, si el paciente no
+    estaba en la base y crear_nuevos=True, lo crea con su nombre. NUNCA pisa
+    email/telefono/genero/direccion ya cargados desde el Excel principal."""
+    from bs4 import BeautifulSoup
+
+    html = Path(path).read_text(encoding='utf-8', errors='replace')
+    soup = BeautifulSoup(html, 'html.parser')
+
+    idx = _load_index()
+    hoy = date.today()
+    actualizados = nuevos = sin_rut = fecha_invalida = 0
+    sospechosas = []          # >= 100 anios: se guardan, pero se reportan
+    # RUTs que vienen MAS DE UNA VEZ en el propio export: son fichas duplicadas
+    # en DentiDesk (el problema de dedup RUT+EMAIL que documenta el proyecto).
+    # Se cuentan aparte de 'actualizados' porque no son una actualizacion de la
+    # base: gana la ultima fila del archivo, y el id_paciente que queda es el de
+    # esa ficha. Si este numero crece, hay fichas que fusionar en DentiDesk.
+    vistos_en_archivo = set()
+    duplicados_archivo = 0
+
+    for tr in soup.find_all('tr'):
+        celdas = [c.get_text(strip=True) for c in tr.find_all(['td', 'th'])]
+        if not celdas:
+            continue
+
+        rut_txt = next((c for c in celdas if _RE_RUT_FMT.match(c)), '')
+        rut = _limpiar_rut(rut_txt)
+        if not rut:
+            # cabecera, fila vacia, o paciente sin RUT registrado
+            if any(_RE_FECHA_DMY.match(c) for c in celdas):
+                sin_rut += 1
+            continue
+
+        fecha_txt = next((c for c in celdas if _RE_FECHA_DMY.match(c)), '')
+        iso = _fecha_nac_a_iso(fecha_txt, hoy)
+        if not iso:
+            if fecha_txt:
+                fecha_invalida += 1
+            continue
+
+        enlace = tr.find('a', href=_RE_ID_FICHA)
+        id_pac = ''
+        nombre_txt = ''
+        if enlace:
+            m = _RE_ID_FICHA.search(enlace.get('href', ''))
+            id_pac = m.group(1) if m else ''
+            nombre_txt = enlace.get_text(strip=True)
+
+        primera_vez = rut not in vistos_en_archivo
+        if not primera_vez:
+            duplicados_archivo += 1
+        vistos_en_archivo.add(rut)
+
+        rec = idx.get(rut)
+        if rec is None:
+            if not crear_nuevos:
+                continue
+            nombres, apellidos = _split_nombre_export(nombre_txt)
+            rec = {'nombres': nombres, 'apellidos': apellidos, 'email': '', 'telefono': ''}
+            idx[rut] = rec
+            nuevos += 1
+        elif primera_vez:
+            # ya existia en la base (siembra del Excel principal o import previo).
+            # Solo se cuenta la 1a fila del RUT: las repetidas ya van en
+            # duplicados_archivo y contarlas aca inflaria el numero.
+            actualizados += 1
+
+        rec['fecha_nacimiento'] = iso
+        if id_pac:
+            rec['id_paciente'] = id_pac
+
+        if edad_a_fecha(iso, hoy) >= 100:
+            sospechosas.append(rut)
+
+    _save_index(idx)
+    return {'total': len(idx), 'actualizados': actualizados, 'nuevos': nuevos,
+            'sin_rut': sin_rut, 'fecha_invalida': fecha_invalida,
+            'duplicados_archivo': duplicados_archivo,
+            'sospechosas': len(sospechosas),
+            'cobertura': cobertura_fecha_nacimiento()}
 
 
 # ── Construccion de la base desde la agenda (getAgendaDay) ────────────────────

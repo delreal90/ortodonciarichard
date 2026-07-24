@@ -887,11 +887,42 @@ def _calcular_edad(fecha_nac):
     return str(edad) if 0 <= edad < 130 else ''
 
 
+def completar_datos_extra(rut, extra=None):
+    """Rellena los huecos de datos_extra con lo que sepa la base local de
+    pacientes (pacientes.py).
+
+    Lo que la secretaria escribio A MANO en el modulo de seguros SIEMPRE manda
+    -- la base local solo rellena lo que viene vacio (puede haberlo corregido a
+    proposito). Campos que aporta hoy:
+      - fecha_nacimiento: del export 'Listado de Cumpleanos' de DentiDesk.
+        Antes habia que tipearla a mano en cada formulario.
+      - direccion: de la siembra del Excel de pacientes (ya se hacia en el
+        endpoint /api/seguro/precarga; aca queda centralizado para que tambien
+        aplique a los flujos 1-clic desde la boleta, que no pasan por precarga).
+
+    Se aplica dentro de armar_valores(), asi cubre TODOS los caminos que
+    generan PDF (previsualizar, enviar, desde-boleta y auto-desde-boleta)."""
+    out = dict(extra or {})
+    if not rut:
+        return out
+    try:
+        import pacientes as _pac
+        rec = _pac.lookup(rut) or {}
+    except Exception:
+        return out                      # la base local nunca debe romper el envio
+    for campo in ('fecha_nacimiento', 'direccion'):
+        if not str(out.get(campo) or '').strip() and rec.get(campo):
+            out[campo] = rec[campo]
+    return out
+
+
 def armar_valores(datos, filas):
     """Aplana el payload del frontend al dict de campos logicos que consume
     rellenar_pdf(). datos: rut,nombre,apellido,email,telefono,fecha_atencion,
     doctor_nombre,datos_extra. filas: [{codigo,descripcion,valor,fecha}]."""
-    extra = datos.get('datos_extra') or {}
+    # Rellena con la base local (fecha de nacimiento, direccion) lo que no venga
+    # escrito a mano. Va aca para cubrir TODOS los flujos que generan PDF.
+    extra = completar_datos_extra(datos.get('rut', ''), datos.get('datos_extra'))
     # Nombre SIN codigos internos de DentiDesk (nunca deben ir al formulario)
     nombre = _limpiar_nombre((datos.get('nombre') or '').strip())
     apellido = _limpiar_nombre((datos.get('apellido') or '').strip())
@@ -904,7 +935,10 @@ def armar_valores(datos, filas):
         'paciente_rut_fmt': _formatear_rut(datos.get('rut', '')),
         'paciente_email': datos.get('email', ''),
         'paciente_telefono': datos.get('telefono', ''),
-        'paciente_fecha_nacimiento': extra.get('fecha_nacimiento', ''),
+        # Normalizada a DD-MM-YYYY: la base local la guarda en ISO y los
+        # formularios chilenos la piden al reves. _fecha_ddmmyyyy deja igual lo
+        # que no parsea, asi que lo tipeado a mano sigue funcionando.
+        'paciente_fecha_nacimiento': _fecha_ddmmyyyy(extra.get('fecha_nacimiento', '')),
         'paciente_edad': _calcular_edad(extra.get('fecha_nacimiento', '')),
         'paciente_direccion': extra.get('direccion', ''),
         'fecha_emision': ahora_chile().strftime('%d-%m-%Y'),

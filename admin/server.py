@@ -1049,6 +1049,46 @@ def pacientes_importar():
             pass
     return jsonify({'ok': True, **res})
 
+@app.route('/api/pacientes/importar-cumpleanos', methods=['POST'])
+def pacientes_importar_cumpleanos():
+    """Agrega la FECHA DE NACIMIENTO a la base desde el export 'Listado de
+    Cumpleanos' del panel DentiDesk (multipart 'file'). Protegido.
+
+    ⚠️ Pese a la extension .xls, ese export NO es Excel: es una tabla HTML. Se
+    guarda con sufijo .xls igual (el parser mira el contenido, no el nombre).
+
+    Es idempotente: se puede volver a correr cada vez que la clinica re-exporte
+    el listado para incorporar a los pacientes nuevos. Solo escribe
+    fecha_nacimiento e id_paciente; nunca pisa email/telefono/genero/direccion."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import pacientes, tempfile
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'Falta el archivo'}), 400
+    crear = str(request.form.get('crear_nuevos', '1')).lower() in ('1', 'true', 'yes', 'on')
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.xls') as tmp:
+        f.save(tmp.name)
+        ruta = tmp.name
+    try:
+        res = pacientes.importar_cumpleanos(ruta, crear_nuevos=crear)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'No se pudo leer el archivo: {e}'}), 400
+    finally:
+        try:
+            os.remove(ruta)
+        except OSError:
+            pass
+    # Si no se reconocio NINGUNA fila es que subieron otro archivo (p.ej. el
+    # Excel de pacientes en vez del listado de cumpleanos). Devolver ok:true con
+    # todo en cero se leeria como "importado" cuando no se importo nada.
+    if not (res['nuevos'] or res['actualizados'] or res['duplicados_archivo']):
+        return jsonify({'ok': False, 'error': 'No se reconocio ninguna fila con RUT y fecha '
+                                              'de nacimiento. ¿Es el export "Listado de '
+                                              'Cumpleaños" del panel DentiDesk?'}), 400
+    return jsonify({'ok': True, **res})
+
+
 @app.route('/api/pacientes/reset', methods=['POST'])
 def pacientes_reset():
     """Vacia la base de pacientes (para resembrar desde cero). Protegido."""
@@ -1061,7 +1101,8 @@ def pacientes_reset():
 @app.route('/api/pacientes/estado', methods=['GET'])
 def pacientes_estado():
     import pacientes
-    return jsonify({'ok': True, 'total': pacientes.total()})
+    return jsonify({'ok': True, 'total': pacientes.total(),
+                    'fecha_nacimiento': pacientes.cobertura_fecha_nacimiento()})
 
 def _verificar_turnstile(token):
     """Valida el token de Cloudflare Turnstile contra siteverify.
@@ -3074,12 +3115,11 @@ def seguro_precarga():
     cfg = scheduling.load_config()
     aseg = seguros.obtener_aseguradora(pref.get('ultima_aseguradora')) if pref.get('ultima_aseguradora') else None
     # datos_extra es lo que la secretaria escribio A MANO en el modulo de seguros
-    # (siempre manda, puede haberla corregido a proposito); direccion de la base
-    # local (sembrada desde el Excel de pacientes) solo se usa como FALLBACK si
-    # datos_extra no trae direccion o viene vacia.
-    datos_extra = dict(pref.get('datos_extra', {}))
-    if not datos_extra.get('direccion') and rec and rec.get('direccion'):
-        datos_extra['direccion'] = rec['direccion']
+    # (siempre manda, puede haberlo corregido a proposito). La base local solo
+    # rellena los huecos: direccion (sembrada del Excel de pacientes) y fecha de
+    # nacimiento (del export de cumpleanos). Misma funcion que usa armar_valores,
+    # para que la pagina muestre exactamente lo que va a salir en el PDF.
+    datos_extra = seguros.completar_datos_extra(rut, pref.get('datos_extra'))
     return jsonify({
         'ok': True,
         'paciente': rec or None,
@@ -3842,6 +3882,69 @@ def control_dental_motivos_desconocidos():
          for r, info in desconocidos.items()),
         key=lambda x: x['n'], reverse=True)
     return jsonify({'ok': True, 'motivos': items})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CUMPLEANOS  (equipo + pacientes — modulo cumpleanos.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Alimenta la seccion de cumpleanos del reporte diario que recibe el Dr. Alberto
+# (revision-evoluciones/INSTRUCCIONES.md, Paso 4.8). Dos fuentes: la lista propia
+# del equipo (doctores + staff) y la fecha_nacimiento de la base de pacientes,
+# sembrada desde el export "Listado de Cumpleanos" de DentiDesk.
+#
+# Es SOLO LECTURA e informativo: el sistema no saluda a nadie, el saludo lo
+# decide y lo manda una persona.
+
+@app.route('/api/cumpleanos/proximos', methods=['GET'])
+def cumpleanos_proximos():
+    """Cumpleanos de una fecha (query 'fecha' YYYY-MM-DD; default MANANA).
+
+    Devuelve {ok, fecha, fecha_legible, equipo:[{nombre, edad, ...}],
+    pacientes:[{rut, nombre, edad, id_paciente, telefono, ...}]}, donde 'edad'
+    son los anios que la persona CUMPLE ese dia."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import cumpleanos as _cumple
+    from datetime import date as _date
+    fecha_arg = (request.args.get('fecha') or '').strip()
+    try:
+        fecha = _date.fromisoformat(fecha_arg) if fecha_arg else None
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'fecha invalida (usar YYYY-MM-DD)'}), 400
+    return jsonify({'ok': True, **_cumple.proximos(fecha)})
+
+
+@app.route('/api/cumpleanos/equipo', methods=['GET'])
+def cumpleanos_equipo_listar():
+    """Lista del equipo con su fecha de nacimiento (para revisar/editar)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import cumpleanos as _cumple
+    lista = _cumple.equipo()
+    return jsonify({'ok': True, 'equipo': lista, 'total': len(lista),
+                    'pendientes': [p['nombre'] for p in lista if p.get('pendiente')]})
+
+
+@app.route('/api/cumpleanos/equipo/importar', methods=['POST'])
+def cumpleanos_equipo_importar():
+    """Carga la lista del equipo desde el texto de la tabla
+    ('cumpleanos doctores.txt'), body {texto, reemplazar?}.
+
+    El archivo NO viaja por git a proposito: este repo es PUBLICO (sirve el
+    sitio por GitHub Pages) y son fechas de nacimiento de personas reales. Por
+    eso la lista se carga por aca y vive en el disco persistente."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import cumpleanos as _cumple
+    data = request.get_json(silent=True) or {}
+    texto = data.get('texto') or ''
+    if not texto.strip():
+        return jsonify({'ok': False, 'error': 'Falta el texto de la tabla'}), 400
+    res = _cumple.importar_equipo(texto, reemplazar=bool(data.get('reemplazar', True)))
+    if not res['total']:
+        return jsonify({'ok': False, 'error': 'No se reconocio ninguna fila en la tabla'}), 400
+    return jsonify({'ok': True, **res})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
