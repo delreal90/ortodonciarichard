@@ -1296,6 +1296,17 @@ h4 { font-size: 1rem; font-weight: 600; }
     margin-bottom: 8px;
 }
 
+.modal-registro {
+    font-size: .82rem;
+    color: var(--text-mid);
+    margin: 4px 0 8px;
+    padding: 8px 12px;
+    background: var(--light-bg);
+    border-radius: 8px;
+}
+.modal-registro i { color: #2e9e5b; margin-right: 4px; }
+.modal-registro a { color: var(--navy); font-weight: 600; }
+
 .modal-section {
     margin-top: 16px;
 }

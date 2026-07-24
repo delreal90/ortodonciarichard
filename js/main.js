@@ -16,6 +16,7 @@ const doctorData = {
         name:        'Dr. Octavio Del Real S.',
         role:        'Ortodoncista',
         photo:       'images/dr-octavio-del-real.jpeg',
+        registro:    '48538',
         memberships: [
             'AAO',
             'WFO',
@@ -38,6 +39,7 @@ const doctorData = {
         name:        'Dr. Rodrigo Oyonarte W.',
         role:        'Ortodoncista',
         photo:       'images/dr-rodrigo-oyonarte.jpeg',
+        registro:    '33401',
         memberships: [
             'AAO',
             'WFO',
@@ -60,6 +62,7 @@ const doctorData = {
         name:        'Dr. Alberto Del Real V.',
         role:        'Ortodoncista',
         photo:       'images/dr-alberto-del-real.jpeg',
+        registro:    '312378',
         memberships: [
             'AAO',
             'WFO',
@@ -81,6 +84,7 @@ const doctorData = {
         name:        'Dr. Patricio Vial U.',
         role:        'Rehabilitador Oral e Implantólogo',
         photo:       'images/dr-patricio-vial.png',
+        registro:    '40662',
         memberships: [
             'Implantología',
             'Rehabilitación Oral',
@@ -208,6 +212,17 @@ function openModal(doctorId) {
 
     const spList = document.getElementById('modalSpecialties');
     spList.innerHTML = d.specialties.map(s => `<li>${s}</li>`).join('');
+
+    // Registro Superintendencia de Salud (verificable en el RNPI)
+    const regEl = document.getElementById('modalRegistro');
+    if (regEl) {
+        if (d.registro) {
+            regEl.innerHTML = `<i class="fas fa-circle-check"></i> Registrado en la Superintendencia de Salud · N° ${d.registro} · <a href="https://rnpi.superdesalud.gob.cl/" target="_blank" rel="noopener">Verificar</a>`;
+            regEl.style.display = '';
+        } else {
+            regEl.style.display = 'none';
+        }
+    }
 
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
