@@ -199,6 +199,47 @@ def _scheduling_cfg():
 
 # ── Registro de envios ───────────────────────────────────────────────────────
 
+# Dos años. Mas generoso que el de confirmaciones/recordatorios porque este
+# registro ES el historial que muestra el panel, no solo un anti-duplicado.
+_DIAS_RETENCION_ENVIOS = 730
+
+
+def _podar(reg):
+    """Poda el historial viejo. Dos reglas de seguridad:
+
+    1. De cada RUT se conserva SIEMPRE el envio mas reciente, por viejo que sea:
+       la guarda `enviado_reciente` de evaluar() se calcula sobre el, y borrarlo
+       equivaldria a habilitar un reenvio que no corresponde.
+    2. Los programados solo se podan si ya estan CERRADOS (enviado/anulado/
+       omitido). Un 'pendiente', por atrasado que este, nunca se toca: sigue en
+       cola y `pendientes_vencidos` lo tiene que ver."""
+    limite = (fechas.ahora_chile() - timedelta(days=_DIAS_RETENCION_ENVIOS)).isoformat()
+    quitados = 0
+
+    envios = reg.get('envios')
+    if isinstance(envios, dict):
+        for clave, lista in list(envios.items()):
+            if not isinstance(lista, list) or len(lista) <= 1:
+                continue
+            lista.sort(key=lambda e: e.get('fecha_envio', ''))
+            ultimo = lista[-1]
+            conservados = [e for e in lista[:-1]
+                           if (e.get('fecha_envio') or '') >= limite] + [ultimo]
+            quitados += len(lista) - len(conservados)
+            envios[clave] = conservados
+
+    programados = reg.get('programados')
+    if isinstance(programados, list):
+        cerrados = ('enviado', 'anulado', 'omitido')
+        conservados = [p for p in programados
+                       if p.get('estado') not in cerrados
+                       or (p.get('creado') or p.get('fecha_programada') or '') >= limite]
+        quitados += len(programados) - len(conservados)
+        reg['programados'] = conservados
+
+    return quitados
+
+
 def marcar_enviado(rut, id_agenda, doctor, nombre):
     clave = _rut_key(rut)
     with _LOCK:
@@ -210,7 +251,11 @@ def marcar_enviado(rut, id_agenda, doctor, nombre):
             'nombre': nombre or '',
             'respondio': False,
         })
+        podados = _podar(reg)
         _save_registro(reg)
+    if podados:
+        print(f'[recaptacion] podadas {podados} entradas de mas de '
+              f'{_DIAS_RETENCION_ENVIOS} dias')
 
 
 def marcar_respondio(rut):

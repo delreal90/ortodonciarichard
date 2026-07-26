@@ -30,10 +30,12 @@ os.environ['PATIENT_INDEX_PATH'] = str(_TMP / 'patient_index.json')
 os.environ['DENTIDESK_ENABLED'] = 'false'
 sys.path.insert(0, str(Path(__file__).parent))
 
-import fechas           # noqa: E402
-import control_dental   # noqa: E402
-import recaptacion      # noqa: E402
-import nps              # noqa: E402
+import fechas             # noqa: E402
+import control_dental     # noqa: E402
+import recaptacion        # noqa: E402
+import nps                # noqa: E402
+import recordatorios_wa   # noqa: E402
+import confirmaciones     # noqa: E402
 
 RUT = '17.406.985-9'
 
@@ -323,6 +325,100 @@ class TestNPS(unittest.TestCase):
             {'fecha': datetime.combine(viejo, datetime.min.time()).isoformat(timespec='seconds')}]
         nps._save_registro(reg)
         self.assertIsNone(nps.evaluar(RUT, True, self.cfg))
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Poda de registros — no pueden crecer para siempre, pero tampoco borrar de mas
+# ═════════════════════════════════════════════════════════════════════════
+
+class TestPoda(unittest.TestCase):
+
+    def setUp(self):
+        _limpiar(recaptacion)
+        recordatorios_wa._save_registro({'semana': {}, 'dia': {}, 'inasistencia': {}})
+        confirmaciones._save({})
+
+    def _viejo(self, dias):
+        return (fechas.ahora_chile() - timedelta(days=dias)).isoformat(timespec='seconds')
+
+    # ── confirmaciones ────────────────────────────────────────────────────
+    def test_confirmaciones_poda_lo_viejo_y_deja_lo_nuevo(self):
+        idx = {'1': self._viejo(400), '2': self._viejo(10),
+               '_ultima_corrida': self._viejo(400)}
+        quitadas = confirmaciones._podar(idx)
+        self.assertEqual(quitadas, 1)
+        self.assertNotIn('1', idx)
+        self.assertIn('2', idx)
+
+    def test_confirmaciones_no_toca_las_claves_de_control(self):
+        """'_ultima_corrida' define desde cuando busca citas nuevas el barrido:
+        si se poda, el barrido pierde su punto de partida."""
+        idx = {'_ultima_corrida': self._viejo(400)}
+        confirmaciones._podar(idx)
+        self.assertIn('_ultima_corrida', idx)
+
+    # ── recordatorios ─────────────────────────────────────────────────────
+    def test_recordatorios_poda_los_tres_tipos(self):
+        reg = {'semana': {'1': self._viejo(400), '2': self._viejo(5)},
+               'dia': {'3': self._viejo(400)},
+               'inasistencia': {'4': self._viejo(1)}}
+        quitadas = recordatorios_wa._podar(reg)
+        self.assertEqual(quitadas, 2)
+        self.assertEqual(list(reg['semana']), ['2'])
+        self.assertEqual(reg['dia'], {})
+        self.assertEqual(list(reg['inasistencia']), ['4'])
+
+    # ── recaptacion: las dos reglas de seguridad ──────────────────────────
+    def test_recaptacion_conserva_SIEMPRE_el_ultimo_envio_por_rut(self):
+        """La guarda enviado_reciente se calcula sobre el ultimo envio. Borrarlo
+        habilitaria un reenvio que no corresponde — le llegaria un WhatsApp
+        repetido a un paciente."""
+        reg = {'envios': {'179999999': [
+            {'fecha_envio': self._viejo(2000)},
+            {'fecha_envio': self._viejo(1500)},
+        ]}}
+        recaptacion._podar(reg)
+        quedan = reg['envios']['179999999']
+        self.assertEqual(len(quedan), 1, 'queda exactamente el mas reciente')
+        self.assertEqual(quedan[0]['fecha_envio'], self._viejo(1500))
+
+    def test_recaptacion_poda_los_viejos_y_deja_los_de_dentro_del_plazo(self):
+        """Retencion = 730 dias. Los de 2000 y 1000 se van; el de 800 tambien;
+        el de 400 y el de 10 se quedan."""
+        reg = {'envios': {'179999999': [
+            {'fecha_envio': self._viejo(2000)},
+            {'fecha_envio': self._viejo(1000)},
+            {'fecha_envio': self._viejo(400)},
+            {'fecha_envio': self._viejo(10)},
+        ]}}
+        quitados = recaptacion._podar(reg)
+        self.assertEqual(quitados, 2)
+        quedan = [e['fecha_envio'] for e in reg['envios']['179999999']]
+        self.assertEqual(quedan, [self._viejo(400), self._viejo(10)])
+
+    def test_recaptacion_nunca_poda_un_programado_pendiente(self):
+        """Un pendiente atrasado sigue en cola: pendientes_vencidos usa <=, asi
+        que un envio que perdio su ventana sale al dia siguiente. Podarlo seria
+        perder el recordatorio en silencio."""
+        reg = {'programados': [
+            {'id': 1, 'estado': 'pendiente', 'creado': self._viejo(2000)},
+            {'id': 2, 'estado': 'anulado',   'creado': self._viejo(2000)},
+            {'id': 3, 'estado': 'enviado',   'creado': self._viejo(10)},
+        ]}
+        recaptacion._podar(reg)
+        ids = [p['id'] for p in reg['programados']]
+        self.assertIn(1, ids, 'un pendiente no se poda nunca')
+        self.assertNotIn(2, ids, 'un anulado viejo si')
+        self.assertIn(3, ids, 'un enviado reciente se conserva')
+
+    def test_la_poda_real_no_rompe_la_guarda_de_reenvio(self):
+        """De punta a punta: marcar_enviado poda, y evaluar sigue bloqueando."""
+        with mock.patch.object(recaptacion, 'dentidesk') as dd:
+            dd.citas_futuras_paciente.return_value = []
+            dd.limpiar_rut.side_effect = lambda r: (r or '').replace('.', '').replace('-', '')
+            recaptacion.marcar_enviado(RUT, '1', 'Dr. Vial', 'Juan')
+            r = recaptacion.evaluar(RUT, recaptacion.load_config())
+        self.assertEqual(r['motivo'], 'enviado_reciente')
 
 
 if __name__ == '__main__':

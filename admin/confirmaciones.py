@@ -54,6 +54,25 @@ def _load():
     return None
 
 
+# El registro guarda una entrada {IdAgenda: ts} por CADA cita confirmada, desde
+# que existe el sistema, y se relee entero en cada uno de los 4 barridos diarios.
+# Sin poda crece para siempre. 180 dias es holgado: la agenda online no acepta
+# citas a mas de 60 dias (anticipacion_maxima_dias), asi que una entrada de hace
+# medio año ya no puede corresponder a una cita futura sin confirmar.
+# Mismo criterio que control_dental._DIAS_RETENCION_VISTOS / nps.
+_DIAS_RETENCION = 180
+
+
+def _podar(idx):
+    """Saca las entradas mas viejas que _DIAS_RETENCION. Devuelve cuantas saco."""
+    limite = (fechas.ahora_chile() - timedelta(days=_DIAS_RETENCION)).isoformat()
+    viejas = [k for k, v in idx.items()
+              if not k.startswith('_') and isinstance(v, str) and v < limite]
+    for k in viejas:
+        del idx[k]
+    return len(viejas)
+
+
 def _save(idx):
     ENVIADAS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = ENVIADAS_PATH.with_suffix('.json.tmp')
@@ -177,8 +196,12 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
         actual = _load() or {}
         actual.update(nuevos)
         actual['_ultima_corrida'] = ahora.isoformat(timespec='seconds')
+        podadas = _podar(actual)
         _save(actual)
+    if podadas:
+        print(f'[confirmaciones] podadas {podadas} entradas de mas de '
+              f'{_DIAS_RETENCION} dias')
 
     return {'ok': True, 'primera_vez': primera_vez, 'citas': len(citas),
-            'enviadas': enviadas, 'adoptadas': adoptadas,
+            'enviadas': enviadas, 'adoptadas': adoptadas, 'podadas': podadas,
             'registradas': len([k for k in actual if not k.startswith('_')])}

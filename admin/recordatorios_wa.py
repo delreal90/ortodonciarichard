@@ -118,11 +118,37 @@ def _save_registro(reg):
     os.replace(tmp, ENVIADOS_PATH)
 
 
+# Igual que confirmaciones.py: una entrada {IdAgenda: ts} por cada recordatorio
+# enviado, para siempre, releida en cada barrido. 180 dias es holgado (la agenda
+# no acepta citas a mas de 60), y una cita de hace medio año ya no necesita
+# recordatorio. Mismo criterio que control_dental / nps.
+_DIAS_RETENCION = 180
+
+
+def _podar(reg):
+    """Saca de cada tipo las entradas mas viejas que _DIAS_RETENCION."""
+    limite = (fechas.ahora_chile() - timedelta(days=_DIAS_RETENCION)).isoformat()
+    quitadas = 0
+    for tipo in ('semana', 'dia', 'inasistencia'):
+        d = reg.get(tipo)
+        if not isinstance(d, dict):
+            continue
+        viejas = [k for k, v in d.items() if isinstance(v, str) and v < limite]
+        for k in viejas:
+            del d[k]
+        quitadas += len(viejas)
+    return quitadas
+
+
 def _marcar(tipo, id_agenda):
     with _LOCK:
         reg = _load_registro()
         reg.setdefault(tipo, {})[str(id_agenda)] = fechas.ahora_chile().isoformat(timespec='seconds')
+        podadas = _podar(reg)
         _save_registro(reg)
+    if podadas:
+        print(f'[recordatorios] podadas {podadas} entradas de mas de '
+              f'{_DIAS_RETENCION} dias')
 
 
 def ultimo_envio(tipo):
