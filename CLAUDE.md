@@ -519,8 +519,8 @@ de sus bytes reales (`consentimientos.hash_pdf()`) y lo guarda en `pdf_sha256` d
 Para verificar que un PDF no fue adulterado, se recalcula su hash y se compara con ese valor
 guardado server-side — un PDF editado nunca podría "auto-corregir" su propio hash impreso.
 
-**Google Drive (respaldo):** cuenta de servicio `claude@intrepid-charge-501115-n0.iam.
-gserviceaccount.com`, **Unidad compartida** (Shared Drive) ID `0AKiV1nLsqi2dUk9PVA`.
+**Google Drive (respaldo):** cuenta de servicio `&lt;CUENTA_SERVICIO_DRIVE&gt;`,
+**Unidad compartida** (Shared Drive) ID `&lt;DRIVE_SHARED_ID&gt;`.
 ⚠️ Debe ser Unidad compartida, NO carpeta de "Mi unidad" — las cuentas de servicio no
 tienen cuota propia (error `storageQuotaExceeded`). Scope `drive` completo (no `drive.file`).
 En Render: env var `GOOGLE_SERVICE_ACCOUNT_JSON` = JSON entero (drive_backup.py lo soporta).
@@ -614,8 +614,11 @@ Panel: pestaña "Seguros" en panel.html (patrón remoto, mismas claves localStor
 **Probar local sin producción:** lanzar `server.py` con `PATIENT_INDEX_PATH` apuntando
 a una carpeta de prueba + `DENTIDESK_ENABLED=false` (el módulo no usa DentiDesk; los
 datos llegan del F2 por query params). El envío real de email requiere SMTP_USER/PASS
-(solo Render). Para verificar PDFs visualmente: pymupdf (`fitz`) instalado local (NO va
-en requirements.txt, es solo herramienta de desarrollo).
+(solo Render). Para verificar PDFs visualmente: pymupdf (`fitz`).
+⚠️ **`pymupdf` SÍ es dependencia de producción** — está pineado en `requirements.txt`
+(`pymupdf==1.28.0`) y `seguros.py` lo importa en la rama AcroForm de `rellenar_pdf()`,
+que es la que usan **Zurich, MetLife y BUPA**. Sacarlo de requirements rompe el relleno
+de esas 3 aseguradoras en Render. (Esta doc decía lo contrario hasta 2026-07-25.)
 
 **Envío 1-clic desde la boleta (2026-07-10):** flujo principal de producción. La
 secretaria emite la boleta DTE en DentiDesk → F2 → sección colapsable "🛡️ Seguro
@@ -668,8 +671,8 @@ datos reales (ya mapeadas con el motor, falta confirmar posiciones a ojo); pobla
 ANALISIS - Desglose control mensual (...).md`); configurar alias de glosa +
 absorbe_saldo de las prestaciones reales en el panel; subir firmas reales de los
 doctores (imagen + RUT + especialidad, vía pestaña Seguros del panel); plantilla
-WhatsApp `seguro_complementario` en la WABA REAL 106738482086473; probar envío de
-email real en producción con el paciente de prueba (Alberto, RUT 17.406.985-9);
+WhatsApp `seguro_complementario` en la WABA REAL &lt;WABA_ID_REAL&gt;; probar envío de
+email real en producción con el paciente de prueba (Alberto, RUT &lt;RUT_PACIENTE_PRUEBA&gt;);
 verificar cómo viene DESCRIPCION cuando la boleta tiene varias líneas de detalle.
 
 ---
@@ -1285,12 +1288,12 @@ local que NO corre en Render) por la **Cloud API oficial de Meta**, para enviar
 ### Datos auditados de la app de Meta (Fase 1, auditada 2026-06-30 vía Claude in Chrome)
 | Dato | Valor |
 |---|---|
-| App | **WA automáticos** · App ID `1047459514605008` |
-| Portfolio comercial (business_id) | `205682900395758` |
+| App | **WA automáticos** · App ID `&lt;META_APP_ID&gt;` |
+| Portfolio comercial (business_id) | `&lt;META_BUSINESS_ID&gt;` |
 | Número de PRUEBA (de Meta, gratis) | +1 (555) 649-1179 |
-| **Phone Number ID** (test) | `1132643936607937` |
-| **WABA ID** (WhatsApp Business Account) | `2209662166461456` |
-| Destinatario de prueba registrado | +56 9 8903 2888 (celular Alberto) ✅ |
+| **Phone Number ID** (test) | `&lt;PHONE_NUMBER_ID_PRUEBA&gt;` |
+| **WABA ID** (WhatsApp Business Account) | `&lt;WABA_ID_PRUEBA&gt;` |
+| Destinatario de prueba registrado | &lt;CELULAR_PACIENTE_PRUEBA&gt; (celular Alberto) ✅ |
 | **Verificación del negocio** | ✅ **APROBADA** |
 | Token | Solo botón "Generar token" (temporal 24h). Producción → **System User token permanente** |
 | App | "Sin publicar" (normal en esta etapa) |
@@ -1376,7 +1379,7 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
 - **Fase 6 — Webhook: Confirmo/Anular actualizan DentiDesk al instante (COMPLETA y verificada
   en vivo el 2026-07-06).** Antes de esta fase, tocar un botón de WhatsApp no hacía nada del
   lado del sistema. Probado dos veces end-to-end con la cita de prueba real (IdAgenda
-  `13389698`, RUT 17.406.985-9): tocar "Anular" en WhatsApp pasó el `IdStatus` de `2120`
+  `13389698`, RUT &lt;RUT_PACIENTE_PRUEBA&gt;): tocar "Anular" en WhatsApp pasó el `IdStatus` de `2120`
   (No confirmado) a `2122` (Hora Cancelada) automáticamente en DentiDesk, con respuesta al
   paciente y aviso a recepción.
   - `admin/dentidesk.py`: `actualizar_estado_cita(id_agenda, id_status, cfg)` — primer uso de
@@ -1536,7 +1539,7 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
 - Ventana de 24h: fuera de ella solo se pueden enviar PLANTILLAS (por eso siempre funcionan,
   incluso para el primer contacto — a diferencia de un mensaje libre).
 - El número de prueba solo envía a destinatarios pre-registrados (máx. 5) — el de prueba es
-  +56 9 8903 2888 (celular Alberto).
+  &lt;CELULAR_PACIENTE_PRUEBA&gt; (celular Alberto).
 - El bridge whatsmeow (sección siguiente) queda como herramienta de Claude/MCP, NO como canal de producción.
 
 ---

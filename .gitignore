@@ -4,6 +4,11 @@ __pycache__/
 venv/
 .DS_Store
 
+# Índice de datos privados (RUT/celular del paciente de prueba, IDs de Meta y Drive).
+# CLAUDE.md y RESUMEN-PROYECTO.md son PÚBLICOS y usan marcadores <ASI>; los valores
+# reales viven solo acá. — NUNCA subir a git.
+DATOS-PRIVADOS.md
+
 # Credenciales DentiDesk — NUNCA subir a git
 admin/scheduling_secrets.json
 

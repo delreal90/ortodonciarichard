@@ -38,9 +38,13 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
   impresión), y Compras tiene su propio login por usuario/rol (`X-Compras-Token`).
 - **Zona horaria:** Render corre en UTC; usar los helpers `ahora_chile()`
   (zoneinfo `America/Santiago`, paquete `tzdata` en requirements).
-- **Paciente de prueba:** Alberto Del Real, RUT **17.406.985-9**,
-  delreal90@gmail.com, celular de prueba **+56 9 8903 2888**. Autorizado crear
-  citas de prueba. ⚠️ NUNCA escribir a +56 9 9903 2888 (es un tercero real).
+- **Paciente de prueba:** Alberto Del Real — RUT `&lt;RUT_PACIENTE_PRUEBA&gt;`,
+  `&lt;EMAIL_PACIENTE_PRUEBA&gt;`, celular `&lt;CELULAR_PACIENTE_PRUEBA&gt;`. Autorizado crear
+  citas de prueba. ⚠️ NUNCA escribir a `&lt;CELULAR_TERCERO_NO_ESCRIBIR&gt;` (difiere en un
+  dígito del anterior y es de un tercero real).
+- 🔑 **Los valores reales de esos marcadores `&lt;ASI&gt;` viven en `DATOS-PRIVADOS.md`**
+  (gitignored, en la raíz del proyecto). Este archivo y `CLAUDE.md` son PÚBLICOS —
+  no volver a escribir en ellos un RUT, celular, email o ID de Meta/Drive.
 - Sin frameworks front (HTML/CSS/JS vanilla, intencional). Python 3.11.
 
 ## DentiDesk — hechos duros (la clave de casi todo)
@@ -78,7 +82,7 @@ getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
   Caché de disponibilidad. → "Agendamiento online".
 - **Confirmaciones de cita** — online al instante + barrido 4 ciclos/día + manual F2. → "Confirmaciones".
 - **WhatsApp Cloud API (Meta)** — confirmaciones/recordatorios + webhook Confirmo/Anular
-  que actualiza DentiDesk. **WABA REAL `106738482086473`**, número +56 9 3355 8189.
+  que actualiza DentiDesk. **WABA REAL `&lt;WABA_ID_REAL&gt;`**, número +56 9 3355 8189.
   ⚠️ crear plantillas SIEMPRE en la WABA real, no en la de prueba. → "WhatsApp Cloud API".
 - **Consentimientos informados** — F2 → link firmado (celular/tablet) → PDF reportlab
   + respaldo Google Drive. → "Consentimientos informados".

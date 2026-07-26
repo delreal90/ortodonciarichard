@@ -15,7 +15,7 @@ services:
       - key: DENTIDESK_BASIC_PASS
         sync: false
       # WhatsApp Cloud API (Meta) — valores se cargan en el panel de Render, nunca en el repo.
-      # En pruebas: token temporal 24h + Phone Number ID de prueba (1132643936607937).
+      # Los IDs (WABA, Phone Number ID de prueba) estan en DATOS-PRIVADOS.md, gitignored.
       - key: WA_ENABLED
         sync: false
       - key: WA_TOKEN

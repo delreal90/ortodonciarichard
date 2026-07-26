@@ -1790,6 +1790,9 @@ def whatsapp_plantillas():
     Query: waba_id (default: WA_WABA_ID, y si tampoco esta, la WABA real)."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    # El ID de la WABA real queda como ultimo recurso. NO es un secreto (sin WA_TOKEN
+    # no sirve de nada), pero se puede sobrescribir con la env var WA_WABA_ID para no
+    # tenerlo fijo en un repo publico. Ver DATOS-PRIVADOS.md.
     waba_id = (request.args.get('waba_id') or os.environ.get('WA_WABA_ID')
                or '106738482086473').strip()
     cfg = wa_cloud._config()

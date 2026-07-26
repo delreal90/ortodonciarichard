@@ -28,7 +28,10 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
-DEFAULT_FOLDER_ID = '0AKiV1nLsqi2dUk9PVA'  # raíz de la Unidad compartida "Consentimientos Ortodoncia Richard"
+# Raíz de la Unidad compartida "Consentimientos Ortodoncia Richard". No es un secreto
+# (sin las credenciales de la cuenta de servicio el ID no sirve de nada), pero se puede
+# sobrescribir con la env var DRIVE_FOLDER_ID para no tenerlo fijo en un repo público.
+DEFAULT_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID', '0AKiV1nLsqi2dUk9PVA')
 DEFAULT_CRED_PATH = Path(__file__).parent / 'drive_service_account.json'
 
 
