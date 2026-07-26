@@ -36,8 +36,25 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
   (`_check_admin_token()` en server.py; sin token seteado = dev local permite todo).
   Hay tokens de menor alcance: `KIOSK_TOKEN` (tablet), `PRINT_TOKEN` (agente de
   impresión), y Compras tiene su propio login por usuario/rol (`X-Compras-Token`).
-- **Zona horaria:** Render corre en UTC; usar los helpers `ahora_chile()`
-  (zoneinfo `America/Santiago`, paquete `tzdata` en requirements).
+- 🕐 **Zona horaria — regla dura:** Render corre en **UTC**, 3-4 h ADELANTE de Chile.
+  **NUNCA usar `datetime.now()` ni `date.today()`.** Siempre `fechas.ahora_chile()` /
+  `fechas.hoy_chile()` (`admin/fechas.py`, único lugar; zoneinfo `America/Santiago`,
+  paquete `tzdata` en requirements). Había 4 copias del helper y a `scheduling.py` le
+  faltaba: la agenda online **le escondía horas válidas al paciente** todos los días.
+  Los módulos con nombre propio (`consentimientos.ahora_chile`, `seguros.ahora_chile`,
+  `stats._ahora_cl`, `compras.ahora_cl`, `cumpleanos.ahora_chile`) ahora delegan en él.
+- 🧪 **Pruebas:** `cd admin && python test_todo.py` → 132 pruebas, 7 suites, **cero red,
+  cero correo, cero WhatsApp, cero DentiDesk**. Se puede correr en cualquier momento, aun
+  con producción andando. Correrlas antes de cada push. Cubren: hora de Chile, cobertura
+  de auth de las 162 rutas, el webhook que cancela citas, las guardas de los 3 sistemas de
+  avisos, compras (recurrentes/stock/migraciones), cumpleaños y el registro de reservas.
+- 🔑 **Auth — no se olvide:** el control de acceso se escribe a mano en cada handler
+  (121 copias de `if not _check_admin_token()`). `test_seguridad.py` recorre TODAS las
+  rutas y **falla si agregas una sin llave** y sin declararla pública con su razón. Si
+  falla, no agregues tu ruta a la lista sin pensarlo antes.
+- 🚫 **Rutas de administración:** van al set `RUTAS_SOLO_LOCAL` de `server.py`, **nunca**
+  un `if EN_RENDER` suelto dentro de la función. Tener dos mecanismos fue lo que dejó
+  `/api/upload` abierto en producción.
 - **Paciente de prueba:** Alberto Del Real — RUT `&lt;RUT_PACIENTE_PRUEBA&gt;`,
   `&lt;EMAIL_PACIENTE_PRUEBA&gt;`, celular `&lt;CELULAR_PACIENTE_PRUEBA&gt;`. Autorizado crear
   citas de prueba. ⚠️ NUNCA escribir a `&lt;CELULAR_TERCERO_NO_ESCRIBIR&gt;` (difiere en un
@@ -64,8 +81,44 @@ getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
   boletas DTE en `POST ajax/ajaxConfigIntegracionSii.php` (`accion=sii_consultar_dtes_emitidos&mes=N`).
   El login tiene reCAPTCHA → no se puede automatizar login server-side.
 
+## Revisión y limpieza (2026-07-25)
+
+Auditoría completa del proyecto tras 3 meses de crecer copiando y pegando. Lo que se
+arregló y **no hay que volver a romper**:
+
+- **`/api/upload` estaba abierto en Render**: sin token, sin bloqueo solo-local y sin
+  sanear el nombre (un `../` escribía fuera de `images/`). Cerrado + prueba de regresión.
+- **Datos personales en el repo público**: RUT, celular y email salieron de `CLAUDE.md`
+  y `RESUMEN-PROYECTO.md`; ahora usan marcadores `<ASI>` y los valores reales viven en
+  **`DATOS-PRIVADOS.md`** (gitignored, en la raíz).
+- **XSS en la pestaña Equipo del panel**: el nombre se interpolaba crudo en `onclick`.
+  Ahora todo pasa por `_esc()` y los botones referencian la POSICIÓN, no el nombre.
+- **Huso horario**: ver la regla dura más arriba. Era el bug más caro del proyecto.
+- **`stats.py` perdía reservas**: único módulo de persistencia sin lock; su `eliminar()`
+  hacía read-modify-write sin escritura atómica.
+- **Excepciones tragadas** en 8 sitios, la peor: si fallaba `marcar_enviada` el barrido
+  le reenviaba la confirmación a un paciente que ya la tenía, sin dejar rastro.
+- **Registros que crecían para siempre** (confirmaciones, recordatorios, recaptación):
+  ahora podan. ⚠️ De cada RUT se conserva SIEMPRE el último envío (la guarda
+  `enviado_reciente` se calcula sobre él) y un programado `pendiente` no se poda nunca.
+- **Sitio de 43,6 MB a 23,8 MB**, carga inicial 78 KB: imágenes recomprimidas (el poster
+  del hero pesaba 5 MB), `preload="metadata"` en el video (11,9 MB que se bajaban solos)
+  y `loading="lazy"` en 17 imágenes. Nueva variable `--gold-text` para texto sobre fondo
+  claro: el dorado de marca da 2,29:1 de contraste y falla WCAG AA.
+- **Panel**: la pestaña WhatsApp usaba `wa_token`/`wa_url` propios en vez de las claves
+  compartidas `stats_token`/`stats_url` — el token puesto en Estadísticas no se propagaba.
+
+Pendiente (deuda de mantenimiento, no bugs): 9 copias del helper de guardado JSON →
+`jsonstore.py`; base común para los 3 `evaluar()` de avisos; 5 copias del layout de email
+en `notify.py`; `panel.html` tiene 2.681 líneas de JS inline con ~70% de patrón repetido.
+
 ## Backend: módulos (`admin/`)
-- `server.py` — todas las rutas Flask + schedulers en hilos (`_loop_*`). ~3.7k líneas.
+- `fechas.py` — **hora de Chile, único lugar**. `ahora_chile()` / `hoy_chile()` /
+  `ahora_chile_aware()`. Todo lo demás delega acá (ver la regla dura arriba).
+- `test_todo.py` — corre las 7 suites de pruebas. `test_fechas`, `test_seguridad`,
+  `test_stats`, `test_cumpleanos`, `test_webhook_wa`, `test_avisos`, `test_compras`.
+- `server.py` — todas las rutas Flask + schedulers en hilos (`_loop_*`). ~5.4k líneas,
+  162 rutas.
 - `scheduling.py` + `scheduling_config.json` — reglas de negocio, motivos, IDs,
   ocupación simulada. `dentidesk.py` — cliente de la API (modo mock si `enabled=false`).
 - `notify.py` — email SMTP Gmail + `.ics`; despacha email/WhatsApp. `wa_cloud.py` —
