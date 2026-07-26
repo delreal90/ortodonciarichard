@@ -14,8 +14,11 @@ const clp = n => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
 const money = (n, moneda) => moneda === 'USD'
   ? 'US$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   : clp(n);
-const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Escapa tambien la comilla SIMPLE: hoy todos los usos van dentro de atributos
+// con comillas dobles, pero el dia que alguien escriba algo dentro de comillas
+// simples (o un proveedor se llame "O'Higgins"), sin esto se rompe el HTML.
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Permisos por CAPACIDAD (ME.caps viene del backend según el rol).
 const puede = cap => (ME?.caps || []).includes(cap);
 const ROLES_LABEL = {

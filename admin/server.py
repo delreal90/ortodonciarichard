@@ -753,7 +753,10 @@ def agenda_config():
                     'turnstile_sitekey': os.environ.get('TURNSTILE_SITEKEY', ''),
                     'sabias_que': [s for s in (cfg.get('sabias_que') or []) if isinstance(s, str) and s.strip()]})
 
-@rate_limit('40 per minute')
+# 10/min: es un oraculo de "existe este RUT como paciente". Ningun humano
+# agendando necesita mas de 10 consultas por minuto, y 40 permitian barrer RUTs
+# (que son secuenciales y con digito verificador calculable) mucho mas rapido.
+@rate_limit('10 per minute')
 @app.route('/api/agenda/paciente', methods=['GET'])
 def agenda_paciente():
     """Valida el RUT y lo cruza con DentiDesk. Devuelve si existe + datos precargados."""
@@ -1842,7 +1845,12 @@ def whatsapp_plantillas():
     return jsonify({'ok': True, 'waba_id': waba_id, 'plantillas': out})
 
 
-@rate_limit('20 per minute')
+# ⚠️ Endpoint PUBLICO que, dado un RUT, dice si esa persona tiene horas en la
+# clinica, con que doctor y por que motivo. Lo necesita el aviso de doble
+# agendamiento del modal. El limite bajo acota el barrido de RUTs; la proteccion
+# de fondo (exigir que el paciente pruebe su identidad) no es posible en este
+# flujo, donde el RUT es justamente lo primero que se pide.
+@rate_limit('10 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
 def agenda_citas_futuras():
     """Citas activas futuras del paciente (por RUT), para avisar de doble

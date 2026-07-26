@@ -1459,8 +1459,15 @@ function _statCard(label, valor, color) {
 // WHATSAPP — recordatorios automáticos
 // ══════════════════════════════════════════════════════
 function initWhatsapp() {
-  const t = localStorage.getItem('wa_token') || '';
-  const u = localStorage.getItem('wa_url') || 'https://ortodonciarichard.onrender.com';
+  // ⚠️ MISMAS claves que las otras 5 pestañas remotas (Estadísticas,
+  // Consentimientos, Seguros, Control dental, Satisfacción). Esta pestaña usaba
+  // 'wa_token'/'wa_url' propias — consecuencia de haberla copiado sin unificar:
+  // el admin cambiaba el token en Estadísticas y acá seguía el viejo, así que
+  // había que reingresarlo aparte y parecía que el token "no servía".
+  // Se migra lo que hubiera guardado bajo las claves viejas, una sola vez.
+  const t = localStorage.getItem('stats_token') || localStorage.getItem('wa_token') || '';
+  const u = localStorage.getItem('stats_url') || localStorage.getItem('wa_url')
+            || 'https://ortodonciarichard.onrender.com';
   document.getElementById('wa-token').value = t;
   document.getElementById('wa-url').value = u;
   if (t) loadWhatsapp();
@@ -1475,8 +1482,8 @@ async function loadWhatsapp() {
   const token = document.getElementById('wa-token').value.trim();
   const estadoEl = document.getElementById('wa-estado');
   if (!token) { toast('Ingresa el admin token', false); return; }
-  localStorage.setItem('wa_token', token);
-  localStorage.setItem('wa_url', url);
+  localStorage.setItem('stats_token', token);   // clave compartida por todas las pestañas remotas
+  localStorage.setItem('stats_url', url);
   estadoEl.innerHTML = '<h3 style="margin-bottom:10px">Estado del sistema</h3><p style="font-size:.85rem;color:#718096">Cargando…</p>';
 
   let cfgData, estData;

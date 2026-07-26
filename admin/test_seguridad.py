@@ -155,6 +155,93 @@ class TestAuthEndpoints(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+class TestCoberturaDeAuth(unittest.TestCase):
+    """La guarda mas importante del archivo.
+
+    server.py tiene 162 rutas y el control de acceso se escribe A MANO en cada
+    handler: 121 copias de `if not _check_admin_token(): return 403`. Copiar dos
+    lineas es facil de olvidar — asi fue como /api/upload quedo abierto en
+    produccion durante meses.
+
+    En vez de refactorizar 121 sitios (riesgoso: un decorador mal puesto deja un
+    endpoint sin llave y nadie se entera), esta prueba RECORRE todas las rutas y
+    exige que cada una tenga control de acceso o este en la lista de publicas de
+    abajo. Agregar una ruta sin llave y sin declararla acá hace fallar el test.
+
+    Si estas leyendo esto porque el test fallo: NO agregues tu ruta a la lista
+    sin pensarlo. Preguntate si de verdad tiene que ser publica."""
+
+    # Rutas deliberadamente SIN token de administrador, con su razon.
+    PUBLICAS = {
+        '/api/<path:_any>':                     'preflight CORS (OPTIONS)',
+        # Agendamiento online: lo usa el paciente desde el sitio, no hay sesion.
+        '/api/agenda/config':                   'catalogo de doctores y motivos',
+        '/api/agenda/paciente':                 'existe el RUT (rate limit 10/min)',
+        '/api/agenda/citas-futuras':            'aviso de doble hora (rate limit 10/min)',
+        '/api/agenda/disponibilidad':           'horas libres',
+        '/api/agenda/disponibilidad-reagendar': 'horas libres al reagendar',
+        '/api/agenda/reagendar-info':           'datos de la cita a reagendar',
+        '/api/agenda/reservar':                 'crear la cita',
+        '/api/agenda/reservar-reagenda':        'crear la cita al reagendar',
+        '/api/agenda/reservar-estudio':         'crear las 2 citas del estudio',
+        '/api/agenda/evento':                   'telemetria anonima del embudo',
+        # Auth propia, no ADMIN_TOKEN.
+        '/api/consentimiento/datos':            'token firmado itsdangerous en la URL',
+        '/api/seguro/pdf':                      'token firmado propio (el iframe no manda headers)',
+        '/api/whatsapp/webhook':                'firma HMAC de Meta, fail-closed',
+        '/api/compras/login':                   'la puerta de entrada de Compras',
+        '/api/compras/logout':                  'cierra la sesion de Compras',
+        '/api/compras/me':                      'lee el X-Compras-Token del header',
+        '/api/compras/setup':                   'primer admin; solo con 0 usuarios',
+        '/api/compras/qr/<path:codigo>.png':    'imagen de QR, sin datos',
+    }
+
+    def _rutas_api(self):
+        return [r for r in server.app.url_map.iter_rules() if str(r).startswith('/api/')]
+
+    def test_toda_ruta_tiene_llave_o_esta_declarada_publica(self):
+        import inspect
+        sin_llave = []
+        for r in self._rutas_api():
+            ruta = str(r)
+            if ruta in self.PUBLICAS or ruta in server.RUTAS_SOLO_LOCAL:
+                continue
+            fn = server.app.view_functions.get(r.endpoint)
+            try:
+                cuerpo = inspect.getsource(fn)
+            except (OSError, TypeError):
+                cuerpo = ''
+            if not any(g in cuerpo for g in ('_check_admin_token', '_check_kiosk_token',
+                                             '_require_compras', '_print_autorizado')):
+                sin_llave.append(ruta)
+        self.assertEqual(sorted(set(sin_llave)), [],
+                         'rutas sin control de acceso y sin declarar como publicas')
+
+    def test_la_lista_de_publicas_no_tiene_rutas_fantasma(self):
+        """Si una ruta publica se renombra o borra, sacarla de la lista — si no,
+        la lista deja de proteger y nadie se entera."""
+        reales = {str(r) for r in self._rutas_api()}
+        fantasma = set(self.PUBLICAS) - reales
+        self.assertEqual(fantasma, set(), 'rutas declaradas publicas que ya no existen')
+
+    def test_una_muestra_de_rutas_protegidas_responde_403(self):
+        """Que el control no solo este escrito, sino que efectivamente corte."""
+        client = server.app.test_client()
+        os.environ['ADMIN_TOKEN'] = 'token-de-prueba'
+        try:
+            for ruta, metodo in [('/api/pacientes/estado', 'GET'),
+                                 ('/api/recaptacion/config', 'GET'),
+                                 ('/api/control-dental/inscritos', 'GET'),
+                                 ('/api/nps/resumen', 'GET'),
+                                 ('/api/cumpleanos/proximos', 'GET'),
+                                 ('/api/whatsapp/config', 'GET')]:
+                with self.subTest(ruta=ruta):
+                    r = client.open(ruta, method=metodo)
+                    self.assertEqual(r.status_code, 403, f'{ruta} deberia exigir token')
+        finally:
+            os.environ.pop('ADMIN_TOKEN', None)
+
+
 class TestParametrosAgenda(unittest.TestCase):
     """Rutas publicas del modal de agendar: un parametro con basura no puede tumbar el
     flujo con una pagina HTML de error 500 (el frontend espera JSON)."""
