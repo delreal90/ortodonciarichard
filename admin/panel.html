@@ -1066,10 +1066,10 @@ function renderUltimasCitas(citas) {
     <tr>
       <td style="padding:6px 8px;font-size:.82rem">${fmtTs(c.ts)}</td>
       <td style="padding:6px 8px;font-size:.82rem">${_esc(c.paciente_nombre || '—')} <span style="color:#a0aec0">(${c.paciente_conocido ? 'conocido' : 'nuevo'})</span></td>
-      <td style="padding:6px 8px;font-size:.82rem">${c.fecha || '—'} ${c.hora || ''}</td>
-      <td style="padding:6px 8px;font-size:.82rem">${c.doctor_nombre || '—'}</td>
-      <td style="padding:6px 8px;font-size:.82rem">${c.motivo_label || '—'}</td>
-      <td style="padding:6px 8px"><button class="btn" style="padding:4px 10px;font-size:.78rem;color:#e53e3e;border-color:#e53e3e" onclick="eliminarCita('${c.ts}', this)">Eliminar</button></td>
+      <td style="padding:6px 8px;font-size:.82rem">${_esc(c.fecha || '—')} ${_esc(c.hora || '')}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${_esc(c.doctor_nombre || '—')}</td>
+      <td style="padding:6px 8px;font-size:.82rem">${_esc(c.motivo_label || '—')}</td>
+      <td style="padding:6px 8px"><button class="btn" style="padding:4px 10px;font-size:.78rem;color:#e53e3e;border-color:#e53e3e" onclick="eliminarCita('${_esc(c.ts)}', this)">Eliminar</button></td>
     </tr>`).join('');
   cont.innerHTML = `
     <table style="width:100%;border-collapse:collapse">
@@ -2282,42 +2282,66 @@ function filterEquipo(tab) {
   renderEquipo();
 }
 
+// Miembros que se estan mostrando ahora. Los botones referencian su POSICION en
+// esta lista (data-i), no su nombre: el nombre lo escribe una persona y no sirve
+// como identificador dentro de HTML.
+let equipoVisible = [];
+
 function renderEquipo() {
-  const members = equipoData.filter(m => m.tab === currentEquipoTab);
-  document.getElementById('equipo-lista').innerHTML = members.map(m => `
+  equipoVisible = equipoData.filter(m => m.tab === currentEquipoTab);
+  // ⚠️ Todo valor que venga del backend pasa por _esc(). Antes el nombre se
+  // interpolaba crudo dentro de onclick="...": un apellido con apostrofe (O'Higgins)
+  // rompia la fila, y un nombre armado a proposito ejecutaba JS en la sesion del
+  // admin, que tiene el ADMIN_TOKEN guardado en localStorage.
+  document.getElementById('equipo-lista').innerHTML = equipoVisible.map((m, i) => `
     <div class="card" style="display:flex;gap:20px;align-items:flex-start">
       <div style="flex-shrink:0">
         ${m.foto
-          ? `<img src="/${m.foto}?t=${Date.now()}" style="width:80px;height:80px;object-fit:cover;border-radius:50%;border:2px solid #e2e8f0">`
-          : `<div style="width:80px;height:80px;background:var(--bg);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:#a0aec0;border:2px solid #e2e8f0">${m.placeholder||'?'}</div>`
+          ? `<img src="/${encodeURI(String(m.foto))}?t=${Date.now()}" style="width:80px;height:80px;object-fit:cover;border-radius:50%;border:2px solid #e2e8f0">`
+          : `<div style="width:80px;height:80px;background:var(--bg);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:#a0aec0;border:2px solid #e2e8f0">${_esc(m.placeholder||'?')}</div>`
         }
         <label class="upload-btn" style="display:block;text-align:center;margin-top:8px;font-size:.75rem">
           📁 Foto
-          <input type="file" accept="image/*" style="display:none"
-                 onchange="uploadFotoStaff(this, '${m.nombre}', '${m.tab}')">
+          <input type="file" accept="image/*" style="display:none" data-eq-foto="${i}">
         </label>
       </div>
       <div style="flex:1">
         <label>Nombre</label>
-        <input type="text" id="eq-nombre-${m.nombre.replace(/\s/g,'_')}" value="${m.nombre}">
+        <input type="text" id="eq-nombre-${i}" value="${_esc(m.nombre)}">
         <label>Rol</label>
-        <input type="text" id="eq-rol-${m.nombre.replace(/\s/g,'_')}" value="${m.rol}">
+        <input type="text" id="eq-rol-${i}" value="${_esc(m.rol)}">
         <div style="display:flex;gap:8px">
-          <button class="btn btn-primary btn-sm" onclick="saveEquipoMember('${m.nombre}')">Guardar</button>
-          <button class="btn btn-danger btn-sm" onclick="eliminarMiembro('${m.nombre}')">🗑️ Eliminar</button>
+          <button class="btn btn-primary btn-sm" data-eq-save="${i}">Guardar</button>
+          <button class="btn btn-danger btn-sm" data-eq-del="${i}">🗑️ Eliminar</button>
         </div>
       </div>
     </div>
   `).join('');
 }
 
-async function saveEquipoMember(nombreActual) {
-  const key = nombreActual.replace(/\s/g,'_');
+// Un solo listener delegado para toda la lista (no se acumulan al re-renderizar).
+document.addEventListener('click', ev => {
+  const save = ev.target.closest('[data-eq-save]');
+  if (save) return saveEquipoMember(+save.dataset.eqSave);
+  const del = ev.target.closest('[data-eq-del]');
+  if (del) return eliminarMiembro(+del.dataset.eqDel);
+});
+document.addEventListener('change', ev => {
+  const foto = ev.target.closest('[data-eq-foto]');
+  if (foto) {
+    const m = equipoVisible[+foto.dataset.eqFoto];
+    if (m) uploadFotoStaff(foto, m.nombre, m.tab);
+  }
+});
+
+async function saveEquipoMember(i) {
+  const m = equipoVisible[i];
+  if (!m) return;
   const data = {
     tab: currentEquipoTab,
-    nombre_actual: nombreActual,
-    nombre_nuevo: document.getElementById('eq-nombre-'+key).value,
-    rol_nuevo: document.getElementById('eq-rol-'+key).value,
+    nombre_actual: m.nombre,
+    nombre_nuevo: document.getElementById('eq-nombre-'+i).value,
+    rol_nuevo: document.getElementById('eq-rol-'+i).value,
   };
   const r = await api('/api/equipo', 'POST', data);
   if (r.ok) { toast('✅ Guardado'); loadEquipo(); }
@@ -2446,7 +2470,10 @@ async function agregarMiembro() {
   } else toast('❌ ' + r.error, false);
 }
 
-async function eliminarMiembro(nombre) {
+async function eliminarMiembro(i) {
+  const m = equipoVisible[i];
+  if (!m) return;
+  const nombre = m.nombre;
   if (!confirm(`¿Eliminar a "${nombre}" del equipo?${currentEquipoTab === 'especialistas' ? '\n\nTambién se eliminará su CV.' : ''}`)) return;
   const r = await api('/api/equipo/eliminar', 'POST', { tab: currentEquipoTab, nombre });
   if (r.ok) {
