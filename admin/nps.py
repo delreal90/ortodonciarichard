@@ -24,7 +24,8 @@ from datetime import date, datetime
 
 import dentidesk
 import control_dental
-import fechas   # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
+import fechas      # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -215,41 +216,29 @@ def save_config(updates):
 
 # ── Registro ─────────────────────────────────────────────────────────────
 
+_ESTRUCTURA = {
+    'envios': {},
+    'respuestas': {},
+    'no_molestar': [],
+    'vistos': {},
+    'sembrado': False,        # ⚠️ la 1a corrida solo SIEMBRA (no encuesta a media cartera)
+    'metricas_google': {},
+    'baseline': {},
+    'fecha_inicio_automatizacion': '',
+    'overrides': {},
+}
+
+# Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
+_STORE = jsonstore.JsonStore(REGISTRO_PATH, indent=2,
+                             default=_ESTRUCTURA, claves=_ESTRUCTURA)
+
+
 def _load_registro():
-    if REGISTRO_PATH.exists():
-        try:
-            reg = json.loads(REGISTRO_PATH.read_text(encoding='utf-8'))
-            if isinstance(reg, dict):
-                reg.setdefault('envios', {})
-                reg.setdefault('respuestas', {})
-                reg.setdefault('no_molestar', [])
-                reg.setdefault('vistos', {})
-                reg.setdefault('sembrado', False)
-                reg.setdefault('metricas_google', {})
-                reg.setdefault('baseline', {})
-                reg.setdefault('fecha_inicio_automatizacion', '')
-                reg.setdefault('overrides', {})
-                return reg
-        except (ValueError, OSError):
-            pass
-    return {
-        'envios': {},
-        'respuestas': {},
-        'no_molestar': [],
-        'vistos': {},
-        'sembrado': False,
-        'metricas_google': {},
-        'baseline': {},
-        'fecha_inicio_automatizacion': '',
-        'overrides': {},
-    }
+    return _STORE.load()
 
 
 def _save_registro(reg):
-    REGISTRO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = REGISTRO_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(tmp, REGISTRO_PATH)
+    _STORE.save(reg)
 
 
 # ── Clasificacion del disparo (reusa control_dental.clasificar_motivo) ────

@@ -35,6 +35,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import pacientes
 
 import fechas
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 
 def ahora_chile():
@@ -158,22 +159,31 @@ def _formatear_rut(rut):
     return f'{cuerpo_fmt}-{dv}'
 
 
-# ── Persistencia JSON (escritura atomica, mismo patron que consentimientos) ──
+# ── Persistencia JSON ────────────────────────────────────────────────────────
+# A diferencia de los otros modulos, seguros maneja VARIOS archivos (aseguradoras,
+# prestaciones, mapeos, pacientes, firmas, registro), asi que la ruta viaja como
+# parametro. Un store por ruta, cacheado: cada archivo necesita su propio lock,
+# y crear uno nuevo en cada llamada haria que dos escrituras al mismo archivo no
+# se excluyeran entre si. Ver jsonstore.py.
+_STORES = {}
+_STORES_LOCK = threading.Lock()
+
+
+def _store(path):
+    clave = str(path)
+    with _STORES_LOCK:
+        s = _STORES.get(clave)
+        if s is None:
+            s = _STORES[clave] = jsonstore.JsonStore(path, default={}, indent=2)
+        return s
+
 
 def _load(path):
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding='utf-8'))
-        except (ValueError, OSError):
-            return {}
-    return {}
+    return _store(path).load()
 
 
 def _save(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(tmp, path)
+    _store(path).save(data)
 
 
 # ── Aseguradoras ─────────────────────────────────────────────────────────────

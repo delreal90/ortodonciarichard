@@ -29,7 +29,8 @@ import dentidesk
 import notify
 import scheduling
 import wa_cloud
-import fechas   # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
+import fechas      # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -100,22 +101,19 @@ def save_config(updates):
 
 # ── Registro anti-duplicados ─────────────────────────────────────────────────
 
+# Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
+_STORE = jsonstore.JsonStore(
+    ENVIADOS_PATH,
+    default={'semana': {}, 'dia': {}, 'inasistencia': {}},
+    claves={'semana': {}, 'dia': {}, 'inasistencia': {}})
+
+
 def _load_registro():
-    if ENVIADOS_PATH.exists():
-        try:
-            reg = json.loads(ENVIADOS_PATH.read_text(encoding='utf-8'))
-            if isinstance(reg, dict):
-                return reg
-        except (ValueError, OSError):
-            pass
-    return {'semana': {}, 'dia': {}, 'inasistencia': {}}
+    return _STORE.load()
 
 
 def _save_registro(reg):
-    ENVIADOS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = ENVIADOS_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(reg, ensure_ascii=False), encoding='utf-8')
-    os.replace(tmp, ENVIADOS_PATH)
+    _STORE.save(reg)
 
 
 # Igual que confirmaciones.py: una entrada {IdAgenda: ts} por cada recordatorio

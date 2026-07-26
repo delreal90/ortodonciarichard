@@ -18,6 +18,7 @@ from pathlib import Path
 
 SUITES = [
     ('fechas',      'test_fechas.py',      'hora de Chile vs. el reloj UTC de Render'),
+    ('jsonstore',   'test_jsonstore.py',   'el guardado de datos que usan todos'),
     ('seguridad',   'test_seguridad.py',   'endpoints cerrados y saneo de subidas'),
     ('stats',       'test_stats.py',       'el registro de reservas no pierde datos'),
     ('cumpleanos',  'test_cumpleanos.py',  'importacion de fechas de nacimiento'),

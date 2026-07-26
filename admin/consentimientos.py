@@ -37,6 +37,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import pacientes
 
 import fechas
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 
 def ahora_chile():
@@ -107,20 +108,19 @@ def validar_token(token, max_age=TOKEN_MAX_AGE_SEGUNDOS):
 
 # ── Registro (estado de cada consentimiento) ────────────────────────────────
 
+# Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
+# Este registro tiene consentimientos FIRMADOS (con su hash y su id de Drive):
+# perderlo por un archivo corrupto seria perder la trazabilidad de documentos
+# legales, por eso importa que el archivo malo se aparte en vez de pisarse.
+_STORE = jsonstore.JsonStore(REGISTRO_PATH, default={}, indent=2)
+
+
 def _load_registro():
-    if REGISTRO_PATH.exists():
-        try:
-            return json.loads(REGISTRO_PATH.read_text(encoding='utf-8'))
-        except (ValueError, OSError):
-            return {}
-    return {}
+    return _STORE.load()
 
 
 def _save_registro(idx):
-    REGISTRO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = REGISTRO_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(tmp, REGISTRO_PATH)
+    _STORE.save(idx)
 
 
 def crear_registro(rut, tipo, canal):

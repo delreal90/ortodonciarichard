@@ -27,7 +27,8 @@ except ImportError:
 
 import dentidesk
 import notify
-import fechas   # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
+import fechas      # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 Path(__file__).parent / 'patient_index.json')).parent
@@ -44,14 +45,17 @@ def _fecha_legible(d):
     return f'{_DIAS[d.weekday()]} {d.day} de {_MESES[d.month - 1]}'
 
 
+# ⚠️ default_si_falta=None: la diferencia entre "archivo vacio" y "nunca se ha
+# corrido" es informacion de negocio. Si el archivo NO existe, la primera corrida
+# solo SIEMBRA (registra lo que ya hay sin enviar) — si no, le llegaria el correo
+# de confirmacion a cientos de pacientes que ya tenian hora.
+# Escritura atomica + lock + respaldo si se corrompe: ver jsonstore.py.
+_STORE = jsonstore.JsonStore(ENVIADAS_PATH, default={}, default_si_falta=None)
+
+
 def _load():
     """Devuelve el dict {IdAgenda: ts}, o None si NUNCA se ha corrido (1a vez)."""
-    if ENVIADAS_PATH.exists():
-        try:
-            return json.loads(ENVIADAS_PATH.read_text(encoding='utf-8'))
-        except (ValueError, OSError):
-            return {}
-    return None
+    return _STORE.load()
 
 
 # El registro guarda una entrada {IdAgenda: ts} por CADA cita confirmada, desde
@@ -74,10 +78,7 @@ def _podar(idx):
 
 
 def _save(idx):
-    ENVIADAS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = ENVIADAS_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(idx, ensure_ascii=False), encoding='utf-8')
-    os.replace(tmp, ENVIADAS_PATH)
+    _STORE.save(idx)
 
 
 def marcar_enviada(id_agenda):

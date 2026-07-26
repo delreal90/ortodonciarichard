@@ -26,6 +26,8 @@ import unicodedata
 from pathlib import Path
 from datetime import date, timedelta
 
+import jsonstore
+
 # Ruta de la base. Configurable por env para producción (p.ej. un disco
 # persistente en Render): PATIENT_INDEX_PATH=/var/data/patient_index.json
 INDEX_PATH = Path(os.environ.get('PATIENT_INDEX_PATH',
@@ -34,22 +36,16 @@ INDEX_PATH = Path(os.environ.get('PATIENT_INDEX_PATH',
 
 # ── Almacen ──────────────────────────────────────────────────────────────────
 
+# Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
+_STORE = jsonstore.JsonStore(INDEX_PATH, default={})
+
+
 def _load_index():
-    if INDEX_PATH.exists():
-        try:
-            return json.loads(INDEX_PATH.read_text(encoding='utf-8'))
-        except (ValueError, OSError):
-            return {}
-    return {}
+    return _STORE.load()
 
 
 def _save_index(idx):
-    # Escritura atomica: escribe a un temporal y renombra. Asi, si el refresco
-    # corre mientras alguien agenda, nadie lee un archivo a medio escribir.
-    INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = INDEX_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(idx, ensure_ascii=False), encoding='utf-8')
-    os.replace(tmp, INDEX_PATH)
+    _STORE.save(idx)
 
 
 def _limpiar_rut(rut):

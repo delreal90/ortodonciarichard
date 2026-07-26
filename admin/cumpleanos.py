@@ -29,6 +29,7 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import fechas
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 # Mismo idioma de rutas que el resto de los modulos: todo cuelga del directorio
 # de PATIENT_INDEX_PATH (disco persistente en Render).
@@ -58,21 +59,18 @@ def fecha_legible(f):
 
 # ── Almacen del equipo ───────────────────────────────────────────────────────
 
+# Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
+_STORE = jsonstore.JsonStore(EQUIPO_PATH, default=[], indent=1)
+
+
 def _load_equipo():
-    if EQUIPO_PATH.exists():
-        try:
-            data = json.loads(EQUIPO_PATH.read_text(encoding='utf-8'))
-            return data if isinstance(data, list) else data.get('equipo', [])
-        except (ValueError, OSError):
-            return []
-    return []
+    data = _STORE.load()
+    # Formato historico: hubo una version que guardaba {'equipo': [...]}.
+    return data if isinstance(data, list) else (data or {}).get('equipo', [])
 
 
 def _save_equipo(lista):
-    EQUIPO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = EQUIPO_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(lista, ensure_ascii=False, indent=1), encoding='utf-8')
-    os.replace(tmp, EQUIPO_PATH)
+    _STORE.save(lista)
 
 
 def _norm(s):

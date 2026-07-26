@@ -21,7 +21,8 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import dentidesk
-import fechas   # ahora_chile(): Render corre en UTC. Ver fechas.py.
+import fechas      # ahora_chile(): Render corre en UTC. Ver fechas.py.
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -101,29 +102,22 @@ def save_config(updates):
 
 # ── Registro (envios + no_molestar) ──────────────────────────────────────────
 
+# 'programados' (recordatorios de control a futuro, agregado 2026-07-21) vive en
+# el MISMO registro, no en un archivo aparte: son datos chicos y ya comparten
+# disco y lock con envios/no_molestar.
+# Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
+_STORE = jsonstore.JsonStore(
+    REGISTRO_PATH, indent=2,
+    default={'envios': {}, 'no_molestar': [], 'programados': []},
+    claves={'envios': {}, 'no_molestar': [], 'programados': []})
+
+
 def _load_registro():
-    if REGISTRO_PATH.exists():
-        try:
-            reg = json.loads(REGISTRO_PATH.read_text(encoding='utf-8'))
-            if isinstance(reg, dict):
-                reg.setdefault('envios', {})
-                reg.setdefault('no_molestar', [])
-                # 'programados' (recordatorios de control a futuro, agregado
-                # 2026-07-21): viven en el MISMO registro, no en un archivo
-                # aparte -- son datos chicos y ya comparten disco/lock con
-                # envios/no_molestar.
-                reg.setdefault('programados', [])
-                return reg
-        except (ValueError, OSError):
-            pass
-    return {'envios': {}, 'no_molestar': [], 'programados': []}
+    return _STORE.load()
 
 
 def _save_registro(reg):
-    REGISTRO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = REGISTRO_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(tmp, REGISTRO_PATH)
+    _STORE.save(reg)
 
 
 def _rut_key(rut):

@@ -30,7 +30,8 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import dentidesk
-import fechas   # hoy_chile(): Render corre en UTC. Ver fechas.py.
+import fechas      # hoy_chile(): Render corre en UTC. Ver fechas.py.
+import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -324,26 +325,19 @@ def save_config(updates):
 
 # ── Registro ─────────────────────────────────────────────────────────────
 
+# Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
+_STORE = jsonstore.JsonStore(
+    REGISTRO_PATH, indent=2,
+    default={'inscritos': {}, 'no_molestar': [], 'vistos': {}, 'motivos_desconocidos': {}},
+    claves={'inscritos': {}, 'no_molestar': [], 'vistos': {}, 'motivos_desconocidos': {}})
+
+
 def _load_registro():
-    if REGISTRO_PATH.exists():
-        try:
-            reg = json.loads(REGISTRO_PATH.read_text(encoding='utf-8'))
-            if isinstance(reg, dict):
-                reg.setdefault('inscritos', {})
-                reg.setdefault('no_molestar', [])
-                reg.setdefault('vistos', {})
-                reg.setdefault('motivos_desconocidos', {})
-                return reg
-        except (ValueError, OSError):
-            pass
-    return {'inscritos': {}, 'no_molestar': [], 'vistos': {}, 'motivos_desconocidos': {}}
+    return _STORE.load()
 
 
 def _save_registro(reg):
-    REGISTRO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = REGISTRO_PATH.with_suffix('.json.tmp')
-    tmp.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(tmp, REGISTRO_PATH)
+    _STORE.save(reg)
 
 
 def _rut_key(rut):

@@ -184,6 +184,10 @@ def eliminar(ts):
     # entre el _leer() y la reescritura se pierde. Y la escritura es atomica
     # (tmp + os.replace, el mismo patron que el resto de los modulos) para que un
     # corte a mitad de camino no deje el archivo truncado.
+    # No usa jsonstore: estos archivos son JSONL (una linea JSON por reserva),
+    # no un documento JSON — se les hace append constantemente y leerlos enteros
+    # en memoria para agregar una linea seria absurdo. Pero se aplica el MISMO
+    # criterio: lock alrededor del read-modify-write y escritura atomica.
     with _LOCK:
         eventos = _leer()
         restantes = [e for e in eventos if e.get('ts') != ts]
