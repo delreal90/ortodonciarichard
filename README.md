@@ -28,7 +28,7 @@ ortodonciarichard/
     ├── dr-octavio-del-real.jpeg
     ├── dr-rodrigo-oyonarte.jpeg
     ├── dr-alberto-del-real.jpeg
-    ├── dr-patricio-vial.png
+    ├── dr-patricio-vial.jpeg
     ├── urgencias.webp              ← guía de urgencias AAO
     └── ejemplo-*.jpg               ← fotos de casos clínicos
 ```

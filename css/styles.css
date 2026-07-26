@@ -7,6 +7,12 @@
     --navy-dark:   #111E30;
     --gold:        #C9A84C;
     --gold-light:  #D4B870;
+    /* Dorado para TEXTO sobre fondo claro. El --gold de marca da 2,29:1 sobre
+       blanco, muy por debajo del minimo WCAG AA (4,5:1) — ilegible para quien
+       tiene baja vision y para cualquiera con reflejo en la pantalla. Este da
+       4,86:1. Se usa SOLO en texto; bordes, iconos y adornos siguen con --gold,
+       que no tiene requisito de contraste. */
+    --gold-text:   #8C6D1F;
     --white:       #FFFFFF;
     --off-white:   #F8FAFC;
     --light-bg:    #F0F5FB;
@@ -100,9 +106,10 @@ h4 { font-size: 1rem; font-weight: 600; }
     font-weight: 600;
     letter-spacing: .14em;
     text-transform: uppercase;
-    color: var(--gold);
+    color: var(--gold-text);
     margin-bottom: 12px;
 }
+/* Sobre fondo oscuro el dorado claro si tiene contraste de sobra. */
 .section-eyebrow.light { color: var(--gold-light); }
 
 /* Buttons */

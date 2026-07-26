@@ -83,7 +83,7 @@ const doctorData = {
     patricio: {
         name:        'Dr. Patricio Vial U.',
         role:        'Rehabilitador Oral e Implantólogo',
-        photo:       'images/dr-patricio-vial.png',
+        photo:       'images/dr-patricio-vial.jpeg',
         registro:    '40662',
         memberships: [
             'Implantología',
