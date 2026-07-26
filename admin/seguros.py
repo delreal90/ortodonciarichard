@@ -118,8 +118,12 @@ def _aplicar_seed():
         if cambiado:
             ASEGURADORAS_PATH.parent.mkdir(parents=True, exist_ok=True)
             _save(ASEGURADORAS_PATH, idx)
-    except Exception:
-        pass  # la semilla es best-effort; sin ella el panel permite configurar a mano
+    except Exception as e:
+        # La semilla es best-effort: sin ella el panel permite configurar a mano.
+        # Pero NO en silencio — este mismo `except` fue el que oculto el NameError
+        # que dejo a las 7 aseguradoras sin mapeo de campos (ver nota abajo). Si
+        # vuelve a fallar, que quede en el log de Render.
+        print(f'[seguros] no se pudo aplicar la semilla de aseguradoras: {e!r}')
 
 
 # NOTA: la llamada a _aplicar_seed() va al FINAL del módulo, después de que

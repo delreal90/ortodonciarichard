@@ -136,9 +136,12 @@ class TestBarridoNoBorra(unittest.TestCase):
         dentidesk._auth_token = lambda cfg: 'tok'
         requests.post = lambda *a, **k: FakeResp()
         try:
+            # `hoy` fijo en un miercoles: la ventana descarta fin de semana, asi
+            # que sin esto el test no barria nada los sabados y domingos (fallaba
+            # 2 de cada 7 dias por una razon que no tiene que ver con lo que prueba).
             pacientes.construir_desde_agenda(
                 {'dentidesk': {'base_url': 'https://x', 'id_location': 408}},
-                dias_atras=0, dias_adelante=0)
+                dias_atras=0, dias_adelante=0, hoy=date(2026, 7, 22))
         finally:
             dentidesk._auth_token, requests.post = orig_auth, orig_post
 

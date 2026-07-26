@@ -336,7 +336,11 @@ def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
                     'estado':      (c.get('Status') or '').strip(),
                 })
             return out
-        except Exception:
+        except Exception as e:
+            # Loguear: un token vencido o un 500 de DentiDesk devolvia [] igual que
+            # "ese dia no tiene citas". Las guardas que dependen de esto (ya_tiene_hora)
+            # se caian del lado permisivo sin dejar rastro.
+            print(f'[dentidesk] fallo al leer la agenda del {d}: {e!r}')
             return []
 
     citas = []

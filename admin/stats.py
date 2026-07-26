@@ -12,21 +12,22 @@ p.ej. /var/data/agendamientos.jsonl).
 
 import os
 import json
+import threading
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
-try:
-    from zoneinfo import ZoneInfo
-    _TZ_CL = ZoneInfo('America/Santiago')
-except Exception:
-    _TZ_CL = None
+import fechas
+
+# Este archivo lo escriben requests concurrentes (cada reserva) Y el panel
+# (eliminar()). Sin lock, una reserva que entra mientras el panel reescribe el
+# archivo entero se PIERDE, o el archivo queda truncado si el proceso muere a
+# mitad de escritura. Era el unico modulo de persistencia del proyecto sin lock.
+_LOCK = threading.Lock()
 
 
 def _ahora_cl():
-    """Hora actual en Chile (America/Santiago). En Render el servidor corre en
-    UTC, asi que datetime.now() daria una hora adelantada -- por eso se fija la
-    zona explicitamente para que el 'ts' de las reservas sea hora local chilena."""
-    return datetime.now(_TZ_CL) if _TZ_CL else datetime.now()
+    """Hora actual en Chile. Ver fechas.py: Render corre en UTC."""
+    return fechas.ahora_chile_aware()
 
 # Por defecto, junto a la base de pacientes (mismo disco persistente).
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
@@ -56,10 +57,13 @@ def registrar(evento):
     try:
         STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
         evento = {**evento, 'ts': _ahora_cl().isoformat(timespec='seconds')}
-        with open(STATS_PATH, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(evento, ensure_ascii=False) + '\n')
+        linea = json.dumps(evento, ensure_ascii=False) + '\n'
+        with _LOCK:
+            with open(STATS_PATH, 'a', encoding='utf-8') as f:
+                f.write(linea)
         return True
-    except Exception:
+    except Exception as e:
+        print(f'[stats] no se pudo registrar la reserva: {e}')
         return False
 
 
@@ -139,8 +143,10 @@ def resumen(desde=None, hasta=None):
         else:
             nuevos += 1
 
-    # timeline ultimos 30 dias (por fecha de reserva)
-    hoy = date.today()
+    # timeline ultimos 30 dias (por fecha de reserva). hoy_chile porque los 'ts'
+    # que se agregan estan en hora de Chile: con date.today() (UTC) el ultimo dia
+    # del timeline se corria y "hoy" aparecia vacio despues de las 20:00.
+    hoy = fechas.hoy_chile()
     timeline = []
     for k in range(29, -1, -1):
         d = (hoy - timedelta(days=k)).isoformat()
@@ -174,13 +180,19 @@ def eliminar(ts):
     """Elimina del log todas las entradas cuyo 'ts' coincida exactamente (sirve
     para sacar una reserva de prueba que distorsiona las estadisticas). Devuelve
     cuantas se eliminaron."""
-    eventos = _leer()
-    restantes = [e for e in eventos if e.get('ts') != ts]
-    eliminados = len(eventos) - len(restantes)
-    if eliminados:
-        with open(STATS_PATH, 'w', encoding='utf-8') as f:
-            for e in restantes:
-                f.write(json.dumps(e, ensure_ascii=False) + '\n')
+    # Todo el read-modify-write va DENTRO del lock: si no, una reserva que entra
+    # entre el _leer() y la reescritura se pierde. Y la escritura es atomica
+    # (tmp + os.replace, el mismo patron que el resto de los modulos) para que un
+    # corte a mitad de camino no deje el archivo truncado.
+    with _LOCK:
+        eventos = _leer()
+        restantes = [e for e in eventos if e.get('ts') != ts]
+        eliminados = len(eventos) - len(restantes)
+        if eliminados:
+            tmp = STATS_PATH.with_suffix(STATS_PATH.suffix + '.tmp')
+            contenido = ''.join(json.dumps(e, ensure_ascii=False) + '\n' for e in restantes)
+            tmp.write_text(contenido, encoding='utf-8')
+            os.replace(tmp, STATS_PATH)
     return eliminados
 
 
@@ -192,15 +204,21 @@ def registrar_evento(sesion, paso, latency_ms=None):
     if paso not in _PASOS:
         return False
     try:
+        # Hora de Chile, igual que el 'ts' de registrar(). Antes usaba
+        # datetime.now() (UTC): el embudo quedaba en otro huso que el resto del
+        # panel y el filtro por fecha del propio resumen_funnel no calzaba.
         ev = {'s': str(sesion)[:40], 'p': paso,
-              'ts': datetime.now().isoformat(timespec='seconds')}
+              'ts': _ahora_cl().isoformat(timespec='seconds')}
         if latency_ms is not None:
             ev['ms'] = max(0, int(latency_ms))
         EVENTOS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(EVENTOS_PATH, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(ev, ensure_ascii=False) + '\n')
+        linea = json.dumps(ev, ensure_ascii=False) + '\n'
+        with _LOCK:
+            with open(EVENTOS_PATH, 'a', encoding='utf-8') as f:
+                f.write(linea)
         return True
-    except Exception:
+    except Exception as e:
+        print(f'[stats] no se pudo registrar el evento de embudo: {e}')
         return False
 
 

@@ -526,16 +526,22 @@ def importar_cumpleanos(path, crear_nuevos=True):
 
 # ── Construccion de la base desde la agenda (getAgendaDay) ────────────────────
 
-def construir_desde_agenda(cfg, dias_atras=120, dias_adelante=120, max_workers=6):
+def construir_desde_agenda(cfg, dias_atras=120, dias_adelante=120, max_workers=6, hoy=None):
     """Barre getAgendaDay en una ventana de dias y arma/actualiza la base.
-    Solo guarda pacientes que tengan RUT y email (los unicos utiles para dedup)."""
+    Solo guarda pacientes que tengan RUT y email (los unicos utiles para dedup).
+
+    `hoy` es inyectable para poder probar sin depender del dia en que se corra el
+    test: la ventana descarta sabados y domingos, asi que con dias_atras=0 y
+    dias_adelante=0 un fin de semana no barre NADA."""
     import requests
     import dentidesk
+    import fechas
     from concurrent.futures import ThreadPoolExecutor
 
     dd = cfg['dentidesk']
     url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
-    hoy = date.today()
+    hoy = hoy or fechas.hoy_chile()   # date.today() es UTC: en Render, de noche
+                                      # barria una ventana corrida un dia
     dias = [hoy + timedelta(days=k)
             for k in range(-dias_atras, dias_adelante + 1)
             if (hoy + timedelta(days=k)).weekday() < 5]

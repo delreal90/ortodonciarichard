@@ -1255,11 +1255,14 @@ def agenda_reservar():
 
     # Registrar esta cita online como "ya confirmada" para que el barrido de
     # confirmaciones (citas presenciales/telefono) no le reenvie el correo.
+    # ⚠️ Si esto falla en silencio, el paciente recibe la confirmacion DOS veces
+    # (aca y en el siguiente ciclo del barrido) y nadie se entera. Loguear.
     try:
         import confirmaciones
         confirmaciones.marcar_enviada(res.get('id_cita'))
-    except Exception:
-        pass
+    except Exception as e:
+        app.logger.error('No se pudo marcar la cita %s como confirmada (el barrido '
+                         'podria reenviarla): %s', res.get('id_cita'), e)
 
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
@@ -1461,8 +1464,9 @@ def agenda_reservar_reagenda():
     try:
         import confirmaciones
         confirmaciones.marcar_enviada(res.get('id_cita'))
-    except Exception:
-        pass
+    except Exception as e:
+        app.logger.error('No se pudo marcar la reagenda %s como confirmada (el '
+                         'barrido podria reenviarla): %s', res.get('id_cita'), e)
 
     # Cita vieja: marcarla "Re-agendado". (updateAgenda solo cambia el estado;
     # no se puede mover ni acortar por la API -- el estado "Re-agendado" NO
@@ -1606,8 +1610,10 @@ def agenda_reservar_estudio():
         import confirmaciones
         confirmaciones.marcar_enviada(res1.get('id_cita'))
         confirmaciones.marcar_enviada(res2.get('id_cita'))
-    except Exception:
-        pass
+    except Exception as e:
+        app.logger.error('No se pudieron marcar las citas del estudio (%s, %s) como '
+                         'confirmadas; el barrido podria reenviarlas: %s',
+                         res1.get('id_cita'), res2.get('id_cita'), e)
 
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())

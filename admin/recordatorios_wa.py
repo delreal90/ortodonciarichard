@@ -200,7 +200,8 @@ def enviar_inasistencias(cfg, hoy=None):
     for target in (hoy - timedelta(days=1), hoy):
         try:
             citas = dentidesk._get_agenda_day(cfg, target)
-        except Exception:
+        except Exception as e:
+            print(f'[recordatorios] no se pudo leer la agenda del {target}: {e!r}')
             continue
         for c in citas:
             ida = str(c.get('IdAgenda') or '')

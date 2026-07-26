@@ -165,8 +165,11 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
                 nuevos[ida] = datetime.now().isoformat(timespec='seconds')
                 enviadas += 1
             # si falla el envio, NO se registra -> se reintenta en el proximo barrido
-        except Exception:
-            pass
+        except Exception as e:
+            # Loguear: sin esto, un envio que falla cada vez (mail invalido, SMTP
+            # caido) es indistinguible de "no habia nada que confirmar" y se
+            # reintenta en silencio 4 veces al dia para siempre.
+            print(f'[confirmaciones] fallo el envio de la cita {ida}: {e!r}')
 
     # Merge atomico: recargar lo ultimo (marcar_enviada pudo correr en paralelo).
     with _LOCK:
