@@ -14,6 +14,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
+from werkzeug.utils import secure_filename
 from bs4 import BeautifulSoup
 
 app = Flask(__name__, static_folder='.')
@@ -84,9 +85,17 @@ MAINJS = BASE / 'js' / 'main.js'
 EN_RENDER = bool(os.environ.get('RENDER'))
 
 # Rutas de administración bloqueadas en producción (Render solo expone /api/agenda/*)
+# ⚠️ UN SOLO mecanismo: agregar el path ACÁ, nunca un `if EN_RENDER` suelto dentro de la
+# función. Tener dos mecanismos fue exactamente lo que dejó /api/upload sin ninguno de los
+# dos (abierto en producción). Si agregas una ruta de administración, súmala a este set.
 RUTAS_SOLO_LOCAL = {'/api/info', '/api/equipo', '/api/casos', '/api/faq',
                     '/api/doctores', '/api/equipo/agregar', '/api/equipo/eliminar',
-                    '/api/publicar', '/api/scheduling-config'}
+                    '/api/publicar', '/api/scheduling-config', '/api/upload',
+                    '/api/galeria', '/api/galeria/agregar', '/api/galeria/eliminar',
+                    '/api/galeria/renombrar', '/api/galeria/reordenar'}
+
+# Extensiones aceptadas al subir un archivo por /api/upload.
+EXTENSIONES_SUBIDA = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.webm'}
 
 @app.before_request
 def bloquear_admin_en_produccion():
@@ -100,6 +109,20 @@ def read_html():
 
 def write_html(soup):
     INDEX.write_text(str(soup), encoding='utf-8')
+
+def arg_int(nombre, default=0, minimo=None, maximo=None):
+    """Lee un parametro numerico de la query string sin reventar. Un '?offset=abc'
+    lanzaba ValueError y Flask devolvia su pagina HTML de error 500 en medio del
+    flujo de agendar hora — el frontend espera JSON y se rompia."""
+    try:
+        v = int(request.args.get(nombre, default) or default)
+    except (TypeError, ValueError):
+        v = default
+    if minimo is not None:
+        v = max(minimo, v)
+    if maximo is not None:
+        v = min(maximo, v)
+    return v
 
 # ── Rutas estáticas ─────────────────────────────────────────────────────────
 
@@ -126,9 +149,16 @@ def upload():
     target = request.form.get('target', '')  # ej: "dr-alberto-del-real.jpeg"
     if not f or not target:
         return jsonify({'ok': False, 'error': 'Faltan datos'})
-    dest = IMAGES / target
+    # `target` viene del navegador: sanear SIEMPRE antes de tocar el disco. Sin esto un
+    # target con '../' escribe fuera de images/ (la carpeta del sitio entero).
+    nombre = secure_filename(target)
+    if not nombre or Path(nombre).suffix.lower() not in EXTENSIONES_SUBIDA:
+        return jsonify({'ok': False, 'error': 'Nombre o formato de archivo no permitido'}), 400
+    dest = (IMAGES / nombre).resolve()
+    if dest.parent != IMAGES.resolve():   # cinturón y tirantes
+        return jsonify({'ok': False, 'error': 'Ruta inválida'}), 400
     f.save(str(dest))
-    return jsonify({'ok': True, 'path': f'images/{target}'})
+    return jsonify({'ok': True, 'path': f'images/{nombre}'})
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. INFO CLÍNICA — leer y editar textos básicos
@@ -852,8 +882,8 @@ def agenda_disponibilidad():
     # 7.5s). Resolverlo en una sola request evita los ping-pong cliente-servidor.
     PAGE = 6
     MAX_DIAS_REQ = 30   # tope de dias escaneados por request (protege a DentiDesk)
-    offset = max(0, int(request.args.get('offset', 0) or 0))
-    min_dias = max(0, min(int(request.args.get('min_dias', 0) or 0), 10))
+    offset = arg_int('offset', 0, minimo=0)
+    min_dias = arg_int('min_dias', 0, minimo=0, maximo=10)
 
     def trabajo(d):
         try:
@@ -964,8 +994,8 @@ def agenda_disponibilidad_reagendar():
     todos = scheduling.dias_habiles_ventana(hoy, cfg)
     PAGE = 6
     MAX_DIAS_REQ = 30
-    offset = max(0, int(request.args.get('offset', 0) or 0))
-    min_dias = max(0, min(int(request.args.get('min_dias', 0) or 0), 10))
+    offset = arg_int('offset', 0, minimo=0)
+    min_dias = arg_int('min_dias', 0, minimo=0, maximo=10)
 
     def trabajo(d):
         try:
@@ -1100,6 +1130,8 @@ def pacientes_reset():
 
 @app.route('/api/pacientes/estado', methods=['GET'])
 def pacientes_estado():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     import pacientes
     return jsonify({'ok': True, 'total': pacientes.total(),
                     'fecha_nacimiento': pacientes.cobertura_fecha_nacimiento()})
