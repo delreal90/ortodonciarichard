@@ -27,6 +27,7 @@ except ImportError:
 
 import dentidesk
 import notify
+import fechas   # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 Path(__file__).parent / 'patient_index.json')).parent
@@ -67,7 +68,7 @@ def marcar_enviada(id_agenda):
         return
     with _LOCK:
         idx = _load() or {}
-        idx[str(id_agenda)] = datetime.now().isoformat(timespec='seconds')
+        idx[str(id_agenda)] = fechas.ahora_chile().isoformat(timespec='seconds')
         _save(idx)
 
 
@@ -78,7 +79,7 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
     if not cfg['dentidesk']['enabled'] or requests is None:
         return {'ok': False, 'motivo': 'demo'}
 
-    ahora = datetime.now()
+    ahora = fechas.ahora_chile()
     with _LOCK:
         idx = _load()
         primera_vez = idx is None
@@ -97,7 +98,7 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
 
     dd = cfg['dentidesk']
     url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
-    hoy = date.today()
+    hoy = fechas.hoy_chile()
     dias = [hoy + timedelta(days=k) for k in range(0, dias_adelante + 1)
             if (hoy + timedelta(days=k)).weekday() < 5]
 
@@ -162,7 +163,7 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
                 'id_agenda': ida,
             }, cfg, canal=('ambos' if es_primera else None), primera=es_primera)
             if r.get('ok'):
-                nuevos[ida] = datetime.now().isoformat(timespec='seconds')
+                nuevos[ida] = fechas.ahora_chile().isoformat(timespec='seconds')
                 enviadas += 1
             # si falla el envio, NO se registra -> se reintenta en el proximo barrido
         except Exception as e:

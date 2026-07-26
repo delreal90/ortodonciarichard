@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import dentidesk
+import fechas   # ahora_chile(): Render corre en UTC. Ver fechas.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -177,7 +178,7 @@ def evaluar(rut, cfg=None):
         except (KeyError, ValueError):
             f_envio = None
         if f_envio is not None:
-            dias_transcurridos = (datetime.now() - f_envio).days
+            dias_transcurridos = (fechas.ahora_chile() - f_envio).days
             dias_minimos = cfg.get('dias_minimos_reenvio', 90)
             if dias_transcurridos < dias_minimos:
                 return {
@@ -203,7 +204,7 @@ def marcar_enviado(rut, id_agenda, doctor, nombre):
     with _LOCK:
         reg = _load_registro()
         reg.setdefault('envios', {}).setdefault(clave, []).append({
-            'fecha_envio': datetime.now().isoformat(timespec='seconds'),
+            'fecha_envio': fechas.ahora_chile().isoformat(timespec='seconds'),
             'id_agenda': str(id_agenda or ''),
             'doctor': doctor or '',
             'nombre': nombre or '',
@@ -322,7 +323,7 @@ def programar(rut, id_agenda, fecha_cita, doctor, nombre, fecha_programada):
             'doctor': doctor or '',
             'nombre': nombre or '',
             'fecha_programada': fecha_programada,
-            'creado': datetime.now().isoformat(timespec='seconds'),
+            'creado': fechas.ahora_chile().isoformat(timespec='seconds'),
             'estado': 'pendiente',
             'motivo_omision': '',
         }

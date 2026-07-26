@@ -30,6 +30,7 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import dentidesk
+import fechas   # hoy_chile(): Render corre en UTC. Ver fechas.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -398,7 +399,7 @@ def evaluar(rut, cfg=None):
         try:
             f_ultima = date.fromisoformat(ultima[:10])
             limite = sumar_meses(f_ultima, meses_pausa)
-            if date.today() > limite:
+            if fechas.hoy_chile() > limite:
                 return {
                     'motivo': 'pausado_inactivo',
                     'detalle': f'El paciente no tiene citas hace más de {meses_pausa} meses y no tiene hora futura -- se pausó automáticamente.',
@@ -481,7 +482,7 @@ def dar_de_baja(rut, motivo_baja, fecha_baja=None, forzar=False):
             return p
         p['estado'] = 'dado_de_baja'
         p['motivo_baja'] = motivo_baja or ''
-        p['fecha_baja'] = fecha_baja or date.today().isoformat()
+        p['fecha_baja'] = fecha_baja or fechas.hoy_chile().isoformat()
         _save_registro(reg)
         return p
 
@@ -569,7 +570,7 @@ def pendientes_hoy(hoy=None):
     proximo_envio ASCENDENTE (los mas vencidos primero) -- asi
     max_envios_por_dia (ver server.py) reparte la cola por antiguedad, no al
     azar del orden del dict."""
-    hoy_iso = (hoy.isoformat() if hasattr(hoy, 'isoformat') else str(hoy)) if hoy else date.today().isoformat()
+    hoy_iso = (hoy.isoformat() if hasattr(hoy, 'isoformat') else str(hoy)) if hoy else fechas.hoy_chile().isoformat()
     reg = _load_registro()
     pendientes = [
         {'rut': rut, **p} for rut, p in (reg.get('inscritos') or {}).items()
@@ -592,7 +593,7 @@ def proximos_envios(fecha=None, doctor=None, cfg=None):
     revision-evoluciones) para avisarle a que pacientes suyos les llega el
     recordatorio dental al dia siguiente. Ordenado por proximo_envio."""
     hoy_iso = (fecha.isoformat() if hasattr(fecha, 'isoformat') else str(fecha)) \
-        if fecha else date.today().isoformat()
+        if fecha else fechas.hoy_chile().isoformat()
     doc_norm = _normalizar(doctor) if doctor else ''
     cfg = cfg or load_config()
     reg = _load_registro()
@@ -621,7 +622,7 @@ def marcar_enviado(rut):
         p = reg.get('inscritos', {}).get(clave)
         if not p:
             return None
-        hoy = date.today()
+        hoy = fechas.hoy_chile()
         p.setdefault('envios', []).append({
             'fecha': hoy.isoformat(),
             'email': p.get('email', ''),
@@ -821,7 +822,7 @@ def barrer(cfg=None, dias_atras=7, dias_adelante=45, max_workers=6):
     from concurrent.futures import ThreadPoolExecutor
     cfg = cfg or load_config()
     scfg = _scheduling_cfg()
-    hoy = date.today()
+    hoy = fechas.hoy_chile()
     hoy_iso = hoy.isoformat()
 
     # Solo dias habiles: la clinica atiende L-V, asi que pedir sabados y
@@ -888,7 +889,7 @@ def backfill(cfg=None, meses=6, max_workers=6):
     from concurrent.futures import ThreadPoolExecutor
     cfg = cfg or load_config()
     scfg = _scheduling_cfg()
-    hoy = date.today()
+    hoy = fechas.hoy_chile()
     # sumar_meses(-meses) en vez de meses*30: 6*30 son 180 dias, casi seis
     # dias menos que seis meses reales, y el borde es justo donde estan los
     # pacientes que se quieren pescar. Solo dias habiles (la clinica atiende

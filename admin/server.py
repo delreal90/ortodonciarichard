@@ -4782,15 +4782,10 @@ def _loop_confirmaciones():
     """Dispara el barrido de confirmaciones a horas fijas (Chile). La 1a corrida
     siembra sin enviar; luego solo envia a citas nuevas (presenciales/telefono)."""
     import time
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo('America/Santiago')
-    except Exception:
-        tz = None
     ya_corrio = {}
     while True:
         try:
-            ahora = datetime.now(tz) if tz else datetime.now()
+            ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
             if slot in _HORARIOS_CONFIRMACION and ya_corrio.get(slot) != ahora.date():
                 ya_corrio[slot] = ahora.date()
@@ -4809,15 +4804,10 @@ def _loop_recordatorios():
     pestania WhatsApp). Mismo esqueleto que _loop_confirmaciones: revisa cada
     40s, un solo disparo por (tipo, dia)."""
     import time
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo('America/Santiago')
-    except Exception:
-        tz = None
     ya_corrio = {}  # {tipo: date}
     while True:
         try:
-            ahora = datetime.now(tz) if tz else datetime.now()
+            ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
             cfg_dd = scheduling.load_config()
             if cfg_dd['dentidesk']['enabled']:
@@ -4943,15 +4933,10 @@ def _loop_recaptacion_programados():
     cita en DentiDesk y volver a evaluar citas_futuras_paciente, que sin
     DentiDesk habilitado no tiene con que trabajar."""
     import time
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo('America/Santiago')
-    except Exception:
-        tz = None
     ya_corrio = None
     while True:
         try:
-            ahora = datetime.now(tz) if tz else datetime.now()
+            ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
             cfg_dd = scheduling.load_config()
             rcfg = recaptacion.load_config()
@@ -5047,15 +5032,10 @@ def _loop_control_dental():
     clinica reviso la cartera inscrita por el backfill) y
     cfg_dd['dentidesk']['enabled'] (el barrido necesita leer getAgendaDay)."""
     import time
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo('America/Santiago')
-    except Exception:
-        tz = None
     ya_corrio = None
     while True:
         try:
-            ahora = datetime.now(tz) if tz else datetime.now()
+            ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
             cfg_dd = scheduling.load_config()
             cfg_cd = control_dental.load_config()
@@ -5302,15 +5282,10 @@ def _loop_nps():
     'ultima_corrida' (>= 30 min entre corridas) para no barrer la agenda en
     cada poll de 40s."""
     import time
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo('America/Santiago')
-    except Exception:
-        tz = None
     ultima_corrida = None
     while True:
         try:
-            ahora = datetime.now(tz) if tz else datetime.now()
+            ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
             cfg_nps = nps.load_config()
             cfg_dd = scheduling.load_config()
@@ -5371,15 +5346,10 @@ def _loop_recurrentes():
     suscripción). Independiente de DentiDesk — corre siempre que el scheduler esté
     activo. Mismo esqueleto que _loop_confirmaciones (poll cada 60s, un disparo/día)."""
     import time
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo('America/Santiago')
-    except Exception:
-        tz = None
     ya_corrio = None
     while True:
         try:
-            ahora = datetime.now(tz) if tz else datetime.now()
+            ahora = fechas.ahora_chile_aware()
             if ahora.strftime('%H:%M') == '09:00' and ya_corrio != ahora.date():
                 ya_corrio = ahora.date()
                 import compras as _c

@@ -29,6 +29,7 @@ import dentidesk
 import notify
 import scheduling
 import wa_cloud
+import fechas   # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -120,7 +121,7 @@ def _save_registro(reg):
 def _marcar(tipo, id_agenda):
     with _LOCK:
         reg = _load_registro()
-        reg.setdefault(tipo, {})[str(id_agenda)] = datetime.now().isoformat(timespec='seconds')
+        reg.setdefault(tipo, {})[str(id_agenda)] = fechas.ahora_chile().isoformat(timespec='seconds')
         _save_registro(reg)
 
 
@@ -174,7 +175,7 @@ def _procesar_dia(cfg, target_date, tipo, fn_envio, incluir_doctor):
 def enviar_recordatorios_semana(cfg, hoy=None):
     """Cita en 4 dias habiles (lunes-viernes, ignora feriados) -> recordatorio_semana.
     Solo envia si HOY es dia habil (si cae fin de semana, no manda)."""
-    hoy = hoy or date.today()
+    hoy = hoy or fechas.hoy_chile()
     if hoy.isoweekday() >= 6:
         return {'ok': True, 'enviadas': 0, 'citas': 0, 'omitido': 'fin de semana'}
     target = scheduling.sumar_dias_habiles(hoy, 4)
@@ -184,7 +185,7 @@ def enviar_recordatorios_semana(cfg, hoy=None):
 def enviar_recordatorios_dia(cfg, hoy=None):
     """Proximo dia habil (salta fin de semana; ignora feriados) -> recordatorio_dia.
     Solo envia si HOY es dia habil (si cae fin de semana, no manda)."""
-    hoy = hoy or date.today()
+    hoy = hoy or fechas.hoy_chile()
     if hoy.isoweekday() >= 6:
         return {'ok': True, 'enviadas': 0, 'citas': 0, 'omitido': 'fin de semana'}
     target = scheduling.siguiente_dia_habil(hoy + timedelta(days=1))
@@ -193,7 +194,7 @@ def enviar_recordatorios_dia(cfg, hoy=None):
 
 def enviar_inasistencias(cfg, hoy=None):
     """Barre ayer y hoy buscando citas marcadas 'no llega' -> inasistencia_reagendar."""
-    hoy = hoy or date.today()
+    hoy = hoy or fechas.hoy_chile()
     enviadas = revisadas = 0
     reg = _load_registro().get('inasistencia', {})
     import pacientes as _pac

@@ -36,18 +36,14 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 import pacientes
 
-# Zona horaria de Chile continental. El servidor en Render corre en UTC; sin
-# esto, las horas registradas y el sello del PDF salen ~4h adelantadas.
-try:
-    from zoneinfo import ZoneInfo
-    _TZ_CHILE = ZoneInfo('America/Santiago')
-except Exception:
-    _TZ_CHILE = None
+import fechas
 
 
 def ahora_chile():
-    """datetime actual en hora de Chile (con fallback a hora local si no hay tz)."""
-    return datetime.now(_TZ_CHILE) if _TZ_CHILE else datetime.now()
+    """datetime actual en hora de Chile. El servidor en Render corre en UTC; sin
+    esto, las horas registradas y el sello del PDF salen ~4h adelantadas.
+    Ver fechas.py."""
+    return fechas.ahora_chile_aware()
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 Path(__file__).parent / 'patient_index.json')).parent

@@ -29,17 +29,12 @@ import hashlib
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
-try:
-    from zoneinfo import ZoneInfo
-    _TZ_CL = ZoneInfo('America/Santiago')
-except Exception:
-    _TZ_CL = None
+import fechas
 
 
 def ahora_cl():
-    """Hora actual en Chile. En Render el server corre en UTC, así que fijamos la
-    zona explícitamente (mismo criterio que stats.py / consentimientos.py)."""
-    return datetime.now(_TZ_CL) if _TZ_CL else datetime.now()
+    """Hora actual en Chile (Render corre en UTC). Ver fechas.py."""
+    return fechas.ahora_chile_aware()
 
 
 def _hoy_cl():

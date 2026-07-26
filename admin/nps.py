@@ -24,6 +24,7 @@ from datetime import date, datetime
 
 import dentidesk
 import control_dental
+import fechas   # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -279,7 +280,7 @@ def es_promotor_silenciado(rut, cfg, reg):
     except (ValueError, TypeError):
         return False
     limite = control_dental.sumar_meses(f_resp, cfg.get('silencio_promotor_meses', 12))
-    return date.today() <= limite
+    return fechas.hoy_chile() <= limite
 
 
 # ── Evaluacion (las guardas, en orden) ──────────────────────────────────
@@ -324,7 +325,7 @@ def evaluar(rut, es_hito, cfg=None):
         if f_envio is not None:
             cooldown = cfg.get('cooldown_meses', 6)
             limite = control_dental.sumar_meses(f_envio, cooldown)
-            if date.today() <= limite:
+            if fechas.hoy_chile() <= limite:
                 return {
                     'motivo': 'enviado_reciente',
                     'detalle': f'Ya se le envio una encuesta hace menos de {cooldown} meses.',
@@ -334,7 +335,7 @@ def evaluar(rut, es_hito, cfg=None):
         if not es_hito:
             frecuencia = cfg.get('frecuencia_meses', 6)
             limite_frec = control_dental.sumar_meses(f_envio, frecuencia) if f_envio else None
-            if limite_frec is not None and date.today() <= limite_frec:
+            if limite_frec is not None and fechas.hoy_chile() <= limite_frec:
                 return {
                     'motivo': 'frecuencia_periodica',
                     'detalle': f'El disparo es periodico y todavia no pasan los {frecuencia} meses desde el ultimo envio.',
@@ -358,7 +359,7 @@ def registrar_envio(rut, id_agenda, doctor):
     with _LOCK:
         reg = _load_registro()
         reg.setdefault('envios', {}).setdefault(clave, []).append({
-            'fecha': datetime.now().isoformat(timespec='seconds'),
+            'fecha': fechas.ahora_chile().isoformat(timespec='seconds'),
             'id_agenda': str(id_agenda or ''),
             'doctor': doctor or '',
             'estado': 'enviado',
@@ -373,7 +374,7 @@ def marcar_visto(id_agenda, fecha_iso=None):
     id_agenda = str(id_agenda or '')
     if not id_agenda:
         return
-    fecha_iso = fecha_iso or date.today().isoformat()
+    fecha_iso = fecha_iso or fechas.hoy_chile().isoformat()
     with _LOCK:
         reg = _load_registro()
         reg.setdefault('vistos', {})[id_agenda] = fecha_iso
@@ -405,7 +406,7 @@ def podar_vistos(reg=None):
 
 def _podar_vistos_in_place(reg):
     from datetime import timedelta
-    limite_poda = (date.today() - timedelta(days=_DIAS_RETENCION_VISTOS)).isoformat()
+    limite_poda = (fechas.hoy_chile() - timedelta(days=_DIAS_RETENCION_VISTOS)).isoformat()
     vistos = reg.get('vistos', {})
     reg['vistos'] = {k: v for k, v in vistos.items() if v >= limite_poda}
 
@@ -420,7 +421,7 @@ def registrar_respuesta(rut, categoria, doctor=''):
         reg = _load_registro()
         reg.setdefault('respuestas', {})[clave] = {
             'categoria': categoria,
-            'fecha': datetime.now().isoformat(timespec='seconds'),
+            'fecha': fechas.ahora_chile().isoformat(timespec='seconds'),
             'doctor': doctor or '',
         }
         _save_registro(reg)
@@ -509,7 +510,7 @@ def registrar_override(id_agenda, accion, rut='', telefono='', nombre='',
             'fecha_cita': fecha_cita or '',
             'hora_cita': hora_cita or '',
             'duracion': duracion,
-            'creado': datetime.now().isoformat(timespec='seconds'),
+            'creado': fechas.ahora_chile().isoformat(timespec='seconds'),
             # 'estado' solo aplica al override 'enviar' (pendiente|enviado|
             # omitido); 'no_enviar' no lo usa (es un bloqueo permanente).
             'estado': 'pendiente',
@@ -637,7 +638,7 @@ def resumen(cfg=None):
     nps = round(100 * (promotores - detractores_efectivos) / base) if base else None
 
     metricas = dict(reg.get('metricas_google') or {})
-    mes_actual = date.today().strftime('%Y-%m')
+    mes_actual = fechas.hoy_chile().strftime('%Y-%m')
     resenas_mes = dict(metricas)
 
     rating_reciente = None

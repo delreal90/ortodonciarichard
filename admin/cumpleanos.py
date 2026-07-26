@@ -28,11 +28,7 @@ import unicodedata
 from pathlib import Path
 from datetime import date, datetime, timedelta
 
-try:
-    from zoneinfo import ZoneInfo
-    _TZ_CHILE = ZoneInfo('America/Santiago')
-except Exception:                                    # pragma: no cover
-    _TZ_CHILE = None
+import fechas
 
 # Mismo idioma de rutas que el resto de los modulos: todo cuelga del directorio
 # de PATIENT_INDEX_PATH (disco persistente en Render).
@@ -47,14 +43,12 @@ _DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domin
 
 
 def ahora_chile():
-    """Fecha/hora en America/Santiago (Render corre en UTC)."""
-    if _TZ_CHILE:
-        return datetime.now(_TZ_CHILE)
-    return datetime.now()
+    """Fecha/hora en America/Santiago (Render corre en UTC). Ver fechas.py."""
+    return fechas.ahora_chile_aware()
 
 
 def hoy_chile():
-    return ahora_chile().date()
+    return fechas.hoy_chile()
 
 
 def fecha_legible(f):
