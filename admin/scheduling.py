@@ -21,6 +21,9 @@ import hashlib
 from pathlib import Path
 from datetime import datetime, date, time, timedelta
 
+import fechas   # hora de Chile. NUNCA usar datetime.now()/date.today() aqui: Render
+                # corre en UTC y este modulo decide que horas ve el paciente.
+
 CONFIG_PATH  = Path(__file__).parent / 'scheduling_config.json'
 SECRETS_PATH = Path(__file__).parent / 'scheduling_secrets.json'  # gitignored, solo local
 
@@ -199,7 +202,8 @@ def banda_temporal(target_date, hoy, cfg):
 
 def dentro_de_ventana(target_date, cfg, hoy=None):
     """True si la fecha esta dentro de la ventana agendable (0..max dias)."""
-    hoy = hoy or date.today()
+    hoy = hoy or fechas.hoy_chile()   # con date.today(), despues de las 20:00 hora
+                                      # Chile el propio dia de hoy daba diff=-1
     diff = (target_date - hoy).days
     maxd = cfg['reglas'].get('anticipacion_maxima_dias', 60)
     return 0 <= diff <= maxd
@@ -242,7 +246,7 @@ def aplicar_ocupacion_simulada(doc_id, target_date, slots_grilla, ocupados_reale
     entra hoy y manana ve EXACTAMENTE los mismos bloques simulados.
     Un slot simulado-ocupado NUNCA se devuelve como disponible.
     """
-    hoy = hoy or date.today()
+    hoy = hoy or fechas.hoy_chile()
     doc_cfg = cfg['doctores'].get(doc_id, {})
     banda_key = banda_temporal(target_date, hoy, cfg)
 
@@ -282,8 +286,13 @@ def aplicar_ocupacion_simulada(doc_id, target_date, slots_grilla, ocupados_reale
 
 def cumple_anticipacion(target_date, hhmm, motivo_cfg, cfg, ahora=None):
     """True si la hora respeta la anticipacion minima. Aplica a TODOS los motivos
-    (incluidas urgencias)."""
-    ahora = ahora or datetime.now()
+    (incluidas urgencias).
+
+    `ahora` va en hora de CHILE, igual que `target_date`/`hhmm` (que son la hora de
+    pared de la clinica, tal como las devuelve DentiDesk). Con datetime.now() se
+    comparaba el reloj UTC de Render contra una hora chilena y el margen salia ~4h
+    mas chico que el real: se descartaban horas que si cumplian el minimo."""
+    ahora = ahora or fechas.ahora_chile()
     inicio = datetime.combine(target_date, _parse_hhmm(hhmm))
     min_horas = cfg['reglas']['anticipacion_minima_horas']
     return inicio - ahora >= timedelta(hours=min_horas)
@@ -301,7 +310,7 @@ def horas_disponibles(doc_id, target_date, motivo_key, libres, ocupados, cfg, ah
 
     Flujo: capacidad real -> ocupacion simulada (anti-vacia) -> filtro anticipacion.
     """
-    ahora = ahora or datetime.now()
+    ahora = ahora or fechas.ahora_chile()   # hora de Chile, no el UTC de Render
     motivo_cfg = cfg['motivos'][motivo_key]
     worked = sorted(set(libres) | set(ocupados))   # capacidad real del dia
 
@@ -328,7 +337,7 @@ def es_dia_siguiente_habil(fecha, hoy=None):
     WhatsApp' (el paciente viene interactuando por WhatsApp, es una hora
     inminente). Maneja fin de semana: un viernes, el 'dia siguiente habil' del
     aviso de 1 dia antes es el lunes."""
-    hoy = hoy or date.today()
+    hoy = hoy or fechas.hoy_chile()
     return fecha == siguiente_dia_habil(hoy + timedelta(days=1))
 
 
@@ -356,7 +365,7 @@ def horas_disponibles_libre(doc_id, target_date, libres, ocupados, cfg, ahora=No
     que la clinica escribio directo en DentiDesk). cumple_anticipacion() no usa
     realmente motivo_cfg (la anticipacion minima es global, ver su docstring),
     asi que esta version es equivalente para cualquier motivo real."""
-    ahora = ahora or datetime.now()
+    ahora = ahora or fechas.ahora_chile()   # hora de Chile, no el UTC de Render
     worked = sorted(set(libres) | set(ocupados))
     disponibles = aplicar_ocupacion_simulada(
         doc_id, target_date, worked, set(ocupados), cfg, hoy=ahora.date()

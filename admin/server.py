@@ -691,6 +691,8 @@ def publicar():
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import fechas       # hoy_chile()/ahora_chile(). Render corre en UTC: un date.today()
+                    # pelado ya es MANIANA entre las 20:00 y medianoche hora Chile.
 import scheduling
 import dentidesk
 import notify
@@ -868,7 +870,7 @@ def agenda_disponibilidad():
     if doctor not in cfg['doctores'] or motivo not in cfg['motivos']:
         return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
 
-    hoy = date.today()
+    hoy = fechas.hoy_chile()
     todos = scheduling.dias_habiles_ventana(hoy, cfg)
     # Paginacion: se cargan de a PAGE dias habiles (evita decenas de llamadas
     # a DentiDesk de una sola vez). Pagina chica = carga inicial mas rapida; el
@@ -990,7 +992,7 @@ def agenda_disponibilidad_reagendar():
     solo_am = str(request.args.get('solo_am', '')).strip() in ('1', 'true', 'yes', 'on')
     corte = cfg['horario'].get('corte_pm', '14:00')
 
-    hoy = date.today()
+    hoy = fechas.hoy_chile()
     todos = scheduling.dias_habiles_ventana(hoy, cfg)
     PAGE = 6
     MAX_DIAS_REQ = 30
@@ -2543,7 +2545,7 @@ def asistente_recordatorio_control():
     rut, nombre, doctor, telefono = datos['rut'], datos['nombre'], datos['doctor'], datos['telefono']
 
     advertencia = None
-    if fecha > date.today():
+    if fecha > fechas.hoy_chile():
         advertencia = 'La fecha de la cita de origen es futura -- verifica que sea la cita correcta.'
 
     # recaptacion.evaluar() siempre corre (para saber si no_molestar aplica);
@@ -2738,7 +2740,7 @@ def asistente_recordatorio_control_programar():
         fecha_programada = datetime.strptime(fecha_programada_str, '%Y-%m-%d').date()
     except (ValueError, TypeError):
         return jsonify({'ok': False, 'error': 'Fecha programada inválida (esperado YYYY-MM-DD)'}), 400
-    if fecha_programada < date.today():
+    if fecha_programada < fechas.hoy_chile():
         return jsonify({'ok': False, 'error': 'La fecha programada no puede ser anterior a hoy'}), 400
 
     cfg = scheduling.load_config()
@@ -2994,7 +2996,7 @@ def consentimiento_firmar():
         'quien_firma':       'apoderado' if data.get('quien_firma') == 'apoderado' else 'paciente',
         'apoderado_nombre':  _cap(data.get('apoderado_nombre'), 120),
         'apoderado_rut':     _cap(data.get('apoderado_rut'), 20),
-        'fecha':             _cap(data.get('fecha'), 40) or date.today().isoformat(),
+        'fecha':             _cap(data.get('fecha'), 40) or fechas.hoy_chile().isoformat(),
         'firma_png':         firma_png,
         'consent_id':        consent_id,
         'ip':                ip_origen,
@@ -3718,7 +3720,7 @@ def control_dental_paciente_post():
     if not existe:
         if not data.get('inscribir'):
             return jsonify({'ok': False, 'error': 'El paciente no esta inscrito en control dental'}), 404
-        hoy = date.today().isoformat()
+        hoy = fechas.hoy_chile().isoformat()
         control_dental.inscribir(
             rut, data.get('nombre', ''), data.get('email', ''), 'manual',
             hoy, '', 'Inscripcion manual (F2)', '', manual=True)
@@ -3819,7 +3821,7 @@ def control_dental_run():
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     cfg_cd = control_dental.load_config()
-    r = _procesar_control_dental(cfg_cd, date.today())
+    r = _procesar_control_dental(cfg_cd, fechas.hoy_chile())
     return jsonify({'ok': True, **r})
 
 
@@ -4050,11 +4052,7 @@ def nps_run():
     a diferencia del loop automatico."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    try:
-        from zoneinfo import ZoneInfo
-        ahora = datetime.now(ZoneInfo('America/Santiago'))
-    except Exception:
-        ahora = datetime.now()
+    ahora = fechas.ahora_chile_aware()
     r = _procesar_nps(nps.load_config(), scheduling.load_config(), ahora)
     return jsonify({'ok': True, 'resultado': r})
 
@@ -5338,7 +5336,7 @@ def _loop_calentador():
             if cfg_dd['dentidesk']['enabled']:
                 # 21 dias habiles (~1 mes): cubre tambien a los doctores con pocos
                 # dias, cuyo escaneo con min_dias llega mas alla del dia 15.
-                dias = scheduling.dias_habiles_ventana(date.today(), cfg_dd)[:21]
+                dias = scheduling.dias_habiles_ventana(fechas.hoy_chile(), cfg_dd)[:21]
                 docs = [k for k, v in cfg_dd['doctores'].items()
                         if not k.startswith('_') and isinstance(v, dict)]
                 t0 = datetime.now()
