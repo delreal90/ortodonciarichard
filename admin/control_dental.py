@@ -32,6 +32,7 @@ from datetime import date, datetime, timedelta
 import dentidesk
 import fechas      # hoy_chile(): Render corre en UTC. Ver fechas.py.
 import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
+import avisos      # rut_key + lista de no molestar, compartidos. Ver avisos.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -340,11 +341,8 @@ def _save_registro(reg):
     _STORE.save(reg)
 
 
-def _rut_key(rut):
-    """Normaliza para usar como clave del dict de inscritos -- mismo criterio
-    que recaptacion._rut_key (dentidesk.limpiar_rut, con fallback al string
-    tal cual si viene vacio/no-RUT)."""
-    return dentidesk.limpiar_rut(rut) or (rut or '').strip()
+# Clave canonica del paciente, compartida con recaptacion y nps: ver avisos.py.
+_rut_key = avisos.rut_key
 
 
 # ── Evaluacion (las 4 guardas, en orden) ────────────────────────────────────
@@ -535,26 +533,26 @@ def set_manual(rut, activo=None, frecuencia_meses=None, fecha_base=None):
         return p
 
 
+# El opt-out del paciente. Compartido con recaptacion y nps: ver avisos.py.
+_NO_MOLESTAR = avisos.ListaNoMolestar(_load_registro, _save_registro, _LOCK)
+
+
 def agregar_no_molestar(rut):
-    clave = _rut_key(rut)
-    with _LOCK:
-        reg = _load_registro()
-        lista = reg.setdefault('no_molestar', [])
-        if clave not in lista:
-            lista.append(clave)
-        _save_registro(reg)
-        return lista
+    return _NO_MOLESTAR.agregar(rut)
 
 
 def quitar_no_molestar(rut):
-    clave = _rut_key(rut)
-    with _LOCK:
-        reg = _load_registro()
-        lista = reg.setdefault('no_molestar', [])
-        if clave in lista:
-            lista.remove(clave)
-        _save_registro(reg)
-        return lista
+    return _NO_MOLESTAR.quitar(rut)
+
+
+def lista_no_molestar():
+    """Faltaba en este modulo (recaptacion y nps si la tenian), asi que server.py
+    leia el registro a mano para armar la respuesta del panel."""
+    return _NO_MOLESTAR.listar()
+
+
+def en_no_molestar(rut):
+    return _NO_MOLESTAR.contiene(rut)
 
 
 # ── Envios / consultas para el panel ─────────────────────────────────────

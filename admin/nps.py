@@ -26,6 +26,7 @@ import dentidesk
 import control_dental
 import fechas      # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
 import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
+import avisos      # rut_key + lista de no molestar, compartidos. Ver avisos.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -56,11 +57,9 @@ _DEFAULT_CONFIG = {
 _DIAS_RETENCION_VISTOS = 90
 
 
-def _rut_key(rut):
-    """Normaliza para usar como clave de los dicts del registro -- mismo
-    criterio que control_dental._rut_key (dentidesk.limpiar_rut, con
-    fallback al string tal cual si viene vacio/no-RUT)."""
-    return dentidesk.limpiar_rut(rut) or (rut or '').strip()
+# Clave canonica del paciente, compartida con recaptacion y control_dental:
+# ver avisos.py.
+_rut_key = avisos.rut_key
 
 
 def _normalizar_hora_a_min(hhmm):
@@ -429,37 +428,28 @@ def marcar_sembrado():
 
 # ── No molestar ──────────────────────────────────────────────────────────
 
+# El opt-out del paciente. Compartido con recaptacion y control_dental:
+# ver avisos.py.
+_NO_MOLESTAR = avisos.ListaNoMolestar(_load_registro, _save_registro, _LOCK)
+
+
 def agregar_no_molestar(rut):
-    clave = _rut_key(rut)
-    with _LOCK:
-        reg = _load_registro()
-        lista = reg.setdefault('no_molestar', [])
-        if clave not in lista:
-            lista.append(clave)
-        _save_registro(reg)
-        return lista
+    return _NO_MOLESTAR.agregar(rut)
 
 
 def quitar_no_molestar(rut):
-    clave = _rut_key(rut)
-    with _LOCK:
-        reg = _load_registro()
-        lista = reg.setdefault('no_molestar', [])
-        if clave in lista:
-            lista.remove(clave)
-        _save_registro(reg)
-        return lista
+    return _NO_MOLESTAR.quitar(rut)
 
 
 def lista_no_molestar():
-    return list(_load_registro().get('no_molestar') or [])
+    return _NO_MOLESTAR.listar()
 
 
 def en_no_molestar(rut):
     """True si el RUT esta en la lista de 'no molestar'. Publico para que el
     server lo consulte al procesar un override 'enviar' (que salta el resto
     de las guardas de evaluar() pero NUNCA el opt-out del paciente)."""
-    return _rut_key(rut) in (_load_registro().get('no_molestar') or [])
+    return _NO_MOLESTAR.contiene(rut)
 
 
 # ── Overrides manuales por cita (F2: Enviar / No Enviar) ────────────────────

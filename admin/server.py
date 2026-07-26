@@ -3706,7 +3706,7 @@ def control_dental_paciente_get():
         return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
     clave = control_dental._rut_key(rut)
     reg = control_dental._load_registro()
-    no_molestar = clave in (reg.get('no_molestar') or [])
+    no_molestar = control_dental.en_no_molestar(rut)
     p = (reg.get('inscritos') or {}).get(clave)
     if not p:
         return jsonify({'ok': True, 'inscrito': False, 'no_molestar': no_molestar})

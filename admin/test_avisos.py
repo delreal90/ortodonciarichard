@@ -421,5 +421,97 @@ class TestPoda(unittest.TestCase):
         self.assertEqual(r['motivo'], 'enviado_reciente')
 
 
+# ═════════════════════════════════════════════════════════════════════════
+# La base compartida: los 3 sistemas se comportan IGUAL en lo que es igual
+# ═════════════════════════════════════════════════════════════════════════
+
+class TestBaseCompartida(unittest.TestCase):
+    """El punto de avisos.py: que un sistema nuevo herede gratis el opt-out del
+    paciente, y que los tres existentes no puedan divergir en eso."""
+
+    MODULOS = (('recaptacion', recaptacion),
+               ('control_dental', control_dental),
+               ('nps', nps))
+
+    def setUp(self):
+        for _, m in self.MODULOS:
+            _limpiar(m)
+
+    def test_los_tres_exponen_la_misma_interfaz(self):
+        """control_dental no tenia lista_no_molestar ni en_no_molestar, asi que
+        server.py leia su registro a mano para armar la respuesta del panel."""
+        for nombre, m in self.MODULOS:
+            for fn in ('agregar_no_molestar', 'quitar_no_molestar',
+                       'lista_no_molestar', 'en_no_molestar', 'evaluar'):
+                with self.subTest(modulo=nombre, funcion=fn):
+                    self.assertTrue(callable(getattr(m, fn, None)),
+                                    f'{nombre} deberia exponer {fn}()')
+
+    def test_los_tres_normalizan_el_rut_igual(self):
+        """Si divergieran, un paciente marcado como 17.406.985-9 en un sistema
+        seguiria recibiendo mensajes de otro que lo lee como 174069859."""
+        formatos = ['17.406.985-9', '17406985-9', '174069859', '17.406.985-K']
+        for f in formatos:
+            claves = {m._rut_key(f) for _, m in self.MODULOS}
+            with self.subTest(rut=f):
+                self.assertEqual(len(claves), 1, f'los 3 deben coincidir en {f}')
+
+    def test_distintos_formatos_del_mismo_rut_son_el_mismo_paciente(self):
+        for nombre, m in self.MODULOS:
+            with self.subTest(modulo=nombre):
+                m.agregar_no_molestar('17.406.985-9')
+                self.assertTrue(m.en_no_molestar('174069859'))
+                self.assertTrue(m.en_no_molestar('17406985-9'))
+
+    def test_no_molestar_es_independiente_entre_sistemas(self):
+        """A proposito: decir "no me manden encuestas" no es decir "no me avisen
+        de mi control". Son opt-outs distintos y viven en registros distintos."""
+        nps.agregar_no_molestar(RUT)
+        self.assertTrue(nps.en_no_molestar(RUT))
+        self.assertFalse(recaptacion.en_no_molestar(RUT))
+        self.assertFalse(control_dental.en_no_molestar(RUT))
+
+    def test_agregar_dos_veces_no_duplica(self):
+        for nombre, m in self.MODULOS:
+            with self.subTest(modulo=nombre):
+                m.agregar_no_molestar(RUT)
+                m.agregar_no_molestar(RUT)
+                self.assertEqual(len(m.lista_no_molestar()), 1)
+
+    def test_quitar_a_alguien_que_no_esta_no_revienta(self):
+        for nombre, m in self.MODULOS:
+            with self.subTest(modulo=nombre):
+                self.assertEqual(m.quitar_no_molestar('11.111.111-1'), [])
+
+
+class TestHelpersDeAvisos(unittest.TestCase):
+
+    def test_primera_guarda_devuelve_la_primera_que_bloquea(self):
+        import avisos
+        llamadas = []
+
+        def guarda(nombre, bloquea):
+            def _g():
+                llamadas.append(nombre)
+                return avisos.bloqueo(nombre, 'detalle', True) if bloquea else None
+            return _g
+
+        r = avisos.primera_guarda([guarda('a', False), guarda('b', True),
+                                   guarda('c', True)])
+        self.assertEqual(r['motivo'], 'b')
+        self.assertEqual(llamadas, ['a', 'b'],
+                         'la guarda posterior NO debe evaluarse (puede ser cara)')
+
+    def test_primera_guarda_sin_bloqueos_devuelve_none(self):
+        import avisos
+        self.assertIsNone(avisos.primera_guarda([lambda: None, lambda: None]))
+
+    def test_el_bloqueo_de_no_molestar_nunca_es_forzable(self):
+        import avisos
+        b = avisos.bloqueo('no_molestar', 'texto', False)
+        self.assertFalse(b['puede_forzar'])
+        self.assertEqual(set(b), {'motivo', 'detalle', 'puede_forzar'})
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

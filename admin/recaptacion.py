@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta
 import dentidesk
 import fechas      # ahora_chile(): Render corre en UTC. Ver fechas.py.
 import jsonstore   # guardado atomico con lock. Ver jsonstore.py.
+import avisos      # rut_key + lista de no molestar, compartidos. Ver avisos.py.
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
@@ -120,12 +121,8 @@ def _save_registro(reg):
     _STORE.save(reg)
 
 
-def _rut_key(rut):
-    """Normaliza para usar como clave del dict de envios -- distintos formatos
-    del mismo RUT (con/sin puntos, con/sin guion) deben caer en la misma
-    entrada. Usa el limpiador de dentidesk (mismo criterio que
-    citas_futuras_paciente)."""
-    return dentidesk.limpiar_rut(rut) or (rut or '').strip()
+# Clave canonica del paciente, compartida con control_dental y nps: ver avisos.py.
+_rut_key = avisos.rut_key
 
 
 # ── Evaluacion (las 3 guardas, en orden) ─────────────────────────────────────
@@ -269,32 +266,26 @@ def marcar_respondio(rut):
         return True
 
 
+# El opt-out del paciente. Compartido con control_dental y nps: ver avisos.py.
+_NO_MOLESTAR = avisos.ListaNoMolestar(_load_registro, _save_registro, _LOCK)
+
+
 def agregar_no_molestar(rut):
-    clave = _rut_key(rut)
-    with _LOCK:
-        reg = _load_registro()
-        lista = reg.setdefault('no_molestar', [])
-        if clave not in lista:
-            lista.append(clave)
-        _save_registro(reg)
-        return lista
+    return _NO_MOLESTAR.agregar(rut)
 
 
 def quitar_no_molestar(rut):
-    clave = _rut_key(rut)
-    with _LOCK:
-        reg = _load_registro()
-        lista = reg.setdefault('no_molestar', [])
-        if clave in lista:
-            lista.remove(clave)
-        _save_registro(reg)
-        return lista
+    return _NO_MOLESTAR.quitar(rut)
 
 
 def lista_no_molestar():
     """RUT marcados como 'no molestar'. Lo consume la pestania del panel, que
     los muestra con un boton para sacarlos de la lista."""
-    return list(_load_registro().get('no_molestar') or [])
+    return _NO_MOLESTAR.listar()
+
+
+def en_no_molestar(rut):
+    return _NO_MOLESTAR.contiene(rut)
 
 
 def historial(limite=100):
