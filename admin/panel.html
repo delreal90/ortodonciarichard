@@ -253,6 +253,28 @@
           Desmarcado (lo normal) hace <em>merge</em>: agrega pacientes nuevos y actualiza los existentes sin borrar nada.
         </p>
         <div id="pac-resultado" style="font-size:.85rem"></div>
+
+        <hr style="border:none;border-top:1px solid #edf2f7;margin:18px 0">
+
+        <h3 style="margin-bottom:6px">🎂 Fechas de nacimiento</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:14px">
+          Agrega la <strong>fecha de nacimiento</strong> desde el export
+          <strong>"Listado de Cumpleaños"</strong> del panel de DentiDesk. Alimenta la sección de
+          cumpleaños del reporte diario y rellena sola la fecha en los formularios de seguros.
+          Es <em>idempotente</em>: se puede repetir cada vez que se re-exporte, sin duplicar nada.
+          Solo escribe fecha de nacimiento; nunca pisa email, teléfono ni dirección.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <input type="file" id="cum-archivo" accept=".xls,.xlsx,.htm,.html">
+          <button class="btn btn-primary btn-sm" id="cum-btn-importar" onclick="importarCumpleanos()">Importar</button>
+        </div>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">
+          ⚠️ Es un archivo <strong>distinto</strong> al de arriba. Pese a terminar en
+          <code>.xls</code>, ese export no es un Excel de verdad sino una tabla HTML — por eso el
+          selector acepta varias extensiones. Si subes el archivo equivocado, el sistema lo detecta
+          y avisa en vez de dar por importado algo vacío.
+        </p>
+        <div id="cum-resultado" style="font-size:.85rem"></div>
       </div>
     </div>
 
@@ -1175,6 +1197,52 @@ async function importarPacientes() {
     if (d.ok) {
       out.innerHTML = `<span style="color:#2f855a">✅ ${d.total.toLocaleString('es-CL')} pacientes en la base, ${d.nuevos.toLocaleString('es-CL')} nuevos.</span>`;
       toast('✅ Base de pacientes actualizada');
+      fileEl.value = '';
+    } else {
+      out.innerHTML = `<span style="color:#e53e3e">❌ ${_esc(d.error || 'Error al importar')}</span>`;
+    }
+  } catch (e) {
+    out.innerHTML = `<span style="color:#e53e3e">No se pudo conectar con el backend: ${_esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Importar';
+  }
+}
+
+// El endpoint de cumpleaños existía desde 2026-07-24 pero NO tenía interfaz: había
+// que llamarlo a mano por HTTP. Por eso la importación quedó sin correr en producción.
+async function importarCumpleanos() {
+  const fileEl = document.getElementById('cum-archivo');
+  const btn = document.getElementById('cum-btn-importar');
+  const out = document.getElementById('cum-resultado');
+  const token = _statsToken();
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  if (!fileEl.files.length) { toast('Elige el archivo del listado de cumpleaños', false); return; }
+
+  const form = new FormData();
+  form.append('file', fileEl.files[0]);
+
+  btn.disabled = true;
+  btn.textContent = 'Importando…';
+  out.innerHTML = '<span style="color:#718096">Importando…</span>';
+  try {
+    // Igual que importarPacientes: FormData va con fetch a mano, sin Content-Type
+    // (lo pone el navegador con el boundary) y sin remotoFetch (que serializa a JSON).
+    const r = await fetch(_statsUrl() + '/api/pacientes/importar-cumpleanos', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': token },
+      body: form,
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const n = v => (v || 0).toLocaleString('es-CL');
+      let msg = `✅ ${n(d.actualizados)} pacientes actualizados, ${n(d.nuevos)} nuevos.`;
+      // Los duplicados son fichas repetidas EN DENTIDESK (mismo RUT dos veces);
+      // gana la última fila. Vale la pena mostrarlo: es un dato de calidad de datos.
+      if (d.duplicados_archivo) msg += ` ${n(d.duplicados_archivo)} RUT repetidos en el archivo (fichas duplicadas en DentiDesk).`;
+      if (d.sospechosas) msg += ` ${n(d.sospechosas)} fechas descartadas por implausibles.`;
+      out.innerHTML = `<span style="color:#2f855a">${_esc(msg)}</span>`;
+      toast('✅ Fechas de nacimiento actualizadas');
       fileEl.value = '';
     } else {
       out.innerHTML = `<span style="color:#e53e3e">❌ ${_esc(d.error || 'Error al importar')}</span>`;
