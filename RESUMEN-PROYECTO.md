@@ -43,7 +43,7 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
   faltaba: la agenda online **le escondía horas válidas al paciente** todos los días.
   Los módulos con nombre propio (`consentimientos.ahora_chile`, `seguros.ahora_chile`,
   `stats._ahora_cl`, `compras.ahora_cl`, `cumpleanos.ahora_chile`) ahora delegan en él.
-- 🧪 **Pruebas:** `cd admin && python test_todo.py` → 132 pruebas, 7 suites, **cero red,
+- 🧪 **Pruebas:** `cd admin && python test_todo.py` → 162 pruebas, 8 suites, **cero red,
   cero correo, cero WhatsApp, cero DentiDesk**. Se puede correr en cualquier momento, aun
   con producción andando. Correrlas antes de cada push. Cubren: hora de Chile, cobertura
   de auth de las 162 rutas, el webhook que cancela citas, las guardas de los 3 sistemas de
@@ -108,13 +108,36 @@ arregló y **no hay que volver a romper**:
 - **Panel**: la pestaña WhatsApp usaba `wa_token`/`wa_url` propios en vez de las claves
   compartidas `stats_token`/`stats_url` — el token puesto en Estadísticas no se propagaba.
 
-Pendiente (deuda de mantenimiento, no bugs): 9 copias del helper de guardado JSON →
-`jsonstore.py`; base común para los 3 `evaluar()` de avisos; 5 copias del layout de email
-en `notify.py`; `panel.html` tiene 2.681 líneas de JS inline con ~70% de patrón repetido.
+**Deuda de mantenimiento — saldada (2026-07-28):**
+- 9 copias del guardado JSON → `jsonstore.py`.
+- Andamiaje triplicado de los 3 sistemas de avisos → `avisos.py`. Habían divergido:
+  a `control_dental` le faltaban `lista_no_molestar()` y `en_no_molestar()`, así que
+  `server.py` leía su registro a mano.
+- 5 copias del sobre de los correos → `notify._email_layout()`. Verificado comparando
+  el HTML generado antes y después: **idéntico carácter por carácter** en las 6 variantes.
+  ⚠️ Los estilos van EN LÍNEA y la maquetación es con `<table>` anidadas a propósito: es
+  lo único que Gmail y Outlook renderizan igual. No "modernizar" a CSS externo.
+- El patrón remoto de las 6 pestañas del panel → `remotoUrl/Token/Headers/Fetch/Init`.
+  Nota honesta: acá el conteo de líneas casi no bajó (la duplicación eran fragmentos de
+  1-3 líneas repartidos, no bloques). El "~70% del JS duplicado" de la auditoría inicial
+  estaba sobrestimado; el valor real es que la lógica vive en un solo lugar.
+
+Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel no revisan
+403 ni error de red, a diferencia de las otras tres pestañas.
 
 ## Backend: módulos (`admin/`)
 - `fechas.py` — **hora de Chile, único lugar**. `ahora_chile()` / `hoy_chile()` /
   `ahora_chile_aware()`. Todo lo demás delega acá (ver la regla dura arriba).
+- `jsonstore.py` — **el guardado de datos, único lugar**. `JsonStore(path, default,
+  indent, claves, default_si_falta)` con escritura atómica, lock propio (RLock) y
+  `actualizar(fn)` para el read-modify-write indivisible. Lo usan los 9 módulos que
+  antes reimplementaban `_load`/`_save`. ⚠️ Si un archivo se corrompe, **NO se pisa**:
+  se aparta como `.corrupto-<n>` y queda aviso en el log. Excepción: `stats.py` no lo
+  usa porque sus archivos son JSONL (una línea por reserva, con append constante).
+- `avisos.py` — lo que comparten recaptación / control dental / NPS: `rut_key()`,
+  `ListaNoMolestar`, `bloqueo()` y `primera_guarda()`. **`no_molestar` se evalúa
+  siempre primero y nunca es forzable** — es el opt-out del paciente, ningún override
+  del F2 lo salta. Los opt-out son independientes entre sistemas a propósito.
 - `test_todo.py` — corre las 7 suites de pruebas. `test_fechas`, `test_seguridad`,
   `test_stats`, `test_cumpleanos`, `test_webhook_wa`, `test_avisos`, `test_compras`.
 - `server.py` — todas las rutas Flask + schedulers en hilos (`_loop_*`). ~5.4k líneas,
