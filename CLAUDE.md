@@ -9,6 +9,82 @@ Contexto completo del proyecto para retomar en cualquier sesión futura.
 
 ---
 
+## ⚠️ LEE ESTO ANTES DE ESCRIBIR CÓDIGO (revisión del 2026-07-28)
+
+El proyecto creció 3 meses copiando y pegando: cada sistema nuevo se escribió "con el
+molde" del anterior. Eso dejó el mismo helper reimplementado 4, 5 y hasta 9 veces, y
+—lo caro— **copias que divergieron**: un arreglo aplicado en ocho de nueve lugares.
+
+En julio de 2026 se hizo una revisión completa y se extrajeron las piezas comunes. **Si
+vas a trabajar en cualquier sistema de este repo, estas 8 reglas te aplican**, sin
+importar si tocas seguros, compras, consentimientos, NPS o el sitio.
+
+### 1. 🕐 Nunca `datetime.now()` ni `date.today()` → usa `admin/fechas.py`
+Render corre en **UTC**, 3-4 h ADELANTE de Chile. Un reloj pelado no es "ahora", es el
+futuro. Usa `fechas.ahora_chile()` (naive, hora de pared) / `fechas.hoy_chile()` /
+`fechas.ahora_chile_aware()` (con offset).
+> **Por qué importa tanto:** había 4 copias del helper y a `scheduling.py` le faltaba.
+> Resultado: **la agenda online le escondía horas válidas al paciente todos los días**.
+> También rechazaba programar un recordatorio "para hoy" después de las 20:00 y estampaba
+> la fecha del día siguiente en los PDF de consentimiento firmados.
+
+### 2. 💾 Nunca escribas tu propio `_load`/`_save` → usa `admin/jsonstore.py`
+`JsonStore(path, default=..., indent=..., claves=..., default_si_falta=...)` te da
+escritura atómica, lock propio y `actualizar(fn)` para el read-modify-write indivisible.
+> **Bonus que no debes perder:** si un archivo se corrompe, **NO se pisa** — se aparta
+> como `.corrupto-<n>` y avisa en el log. Antes se devolvía el default y el siguiente
+> guardado borraba todo en silencio. Excepción legítima: `stats.py` usa JSONL (append
+> por línea), no documentos JSON.
+
+### 3. 📣 ¿Sistema nuevo que le escribe al paciente? → hereda de `admin/avisos.py`
+`rut_key()`, `ListaNoMolestar`, `bloqueo()` y `primera_guarda()`. El contrato de
+`evaluar()` es: `None` si se puede enviar, o `{'motivo','detalle','puede_forzar'}`.
+`detalle` lo LEE UNA PERSONA en el panel del F2, no es un log.
+> **Regla que no se negocia:** `no_molestar` se evalúa **siempre primero** y **siempre
+> con `puede_forzar=False`**. Es el opt-out del paciente; ningún override manual lo salta.
+> Los opt-out son **independientes entre sistemas** a propósito: "no me manden encuestas"
+> no es "no me avisen de mi control".
+
+### 4. 🔑 ¿Endpoint nuevo en `server.py`? → llave o lista de públicas
+El control de acceso se escribe a mano en cada handler (121 copias de
+`if not _check_admin_token()`). **`test_seguridad.py` recorre las 162 rutas y falla si
+agregas una sin llave** y sin declararla pública con su razón escrita. Si el test falla,
+no agregues tu ruta a la lista sin pensarlo: pregúntate si de verdad debe ser pública.
+> **Por qué existe esa guarda:** `/api/upload` quedó **abierto en producción** durante
+> meses — sin token, sin bloqueo y sin sanear el nombre del archivo.
+
+### 5. 🚫 ¿Ruta de administración? → va al set `RUTAS_SOLO_LOCAL`
+**Nunca** un `if EN_RENDER: return 403` suelto dentro de la función. Tener dos mecanismos
+para lo mismo es exactamente lo que dejó `/api/upload` sin ninguno de los dos.
+
+### 6. ✉️ ¿Correo nuevo? → `notify._email_layout(titulo, cuerpo, pie, title_tag)`
+Los 5 correos comparten el sobre (cabecera navy, marca en dorado, pie). Aporta solo tu
+contenido. La dirección, el teléfono y la web salen de constantes.
+> ⚠️ **Los estilos van EN LÍNEA y la maquetación es con `<table>` anidadas a propósito.**
+> No es descuido ni código viejo: es lo único que Gmail y Outlook renderizan igual. **No
+> lo "modernices" a CSS externo o flexbox.**
+
+### 7. 🖥️ ¿Pestaña nueva en `panel.html` que hable con Render?
+Usa `remotoUrl/remotoToken/remotoHeaders/remotoFetch/remotoInit`, y **las claves
+compartidas `stats_token` / `stats_url`**.
+> **Por qué:** la pestaña WhatsApp usaba `wa_token`/`wa_url` propias. El admin cambiaba
+> el token en Estadísticas y ahí seguía el viejo — parecía que el token no servía.
+> Y todo dato que venga del backend pasa por `_esc()` antes de ir a `innerHTML`: en la
+> pestaña Equipo se olvidó y un nombre con apóstrofe rompía la fila (y uno armado a
+> propósito robaba el ADMIN_TOKEN del `localStorage`).
+
+### 8. 🧪 Antes de cada `git push`: `cd admin && python test_todo.py`
+**162 pruebas, 8 suites, cero red / cero correo / cero WhatsApp / cero DentiDesk.** Se
+pueden correr con producción andando. Recuerda que **`git push` ES el deploy**: Render
+redespliega solo.
+
+### 🔒 Y lo de siempre: este repo es PÚBLICO
+Ningún RUT, celular, email ni ID de Meta/Drive en archivos versionados. Los valores reales
+viven en **`DATOS-PRIVADOS.md`** (gitignored, en la raíz) y acá se usan marcadores `<ASI>`.
+Antes de un `git add .`, mira `git status`.
+
+---
+
 ## El proyecto
 
 Sitio web estático de una página (scroll) para la **Clínica Ortodoncia Richard**, Las Condes, Santiago, Chile. Construido con HTML + CSS + JavaScript puro, alojado en GitHub Pages.
@@ -224,6 +300,13 @@ Los pacientes aparecen con sufijos que indican tipo de cita:
 Reemplazar el botón WhatsApp en `#agenda` (buscar comentario `TODO: DentiDesk` en `index.html`).
 
 ### Agendamiento online — INTEGRACIÓN REAL CABLEADA (probada en vivo)
+
+> 🔧 **Tras la revisión de 2026-07-28:** este es justo el sistema que motivó la regla 1 —
+> `scheduling.py` fue el módulo al que le faltó el helper de hora Chile y por eso la agenda
+> online le escondía horas válidas al paciente todos los días. Hoy usa `admin/fechas.py`
+> como todo el resto (ver reglas al inicio de este archivo). Cualquier endpoint nuevo bajo
+> `/api/agenda/*` cae bajo la regla 4 (`test_seguridad.py` recorre las rutas).
+
 Flujo completo construido y **probado en vivo contra DentiDesk** (auth + disponibilidad).
 Datos reales (diccionario API 375): IdLocation **408**, IdStatus nueva cita **2120**,
 profesionales Octavio 9412 / Rodrigo 8452 / Alberto 639 / Patricio 9308.
@@ -360,6 +443,12 @@ configurable por doctor desde el panel; foto del doctor desde `doctorData` (main
 
 ## Confirmaciones de cita — online, automáticas (4 ciclos) y manuales (F2)
 
+> 🔧 **Tras la revisión de 2026-07-28:** el registro `confirmaciones_enviadas.json` ahora
+> vive en `jsonstore.py` y se poda a los 180 días (antes crecía para siempre). Su
+> `default_si_falta=None` es justo el ejemplo de la regla 2: es lo que distingue "nunca se
+> ha corrido" de "archivo vacío", y de eso depende que la primera corrida solo siembre en
+> vez de mandarle correo a cientos de pacientes que ya tenían hora (ver regla 1 y 2 arriba).
+
 Hay TRES formas en que un paciente recibe el correo de confirmación (mismo HTML +
 `.ics`, generado por `notify.enviar_confirmacion()`):
 
@@ -391,6 +480,12 @@ Hay TRES formas en que un paciente recibe el correo de confirmación (mismo HTML
 ---
 
 ## Asistente F2 — extensión de navegador (`dentidesk-assistant/`)
+
+> 🔧 **Tras la revisión de 2026-07-28:** la extensión es JS puro y no toca `fechas.py`/
+> `jsonstore.py`/`avisos.py` directamente, pero cualquier endpoint nuevo que le agregues en
+> `server.py` para que el F2 lo llame cae bajo la regla 4 (llave o lista de públicas, con
+> `test_seguridad.py` recorriendo las rutas) y, si manda correo, bajo la regla 6
+> (`notify._email_layout`).
 
 Producto SEPARADO del sitio (se comercializará; ver `HANDOFF` en Desktop/Borrame).
 Extensión Manifest V3 para Chrome/Edge/Firefox que la secretaria invoca con **F2**
@@ -461,6 +556,11 @@ el usuario pase el link real.
 
 ## Consentimientos informados — firma digital + respaldo Drive
 
+> 🔧 **Tras la revisión de 2026-07-28:** el registro usa `jsonstore.py` (regla 2) y
+> `consentimientos.ahora_chile()` es ahora un wrapper de `fechas.ahora_chile_aware()`
+> (regla 1 — ver el detalle actualizado más abajo, en "Zona horaria"). Los correos (link
+> para firmar, copia firmada) pasan por `notify._email_layout` (regla 6).
+
 Sistema para que el paciente (o apoderado) firme el consentimiento informado de
 ortodoncia digitalmente, quede respaldado y se archive en su ficha DentiDesk.
 
@@ -509,8 +609,11 @@ Estados: `enviado` → `firmado` → `subido`. Registro en `consentimientos_regi
 `drive_file_id` (para el botón "Abrir en Drive" del panel), `pdf_sha256` (hash real del PDF).
 
 **Zona horaria:** el servidor en Render corre en UTC. Todas las fechas del registro y el
-sello del PDF usan `consentimientos.ahora_chile()` (zoneinfo `America/Santiago` + paquete
-`tzdata` en requirements — Windows/Render no traen tzdata del sistema).
+sello del PDF usan `consentimientos.ahora_chile()`, que desde la revisión de 2026-07-28 es
+un wrapper de una línea sobre `fechas.ahora_chile_aware()` (zoneinfo `America/Santiago` +
+paquete `tzdata` en requirements — Windows/Render no traen tzdata del sistema; ver regla 1
+al inicio de este archivo). Antes cada módulo tenía su propio bloque `ZoneInfo`; ahora vive
+una sola vez en `admin/fechas.py`.
 
 **Integridad del PDF (honesto, no cosmético):** el sello "REGISTRO DE FIRMA" en el PDF
 NO es una firma electrónica avanzada (PKI) — es un registro de trazabilidad (ID, fecha/hora,
@@ -549,6 +652,10 @@ documentos, reemplazar este flujo por subida directa.
 ---
 
 ## Seguros Complementarios — formularios de reembolso (2026-07-09)
+
+> 🔧 **Tras la revisión de 2026-07-28:** la persistencia pasa por `jsonstore.py` (un store
+> por archivo, cacheado en `_STORES` — regla 2) y los correos (formulario, avisos a
+> recepción) por `notify._email_layout` (regla 6).
 
 Sistema para que la secretaria rellene y envíe por email el formulario de reembolso del
 seguro complementario del paciente, integrado al asistente F2. Aseguradoras objetivo:
@@ -679,6 +786,10 @@ verificar cómo viene DESCRIPCION cuando la boleta tiene varias líneas de detal
 
 ## Fechas de nacimiento y cumpleaños (2026-07-24)
 
+> 🔧 **Tras la revisión de 2026-07-28:** `pacientes.py` y `cumpleanos.py` guardan con
+> `jsonstore.py` (regla 2) y calculan la hora con `admin/fechas.py` (regla 1) — ya no hay
+> un bloque `ZoneInfo` propio en ninguno de los dos.
+
 La base de pacientes no tenía fecha de nacimiento (`Edad` del Excel se descarta a propósito
 porque envejece mal). Ahora sí, desde el export **"Listado de Cumpleaños"** del panel DentiDesk.
 
@@ -744,6 +855,11 @@ importación en producción (subir el .xls por el endpoint y cargar la tabla del
 ---
 
 ## Recordatorio de control — recaptación desde F2 (2026-07-21)
+
+> 🔧 **Tras la revisión de 2026-07-28:** comparte `admin/avisos.py` con Control Dental y NPS
+> (`rut_key`, `ListaNoMolestar` — regla 3): `no_molestar` va SIEMPRE primero y nunca es
+> forzable, a diferencia de `ya_tiene_hora`/`enviado_reciente` que sí. Registro y config en
+> `jsonstore.py` (regla 2).
 
 Aviso por WhatsApp a pacientes que dejaron de venir, para que agenden su próximo control.
 Lo dispara **a mano la asistente dental**, no un scheduler: abre en DentiDesk la cita de la
@@ -906,6 +1022,10 @@ la extensión, con el ADMIN_TOKEN en `config.js`); definir con la clínica el ri
 
 ## Recordatorio de Control Dental — email cada 6 meses al paciente con aparatos (2026-07-22)
 
+> 🔧 **Tras la revisión de 2026-07-28:** mismo `admin/avisos.py` compartido que Recaptación
+> y NPS (regla 3) — `no_molestar` siempre primero y nunca forzable, con opt-out
+> independiente de los otros dos sistemas. Registro y config en `jsonstore.py` (regla 2).
+
 Al paciente con aparatos fijos o alineadores le sube mucho el riesgo de caries y
 descalcificación, y la mala higiene alarga el tratamiento y empeora el resultado. Este
 sistema le manda **un email cada 6 meses** recomendándole ir a su **dentista general**
@@ -1020,9 +1140,12 @@ fuiste recientemente a tu control dental, por favor no consideres este correo."*
 `GET .../inscritos?estado=`, `GET .../historial`, `POST .../backfill` (corre en hilo,
 one-off), `POST .../run`, `GET .../motivos-desconocidos`, `POST .../motivo`.
 
-**Estado:** código completo y verificado con pruebas locales (24 unitarias + una de
-integración que ejercita control_dental + notify + server reales, con `getAgendaDay` y
-`smtplib` interceptados: cero red y cero correo). **Falta en producción:** desplegar,
+**Estado:** código completo y verificado con pruebas locales. 🔧 *Tras la revisión de
+2026-07-28, estas pruebas viven consolidadas en `test_avisos.py`* (suite compartida de
+recaptación/control dental/NPS por su `avisos.py` común — 55 pruebas en total, ver regla 3
+al inicio del archivo), no en un archivo propio de `control_dental` con su propia
+integración contra `notify`/`server`, como decía esta sección hasta esa fecha. Cero red y
+cero correo (DentiDesk y `smtplib` interceptados). **Falta en producción:** desplegar,
 correr el backfill de 6 meses UNA vez fuera de horario de atención, revisar la lista de
 inscritos con la clínica y recién ahí poner `activo=true` (viene en `false` a propósito).
 Y copiar la extensión actualizada al PC de la asistente (no viaja por Render).
@@ -1030,6 +1153,11 @@ Y copiar la extensión actualizada al PC de la asistente (no viaja por Render).
 ---
 
 ## Compras / Gastos / Stock — app online multiusuario (Fases 1 y 2 COMPLETAS, 2026-07-08)
+
+> 🔧 **Tras la revisión de 2026-07-28:** sigue en SQLite a propósito — NO migró a
+> `jsonstore.py` (la regla 2 no aplica acá, son relaciones reales que justifican una base de
+> datos) — pero `compras.ahora_cl()` ahora delega en `admin/fechas.py` (regla 1) igual que
+> el resto del proyecto.
 
 Sistema para llevar el registro de compras y gastos con seguimiento de stock. App web
 propia, servida por el MISMO backend Flask de Render, con login y roles propios (NO usa
@@ -1280,6 +1408,10 @@ GitHub Pages publica automáticamente en 1-2 minutos.
 ---
 
 ## WhatsApp Cloud API oficial (Meta) — migración en curso
+
+> 🔧 **Tras la revisión de 2026-07-28:** la pestaña "WhatsApp" del panel usa las claves
+> compartidas `stats_token`/`stats_url` (regla 7) — ya NO `wa_token`/`wa_url` propias, con
+> migración automática desde las viejas para navegadores que aún las tenían guardadas.
 
 Objetivo: reemplazar el WhatsApp NO oficial (bridge whatsmeow en `notify.py`, fallback
 local que NO corre en Render) por la **Cloud API oficial de Meta**, para enviar
@@ -1545,6 +1677,11 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
 ---
 
 ## NPS / Encuesta de satisfacción por WhatsApp (2026-07-24)
+
+> 🔧 **Tras la revisión de 2026-07-28:** mismo `admin/avisos.py` compartido que Recaptación
+> y Control Dental (regla 3) — `no_molestar` siempre primero, nunca forzable, opt-out
+> independiente ("no me manden encuestas" no es "no me avisen de mi control"). Registro en
+> `jsonstore.py` (regla 2).
 
 Encuesta de satisfacción automática tras la atención → convierte promotores en **reseñas
 de Google que mencionan al doctor tratante** y detecta detractores para seguimiento privado.
