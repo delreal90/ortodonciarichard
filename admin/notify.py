@@ -34,6 +34,90 @@ import nps
 
 # ── Email (primario) ─────────────────────────────────────────────────────────
 
+# ── Layout de los emails al paciente ─────────────────────────────────────────
+#
+# Los 5 correos que le llegan al paciente (confirmacion de hora, consentimiento
+# para firmar, copia del consentimiento firmado, formulario de seguro y
+# recordatorio de control dental) comparten el mismo sobre: fondo #f0f5fb, tarjeta
+# blanca de 560px, cabecera navy con la marca en dorado, y pie navy.
+#
+# Estaba copiado entero en las 5 funciones. Cada retoque de marca (un color, la
+# direccion, el telefono) habia que hacerlo 5 veces, y bastaba olvidar una para
+# que un paciente recibiera un correo con la direccion vieja.
+#
+# ⚠️ Los estilos van EN LINEA a proposito: los clientes de correo (Gmail, Outlook)
+# descartan las hojas de estilo y buena parte de los selectores CSS. Y la
+# maquetacion con <table> anidadas tampoco es un descuido: es lo unico que Outlook
+# renderiza igual que el resto.
+
+CLINICA_DIRECCION = 'Paul Harris 10.349, of. 305, Las Condes, Santiago'
+CLINICA_TELEFONO = '+56 2 2217 3499'
+CLINICA_TEL_LINK = 'tel:+56222173499'
+CLINICA_WHATSAPP = 'https://wa.me/56933558189'
+CLINICA_WEB = 'https://www.ortodonciarichard.cl'
+
+# Las 3 variantes de pie que existen hoy. Se mantienen tal cual estaban: cambiar
+# cual usa cada correo es una decision de contenido, no de refactor.
+PIE_SOLO_DIRECCION = 'solo_direccion'
+PIE_CON_WEB = 'con_web'
+PIE_COMPLETO = 'completo'          # direccion + telefono + web
+
+
+def _pie(variante):
+    if variante == PIE_SOLO_DIRECCION:
+        return f'Ortodoncia Richard · {CLINICA_DIRECCION}'
+    if variante == PIE_CON_WEB:
+        return (f'Ortodoncia Richard · {CLINICA_DIRECCION}<br>'
+                f'<a href="{CLINICA_WEB}" style="color:#C9A84C;text-decoration:none;">'
+                f'www.ortodonciarichard.cl</a>')
+    return (f'Ortodoncia Richard · {CLINICA_DIRECCION}<br>'
+            f'📞 <a href="{CLINICA_TEL_LINK}" style="color:#C9A84C;text-decoration:none;">'
+            f'{CLINICA_TELEFONO}</a> &nbsp;|&nbsp; '
+            f'<a href="{CLINICA_WEB}" style="color:#C9A84C;text-decoration:none;">'
+            f'www.ortodonciarichard.cl</a>')
+
+
+def contacto_inline(prefijo='Si tienes dudas, contáctanos:'):
+    """La linea de contacto que va dentro del cuerpo de varios correos."""
+    return (f'{prefijo} 📞 <a href="{CLINICA_TEL_LINK}" style="color:#1A2E4A;">'
+            f'{CLINICA_TELEFONO}</a> &nbsp;|&nbsp; '
+            f'<a href="{CLINICA_WHATSAPP}" style="color:#1A2E4A;">WhatsApp</a>')
+
+
+def _email_layout(titulo, cuerpo, pie=PIE_SOLO_DIRECCION, title_tag=None):
+    """El sobre comun. `cuerpo` es el HTML que va dentro de la tarjeta blanca;
+    `titulo` es el encabezado sobre fondo navy."""
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title_tag or titulo}</title></head>
+<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
+  <tr>
+    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
+      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
+      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">{titulo}</h1>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:32px 32px 24px;">
+{cuerpo}
+    </td>
+  </tr>
+  <tr>
+    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
+      <p style="margin:0;color:#8fa8c8;font-size:12px;">{_pie(pie)}</p>
+    </td>
+  </tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
 def _html_confirmacion(cita, reagenda=False):
     """HTML del cuerpo del email de confirmacion. reagenda=True cambia el titulo
     y la bajada para un reagendamiento ('tu hora fue reagendada con exito')."""
@@ -41,27 +125,7 @@ def _html_confirmacion(cita, reagenda=False):
     bajada = ('Hola <strong>' + cita['nombre'] + '</strong>, tu hora anterior quedó anulada '
               'y tu nueva cita quedó agendada con los siguientes datos:') if reagenda else \
              ('Hola <strong>' + cita['nombre'] + '</strong>, confirmamos tu cita con los siguientes datos:')
-    return f"""<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Confirmación de hora</title></head>
-<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
-<tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
-
-  <!-- Header -->
-  <tr>
-    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
-      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
-      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">{titulo}</h1>
-    </td>
-  </tr>
-
-  <!-- Detalles -->
-  <tr>
-    <td style="padding:32px 32px 24px;">
-      <p style="margin:0 0 24px;color:#4A5568;font-size:15px;">{bajada}</p>
+    cuerpo = f"""      <p style="margin:0 0 24px;color:#4A5568;font-size:15px;">{bajada}</p>
 
       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
         <tr style="background:#f8fafc;">
@@ -96,27 +160,11 @@ def _html_confirmacion(cita, reagenda=False):
 
       <p style="margin:0;color:#4A5568;font-size:14px;">
         Si necesitas reagendar o cancelar, comunícate con nosotros:<br>
-        📞 <a href="tel:+56222173499" style="color:#1A2E4A;">+56 2 2217 3499</a> &nbsp;|&nbsp;
-        💬 <a href="https://wa.me/56933558189" style="color:#1A2E4A;">WhatsApp</a>
-      </p>
-    </td>
-  </tr>
-
-  <!-- Footer -->
-  <tr>
-    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
-      <p style="margin:0;color:#8fa8c8;font-size:12px;">
-        Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago<br>
-        <a href="https://www.ortodonciarichard.cl" style="color:#C9A84C;text-decoration:none;">www.ortodonciarichard.cl</a>
-      </p>
-    </td>
-  </tr>
-
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
+        📞 <a href="{CLINICA_TEL_LINK}" style="color:#1A2E4A;">{CLINICA_TELEFONO}</a> &nbsp;|&nbsp;
+        💬 <a href="{CLINICA_WHATSAPP}" style="color:#1A2E4A;">WhatsApp</a>
+      </p>"""
+    return _email_layout(titulo, cuerpo, pie=PIE_CON_WEB,
+                         title_tag='Confirmación de hora')
 
 
 def _enviar_email_smtp(cita, ics, reagenda=False):
@@ -706,40 +754,13 @@ def enviar_aviso_agendamiento(datos, cfg=None):
 # ── Consentimiento informado (link de firma) ─────────────────────────────────
 
 def _html_consentimiento(nombre, link, tipo_label):
-    return f"""<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Consentimiento informado</title></head>
-<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
-<tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
-  <tr>
-    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
-      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
-      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Consentimiento informado</h1>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:32px 32px 24px;">
-      <p style="margin:0 0 20px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>, antes de tu próximo tratamiento necesitamos que firmes tu <strong>{tipo_label}</strong>.</p>
+    cuerpo = f"""      <p style="margin:0 0 20px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>, antes de tu próximo tratamiento necesitamos que firmes tu <strong>{tipo_label}</strong>.</p>
       <p style="margin:0 0 24px;color:#4A5568;font-size:15px;">Puedes leerlo con calma y firmarlo directamente desde tu celular:</p>
       <div style="text-align:center;margin:0 0 24px;">
         <a href="{link}" style="display:inline-block;background:#C9A84C;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px;">Firmar consentimiento</a>
       </div>
-      <p style="margin:0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="tel:+56222173499" style="color:#1A2E4A;">+56 2 2217 3499</a> &nbsp;|&nbsp; 💬 <a href="https://wa.me/56933558189" style="color:#1A2E4A;">WhatsApp</a></p>
-    </td>
-  </tr>
-  <tr>
-    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
-      <p style="margin:0;color:#8fa8c8;font-size:12px;">Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago</p>
-    </td>
-  </tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
+      <p style="margin:0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="{CLINICA_TEL_LINK}" style="color:#1A2E4A;">{CLINICA_TELEFONO}</a> &nbsp;|&nbsp; 💬 <a href="{CLINICA_WHATSAPP}" style="color:#1A2E4A;">WhatsApp</a></p>"""
+    return _email_layout('Consentimiento informado', cuerpo, pie=PIE_SOLO_DIRECCION)
 
 
 def _enviar_email_consentimiento(nombre, email, link, tipo_label):
@@ -790,37 +811,11 @@ def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label):
 
 
 def _html_copia_consentimiento(nombre, tipo_label):
-    return f"""<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Copia de tu consentimiento</title></head>
-<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
-<tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
-  <tr>
-    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
-      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
-      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Tu consentimiento firmado</h1>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:32px 32px 24px;">
-      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>, gracias por firmar tu <strong>{tipo_label}</strong>.</p>
+    cuerpo = f"""      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>, gracias por firmar tu <strong>{tipo_label}</strong>.</p>
       <p style="margin:0 0 8px;color:#4A5568;font-size:15px;">Adjuntamos una copia en PDF del documento firmado para tus registros.</p>
-      <p style="margin:20px 0 0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="tel:+56222173499" style="color:#1A2E4A;">+56 2 2217 3499</a> &nbsp;|&nbsp; 💬 <a href="https://wa.me/56933558189" style="color:#1A2E4A;">WhatsApp</a></p>
-    </td>
-  </tr>
-  <tr>
-    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
-      <p style="margin:0;color:#8fa8c8;font-size:12px;">Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago</p>
-    </td>
-  </tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
+      <p style="margin:20px 0 0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="{CLINICA_TEL_LINK}" style="color:#1A2E4A;">{CLINICA_TELEFONO}</a> &nbsp;|&nbsp; 💬 <a href="{CLINICA_WHATSAPP}" style="color:#1A2E4A;">WhatsApp</a></p>"""
+    return _email_layout('Tu consentimiento firmado', cuerpo, pie=PIE_SOLO_DIRECCION,
+                         title_tag='Copia de tu consentimiento')
 
 
 def enviar_copia_consentimiento(paciente, pdf_path, tipo_label='consentimiento informado'):
@@ -871,37 +866,10 @@ def enviar_copia_consentimiento(paciente, pdf_path, tipo_label='consentimiento i
 
 
 def _html_formulario_seguro(nombre, aseguradora_nombre):
-    return f"""<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Formulario de tu seguro complementario</title></head>
-<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
-<tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
-  <tr>
-    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
-      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
-      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Formulario de tu seguro complementario</h1>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:32px 32px 24px;">
-      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>,</p>
+    cuerpo = f"""      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>,</p>
       <p style="margin:0 0 8px;color:#4A5568;font-size:15px;">Adjuntamos el formulario de reembolso de <strong>{aseguradora_nombre}</strong> con el detalle de tus prestaciones, listo para que lo presentes a tu seguro complementario.</p>
-      <p style="margin:20px 0 0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="tel:+56222173499" style="color:#1A2E4A;">+56 2 2217 3499</a> &nbsp;|&nbsp; 💬 <a href="https://wa.me/56933558189" style="color:#1A2E4A;">WhatsApp</a></p>
-    </td>
-  </tr>
-  <tr>
-    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
-      <p style="margin:0;color:#8fa8c8;font-size:12px;">Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago</p>
-    </td>
-  </tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
+      <p style="margin:20px 0 0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="{CLINICA_TEL_LINK}" style="color:#1A2E4A;">{CLINICA_TELEFONO}</a> &nbsp;|&nbsp; 💬 <a href="{CLINICA_WHATSAPP}" style="color:#1A2E4A;">WhatsApp</a></p>"""
+    return _email_layout('Formulario de tu seguro complementario', cuerpo, pie=PIE_SOLO_DIRECCION)
 
 
 def avisar_recepcion_seguro_no_enviado(motivo, rut, glosa, folio='', paciente=''):
@@ -988,42 +956,12 @@ def _html_control_dental(nombre, saludo_sufijo, frecuencia_meses=6):
     es 'o' | 'a' | 'o/a' (pacientes.saludo). La ultima linea (nota de
     escape) va atenuada -- es un pie de pagina, no un parrafo mas."""
     frecuencia_txt = _frecuencia_label(frecuencia_meses)
-    return f"""<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Recordatorio de control dental</title></head>
-<body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5fb;padding:32px 16px;">
-<tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
-  <tr>
-    <td style="background:#1A2E4A;padding:28px 32px;text-align:center;">
-      <p style="margin:0;color:#C9A84C;font-size:13px;letter-spacing:2px;text-transform:uppercase;">Ortodoncia Richard</p>
-      <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;">Recordatorio: control con tu dentista</h1>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:32px 32px 24px;">
-      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Estimad{saludo_sufijo} <strong>{nombre}</strong>,</p>
+    cuerpo = f"""      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Estimad{saludo_sufijo} <strong>{nombre}</strong>,</p>
       <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Han pasado {frecuencia_txt} desde nuestro último recordatorio. Durante el tratamiento de ortodoncia te recomendamos agendar un control con tu dentista para limpieza y revisión de caries.</p>
       <p style="margin:0 0 20px;color:#4A5568;font-size:15px;">Mantener una buena higiene permite que el tratamiento de ortodoncia avance en los tiempos esperados, además de poder terminarlo de la mejor manera.</p>
-      <p style="margin:0;color:#a0aec0;font-size:12px;">Si ya fuiste recientemente a tu control dental, por favor no consideres este correo.</p>
-    </td>
-  </tr>
-  <tr>
-    <td style="background:#1A2E4A;padding:20px 32px;text-align:center;">
-      <p style="margin:0;color:#8fa8c8;font-size:12px;">
-        Ortodoncia Richard · Paul Harris 10.349, of. 305, Las Condes, Santiago<br>
-        📞 <a href="tel:+56222173499" style="color:#C9A84C;text-decoration:none;">+56 2 2217 3499</a> &nbsp;|&nbsp;
-        <a href="https://www.ortodonciarichard.cl" style="color:#C9A84C;text-decoration:none;">www.ortodonciarichard.cl</a>
-      </p>
-    </td>
-  </tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
+      <p style="margin:0;color:#a0aec0;font-size:12px;">Si ya fuiste recientemente a tu control dental, por favor no consideres este correo.</p>"""
+    return _email_layout('Recordatorio: control con tu dentista', cuerpo, pie=PIE_COMPLETO,
+                         title_tag='Recordatorio de control dental')
 
 
 def enviar_recordatorio_control_dental(paciente, cfg=None):
