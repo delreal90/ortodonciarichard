@@ -9,6 +9,11 @@ venv/
 # reales viven solo acá. — NUNCA subir a git.
 DATOS-PRIVADOS.md
 
+# Contexto local de Claude Code: enlaza las memorias del usuario (que viven fuera del
+# repo) para las sesiones abiertas DENTRO de esta carpeta. Tiene rutas de la máquina
+# del usuario — NUNCA subir a git.
+CLAUDE.local.md
+
 # Credenciales DentiDesk — NUNCA subir a git
 admin/scheduling_secrets.json
 
