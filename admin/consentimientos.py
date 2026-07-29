@@ -579,7 +579,7 @@ def generar_pdf_blanco(tipo='ortodoncia'):
     from reportlab.lib.units import cm
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-                                     Image as RLImage, Table, TableStyle)
+                                     Image as RLImage, Table, TableStyle, KeepTogether)
     from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
     from reportlab.lib import colors
     import io
@@ -672,11 +672,22 @@ def generar_pdf_blanco(tipo='ortodoncia'):
             ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
             ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ]))
-        story.append(barra)
 
         # Párrafos sueltos (no Table) con fondo celeste propio — se parten
         # solos entre páginas sin riesgo de LayoutError en secciones largas.
-        for sub, texto in bloques:
+        # La barra va en un KeepTogether con el primer párrafo para que el
+        # título nunca quede solo al fondo de una página con su texto recién
+        # en la siguiente.
+        primer_bloque = [barra]
+        resto = list(bloques)
+        if resto:
+            sub0, texto0 = resto.pop(0)
+            if sub0:
+                primer_bloque.append(Paragraph(sub0, subtitulo))
+            primer_bloque.append(Paragraph(texto0.format(**fmt_kwargs), cuerpo))
+        story.append(KeepTogether(primer_bloque))
+
+        for sub, texto in resto:
             if sub:
                 story.append(Paragraph(sub, subtitulo))
             story.append(Paragraph(texto.format(**fmt_kwargs), cuerpo))
@@ -689,8 +700,6 @@ def generar_pdf_blanco(tipo='ortodoncia'):
         ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
         ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
-    story.append(barra_final)
-
     campos_finales = [
         f"Nombre del Paciente: {'_' * 45}",
         f"RUT del Paciente: {'_' * 30}",
@@ -698,7 +707,8 @@ def generar_pdf_blanco(tipo='ortodoncia'):
         f"Fecha: {'_' * 20}",
         f"Firma del Paciente/Apoderado: {'_' * 30}",
     ]
-    for c in campos_finales:
+    story.append(KeepTogether([barra_final, Paragraph(campos_finales[0], cuerpo)]))
+    for c in campos_finales[1:]:
         story.append(Paragraph(c, cuerpo))
 
     doc.build(story)
