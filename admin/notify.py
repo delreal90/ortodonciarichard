@@ -1014,6 +1014,27 @@ def avisar_recepcion_control_dental_sin_email(lista):
         f'Control dental — {len(lista)} paciente(s) sin email', html)
 
 
+def avisar_recepcion_consentimientos_pendientes(lista):
+    """Aviso agrupado a recepcion con los consentimientos SIN FIRMAR cuyo
+    paciente tiene una cita proxima, para que se aseguren de que firme antes
+    de la atencion. UN solo correo con la lista completa (no uno por
+    paciente). lista: [{nombre, rut, tipo, fecha_cita, hora_cita,
+    doctor_cita, ...}] (ver consentimientos.pendientes_con_cita_proxima).
+    Si viene vacia, no manda nada."""
+    if not lista:
+        return False
+    filas = ''.join(
+        _fila('Paciente', p.get('nombre', '')) + _fila('RUT', p.get('rut', ''))
+        + _fila('Documento', p.get('tipo', ''))
+        + _fila('Próxima cita', (f"{p.get('fecha_cita', '')} {p.get('hora_cita', '')} — "
+                                  f"{p.get('doctor_cita') or 'sin doctor asignado'}").strip())
+        for p in lista)
+    html = _aviso_recepcion_html(
+        f'Consentimientos sin firmar con cita próxima ({len(lista)})', filas)
+    return _enviar_email_recepcion(
+        f'Consentimientos pendientes de firma — {len(lista)} paciente(s)', html)
+
+
 def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento informado'):
     """
     Envía el link de firma de consentimiento por el canal elegido explícitamente

@@ -218,6 +218,53 @@ def listar(estado=None):
     return sorted(items, key=lambda i: i['creado'], reverse=True)
 
 
+# ── Alerta de pendientes con cita próxima ────────────────────────────────────
+# Barrido diario (server.py -> _loop_alerta_consentimientos): cruza los
+# consentimientos SIN FIRMAR (estado 'enviado') con la agenda de DentiDesk. Si
+# el paciente tiene una cita futura activa, hay que avisar a recepción para
+# que se asegure de que firme antes de la atención (mismo espíritu que el
+# aviso de alineadores 9+ meses, pero sin scraping: acá el dato de "sin
+# firmar" ya vive en este registro y la cita se resuelve por API).
+
+def pendientes_con_cita_proxima():
+    """Consentimientos sin firmar cuyo paciente tiene una cita futura activa
+    en DentiDesk. Devuelve una lista ordenada por fecha de cita ASCENDENTE:
+    [{'consent_id','rut','nombre','tipo','canal','creado','fecha_cita',
+      'hora_cita','doctor_cita'}]. Si DentiDesk está deshabilitado, o no hay
+    consentimientos pendientes, devuelve []."""
+    import dentidesk
+    import scheduling
+
+    pendientes = listar(estado='enviado')
+    if not pendientes:
+        return []
+    scfg = scheduling.load_config()
+    if not scfg['dentidesk']['enabled']:
+        return []
+
+    out = []
+    for p in pendientes:
+        citas = dentidesk.citas_futuras_paciente(p['rut'], scfg)
+        if not citas:
+            continue
+        proxima = citas[0]
+        rec = pacientes.lookup(p['rut']) or {}
+        nombre = f"{rec.get('nombres', '')} {rec.get('apellidos', '')}".strip()
+        out.append({
+            'consent_id': p['id'],
+            'rut': _formatear_rut(p['rut']),
+            'nombre': nombre or p['rut'],
+            'tipo': TIPOS_DOCUMENTO.get(p['tipo'], p['tipo']),
+            'canal': p['canal'],
+            'creado': p['creado'],
+            'fecha_cita': proxima['fecha'],
+            'hora_cita': proxima['hora'],
+            'doctor_cita': proxima['profesional'],
+        })
+    out.sort(key=lambda i: (i['fecha_cita'], i['hora_cita']))
+    return out
+
+
 # ── Cola de la tablet (kiosco) ───────────────────────────────────────────────
 # La secretaria, desde F2, empuja {rut, tipo, id} a esta cola. La tablet hace
 # polling (GET /api/consentimiento/tablet/cola) y, al detectar un item, salta

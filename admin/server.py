@@ -3149,6 +3149,27 @@ def consentimiento_reenviar_copia():
     return jsonify({'ok': True, 'email_enmascarado': _enmascarar_email(email_pac)})
 
 
+@app.route('/api/consentimiento/alerta-pendientes', methods=['GET'])
+def consentimiento_alerta_pendientes():
+    """Panel/diagnostico: consentimientos sin firmar cuyo paciente tiene una
+    cita proxima en DentiDesk (mismo cruce que el barrido diario de las
+    09:30). Solo lectura, no manda correo. Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'items': consentimientos.pendientes_con_cita_proxima()})
+
+
+@app.route('/api/consentimiento/alerta-pendientes/run', methods=['POST'])
+def consentimiento_alerta_pendientes_run():
+    """Corre a mano el barrido + aviso a recepcion (para probar sin esperar
+    a las 09:30) -- mismo criterio que /api/control-dental/run. Protegido
+    por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    pendientes = _procesar_alerta_consentimientos()
+    return jsonify({'ok': True, 'items': pendientes, 'avisado': bool(pendientes)})
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SEGUROS COMPLEMENTARIOS  (formularios de reembolso — módulo seguros.py)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5093,6 +5114,43 @@ def _loop_control_dental():
         time.sleep(40)
 
 
+def _procesar_alerta_consentimientos():
+    """Cruza los consentimientos SIN FIRMAR con la agenda de DentiDesk
+    (consentimientos.pendientes_con_cita_proxima()) y, si hay alguno cuyo
+    paciente tiene una cita futura activa, manda UN aviso agrupado a
+    recepcion (nunca uno por paciente). Devuelve la lista de pendientes
+    (vacia si no hay nada que avisar)."""
+    pendientes = consentimientos.pendientes_con_cita_proxima()
+    if pendientes:
+        notify.avisar_recepcion_consentimientos_pendientes(pendientes)
+    return pendientes
+
+
+def _loop_alerta_consentimientos():
+    """Barrido diario (una vez al dia, ventana 09:30-17:00 hora Chile --
+    mismo patron VENTANA que _loop_control_dental, para sobrevivir un
+    reinicio de Render que caiga justo en el minuto exacto de disparo).
+    No hay config propia ni toggle: es liviano (una llamada por
+    consentimiento pendiente, normalmente pocos) y siempre util saberlo."""
+    import time
+    ya_corrio = None
+    HORA_ENVIO = '09:30'
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            cfg_dd = scheduling.load_config()
+            if (cfg_dd['dentidesk']['enabled']
+                    and HORA_ENVIO <= slot < '17:00'
+                    and ya_corrio != ahora.date()):
+                ya_corrio = ahora.date()
+                r = _procesar_alerta_consentimientos()
+                print('[alerta-consentimientos]', slot, f'{len(r)} pendiente(s)')
+        except Exception as e:
+            print('[alerta-consentimientos] error:', e)
+        time.sleep(40)
+
+
 def _procesar_nps(cfg_nps, cfg_dd, ahora):
     """Barre las citas ATENDIDAS de ayer y hoy y manda la encuesta de
     satisfaccion (WhatsApp) a las que corresponda. 'ahora' es un datetime con
@@ -5422,6 +5480,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     threading.Thread(target=_loop_control_dental, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
+    threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
     print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
     print('[recaptacion-programados] scheduler iniciado (hora configurable en el panel)')
@@ -5429,6 +5488,7 @@ def _iniciar_scheduler():
     print('[calentador] scheduler iniciado (disponibilidad, cada 20 min)')
     print('[recurrentes] scheduler iniciado (barrido diario 09:00, cargos recurrentes)')
     print('[nps] scheduler iniciado (encuestas de satisfaccion, ventana configurable en el panel)')
+    print('[alerta-consentimientos] scheduler iniciado (barrido diario 09:30, aviso a recepcion)')
 
 _iniciar_scheduler()
 
