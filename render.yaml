@@ -27,3 +27,9 @@ services:
         sync: false
       - key: WA_VERIFY_TOKEN
         sync: false
+      # Ficha de Primera Consulta (Google Form -> base de pacientes). El id del
+      # Google Sheet apunta a datos de pacientes; va como env var (esta en
+      # DATOS-PRIVADOS.md), NUNCA en el repo publico. Sin el, el modulo queda
+      # apagado. Lee con la misma cuenta de servicio de GOOGLE_SERVICE_ACCOUNT_JSON.
+      - key: FICHA_SHEET_ID
+        sync: false

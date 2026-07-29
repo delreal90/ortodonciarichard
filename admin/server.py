@@ -1124,6 +1124,28 @@ def pacientes_importar_cumpleanos():
     return jsonify({'ok': True, **res})
 
 
+@app.route('/api/fichas/sync', methods=['POST'])
+def fichas_sync():
+    """Lee la Ficha de Primera Consulta (Google Form) y suma sus datos de
+    contacto a la base, rellenando solo lo que falte. Protegido. El scheduler la
+    corre sola cada 12h; este endpoint es el boton "Sincronizar ahora" del panel."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import fichas
+    if not fichas.habilitado():
+        return jsonify({'ok': False, 'error': 'Ficha no configurada: falta FICHA_SHEET_ID '
+                        'o el acceso de la cuenta de servicio al Google Sheet.'}), 400
+    return jsonify(fichas.sincronizar())
+
+
+@app.route('/api/fichas/estado', methods=['GET'])
+def fichas_estado():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import fichas
+    return jsonify({'ok': True, **fichas.estado()})
+
+
 @app.route('/api/pacientes/reset', methods=['POST'])
 def pacientes_reset():
     """Vacia la base de pacientes (para resembrar desde cero). Protegido."""
@@ -4781,6 +4803,17 @@ def _loop_refresco_pacientes():
                     pacientes.construir_desde_agenda(cfg, dias_atras=180, dias_adelante=120)
         except Exception as e:
             print('[refresco pacientes] error:', e)
+        # Ficha de Primera Consulta (Google Form): mismo ritmo que el refresco
+        # de DentiDesk. Solo suma datos de contacto que falten, nunca pisa.
+        # Apagado salvo que FICHA_SHEET_ID este configurado.
+        try:
+            import fichas
+            if fichas.habilitado():
+                r = fichas.sincronizar()
+                print('[fichas]', {k: r.get(k) for k in ('ok', 'fichas', 'nuevos',
+                      'actualizados', 'emails_rellenados') if k in r})
+        except Exception as e:
+            print('[fichas] error:', e)
         primera = False
         time.sleep(12 * 3600)  # cada 12 horas
 

@@ -275,6 +275,22 @@
           y avisa en vez de dar por importado algo vacío.
         </p>
         <div id="cum-resultado" style="font-size:.85rem"></div>
+
+        <hr style="border:none;border-top:1px solid #edf2f7;margin:18px 0">
+
+        <h3 style="margin-bottom:6px">📋 Ficha de primera consulta (Google Forms)</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:14px">
+          Lee el formulario que llenan los pacientes antes de su primera consulta (vía la cuenta
+          de servicio de Google, en privado) y suma a la base los datos de <strong>contacto</strong>
+          que falten: nombre, fecha de nacimiento, celular, correo, dirección. <strong>No toca</strong>
+          la parte clínica ni pisa datos ya cargados. Se sincroniza sola cada 12 horas; este botón
+          es para hacerlo al instante.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn btn-primary btn-sm" id="fic-btn-sync" onclick="sincronizarFichas()">Sincronizar ahora</button>
+          <span id="fic-estado" style="font-size:.82rem;color:#718096"></span>
+        </div>
+        <div id="fic-resultado" style="font-size:.85rem"></div>
       </div>
     </div>
 
@@ -1086,6 +1102,7 @@ function _statsToken() { return remotoToken('stats-token'); }
 
 function initStats() {
   remotoInit('stats-url', 'stats-token', loadStats);
+  cargarEstadoFichas();
 }
 
 async function loadStats() {
@@ -1252,6 +1269,52 @@ async function importarCumpleanos() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Importar';
+  }
+}
+
+// Ficha de primera consulta (Google Form). A diferencia de los otros dos, acá NO
+// se sube un archivo: el backend lee el Google Sheet directo con la cuenta de
+// servicio. Este es solo el disparador manual; el scheduler lo corre cada 12h.
+async function cargarEstadoFichas() {
+  const el = document.getElementById('fic-estado');
+  if (!el || !_statsToken()) return;
+  try {
+    const r = await fetch(_statsUrl() + '/api/fichas/estado', { headers: remotoHeaders('stats-token') });
+    const d = await r.json();
+    if (!d.ok) return;
+    if (!d.habilitado) {
+      el.innerHTML = '<span style="color:#dd6b20">⚠️ Falta configurar el acceso (FICHA_SHEET_ID / cuenta de servicio).</span>';
+      return;
+    }
+    const u = d.ultima || {};
+    el.textContent = u.cuando ? `Última sincronización: ${String(u.cuando).slice(0,16).replace('T',' ')}` : 'Nunca se ha sincronizado.';
+  } catch (e) { /* silencioso: es solo el estado */ }
+}
+
+async function sincronizarFichas() {
+  const btn = document.getElementById('fic-btn-sync');
+  const out = document.getElementById('fic-resultado');
+  const token = _statsToken();
+  if (!token) { toast('Ingresa el admin token', false); return; }
+  btn.disabled = true;
+  btn.textContent = 'Sincronizando…';
+  out.innerHTML = '<span style="color:#718096">Leyendo el formulario…</span>';
+  try {
+    const r = await fetch(_statsUrl() + '/api/fichas/sync', { method: 'POST', headers: remotoHeaders('stats-token') });
+    const d = await r.json();
+    if (d.ok) {
+      const n = v => (v || 0).toLocaleString('es-CL');
+      out.innerHTML = `<span style="color:#2f855a">✅ ${n(d.fichas)} fichas leídas · ${n(d.nuevos)} pacientes nuevos · ${n(d.actualizados)} actualizados · ${n(d.emails_rellenados)} correos rellenados.</span>`;
+      toast('✅ Ficha sincronizada');
+      cargarEstadoFichas();
+    } else {
+      out.innerHTML = `<span style="color:#e53e3e">❌ ${_esc(d.error || 'Error al sincronizar')}</span>`;
+    }
+  } catch (e) {
+    out.innerHTML = `<span style="color:#e53e3e">No se pudo conectar con el backend: ${_esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sincronizar ahora';
   }
 }
 

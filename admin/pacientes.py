@@ -520,6 +520,67 @@ def importar_cumpleanos(path, crear_nuevos=True):
             'cobertura': cobertura_fecha_nacimiento()}
 
 
+# ── Mezcla desde la Ficha de Primera Consulta (Google Form) ──────────────────
+
+# Campos de contacto/demograficos que la ficha puede aportar. La parte CLINICA
+# del formulario NO entra a la base (es de DentiDesk).
+_CAMPOS_FICHA = ('nombres', 'apellidos', 'fecha_nacimiento', 'telefono',
+                 'direccion', 'comuna')
+
+
+def merge_fichas(fichas, crear_nuevos=True):
+    """Suma a la base los datos de contacto de la Ficha de Primera Consulta.
+
+    RELLENO CONSERVADOR: cada campo se escribe SOLO si en la base esta vacio.
+    Nunca pisa un dato ya cargado (DentiDesk es la fuente autoritaria del
+    nombre, y el correo NO se puede pisar por la dedup RUT+EMAIL: en un menor el
+    correo del formulario es el del apoderado). El email se trata igual que el
+    resto -- fill-empty -- pero se cuenta aparte por ser el mas sensible.
+
+    `fichas` es la lista que arma fichas.interpretar(). Devuelve un resumen."""
+    idx = _load_index()
+    nuevos = actualizados = sin_rut_valido = emails_rellenados = 0
+
+    for f in fichas:
+        import scheduling
+        if not scheduling.rut_valido(f.get('rut', '')):
+            sin_rut_valido += 1                 # RUT basura (ej. "5-5"): se descarta
+            continue
+        rut = _limpiar_rut(f['rut'])
+
+        rec = idx.get(rut)
+        es_nuevo = rec is None
+        if es_nuevo:
+            if not crear_nuevos:
+                continue
+            rec = {'nombres': '', 'apellidos': '', 'email': '', 'telefono': ''}
+
+        cambio = False
+        for campo in _CAMPOS_FICHA:
+            valor = (f.get(campo) or '').strip()
+            if valor and not (rec.get(campo) or '').strip():
+                rec[campo] = valor
+                cambio = True
+
+        # Email: fill-empty, NUNCA pisa (ver docstring).
+        email = (f.get('email') or '').strip()
+        if email and '@' in email and not (rec.get('email') or '').strip():
+            rec['email'] = email
+            emails_rellenados += 1
+            cambio = True
+
+        if es_nuevo:
+            idx[rut] = rec
+            nuevos += 1
+        elif cambio:
+            actualizados += 1
+
+    _save_index(idx)
+    return {'total': len(idx), 'nuevos': nuevos, 'actualizados': actualizados,
+            'emails_rellenados': emails_rellenados, 'sin_rut_valido': sin_rut_valido,
+            'cobertura': cobertura_fecha_nacimiento()}
+
+
 # ── Construccion de la base desde la agenda (getAgendaDay) ────────────────────
 
 def construir_desde_agenda(cfg, dias_atras=120, dias_adelante=120, max_workers=6, hoy=None):

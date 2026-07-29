@@ -854,6 +854,54 @@ importación en producción (subir el .xls por el endpoint y cargar la tabla del
 
 ---
 
+## Ficha de Primera Consulta (Google Form → base de pacientes) (2026-07-28)
+
+Un Google Form que el paciente (o su apoderado) llena ANTES de la primera consulta; sus
+respuestas caen en un Google Sheet ("Ficha UNICA Primera Consulta (respuestas)"). El módulo
+**`admin/fichas.py`** lo lee con la **misma cuenta de servicio de Google que `drive_backup.py`**
+(en privado — el Sheet se comparte solo con esa cuenta, no se publica) y suma a la base local
+de pacientes los datos de **contacto/demográficos** que falten.
+
+> 🔧 **Tras la revisión de 2026-07-28** este módulo nace ya con las reglas nuevas: persistencia
+> vía `jsonstore.py`, hora vía `fechas.py`, endpoints con `_check_admin_token`, y usa
+> `pacientes.merge_fichas()` (la base la escribe SOLO `pacientes.py`).
+
+**Regla de oro (misma que cumpleaños):** `pacientes.merge_fichas()` **rellena solo lo que
+falta y NUNCA pisa**. En especial el **correo**: en ~2/3 de las respuestas el paciente es
+**menor** y el correo del formulario es el del **apoderado**; pisar el correo que DentiDesk
+tiene rompería su dedup RUT+EMAIL (crearía fichas duplicadas). La parte **clínica** del
+formulario (antecedentes médicos) NO entra a la base — es de DentiDesk.
+
+**Las dos ramas del formulario:** el form pregunta distinto para adulto vs menor, así que el
+mismo dato viene en columnas distintas (nombre: "Nombres"+"Apellidos" vs "Nombre y Apellidos
+del paciente"; y hay DOS columnas "Fecha de Nacimiento"). `fichas.py` mapea cada campo a una
+LISTA de columnas y toma la primera con dato, identificando por el **título** de la columna
+(no la posición): si el form se reordena no se rompe; si un título cambia, ese campo queda
+vacío y se loguea, nunca revienta. Dedup: si un RUT respondió dos veces, gana la última fila
+(Forms agrega en orden cronológico).
+
+**Cómo se lee (setup hecho el 2026-07-28):** (1) **Sheets API habilitada** en el proyecto
+`intrepid-charge-501115-n0`; (2) el Sheet **compartido como Lector** con la cuenta de servicio
+`<CUENTA_SERVICIO_DRIVE>`. El id del Sheet va en la env var **`FICHA_SHEET_ID`** (apunta a
+datos de pacientes → NUNCA en el repo; está en `DATOS-PRIVADOS.md`). Sin esa var, el módulo
+queda apagado (`fichas.habilitado()` = False).
+
+**Sincronización:** automática cada 12 h, enganchada en `_loop_refresco_pacientes` (mismo
+ritmo que el refresco de pacientes desde DentiDesk). Manual desde el panel (pestaña
+Estadísticas, tarjeta "📋 Ficha de primera consulta"). Endpoints (ADMIN_TOKEN):
+`POST /api/fichas/sync`, `GET /api/fichas/estado`.
+
+**Verificado 2026-07-28** contra el Sheet real: 634 respuestas → 625 fichas (dedup), 610 RUT
+válidos (15 basura descartados), merge idempotente, y el correo existente NO se pisa.
+Pruebas en `test_fichas.py` (10, sin red). **Pendiente para producción:** setear
+`FICHA_SHEET_ID` como env var en Render (encenderlo).
+
+**Posible mejora futura:** ~132 respuestas traen "¿Tiene Seguro Complementario? ¿Cuál?" — se
+podría alimentar la precarga de aseguradora del módulo de seguros, pero es texto libre
+(matching difuso), se dejó fuera de esta versión.
+
+---
+
 ## Recordatorio de control — recaptación desde F2 (2026-07-21)
 
 > 🔧 **Tras la revisión de 2026-07-28:** comparte `admin/avisos.py` con Control Dental y NPS

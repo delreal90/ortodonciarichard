@@ -25,6 +25,7 @@ SUITES = [
     ('webhook_wa',  'test_webhook_wa.py',  'el webhook que cancela citas reales'),
     ('avisos',      'test_avisos.py',      'guardas de recaptacion / control dental / NPS'),
     ('compras',     'test_compras.py',     'recurrentes, stock y migraciones'),
+    ('fichas',      'test_fichas.py',      'ficha primera consulta (Google Form) -> base'),
 ]
 
 AQUI = Path(__file__).parent
