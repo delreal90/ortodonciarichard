@@ -649,6 +649,34 @@ En una sesión Code, Claude puede orquestar (abrir paciente, click Subir, verifi
 la extensión — el humano solo elige el archivo. Si algún día DentiDesk expone API de
 documentos, reemplazar este flujo por subida directa.
 
+### Aviso a recepción: consentimientos sin firmar con cita próxima (2026-07-29)
+
+El Dr. Alberto notó pacientes con hora agendada que aún no habían firmado su
+consentimiento (enviado pero nunca firmado). A diferencia del aviso de alineadores
+9+ meses (que scrapea DentiDesk vía el runbook de `revision-evoluciones/`), esto
+**no necesita scraping**: el estado "sin firmar" ya vive en `consentimientos_registro.json`
+y la cita futura se resuelve por API (`dentidesk.citas_futuras_paciente`, el mismo
+mecanismo que usa `admin/recaptacion.py` para "¿ya tiene hora?").
+
+- **`consentimientos.pendientes_con_cita_proxima()`** — cruza `listar(estado='enviado')`
+  con `dentidesk.citas_futuras_paciente(rut)` por cada pendiente. Si DentiDesk está
+  deshabilitado o no hay pendientes, corta temprano sin llamar a la API. Devuelve
+  `[{consent_id, rut, nombre, tipo, canal, creado, fecha_cita, hora_cita, doctor_cita}]`
+  ordenado por fecha de cita ascendente.
+- **`notify.avisar_recepcion_consentimientos_pendientes(lista)`** — UN solo correo
+  agrupado a recepción (nunca uno por paciente), mismo patrón que
+  `avisar_recepcion_control_dental_sin_email`.
+- **`_loop_alerta_consentimientos()`** (`server.py`) — barrido diario a las **09:30
+  hora Chile** (patrón VENTANA hasta las 17:00, igual que `_loop_control_dental`, para
+  sobrevivir un reinicio de Render justo en el minuto exacto). Sin config propia ni
+  toggle: es liviano (una llamada por pendiente, normalmente pocos) y siempre útil.
+- Endpoints (`server.py`, ADMIN_TOKEN): `GET /api/consentimiento/alerta-pendientes`
+  (solo lectura, para panel/diagnóstico) y `POST /api/consentimiento/alerta-pendientes/run`
+  (fuerza el barrido + envío ahora, sin esperar a las 09:30 — útil para probar).
+- **Pendiente:** no tiene pestaña propia en el panel todavía (solo los 2 endpoints);
+  si se quiere ver la lista sin usar curl/Postman, agregar una tabla en la pestaña
+  Consentimientos que llame a `GET /api/consentimiento/alerta-pendientes`.
+
 ---
 
 ## Seguros Complementarios — formularios de reembolso (2026-07-09)
