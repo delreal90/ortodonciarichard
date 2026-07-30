@@ -130,20 +130,21 @@ def _rotar_en_drive(retener=None):
 
 def respaldar(subir=True, base_dir=None):
     """Crea el zip, lo sube a Drive, rota los viejos, registra y limpia el zip
-    local. Devuelve el detalle. No revienta si Drive no esta configurado."""
-    info = crear_zip(base_dir=base_dir)
+    local. Devuelve el detalle. NUNCA revienta: cualquier fallo (armado del zip,
+    Drive, disco) queda capturado en 'error' -- un respaldo que falla no debe
+    tumbar el endpoint ni el scheduler, solo dejar constancia para revisarlo."""
+    import traceback
     resultado = {
-        'ok': False,
-        'nombre': info['nombre'],
-        'archivos': len(info['archivos']),
-        'tamano': info['tamano'],
+        'ok': False, 'nombre': '', 'archivos': 0, 'tamano': 0,
         'fecha': fechas.ahora_chile().isoformat(timespec='seconds'),
-        'subido': False,
-        'file_id': '',
-        'eliminados_rotacion': 0,
-        'error': '',
+        'subido': False, 'file_id': '', 'eliminados_rotacion': 0, 'error': '',
     }
+    ruta_zip = None
     try:
+        info = crear_zip(base_dir=base_dir)
+        ruta_zip = info['ruta']
+        resultado.update({'nombre': info['nombre'], 'archivos': len(info['archivos']),
+                          'tamano': info['tamano']})
         if subir:
             r = drive_backup.subir_archivo(info['ruta'], info['nombre'],
                                            mimetype='application/zip', folder_id=_folder_id())
@@ -151,26 +152,35 @@ def respaldar(subir=True, base_dir=None):
             resultado['file_id'] = r.get('file_id', '')
             if r.get('ok'):
                 resultado['ok'] = True
-                resultado['eliminados_rotacion'] = _rotar_en_drive()
+                try:
+                    resultado['eliminados_rotacion'] = _rotar_en_drive()
+                except Exception as e:   # la rotacion no debe invalidar un respaldo OK
+                    resultado['error'] = f'respaldo OK, rotacion fallo: {e}'
             else:
                 resultado['error'] = r.get('error', 'error de subida')
         else:
             resultado['ok'] = True
+    except Exception:
+        resultado['error'] = traceback.format_exc()[-800:]
     finally:
         # El zip local se sube y se borra: en Render el disco es chico y el
-        # respaldo ya vive en Drive. Si la subida fallo, igual se borra el local
-        # (el proximo intento arma uno nuevo) para no llenar el disco.
-        try:
-            Path(info['ruta']).unlink(missing_ok=True)
-        except OSError:
-            pass
+        # respaldo ya vive en Drive. Si algo fallo, igual se borra (el proximo
+        # intento arma uno nuevo) para no llenar el disco.
+        if ruta_zip:
+            try:
+                Path(ruta_zip).unlink(missing_ok=True)
+            except OSError:
+                pass
 
-    with _LOCK:
-        reg = _STORE.load()
-        reg['ultimo'] = resultado
-        reg.setdefault('historial', []).append(resultado)
-        reg['historial'] = reg['historial'][-60:]   # no crecer sin techo
-        _STORE.save(reg)
+    try:
+        with _LOCK:
+            reg = _STORE.load()
+            reg['ultimo'] = resultado
+            reg.setdefault('historial', []).append(resultado)
+            reg['historial'] = reg['historial'][-60:]   # no crecer sin techo
+            _STORE.save(reg)
+    except Exception:
+        pass
     return resultado
 
 
