@@ -702,6 +702,7 @@ import webhook_wa
 import recaptacion
 import control_dental
 import nps
+import seguimiento_pc
 from datetime import date, datetime, timedelta
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -3987,6 +3988,100 @@ def control_dental_motivos_desconocidos():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SEGUIMIENTO PRIMERA CONSULTA  (reencantar a quien no avanzo — seguimiento_pc.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Detecta pacientes que vinieron a su Primera Consulta, fueron atendidos, pero no
+# siguieron (sin estudio, sin instalacion, sin hora futura). NO les escribe: los
+# expone para que aparezcan en el correo diario del Dr. Alberto (runbook
+# revision-evoluciones) con un boton de WhatsApp de texto pre-cargado que EL
+# dispara desde su celular. Barrido diario en _loop_seguimiento_pc; el reporte
+# lee /pendientes y, tras enviar, confirma con /marcar-mostrados (asi "dos toques"
+# no se gastan en corridas que no mandaron correo). Ver seguimiento_pc.py.
+
+@app.route('/api/seguimiento-pc/pendientes', methods=['GET'])
+def seguimiento_pc_pendientes():
+    """Candidatos a los que les toca un toque en/antes de 'fecha' (query,
+    YYYY-MM-DD; default hoy), opcionalmente de un 'doctor' (subcadena del
+    profesional de la primera consulta). Cada item trae el mensaje ya armado y
+    el numero wa listo. Solo lectura."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    fecha_arg = (request.args.get('fecha') or '').strip()
+    try:
+        fecha = date.fromisoformat(fecha_arg) if fecha_arg else None
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'fecha invalida (usar YYYY-MM-DD)'}), 400
+    doctor = (request.args.get('doctor') or '').strip() or None
+    items = seguimiento_pc.pendientes(fecha=fecha, doctor=doctor)
+    return jsonify({'ok': True, 'items': items})
+
+
+@app.route('/api/seguimiento-pc/marcar-mostrados', methods=['POST'])
+def seguimiento_pc_marcar_mostrados():
+    """El runbook confirma, tras enviar el correo, que estos RUT ya se mostraron
+    -> avanza su toque (1->2, 2->completado). Body {ruts:[...]}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    ruts = data.get('ruts') or []
+    if not isinstance(ruts, list):
+        return jsonify({'ok': False, 'error': 'ruts debe ser una lista'}), 400
+    n = seguimiento_pc.marcar_mostrados(ruts)
+    return jsonify({'ok': True, 'avanzados': n})
+
+
+@app.route('/api/seguimiento-pc/config', methods=['GET'])
+def seguimiento_pc_config_get():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'config': seguimiento_pc.load_config()})
+
+
+@app.route('/api/seguimiento-pc/config', methods=['POST'])
+def seguimiento_pc_config_post():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg = seguimiento_pc.save_config(request.json or {})
+    return jsonify({'ok': True, 'config': cfg})
+
+
+@app.route('/api/seguimiento-pc/resumen', methods=['GET'])
+def seguimiento_pc_resumen():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'resumen': seguimiento_pc.resumen(),
+                    'candidatos': seguimiento_pc.listar(request.args.get('estado') or None)})
+
+
+@app.route('/api/seguimiento-pc/no-molestar', methods=['POST'])
+def seguimiento_pc_no_molestar():
+    """Excluir (o reincluir) a un paciente del seguimiento. Body {rut, quitar?}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    if data.get('quitar'):
+        seguimiento_pc.quitar_no_molestar(rut)
+    else:
+        seguimiento_pc.agregar_no_molestar(rut)
+    return jsonify({'ok': True, 'no_molestar': seguimiento_pc.lista_no_molestar()})
+
+
+@app.route('/api/seguimiento-pc/run', methods=['POST'])
+def seguimiento_pc_run():
+    """Fuerza el barrido ahora (para probar o poblar la primera vez), sin esperar
+    a la ventana del scheduler. Necesita DentiDesk habilitado."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if not scheduling.load_config()['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'DentiDesk deshabilitado'}), 400
+    return jsonify({'ok': True, **seguimiento_pc.barrer()})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CUMPLEANOS  (equipo + pacientes — modulo cumpleanos.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -5114,6 +5209,34 @@ def _loop_control_dental():
         time.sleep(40)
 
 
+def _loop_seguimiento_pc():
+    """Barrido diario del seguimiento de primeras consultas. Mismo patron de
+    VENTANA que _loop_control_dental (hora_barrido <= slot < '17:00', una vez al
+    dia) -- corre temprano (default 01:00) para que el primer intento del reporte
+    de Alberto (02:00) ya tenga datos frescos. Respeta cfg['activo'] y que
+    DentiDesk este habilitado (el barrido lee getAgendaDay). NO manda nada: solo
+    puebla el registro que despues consume el reporte diario."""
+    import time
+    ya_corrio = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            cfg_dd = scheduling.load_config()
+            cfg_sp = seguimiento_pc.load_config()
+            hora_cfg = cfg_sp.get('hora_barrido', '01:00')
+            if (cfg_sp.get('activo')
+                    and cfg_dd['dentidesk']['enabled']
+                    and hora_cfg <= slot < '17:00'
+                    and ya_corrio != ahora.date()):
+                ya_corrio = ahora.date()
+                r = seguimiento_pc.barrer(cfg_sp)
+                print('[seguimiento-pc]', slot, r)
+        except Exception as e:
+            print('[seguimiento-pc] error:', e)
+        time.sleep(40)
+
+
 def _procesar_alerta_consentimientos():
     """Cruza los consentimientos SIN FIRMAR con la agenda de DentiDesk
     (consentimientos.pendientes_con_cita_proxima()) y, si hay alguno cuyo
@@ -5479,6 +5602,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_calentador, daemon=True).start()
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     threading.Thread(target=_loop_control_dental, daemon=True).start()
+    threading.Thread(target=_loop_seguimiento_pc, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')

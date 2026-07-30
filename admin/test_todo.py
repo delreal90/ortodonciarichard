@@ -26,6 +26,7 @@ SUITES = [
     ('avisos',      'test_avisos.py',      'guardas de recaptacion / control dental / NPS'),
     ('compras',     'test_compras.py',     'recurrentes, stock y migraciones'),
     ('fichas',      'test_fichas.py',      'ficha primera consulta (Google Form) -> base'),
+    ('seguimiento_pc', 'test_seguimiento_pc.py', 'seguimiento de primeras consultas que no avanzaron'),
 ]
 
 AQUI = Path(__file__).parent
