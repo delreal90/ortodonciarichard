@@ -703,6 +703,7 @@ import recaptacion
 import control_dental
 import nps
 import seguimiento_pc
+import backup
 from datetime import date, datetime, timedelta
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -4082,6 +4083,32 @@ def seguimiento_pc_run():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BACKUP / RESPALDO  (punto de restauracion de los datos — modulo backup.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# El codigo ya esta en GitHub; esto respalda los DATOS del disco persistente
+# (registros/config gitignoreados + SQLite de compras + firmas) a un .zip en la
+# Unidad compartida de Google Drive, reusando la cuenta de servicio de los
+# consentimientos. Barrido diario en _loop_backup; rota los ultimos N. Ver backup.py.
+
+@app.route('/api/backup/run', methods=['POST'])
+def backup_run():
+    """Fuerza un respaldo ahora (para probar o antes de un cambio riesgoso)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = backup.respaldar()
+    return jsonify(r), (200 if r.get('ok') else 502)
+
+
+@app.route('/api/backup/estado', methods=['GET'])
+def backup_estado():
+    """Ultimo respaldo + historial reciente, para el panel/diagnostico."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, **backup.estado()})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CUMPLEANOS  (equipo + pacientes — modulo cumpleanos.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -5237,6 +5264,28 @@ def _loop_seguimiento_pc():
         time.sleep(40)
 
 
+def _loop_backup():
+    """Respaldo diario de los datos a Google Drive. Patron de VENTANA
+    (hora_backup <= slot < '06:00', una vez al dia) igual que _loop_control_dental
+    -- corre de madrugada, cuando la clinica no opera. No exige DentiDesk (no lo
+    usa); solo intenta si hay credenciales de Drive (si no, backup.respaldar deja
+    el error registrado y no revienta). Env BACKUP_HORA (default '03:30')."""
+    import time
+    ya_corrio = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            hora_cfg = os.environ.get('BACKUP_HORA', '03:30')
+            if hora_cfg <= slot < '06:00' and ya_corrio != ahora.date():
+                ya_corrio = ahora.date()
+                r = backup.respaldar()
+                print('[backup]', slot, {k: r.get(k) for k in ('ok', 'nombre', 'archivos', 'subido', 'error')})
+        except Exception as e:
+            print('[backup] error:', e)
+        time.sleep(40)
+
+
 def _procesar_alerta_consentimientos():
     """Cruza los consentimientos SIN FIRMAR con la agenda de DentiDesk
     (consentimientos.pendientes_con_cita_proxima()) y, si hay alguno cuyo
@@ -5603,6 +5652,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     threading.Thread(target=_loop_control_dental, daemon=True).start()
     threading.Thread(target=_loop_seguimiento_pc, daemon=True).start()
+    threading.Thread(target=_loop_backup, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
