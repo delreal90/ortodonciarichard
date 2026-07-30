@@ -4163,30 +4163,16 @@ def reactivacion_no_molestar():
 
 @app.route('/api/reactivacion/run', methods=['POST'])
 def reactivacion_run():
-    """Fuerza el barrido diario ahora. Necesita DentiDesk habilitado."""
+    """Fuerza un re-barrido. El barrido profundo (~18 meses) es largo y tiene que
+    correr en el LOOP del scheduler (un hilo persistente); lanzarlo desde este
+    request no sobrevive en Render/gunicorn. Por eso 'run' solo LIMPIA la marca
+    de ultimo barrido -> el loop lo re-ejecuta en su proxima vuelta (~1 min).
+    Consultar el avance con GET /api/reactivacion/resumen (campo ultimo_barrido)."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    if not scheduling.load_config()['dentidesk']['enabled']:
-        return jsonify({'ok': False, 'error': 'DentiDesk deshabilitado'}), 400
-    return jsonify({'ok': True, **reactivacion.barrer()})
-
-
-@app.route('/api/reactivacion/backfill', methods=['POST'])
-def reactivacion_backfill():
-    """Inscribe la cartera: barre 18 meses hacia atras UNA vez. Corre en un hilo
-    (tarda) y devuelve al toque, mismo patron que el backfill de control dental.
-    Body opcional {meses}."""
-    if not _check_admin_token():
-        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    if not scheduling.load_config()['dentidesk']['enabled']:
-        return jsonify({'ok': False, 'error': 'DentiDesk deshabilitado'}), 400
-    data = request.get_json(silent=True) or {}
-    try:
-        meses = int(data.get('meses', 18))
-    except (TypeError, ValueError):
-        meses = 18
-    _threading.Thread(target=lambda: reactivacion.backfill(meses=meses), daemon=True).start()
-    return jsonify({'ok': True, 'mensaje': f'Backfill de {meses} meses corriendo en segundo plano.'})
+    reactivacion.resetear_barrido()
+    return jsonify({'ok': True, 'mensaje': 'Re-barrido encolado; el scheduler lo corre en ~1 min. '
+                                           'Ver el avance en /api/reactivacion/resumen (ultimo_barrido).'})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5372,26 +5358,33 @@ def _loop_seguimiento_pc():
 
 
 def _loop_reactivacion():
-    """Barrido diario de reactivacion de inactivos. Patron de VENTANA
-    (hora_barrido <= slot < '17:00', una vez al dia) como _loop_seguimiento_pc.
-    Respeta cfg['activo'] y DentiDesk habilitado (lee getAgendaDay). NO manda
-    nada: puebla el registro que consume el reporte diario."""
+    """Barrido PROFUNDO (~18 meses) de reactivacion de inactivos. A diferencia de
+    los otros loops, este NO es diario: es SEMANAL (lunes en la ventana horaria) +
+    una PRIMERA corrida automatica si nunca corrio (estado_barrido vacio). Motivo:
+    estos pacientes califican por el paso del tiempo, asi que el barrido tiene que
+    mirar ~18 meses (una corrida larga, ~400 dias de getAgendaDay) y no vale la
+    pena repetirla a diario. Corre AQUI (hilo persistente del scheduler) y NO desde
+    un request: en Render/gunicorn un hilo lanzado por un request no sobrevive.
+    Respeta cfg['activo'] y DentiDesk habilitado."""
     import time
-    ya_corrio = None
+    ya_corrio_semana = None
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
-            slot = ahora.strftime('%H:%M')
             cfg_dd = scheduling.load_config()
             cfg_re = reactivacion.load_config()
-            hora_cfg = cfg_re.get('hora_barrido', '02:00')
-            if (cfg_re.get('activo')
-                    and cfg_dd['dentidesk']['enabled']
-                    and hora_cfg <= slot < '17:00'
-                    and ya_corrio != ahora.date()):
-                ya_corrio = ahora.date()
-                r = reactivacion.barrer(cfg_re)
-                print('[reactivacion]', slot, r)
+            if cfg_re.get('activo') and cfg_dd['dentidesk']['enabled']:
+                slot = ahora.strftime('%H:%M')
+                hora_cfg = cfg_re.get('hora_barrido', '02:00')
+                semana = ahora.isocalendar()[:2]         # (año, nº de semana ISO)
+                nunca_corrio = not reactivacion.estado_barrido()
+                slot_semanal = (ahora.weekday() == 0 and hora_cfg <= slot < '06:00'
+                                and ya_corrio_semana != semana)
+                if nunca_corrio or slot_semanal:
+                    ya_corrio_semana = semana
+                    r = reactivacion.barrer(cfg_re)
+                    print('[reactivacion]', {k: r.get(k) for k in
+                                             ('dias_procesados', 'dias_con_citas', 'candidatos', 'errores_scan', 'error')})
         except Exception as e:
             print('[reactivacion] error:', e)
         time.sleep(40)

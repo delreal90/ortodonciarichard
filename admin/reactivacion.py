@@ -55,8 +55,13 @@ _DEFAULT_CONFIG = {
                                       # para considerar abandono.
     'dias_entre_toques': 45,         # gap entre el toque 1 y el toque 2.
     'max_por_reporte': 10,           # tope de candidatos por correo.
-    'dias_atras': 21,                # ventana del barrido diario hacia atras.
-    'dias_adelante': 30,             # hacia adelante (para ver hora futura).
+    # Ventana PROFUNDA: estos pacientes califican por el PASO DEL TIEMPO (cruzar
+    # los meses_recall/abandono desde un evento viejo), asi que el barrido tiene
+    # que mirar ~18 meses hacia atras -- una ventana corta no los ve nunca. Por
+    # eso corre SEMANAL (no diario) y desde el loop del scheduler (un hilo
+    # persistente; lanzarlo desde un request no sobrevive en Render/gunicorn).
+    'dias_atras': 545,               # ~18 meses hacia atras.
+    'dias_adelante': 30,             # hacia adelante (para ver hora futura -> 'volvio').
     'hora_barrido': '02:00',
     'mensaje_terminado': ('Hola {nombre} 😊 Le escribo del equipo del Dr. Alberto Del Real. '
                           'Como ya terminó su tratamiento, queríamos invitarlo a un control de '
@@ -354,41 +359,88 @@ def _aplicar_barrido(reg, cfg, resultados, hoy):
     return reg
 
 
-def barrer(cfg=None, max_workers=6):
-    """Barrido diario: recorre getAgendaDay de -dias_atras a +dias_adelante
-    (solo dias habiles) y actualiza los candidatos. Molde exacto de
-    control_dental.barrer()/seguimiento_pc.barrer()."""
-    from concurrent.futures import ThreadPoolExecutor
-    cfg = cfg or load_config()
-    scfg = _scheduling_cfg()
-    hoy = fechas.hoy_chile()
-    dias_atras = cfg.get('dias_atras', 21)
-    dias_adelante = cfg.get('dias_adelante', 30)
+def estado_barrido():
+    """Ultimo barrido: {tipo, inicio, dias_procesados, dias_con_citas, candidatos,
+    errores_scan, ejemplo_error, error}. {} si nunca corrio -- lo usa el loop del
+    scheduler para decidir la primera corrida y el panel para diagnostico."""
+    return _load_registro().get('ultimo_barrido') or {}
 
-    dias = [hoy + timedelta(days=k)
-            for k in range(-dias_atras, dias_adelante + 1)
-            if (hoy + timedelta(days=k)).weekday() < 5]
 
-    def scan(d):
-        try:
-            return (d, dentidesk._get_agenda_day(scfg, d))
-        except Exception:
-            return (d, [])
-
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        resultados = list(pool.map(scan, dias))
-    resultados.sort(key=lambda r: r[0])
-
+def resetear_barrido():
+    """Borra la marca de ultimo barrido -> el loop del scheduler lo re-ejecuta en
+    su proxima vuelta. Es como pide el endpoint /run forzar un re-barrido sin
+    correr los ~400 dias dentro del request (que no sobrevive en gunicorn)."""
     with _LOCK:
         reg = _load_registro()
-        _aplicar_barrido(reg, cfg, resultados, hoy)
-        # Poda de 'vistos' viejos (mismo criterio que control_dental/seguimiento_pc).
-        limite = (hoy - timedelta(days=90)).isoformat()
-        reg['vistos'] = {k: v for k, v in reg.get('vistos', {}).items() if v >= limite}
+        reg.pop('ultimo_barrido', None)
         _save_registro(reg)
-    n_pend = sum(1 for c in reg.get('candidatos', {}).values() if c.get('estado') == 'pendiente')
-    return {'dias_procesados': len(dias), 'candidatos': len(reg.get('candidatos', {})),
-            'pendientes': n_pend, 'hoy': hoy.isoformat()}
+
+
+def barrer(cfg=None, max_workers=6):
+    """Barrido PROFUNDO: recorre getAgendaDay de -dias_atras (~18 meses) a
+    +dias_adelante (solo dias habiles) y actualiza los candidatos. Registra su
+    estado en reg['ultimo_barrido'] (corre en el loop del scheduler, un hilo
+    persistente -- los errores no se verian de otra forma). Devuelve el estado.
+
+    OJO: es una corrida larga (~400 dias). Va SEMANAL desde el loop, NUNCA desde
+    un request (en Render/gunicorn un hilo lanzado por un request no sobrevive)."""
+    import traceback
+    from concurrent.futures import ThreadPoolExecutor
+    estado = {'tipo': 'barrer', 'inicio': fechas.ahora_chile().isoformat(timespec='seconds'),
+              'dias_procesados': 0, 'dias_con_citas': 0, 'candidatos': 0,
+              'pendientes': 0, 'errores_scan': 0, 'ejemplo_error': '', 'error': ''}
+    try:
+        cfg = cfg or load_config()
+        scfg = _scheduling_cfg()
+        hoy = fechas.hoy_chile()
+        dias_atras = cfg.get('dias_atras', 545)
+        dias_adelante = cfg.get('dias_adelante', 30)
+        dias = [hoy + timedelta(days=k)
+                for k in range(-dias_atras, dias_adelante + 1)
+                if (hoy + timedelta(days=k)).weekday() < 5]
+
+        def scan(d):
+            try:
+                return (d, dentidesk._get_agenda_day(scfg, d))
+            except Exception as e:
+                return (d, {'__error__': str(e)})
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            crudos = list(pool.map(scan, dias))
+        resultados, errores, con_citas = [], [], 0
+        for d, res in crudos:
+            if isinstance(res, dict) and '__error__' in res:
+                errores.append(res['__error__'])
+                resultados.append((d, []))
+            else:
+                resultados.append((d, res))
+                if res:
+                    con_citas += 1
+        resultados.sort(key=lambda r: r[0])
+
+        with _LOCK:
+            reg = _load_registro()
+            _aplicar_barrido(reg, cfg, resultados, hoy)
+            limite = (hoy - timedelta(days=90)).isoformat()
+            reg['vistos'] = {k: v for k, v in reg.get('vistos', {}).items() if v >= limite}
+            n_pend = sum(1 for c in reg.get('candidatos', {}).values() if c.get('estado') == 'pendiente')
+            estado.update({'dias_procesados': len(dias), 'dias_con_citas': con_citas,
+                           'candidatos': len(reg.get('candidatos', {})), 'pendientes': n_pend,
+                           'errores_scan': len(errores),
+                           'ejemplo_error': (errores[0][:200] if errores else '')})
+            reg['ultimo_barrido'] = estado
+            _save_registro(reg)
+        return estado
+    except Exception:
+        estado['error'] = traceback.format_exc()[-800:]
+        try:
+            with _LOCK:
+                reg = _load_registro()
+                reg['ultimo_barrido'] = estado
+                _save_registro(reg)
+        except Exception:
+            pass
+        return estado
 
 
 def backfill(cfg=None, meses=18, max_workers=4):
