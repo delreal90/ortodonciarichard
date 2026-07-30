@@ -391,33 +391,66 @@ def barrer(cfg=None, max_workers=6):
             'pendientes': n_pend, 'hoy': hoy.isoformat()}
 
 
-def backfill(cfg=None, meses=18, max_workers=6):
+def backfill(cfg=None, meses=18, max_workers=4):
     """Inscribe la cartera actual: barre hacia atras 'meses' meses SOLAMENTE
     (sin dias_adelante), para poblar el registro de una sola vez. Molde
-    exacto de control_dental.backfill()."""
+    exacto de control_dental.backfill(). Registra su estado/errores en
+    reg['ultimo_barrido'] porque suele correr en un hilo (los errores no se
+    verian de otra forma). max_workers bajo (4) para no saturar el auth de
+    DentiDesk (JWT de un solo uso) con cientos de dias de golpe."""
+    import traceback
     from concurrent.futures import ThreadPoolExecutor
-    cfg = cfg or load_config()
-    scfg = _scheduling_cfg()
-    hoy = fechas.hoy_chile()
-    desde = sumar_meses(hoy, -meses)
-    dias = [d for d in (desde + timedelta(days=k) for k in range((hoy - desde).days + 1))
-            if d.weekday() < 5]
+    estado = {'tipo': 'backfill', 'meses': meses, 'inicio': fechas.ahora_chile().isoformat(timespec='seconds'),
+              'dias_procesados': 0, 'dias_con_citas': 0, 'candidatos': 0, 'error': ''}
+    try:
+        cfg = cfg or load_config()
+        scfg = _scheduling_cfg()
+        hoy = fechas.hoy_chile()
+        desde = sumar_meses(hoy, -meses)
+        dias = [d for d in (desde + timedelta(days=k) for k in range((hoy - desde).days + 1))
+                if d.weekday() < 5]
 
-    def scan(d):
+        def scan(d):
+            try:
+                return (d, dentidesk._get_agenda_day(scfg, d))
+            except Exception as e:
+                return (d, {'__error__': str(e)})
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            crudos = list(pool.map(scan, dias))
+        # Separa errores de dias reales para diagnostico.
+        resultados, errores, con_citas = [], [], 0
+        for d, res in crudos:
+            if isinstance(res, dict) and '__error__' in res:
+                errores.append(res['__error__'])
+                resultados.append((d, []))
+            else:
+                resultados.append((d, res))
+                if res:
+                    con_citas += 1
+        resultados.sort(key=lambda r: r[0])
+
+        with _LOCK:
+            reg = _load_registro()
+            _aplicar_barrido(reg, cfg, resultados, hoy)
+            estado.update({'dias_procesados': len(dias), 'dias_con_citas': con_citas,
+                           'candidatos': len(reg.get('candidatos', {})),
+                           'errores_scan': len(errores),
+                           'ejemplo_error': (errores[0][:200] if errores else '')})
+            reg['ultimo_barrido'] = estado
+            _save_registro(reg)
+        return {'dias_procesados': len(dias), 'dias_con_citas': con_citas,
+                'candidatos': len(reg.get('candidatos', {})), 'errores_scan': len(errores)}
+    except Exception:
+        estado['error'] = traceback.format_exc()[-800:]
         try:
-            return (d, dentidesk._get_agenda_day(scfg, d))
+            with _LOCK:
+                reg = _load_registro()
+                reg['ultimo_barrido'] = estado
+                _save_registro(reg)
         except Exception:
-            return (d, [])
-
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        resultados = list(pool.map(scan, dias))
-    resultados.sort(key=lambda r: r[0])
-
-    with _LOCK:
-        reg = _load_registro()
-        _aplicar_barrido(reg, cfg, resultados, hoy)
-        _save_registro(reg)
-    return {'dias_procesados': len(dias), 'candidatos': len(reg.get('candidatos', {}))}
+            pass
+        return estado
 
 
 def _scheduling_cfg():
@@ -528,6 +561,7 @@ def resumen():
         'volvio': n('volvio'),
         'completado': n('completado'),
         'no_molestar': len(reg.get('no_molestar') or []),
+        'ultimo_barrido': reg.get('ultimo_barrido') or {},
     }
 
 
