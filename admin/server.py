@@ -703,6 +703,7 @@ import recaptacion
 import control_dental
 import nps
 import seguimiento_pc
+import reactivacion
 import backup
 from datetime import date, datetime, timedelta
 
@@ -4083,6 +4084,112 @@ def seguimiento_pc_run():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# REACTIVACION DE INACTIVOS  (reencantar terminados/abandonados — reactivacion.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Detecta pacientes del Dr. Alberto que terminaron tratamiento hace meses (alta →
+# recordar control de retencion) o que abandonaron a mitad (sin hora futura hace
+# N meses → invitar a retomar). NO les escribe: los expone en el correo diario con
+# boton de WhatsApp de texto pre-cargado (mensaje distinto por poblacion) que el
+# dispara desde su celular. Dos toques. Barrido diario en _loop_reactivacion +
+# backfill de 18 meses una vez. Ver reactivacion.py.
+
+@app.route('/api/reactivacion/pendientes', methods=['GET'])
+def reactivacion_pendientes():
+    """Candidatos a reactivar en/antes de 'fecha' (query, YYYY-MM-DD; default
+    hoy), opcionalmente de un 'doctor'. Cada item trae poblacion, mensaje ya
+    armado y wa_numero. Solo lectura (lo consume el reporte diario)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    fecha_arg = (request.args.get('fecha') or '').strip()
+    try:
+        fecha = date.fromisoformat(fecha_arg) if fecha_arg else None
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'fecha invalida (usar YYYY-MM-DD)'}), 400
+    doctor = (request.args.get('doctor') or '').strip() or None
+    return jsonify({'ok': True, 'items': reactivacion.pendientes(fecha=fecha, doctor=doctor)})
+
+
+@app.route('/api/reactivacion/marcar-mostrados', methods=['POST'])
+def reactivacion_marcar_mostrados():
+    """El runbook confirma, tras enviar el correo, que estos RUT ya se mostraron
+    -> avanza su toque. Body {ruts:[...]}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    ruts = data.get('ruts') or []
+    if not isinstance(ruts, list):
+        return jsonify({'ok': False, 'error': 'ruts debe ser una lista'}), 400
+    return jsonify({'ok': True, 'avanzados': reactivacion.marcar_mostrados(ruts)})
+
+
+@app.route('/api/reactivacion/config', methods=['GET'])
+def reactivacion_config_get():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'config': reactivacion.load_config()})
+
+
+@app.route('/api/reactivacion/config', methods=['POST'])
+def reactivacion_config_post():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'config': reactivacion.save_config(request.json or {})})
+
+
+@app.route('/api/reactivacion/resumen', methods=['GET'])
+def reactivacion_resumen():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'resumen': reactivacion.resumen(),
+                    'candidatos': reactivacion.listar(request.args.get('estado') or None)})
+
+
+@app.route('/api/reactivacion/no-molestar', methods=['POST'])
+def reactivacion_no_molestar():
+    """Excluir (o reincluir) a un paciente. Body {rut, quitar?}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    if data.get('quitar'):
+        reactivacion.quitar_no_molestar(rut)
+    else:
+        reactivacion.agregar_no_molestar(rut)
+    return jsonify({'ok': True, 'no_molestar': reactivacion.lista_no_molestar()})
+
+
+@app.route('/api/reactivacion/run', methods=['POST'])
+def reactivacion_run():
+    """Fuerza el barrido diario ahora. Necesita DentiDesk habilitado."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if not scheduling.load_config()['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'DentiDesk deshabilitado'}), 400
+    return jsonify({'ok': True, **reactivacion.barrer()})
+
+
+@app.route('/api/reactivacion/backfill', methods=['POST'])
+def reactivacion_backfill():
+    """Inscribe la cartera: barre 18 meses hacia atras UNA vez. Corre en un hilo
+    (tarda) y devuelve al toque, mismo patron que el backfill de control dental.
+    Body opcional {meses}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if not scheduling.load_config()['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'DentiDesk deshabilitado'}), 400
+    data = request.get_json(silent=True) or {}
+    try:
+        meses = int(data.get('meses', 18))
+    except (TypeError, ValueError):
+        meses = 18
+    threading.Thread(target=lambda: reactivacion.backfill(meses=meses), daemon=True).start()
+    return jsonify({'ok': True, 'mensaje': f'Backfill de {meses} meses corriendo en segundo plano.'})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # BACKUP / RESPALDO  (punto de restauracion de los datos — modulo backup.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -5264,6 +5371,32 @@ def _loop_seguimiento_pc():
         time.sleep(40)
 
 
+def _loop_reactivacion():
+    """Barrido diario de reactivacion de inactivos. Patron de VENTANA
+    (hora_barrido <= slot < '17:00', una vez al dia) como _loop_seguimiento_pc.
+    Respeta cfg['activo'] y DentiDesk habilitado (lee getAgendaDay). NO manda
+    nada: puebla el registro que consume el reporte diario."""
+    import time
+    ya_corrio = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            cfg_dd = scheduling.load_config()
+            cfg_re = reactivacion.load_config()
+            hora_cfg = cfg_re.get('hora_barrido', '02:00')
+            if (cfg_re.get('activo')
+                    and cfg_dd['dentidesk']['enabled']
+                    and hora_cfg <= slot < '17:00'
+                    and ya_corrio != ahora.date()):
+                ya_corrio = ahora.date()
+                r = reactivacion.barrer(cfg_re)
+                print('[reactivacion]', slot, r)
+        except Exception as e:
+            print('[reactivacion] error:', e)
+        time.sleep(40)
+
+
 def _loop_backup():
     """Respaldo diario de los datos a Google Drive. Patron de VENTANA
     (hora_backup <= slot < '06:00', una vez al dia) igual que _loop_control_dental
@@ -5652,6 +5785,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     threading.Thread(target=_loop_control_dental, daemon=True).start()
     threading.Thread(target=_loop_seguimiento_pc, daemon=True).start()
+    threading.Thread(target=_loop_reactivacion, daemon=True).start()
     threading.Thread(target=_loop_backup, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()
