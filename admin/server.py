@@ -4185,7 +4185,7 @@ def reactivacion_backfill():
         meses = int(data.get('meses', 18))
     except (TypeError, ValueError):
         meses = 18
-    threading.Thread(target=lambda: reactivacion.backfill(meses=meses), daemon=True).start()
+    _threading.Thread(target=lambda: reactivacion.backfill(meses=meses), daemon=True).start()
     return jsonify({'ok': True, 'mensaje': f'Backfill de {meses} meses corriendo en segundo plano.'})
 
 
