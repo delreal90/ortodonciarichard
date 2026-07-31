@@ -4335,6 +4335,20 @@ def asistente_paciente_estado_post():
                     'bloqueo_manual': p.get('bloqueo_manual', False)})
 
 
+@app.route('/api/paciente-estado/resumen', methods=['GET'])
+def paciente_estado_resumen():
+    """Como quedo repartida la cartera tras el barrido (cuantos con fijo, con
+    alineadores, dados de alta...). Es la unica forma de saber si el backfill
+    poblo la base sin ir paciente por paciente en el F2. Protegido por
+    ADMIN_TOKEN aunque no lleve datos personales: dice cuantos pacientes en
+    tratamiento tiene la clinica, que es informacion de negocio."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = paciente_estado.resumen()
+    r['ok'] = True
+    return jsonify(r)
+
+
 @app.route('/api/paciente-estado/backfill', methods=['POST'])
 def paciente_estado_backfill():
     """Panel: poblar el store la primera vez (cartera ya en tratamiento).

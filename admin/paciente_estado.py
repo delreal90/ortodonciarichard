@@ -232,6 +232,30 @@ def get(rut):
     return (_load_estado().get('pacientes') or {}).get(clave)
 
 
+def resumen():
+    """Conteos agregados de la cartera, para saber si el barrido de verdad
+    poblo la base y como quedo repartida. SIN datos personales: solo numeros
+    por estado + los motivos que no se supieron clasificar (nombres de motivo
+    de DentiDesk, nunca RUT). Es lo que mira una persona despues del backfill
+    para decidir si enciende o no el menu filtrado."""
+    reg = _load_estado()
+    pacientes_reg = reg.get('pacientes') or {}
+    por_estado = {}
+    manuales = 0
+    for p in pacientes_reg.values():
+        est = (p or {}).get('estado') or 'desconocido'
+        por_estado[est] = por_estado.get(est, 0) + 1
+        if (p or {}).get('bloqueo_manual'):
+            manuales += 1
+    return {
+        'total': len(pacientes_reg),
+        'por_estado': dict(sorted(por_estado.items(), key=lambda kv: -kv[1])),
+        'con_correccion_manual': manuales,
+        'ultimo_barrido': reg.get('ultimo_barrido') or '',
+        'motivos_desconocidos': reg.get('motivos_desconocidos') or {},
+    }
+
+
 # Menu de motivos agendables por estado. None = menu completo (no se filtra).
 # 'urgencia' siempre esta disponible: un paciente en cualquier estado puede
 # tener una urgencia. 'estudio_integral' y 'control_evolucion' son

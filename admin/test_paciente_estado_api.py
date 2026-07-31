@@ -93,6 +93,49 @@ class TestEndpointsAsistenteExigenToken(unittest.TestCase):
         r = self.client.post('/api/paciente-estado/backfill', json={'meses': 6})
         self.assertEqual(r.status_code, 403)
 
+    def test_resumen_exige_token(self):
+        r = self.client.get('/api/paciente-estado/resumen')
+        self.assertEqual(r.status_code, 403)
+
+
+class TestResumen(unittest.TestCase):
+    """GET /api/paciente-estado/resumen -- conteos agregados para saber si el
+    barrido poblo la base. NUNCA debe devolver RUTs (el resumen se mira, se
+    pega en un correo y se comenta: no puede llevar datos de pacientes)."""
+
+    def setUp(self):
+        self.client = server.app.test_client()
+        self._token_orig = os.environ.get('ADMIN_TOKEN')
+        os.environ['ADMIN_TOKEN'] = 'token-de-prueba'
+        self.headers = {'X-Admin-Token': 'token-de-prueba'}
+        pe._save_estado({'ultimo_barrido': '', 'pacientes': {}, 'motivos_desconocidos': {}})
+
+    def tearDown(self):
+        if self._token_orig is None:
+            os.environ.pop('ADMIN_TOKEN', None)
+        else:
+            os.environ['ADMIN_TOKEN'] = self._token_orig
+
+    def test_cuenta_por_estado_y_no_expone_ruts(self):
+        pe.registrar_cita_atendida(RUT_1, '2026-01-01', 'Montaje Total', cfg={})
+        pe.registrar_cita_atendida(RUT_2, '2026-01-02', 'Control Invisalign', cfg={})
+        pe.set_manual(RUT_2, 'alineadores')
+        r = self.client.get('/api/paciente-estado/resumen', headers=self.headers)
+        self.assertEqual(r.status_code, 200)
+        body = r.get_json()
+        self.assertEqual(body['total'], 2)
+        self.assertEqual(body['por_estado'].get('fijo'), 1)
+        self.assertEqual(body['por_estado'].get('alineadores'), 1)
+        self.assertEqual(body['con_correccion_manual'], 1)
+        crudo = r.get_data(as_text=True)
+        for rut in (RUT_1, RUT_2):
+            self.assertNotIn(rut.replace('.', '').replace('-', ''), crudo.replace('.', '').replace('-', ''))
+
+    def test_base_vacia_no_revienta(self):
+        r = self.client.get('/api/paciente-estado/resumen', headers=self.headers)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()['total'], 0)
+
 
 class TestAsistentePacienteEstadoConToken(unittest.TestCase):
     """Con token: guardar un estado a mano (F2/panel) y volver a leerlo."""
