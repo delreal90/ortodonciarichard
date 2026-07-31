@@ -442,6 +442,33 @@ def enviar_reporte_evoluciones(asunto, html):
         return False
 
 
+def enviar_reporte_semanal(asunto, html):
+    """Reporte semanal de KPIs de negocio. Destinatario fijo por env var
+    (REPORTE_SEMANAL_EMAIL, default alberto@delreal.cl) -- no es un relay abierto,
+    el endpoint que lo llama no acepta 'para' del cliente. Mismo molde que
+    enviar_reporte_evoluciones."""
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    destino = os.getenv('REPORTE_SEMANAL_EMAIL',
+                        os.getenv('REPORTE_EVOLUCIONES_EMAIL', 'alberto@delreal.cl')).strip()
+    if not smtp_user or not smtp_pass:
+        return False
+    msg = MIMEMultipart('mixed')
+    msg['From'] = f'Reporte Semanal Ortodoncia <{smtp_user}>'
+    msg['To'] = destino
+    msg['Subject'] = asunto
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destino], msg.as_bytes())
+        return True
+    except Exception as e:
+        log.error('SMTP reporte semanal error: %s', e)
+        return False
+
+
 def enviar_reporte_evoluciones_rodrigo(asunto, html):
     """Reporte diario de fichas SIN evolucion escrita del Dr. Rodrigo Oyonarte
     (mismo sistema que enviar_reporte_evoluciones, sin la seccion de

@@ -704,6 +704,7 @@ import control_dental
 import nps
 import seguimiento_pc
 import reactivacion
+import reporte_semanal
 import backup
 from datetime import date, datetime, timedelta
 
@@ -4202,6 +4203,49 @@ def backup_estado():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# REPORTE SEMANAL  (KPIs de negocio al correo — modulo reporte_semanal.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Correo semanal (lunes) al Dr. Alberto con 4 areas: Comercial, Clinico,
+# Reputacion, Operacion. Agrega lo que ya existe (stats, nps, seguimiento_pc,
+# reactivacion, seguros, compras) + un barrido corto (~5 dias) de la agenda para
+# contar atendidos/no-shows/inicios/altas. Job autonomo del backend en
+# _loop_reporte_semanal (no depende de una sesion de Claude). Ver reporte_semanal.py.
+
+@app.route('/api/reporte/semanal/preview', methods=['GET'])
+def reporte_semanal_preview():
+    """Arma el reporte de la semana anterior y devuelve el HTML SIN enviarlo (para
+    revisarlo). Query opcional desde=&hasta= (YYYY-MM-DD) para otro rango."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        desde_a = (request.args.get('desde') or '').strip()
+        hasta_a = (request.args.get('hasta') or '').strip()
+        if desde_a and hasta_a:
+            desde, hasta = date.fromisoformat(desde_a), date.fromisoformat(hasta_a)
+        else:
+            desde, hasta = reporte_semanal.ventana_semana_anterior()
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    kpis = reporte_semanal.agregar(desde, hasta)
+    return reporte_semanal.render_html(kpis), 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+@app.route('/api/reporte/semanal/run', methods=['POST'])
+def reporte_semanal_run():
+    """Arma y ENVIA el reporte de la semana anterior al correo del Dr. Alberto.
+    Lo usa el scheduler (lunes) y sirve para un envio de prueba manual."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    desde, hasta = reporte_semanal.ventana_semana_anterior()
+    kpis = reporte_semanal.agregar(desde, hasta)
+    html = reporte_semanal.render_html(kpis)
+    enviado = notify.enviar_reporte_semanal(reporte_semanal.asunto(kpis), html)
+    return jsonify({'ok': True, 'enviado': bool(enviado),
+                    'desde': desde.isoformat(), 'hasta': hasta.isoformat()})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CUMPLEANOS  (equipo + pacientes — modulo cumpleanos.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -5390,6 +5434,32 @@ def _loop_reactivacion():
         time.sleep(40)
 
 
+def _loop_reporte_semanal():
+    """Envia el reporte semanal de KPIs los LUNES por la manana (ventana
+    08:00-12:00 hora Chile, una vez por semana). Job autonomo del backend (no
+    depende de una sesion de Claude, a diferencia del correo diario de
+    evoluciones). El barrido clinico es corto (~5 dias) asi que corre bien aca
+    en el hilo del scheduler. Env BACKUP-like: no tiene toggle propio; se apaga
+    quitando el hilo o con SMTP sin credenciales (no enviaria)."""
+    import time
+    ya_corrio_semana = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            semana = ahora.isocalendar()[:2]
+            if ahora.weekday() == 0 and '08:00' <= slot < '12:00' and ya_corrio_semana != semana:
+                ya_corrio_semana = semana
+                desde, hasta = reporte_semanal.ventana_semana_anterior()
+                kpis = reporte_semanal.agregar(desde, hasta)
+                enviado = notify.enviar_reporte_semanal(reporte_semanal.asunto(kpis),
+                                                        reporte_semanal.render_html(kpis))
+                print('[reporte-semanal]', slot, desde.isoformat(), 'a', hasta.isoformat(), 'enviado:', enviado)
+        except Exception as e:
+            print('[reporte-semanal] error:', e)
+        time.sleep(40)
+
+
 def _loop_backup():
     """Respaldo diario de los datos a Google Drive. Patron de VENTANA
     (hora_backup <= slot < '06:00', una vez al dia) igual que _loop_control_dental
@@ -5779,6 +5849,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_control_dental, daemon=True).start()
     threading.Thread(target=_loop_seguimiento_pc, daemon=True).start()
     threading.Thread(target=_loop_reactivacion, daemon=True).start()
+    threading.Thread(target=_loop_reporte_semanal, daemon=True).start()
     threading.Thread(target=_loop_backup, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()

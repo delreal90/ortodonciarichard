@@ -28,6 +28,7 @@ SUITES = [
     ('fichas',      'test_fichas.py',      'ficha primera consulta (Google Form) -> base'),
     ('seguimiento_pc', 'test_seguimiento_pc.py', 'seguimiento de primeras consultas que no avanzaron'),
     ('reactivacion', 'test_reactivacion.py', 'reactivacion de inactivos (terminados / abandonados)'),
+    ('reporte_semanal', 'test_reporte_semanal.py', 'reporte semanal de KPIs de negocio'),
     ('backup',      'test_backup.py',      'respaldo de datos a Google Drive'),
 ]
 
