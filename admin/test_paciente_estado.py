@@ -239,6 +239,55 @@ class TestPrecedenciaManualVsBarrido(unittest.TestCase):
         self.assertEqual(pe.get(RUT_1)['estado'], 'desconocido')
         self.assertIsNone(pe.clasificar(RUT_1)['motivos_permitidos'])
 
+    def test_clasificar_motivo_reclasifica_a_los_colgados(self):
+        # Lo que importa del panel: al decir "Instalar Microtornillos es
+        # tratamiento fijo", los pacientes que ese motivo dejo en 'desconocido'
+        # pasan a 'fijo' AL TIRO. Sin reproceso habria que esperar a que cada
+        # uno tuviera otra cita (el barrido solo pisa con citas mas nuevas).
+        pe.registrar_cita_atendida(RUT_1, '2026-05-02', 'Instalar Microtornillos', cfg={})
+        pe.registrar_cita_atendida(RUT_2, '2026-05-03', 'Instalar Microtornillos', cfg={})
+        self.assertEqual(pe.get(RUT_1)['estado'], 'desconocido')
+        n = pe.clasificar_motivo('Instalar Microtornillos', 'fijo')
+        self.assertEqual(n, 2)
+        self.assertEqual(pe.get(RUT_1)['estado'], 'fijo')
+        self.assertEqual(pe.clasificar(RUT_2)['motivos_permitidos'], ['control_fijo', 'urgencia'])
+
+    def test_clasificar_motivo_no_pisa_una_correccion_manual(self):
+        pe.registrar_cita_atendida(RUT_1, '2026-05-02', 'Instalar Microtornillos', cfg={})
+        pe.set_manual(RUT_1, 'alineadores')
+        pe.clasificar_motivo('Instalar Microtornillos', 'fijo')
+        self.assertEqual(pe.get(RUT_1)['estado'], 'alineadores', 'lo que ajusto la clinica manda')
+
+    def test_clasificar_motivo_persiste_para_las_citas_siguientes(self):
+        pe.clasificar_motivo('Pegar Tubos', 'fijo')
+        pe.registrar_cita_atendida(RUT_2, '2026-06-01', 'Pegar Tubos', cfg={})
+        self.assertEqual(pe.get(RUT_2)['estado'], 'fijo')
+        self.assertNotIn('Pegar Tubos', [m['reason'] for m in pe.motivos_desconocidos()])
+
+    def test_clasificar_motivo_vacio_borra_el_override(self):
+        pe.clasificar_motivo('Pegar Tubos', 'fijo')
+        pe.clasificar_motivo('Pegar Tubos', '')
+        pe.registrar_cita_atendida(RUT_2, '2026-06-01', 'Pegar Tubos', cfg={})
+        self.assertEqual(pe.get(RUT_2)['estado'], 'desconocido')
+
+    def test_clasificar_motivo_valida_la_categoria(self):
+        with self.assertRaises(ValueError):
+            pe.clasificar_motivo('Pegar Tubos', 'categoria_inventada')
+
+    def test_motivos_desconocidos_ordena_por_pacientes_colgados(self):
+        # La lista de pendientes la puebla el barrido (_procesar_cita), no el
+        # registro suelto de una cita -- por eso se usa esa via aca.
+        reg = pe._load_estado()
+        for rut, reason, fecha in ((RUT_1, 'Motivo Raro A', '2026-05-02'),
+                                   (RUT_2, 'Motivo Raro A', '2026-05-03'),
+                                   ('5.126.663-3', 'Motivo Raro B', '2026-05-04')):
+            pe._procesar_cita(reg, {}, {'PatientDocument': rut, 'Reason': reason, 'Date': fecha})
+        pe._save_estado(reg)
+        lista = pe.motivos_desconocidos()
+        self.assertEqual(lista[0]['reason'], 'Motivo Raro A')
+        self.assertEqual(lista[0]['pacientes_colgados'], 2)
+        self.assertEqual(lista[1]['pacientes_colgados'], 1)
+
     def test_set_manual_valida_estados_conocidos(self):
         with self.assertRaises(ValueError):
             pe.set_manual(RUT_1, 'estado_que_no_existe')

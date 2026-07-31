@@ -4335,6 +4335,37 @@ def asistente_paciente_estado_post():
                     'bloqueo_manual': p.get('bloqueo_manual', False)})
 
 
+@app.route('/api/paciente-estado/motivos-desconocidos', methods=['GET'])
+def paciente_estado_motivos_desconocidos():
+    """Panel: los motivos de DentiDesk que el barrido no supo clasificar, con
+    cuantos pacientes dejo 'colgados' cada uno (viendo el menu completo en vez
+    del suyo). Es la lista de trabajo para ajustar el sistema a futuro."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'motivos': paciente_estado.motivos_desconocidos(),
+                    'estados': sorted(paciente_estado.MENU_POR_ESTADO)})
+
+
+@app.route('/api/paciente-estado/motivo', methods=['POST'])
+def paciente_estado_motivo():
+    """Panel: decir a que etapa corresponde un motivo. Se guarda en el disco
+    persistente (sobrevive a los deploys, a diferencia de la config
+    versionada) y reclasifica al tiro a los pacientes que ese motivo tenia
+    colgados. categoria='' borra el override."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    reason = (data.get('reason') or '').strip()
+    categoria = (data.get('categoria') or '').strip()
+    if not reason:
+        return jsonify({'ok': False, 'error': 'Falta el motivo'}), 400
+    try:
+        n = paciente_estado.clasificar_motivo(reason, categoria)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'reclasificados': n})
+
+
 @app.route('/api/paciente-estado/resumen', methods=['GET'])
 def paciente_estado_resumen():
     """Como quedo repartida la cartera tras el barrido (cuantos con fijo, con

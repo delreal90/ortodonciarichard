@@ -200,6 +200,33 @@
       <div class="card" id="agenda-sabias" style="margin-bottom:18px"></div>
       <div id="agenda-doctores"></div>
       <button class="btn btn-primary" style="margin-top:8px" onclick="saveAgenda()">Guardar configuración</button>
+
+      <!-- ── Menú según la etapa del paciente ─────────────────── -->
+      <div class="card" style="margin-top:26px">
+        <h3 style="margin-bottom:6px">🧭 Qué ve cada paciente al agendar</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:14px">
+          El sistema deduce en qué está cada paciente mirando el <strong>motivo de su última
+          atención</strong>, y con eso le muestra solo los motivos que le corresponden (al de
+          frenillos, control fijo y urgencia; al que terminó, contención; etc.).
+          Acá abajo aparecen los motivos de DentiDesk que <strong>no supo interpretar</strong>:
+          al asignarles una etapa, los pacientes que quedaron esperando se reclasifican al
+          instante. Esta pestaña habla con el servidor de producción, así que necesita el token
+          de la pestaña Estadísticas.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="pe-url" value="https://ortodonciarichard.onrender.com" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="pe-token" type="password" placeholder="ADMIN_TOKEN" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px">
+          </div>
+          <button class="btn btn-primary" onclick="loadPacienteEstado()">Cargar</button>
+        </div>
+        <div id="pe-resumen" style="margin-bottom:16px"></div>
+        <div id="pe-motivos">Carga la conexión para ver los motivos pendientes.</div>
+      </div>
     </div>
 
     <!-- ── ESTADÍSTICAS ─────────────────────────────────────── -->
@@ -1035,7 +1062,7 @@ function show(sec) {
   if (sec === 'casos') loadCasos();
   if (sec === 'faq') loadFaq();
   if (sec === 'cv') loadCV();
-  if (sec === 'agenda') loadAgenda();
+  if (sec === 'agenda') { loadAgenda(); initPacienteEstado(); }
   if (sec === 'estadisticas') initStats();
   if (sec === 'consentimientos') initConsentimientos();
   if (sec === 'whatsapp') initWhatsapp();
@@ -1092,6 +1119,123 @@ function remotoInit(idInputUrl, idInputToken, alCargar) {
   document.getElementById(idInputToken).value = t;
   document.getElementById(idInputUrl).value = u;
   if (t) alCargar();
+}
+
+// ══════════════════════════════════════════════════════
+// QUÉ VE CADA PACIENTE AL AGENDAR (paciente_estado)
+// ══════════════════════════════════════════════════════
+// El barrido deduce la etapa de cada paciente del motivo de su última
+// atención. Los motivos que no supo interpretar dejan pacientes en
+// "sin determinar" (ven el menú completo): esta card los lista para
+// asignarles etapa, y el backend reclasifica a los afectados al instante.
+
+const PE_ETIQUETA = {
+  nuevo: 'Paciente nuevo',
+  primera_consulta: 'Tuvo primera consulta, aún no parte',
+  fijo: 'En tratamiento con aparato fijo',
+  alineadores: 'En tratamiento con alineadores',
+  removible: 'En tratamiento con aparato removible',
+  pasivo: 'Terminó su tratamiento (contención)',
+  desconocido: 'Sin determinar (ve todos los motivos)',
+};
+
+function initPacienteEstado() {
+  remotoInit('pe-url', 'pe-token', loadPacienteEstado);
+}
+
+async function loadPacienteEstado() {
+  const cont = document.getElementById('pe-motivos');
+  const res  = document.getElementById('pe-resumen');
+  if (!remotoToken('pe-token')) { cont.innerHTML = '<p class="muted">Falta el admin token.</p>'; return; }
+  cont.innerHTML = 'Cargando…';
+  try {
+    const [r1, r2] = await Promise.all([
+      remotoFetch('pe-url', 'pe-token', '/api/paciente-estado/resumen'),
+      remotoFetch('pe-url', 'pe-token', '/api/paciente-estado/motivos-desconocidos'),
+    ]);
+    if (r1.status === 403 || r2.status === 403) {
+      cont.innerHTML = '<p class="muted">Token incorrecto.</p>'; res.innerHTML = ''; return;
+    }
+    _pePintarResumen(res, await r1.json());
+    _pePintarMotivos(cont, await r2.json());
+  } catch (e) {
+    cont.innerHTML = '<p class="muted">No se pudo conectar con el servidor.</p>';
+  }
+}
+
+function _pePintarResumen(cont, d) {
+  if (!d || !d.ok) { cont.innerHTML = ''; return; }
+  const filas = Object.entries(d.por_estado || {})
+    .map(([k, v]) => `<tr><td>${_esc(PE_ETIQUETA[k] || k)}</td><td style="text-align:right"><b>${v}</b></td></tr>`)
+    .join('');
+  cont.innerHTML = `
+    <p style="font-size:.82rem;color:#4A5568;margin-bottom:8px">
+      <b>${d.total}</b> pacientes clasificados · último barrido: ${_esc(d.ultimo_barrido || '—')}
+      ${d.con_correccion_manual ? ` · ${d.con_correccion_manual} ajustados a mano` : ''}
+    </p>
+    <table style="width:100%;max-width:460px;font-size:.86rem;border-collapse:collapse">${filas}</table>`;
+}
+
+function _pePintarMotivos(cont, d) {
+  if (!d || !d.ok) { cont.innerHTML = '<p class="muted">No se pudo leer la lista.</p>'; return; }
+  const motivos = d.motivos || [];
+  if (!motivos.length) {
+    cont.innerHTML = '<p class="muted">No hay motivos pendientes de clasificar. 👌</p>';
+    return;
+  }
+  // Solo las etapas que tiene sentido asignar a mano: 'desconocido' es el
+  // estado del que se quiere salir y 'nuevo' no se deduce de una atención
+  // pasada (si vino, ya no es nuevo).
+  const opciones = (d.estados || []).filter(e => e !== 'desconocido' && e !== 'nuevo');
+  const filas = motivos.map((m, i) => `
+    <tr>
+      <td style="padding:6px 8px">${_esc(m.reason)}</td>
+      <td style="padding:6px 8px;text-align:right;color:#718096">${m.veces}</td>
+      <td style="padding:6px 8px;text-align:right">${m.pacientes_colgados ? `<b>${m.pacientes_colgados}</b>` : '—'}</td>
+      <td style="padding:6px 8px">
+        <select id="pe-sel-${i}" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:.82rem">
+          <option value="">— no cambia la etapa —</option>
+          ${opciones.map(e => `<option value="${_esc(e)}">${_esc(PE_ETIQUETA[e] || e)}</option>`).join('')}
+        </select>
+        <button class="btn" style="padding:4px 10px;font-size:.8rem"
+                onclick="pePonerMotivo(${i}, this)" data-reason="${_esc(m.reason)}">Aplicar</button>
+      </td>
+    </tr>`).join('');
+  cont.innerHTML = `
+    <p style="font-size:.82rem;color:#718096;margin-bottom:10px">
+      Ordenados por cuántos pacientes dejó esperando cada motivo. Las <em>urgencias</em>
+      (bracket suelto, dolor, separaciones) conviene dejarlas sin etapa: una urgencia no dice
+      en qué fase del tratamiento está el paciente.
+    </p>
+    <table style="width:100%;font-size:.86rem;border-collapse:collapse">
+      <tr style="text-align:left;color:#4A5568;border-bottom:1px solid #e2e8f0">
+        <th style="padding:6px 8px">Motivo en DentiDesk</th>
+        <th style="padding:6px 8px;text-align:right">Veces</th>
+        <th style="padding:6px 8px;text-align:right">Pacientes esperando</th>
+        <th style="padding:6px 8px">¿A qué etapa corresponde?</th>
+      </tr>
+      ${filas}
+    </table>`;
+}
+
+async function pePonerMotivo(i, btn) {
+  const categoria = document.getElementById('pe-sel-' + i).value;
+  const reason = btn.dataset.reason;
+  if (!categoria) { alert('Elige primero a qué etapa corresponde este motivo.'); return; }
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await remotoFetch('pe-url', 'pe-token', '/api/paciente-estado/motivo',
+                                { method: 'POST', body: { reason, categoria } });
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'No se pudo guardar.'); btn.disabled = false; btn.textContent = 'Aplicar'; return; }
+    alert(d.reclasificados
+      ? `Listo: ${d.reclasificados} paciente(s) pasaron a "${PE_ETIQUETA[categoria] || categoria}".`
+      : 'Guardado. Se aplicará a las próximas atenciones con ese motivo.');
+    loadPacienteEstado();
+  } catch (e) {
+    alert('No se pudo conectar con el servidor.');
+    btn.disabled = false; btn.textContent = 'Aplicar';
+  }
 }
 
 // ══════════════════════════════════════════════════════

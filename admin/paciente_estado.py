@@ -162,24 +162,37 @@ _PRIMERA_CONSULTA = {
 }
 
 
-def estado_por_motivo(reason, cfg=None):
+def estado_por_motivo(reason, cfg=None, extra=None):
     """Devuelve 'fijo'|'alineadores'|'removible'|'pasivo'|'primera_consulta'|
     None segun el Reason (tal como lo devuelve getAgendaDay). Urgencias y
     cualquier motivo que no calce con nada devuelven None -- no cambian el
     estado del paciente.
 
-    cfg['estado_motivos_extra'] (si viene, vive en la config de scheduling)
-    se consulta ANTES que las constantes del modulo -- asi el panel puede
-    resolver un motivo nuevo o ambiguo sin esperar un deploy. Valor vacio en
-    el override = None (permite "apagar" un motivo que se clasifico mal)."""
+    Precedencia de los overrides, de mayor a menor:
+      1. 'extra' -- lo que la clinica clasifico desde el panel. Vive en el
+         propio store (disco persistente), NO en scheduling_config.json: ese
+         archivo esta versionado y Render lo reescribe con cada deploy, asi
+         que lo que guardara el panel ahi se perderia al siguiente push.
+         Si no se pasa, se lee del store.
+      2. cfg['estado_motivos_extra'] -- overrides puestos a mano en la config
+         versionada (siguen funcionando, para poder fijar un mapeo "de
+         fabrica" en el repo).
+      3. Las constantes del modulo.
+    Valor vacio en un override = None (permite "apagar" un motivo que quedo
+    mal clasificado, sin borrar la entrada)."""
     clave = _normalizar(reason)
     if not clave:
         return None
 
-    cfg = cfg or {}
-    extra = cfg.get('estado_motivos_extra') or {}
+    if extra is None:
+        extra = _load_estado().get('motivos_extra') or {}
     if clave in extra:
         return extra[clave] or None
+
+    cfg = cfg or {}
+    extra_cfg = cfg.get('estado_motivos_extra') or {}
+    if clave in extra_cfg:
+        return extra_cfg[clave] or None
 
     if clave in control_dental._INICIO_FIJOS or clave in _FIJO_CONTROL:
         return 'fijo'
@@ -199,8 +212,8 @@ def estado_por_motivo(reason, cfg=None):
 # Escritura atomica + lock + respaldo si el archivo se corrompe: ver jsonstore.py.
 _STORE = jsonstore.JsonStore(
     ESTADO_PATH, indent=2,
-    default={'ultimo_barrido': '', 'pacientes': {}, 'motivos_desconocidos': {}},
-    claves={'ultimo_barrido': '', 'pacientes': {}, 'motivos_desconocidos': {}})
+    default={'ultimo_barrido': '', 'pacientes': {}, 'motivos_desconocidos': {}, 'motivos_extra': {}},
+    claves={'ultimo_barrido': '', 'pacientes': {}, 'motivos_desconocidos': {}, 'motivos_extra': {}})
 
 
 def _load_estado():
@@ -230,6 +243,75 @@ def get(rut):
     nunca lo vio."""
     clave = avisos.rut_key(rut)
     return (_load_estado().get('pacientes') or {}).get(clave)
+
+
+def motivos_desconocidos():
+    """Los motivos de DentiDesk que el barrido vio y no supo clasificar, con
+    cuantas veces aparecieron y cuantos pacientes quedaron 'colgados' de cada
+    uno (los que ese motivo dejo en 'desconocido' = viendo el menu completo).
+    Es la lista de trabajo del panel: se ordena por impacto real, no por
+    frecuencia, porque un motivo muy repetido puede no dejar a nadie colgado
+    si esos pacientes tienen otra cita mas nueva que si clasifico."""
+    reg = _load_estado()
+    desc = reg.get('motivos_desconocidos') or {}
+    colgados = {}
+    for p in (reg.get('pacientes') or {}).values():
+        if (p or {}).get('estado') == 'desconocido':
+            m = (p or {}).get('ultimo_motivo') or ''
+            if m:
+                colgados[m] = colgados.get(m, 0) + 1
+    out = []
+    for reason, info in desc.items():
+        info = info if isinstance(info, dict) else {'n': info, 'ultima': ''}
+        out.append({
+            'reason': reason,
+            'veces': info.get('n', 0),
+            'ultima': info.get('ultima', ''),
+            'pacientes_colgados': colgados.get(reason, 0),
+        })
+    out.sort(key=lambda d: (-d['pacientes_colgados'], -d['veces']))
+    return out
+
+
+def clasificar_motivo(reason, categoria):
+    """El panel resuelve un motivo: lo guarda en el store (disco persistente,
+    sobrevive a los deploys), lo saca de la lista de pendientes y RECLASIFICA
+    al tiro a los pacientes cuya ultima cita fue justamente ese motivo.
+
+    Ese reproceso es la parte que importa: sin el, clasificar un motivo no
+    haria nada visible hasta que esos pacientes volvieran a tener una cita
+    (el barrido solo pisa con citas MAS NUEVAS), o sea meses. Solo se tocan
+    los que estan en 'desconocido' y sin correccion manual -- lo que la
+    clinica ajusto a mano nunca se pisa.
+
+    categoria='' borra el override (el motivo vuelve a no clasificar).
+    Devuelve cuantos pacientes se reclasificaron."""
+    if categoria and categoria not in _ESTADOS_VALIDOS:
+        raise ValueError(f'estado desconocido: {categoria!r}')
+    clave = _normalizar(reason)
+    if not clave:
+        raise ValueError('motivo vacio')
+    with _LOCK:
+        reg = _load_estado()
+        extra = dict(reg.get('motivos_extra') or {})
+        if categoria:
+            extra[clave] = categoria
+        else:
+            extra.pop(clave, None)
+        reg['motivos_extra'] = extra
+        (reg.get('motivos_desconocidos') or {}).pop(reason, None)
+
+        reclasificados = 0
+        if categoria:
+            for p in (reg.get('pacientes') or {}).values():
+                if not p or p.get('bloqueo_manual') or p.get('estado') != 'desconocido':
+                    continue
+                if _normalizar(p.get('ultimo_motivo') or '') == clave:
+                    p['estado'] = categoria
+                    p['fuente'] = 'barrido'
+                    reclasificados += 1
+        _save_estado(reg)
+        return reclasificados
 
 
 def resumen():
@@ -481,7 +563,9 @@ def _procesar_cita(reg, cfg, c):
     fecha_cita = c.get('Date') or fechas.hoy_chile().isoformat()
     clave = avisos.rut_key(rut)
 
-    categoria = estado_por_motivo(reason, cfg)
+    # Los overrides salen del 'reg' que el barrido ya tiene en memoria: releer
+    # el store por cada cita serian miles de lecturas de disco por barrido.
+    categoria = estado_por_motivo(reason, cfg, extra=reg.get('motivos_extra') or {})
     _aplicar_estado(reg, clave, fecha_cita, reason, categoria)
 
     if reason and categoria is None:
