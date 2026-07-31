@@ -289,6 +289,26 @@
       "urgencia": false,
       "notificar_agenda": false
     },
+    "control_pasivo": {
+      "label": "Control de Contención (tratamiento terminado)",
+      "especialidad": "ortodoncia",
+      "id_reason": "18162",
+      "duracion_min": 15,
+      "urgencia": false,
+      "notificar_agenda": false,
+      "solo_filtrado": true,
+      "_comment": "Control Pasivo (IdReason 18162). 'solo_filtrado': NO aparece en el menu completo/fallback -- solo cuando paciente_estado.clasificar() incluye este motivo para el RUT del paciente (estado 'pasivo'), o cuando llega por un link pre-cargado desde el F2. Distinto de 'oculto', que es para los sub-motivos del Estudio Integral."
+    },
+    "control_evolucion": {
+      "label": "Control de Evolución (aún no inicias tratamiento)",
+      "especialidad": "ortodoncia",
+      "id_reason": "18165",
+      "duracion_min": 15,
+      "urgencia": false,
+      "notificar_agenda": false,
+      "solo_filtrado": true,
+      "_comment": "'Control de Evolucion' no existe como motivo en DentiDesk: se usa 'Segunda Consulta' (IdReason 18165, 15 min) para el paciente que ya tuvo su primera consulta pero aun no inicia tratamiento. Mismo flag 'solo_filtrado' que control_pasivo."
+    },
     "urgencia": {
       "label": "Urgencia de Ortodoncia (bracket suelto, fierro pincha, etc.)",
       "especialidad": "ortodoncia",

@@ -82,3 +82,18 @@ cumpleanos doctores.txt
 Listado de Cumpleaños*
 Listado de Cumpleanos*
 admin/cumpleanos_equipo.json
+
+# Analytics: registro histórico de atenciones (RUT, nombres y teléfonos de ~3.654
+# pacientes) + análisis derivado. ⚠️ Este repo es PÚBLICO → NUNCA subir a git.
+# Es un subproyecto de análisis, no parte del backend ni del sitio (ver sección
+# "Analytics" en CLAUDE.md). El .csv ya lo cubre la regla *.csv de arriba, pero el
+# .parquet no, así que se ignora la carpeta completa.
+ortodonciarichard-analytics/
+
+# Estado del paciente para el menú filtrado de la agenda online (RUT → en qué
+# etapa del tratamiento está) y links de agenda pre-cargados generados desde el
+# F2 (RUT + doctor + motivo por token). Son datos de pacientes → NUNCA subir a
+# git. En Render viven en el disco persistente (junto a patient_index.json, vía
+# PATIENT_INDEX_PATH), así que sobreviven a los redeploys.
+admin/paciente_estado.json
+admin/links_agenda.json

@@ -25,9 +25,16 @@ const agenda = {
     motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
     esNoSoyYo: false, datosOriginales: null, completarDatos: false,
+    // Menú de motivos filtrado por el estado del paciente (lo resuelve el
+    // backend en /api/agenda/paciente a partir del RUT). null = sin filtro
+    // (paciente desconocido, estado vencido o kill-switch MENU_FILTRADO=off).
+    motivosPermitidos: null, verTodosMotivos: false,
   },
   dias: [],
   prefetch: {},   // cache de promesas de disponibilidad por doctor|motivo
+  linkToken: null,    // token del link pre-cargado que genera el F2 (#cita=<token>)
+  linkExacto: false,  // true si /api/agenda/link-info resolvió paciente+doctor+motivo
+  linkDatos: null,    // {nombres, email_masked, telefono_masked} enmascarados del token
   reagendaId: null,     // id_agenda de la cita vieja si se llegó por el link de reagendar
   reagendaFecha: null,  // fecha (YYYY-MM-DD) de la cita vieja, codificada en el mismo link
   reagendaExacto: false,   // true si /api/agenda/reagendar-info logró precargar doctor+motivo
@@ -111,6 +118,34 @@ async function abrirAgenda() {
   // Si ya se precargó doctor+motivo en una apertura anterior de este modal
   // (cerrar y volver a abrir sin recargar la página), no volver a preguntar.
   if (agenda.reagendaExacto) { pasoRut(); return; }
+  // Modo link pre-cargado (#cita=<token>, lo genera la secretaria desde el F2):
+  // el token resuelve paciente + doctor + motivo SERVER-SIDE, así que el
+  // paciente solo confirma que es él y elige hora. Si el token no sirve
+  // (vencido, ya usado, inexistente) NO se abre el wizard libre: se muestra el
+  // motivo real y se deriva a WhatsApp, igual que en reagenda.
+  if (agenda.linkToken && !agenda.linkExacto) {
+    try {
+      const info = await agendaApi('/api/agenda/link-info?token=' + encodeURIComponent(agenda.linkToken));
+      const doc = (agenda.config.doctores || []).find(d => d.key === (info.doctor || {}).key);
+      if (info.ok && doc) {
+        const esp = (agenda.config.especialidades || []).find(e => e.key === doc.especialidad);
+        agenda.linkExacto = true;
+        agenda.linkDatos = info.paciente || {};
+        agenda.sel.doctor = doc.key;
+        agenda.sel.doctorNombre = info.doctor.nombre || doc.name;
+        agenda.sel.doctorFoto = info.doctor.foto || doc.photo;
+        agenda.sel.especialidad = doc.especialidad;
+        agenda.sel.especialidadLabel = esp ? esp.label : '';
+        agenda.sel.motivo = info.motivo.key;
+        agenda.sel.motivoLabel = info.motivo.label;
+        pasoConfirmarLink();
+        return;
+      }
+      return pasoLinkNoDisponible(info.error);
+    } catch (err) {
+      return pasoLinkNoDisponible((err.data && err.data.error) || '');
+    }
+  }
   // Modo reagenda (se llegó por el link de WhatsApp): intentar precargar el
   // doctor y motivo EXACTOS de la cita vieja (quedan bloqueados). Si NO se
   // puede (link viejo sin fecha, motivo que no está en la tabla, cita movida
@@ -154,6 +189,7 @@ function cerrarAgenda() {
     doctor: null, doctorNombre: '', doctorFoto: '', motivo: null, motivoLabel: '',
     fecha: null, fechaLegible: '', hora: null,
     esNoSoyYo: false, datosOriginales: null, completarDatos: false,
+    motivosPermitidos: null, verTodosMotivos: false,
   };
   agenda.prefetch = {};   // descartar disponibilidad precargada (puede quedar obsoleta)
   agenda.citasPreviasPromise = null;
@@ -171,6 +207,12 @@ function cerrarAgenda() {
   agenda.reagendaDuracion = null;
   agenda.reagendaSoloManana = false;
   agenda._reagendaInfoIntentado = false;
+  // Cerrar también abandona el link pre-cargado: reabrir con el botón normal
+  // empieza una reserva limpia (mismo criterio que reagenda). Para volver a
+  // entrar en modo link hay que tocar el link de nuevo (re-dispara el hash).
+  agenda.linkToken = null;
+  agenda.linkExacto = false;
+  agenda.linkDatos = null;
 }
 
 function setBody(html) { document.getElementById('agendaBody').innerHTML = html; }
@@ -242,7 +284,11 @@ async function continuarRut(e) {
     const r = await agendaApi('/api/agenda/paciente?rut=' + encodeURIComponent(agenda.sel.rut));
     agenda.sel.existe = r.existe;
     agenda.sel.datos = Object.assign(agenda.sel.datos, r.datos || {});
-  } catch (err) { agenda.sel.existe = false; }
+    // El backend ya resolvió en qué está el paciente y qué motivos le
+    // corresponden. null (o ausente) = mostrar el menú completo de siempre.
+    agenda.sel.motivosPermitidos = r.motivos_permitidos || null;
+    agenda.sel.verTodosMotivos = false;
+  } catch (err) { agenda.sel.existe = false; agenda.sel.motivosPermitidos = null; }
   track('rut');
   // En segundo plano (sin bloquear): buscar si ya tiene citas activas futuras.
   // El aviso se muestra antes de confirmar (paso resumen), cuando ya está listo.
@@ -312,6 +358,71 @@ function pasoDatos() {
     </form>`);
 }
 
+/* ── Modo link pre-cargado (#cita=<token>) ───────────────────────────────── */
+
+// El token ya trae paciente + doctor + motivo resueltos en el backend, así que
+// acá NO se pide RUT ni datos: solo se confirma identidad (mismo gesto que la
+// pantalla "¿Eres tú?" del paciente reconocido) y se salta a elegir hora.
+function pasoConfirmarLink() {
+  setPaso(3);
+  const p = agenda.linkDatos || {};
+  const s = agenda.sel;
+  const saludo = p.nombres ? `¿Eres tú, ${p.nombres}?` : 'Confirmemos tu hora';
+  const contacto = (p.email_masked || p.telefono_masked) ? `
+    <ul class="agenda-detalle">
+      ${p.email_masked ? `<li><span>Email</span><b>${p.email_masked}</b></li>` : ''}
+      ${p.telefono_masked ? `<li><span>Teléfono</span><b>${p.telefono_masked}</b></li>` : ''}
+    </ul>` : '';
+  setBody(`<h3 class="agenda-q">${saludo}</h3>
+    <div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> La clínica te preparó este link. Solo falta que elijas el día y la hora.</div>
+    <div class="agenda-resumen">
+      <img src="${s.doctorFoto}" alt="">
+      <div><strong>${s.doctorNombre}</strong><span>${s.motivoLabel}</span></div>
+    </div>
+    ${contacto}
+    <button class="btn btn-primary btn-lg agenda-submit" onclick="continuarDesdeLink()">Sí, soy yo · Elegir fecha y hora</button>
+    <p class="agenda-mini"><a href="#" onclick="noSoyYoLink(event)">No soy yo / agendar de otra forma</a></p>`);
+  // El aviso de "ya tienes una hora agendada" también aplica acá; el backend
+  // resuelve el RUT desde el token (nunca viaja en la URL).
+  agenda.citaPreviaAck = false;
+  agenda.citasPreviasPromise = agendaApi('/api/agenda/citas-futuras?link_token=' + encodeURIComponent(agenda.linkToken))
+    .then(r => r.citas || []).catch(() => []);
+}
+
+function continuarDesdeLink() {
+  track('datos'); track('profesional'); track('motivo');
+  agenda._horasT0 = Date.now();
+  pasoFechaHora();
+}
+
+// El link llegó a otra persona (reenviado, celular compartido): se descarta el
+// modo link y arranca el wizard normal desde cero.
+function noSoyYoLink(e) {
+  if (e) e.preventDefault();
+  agenda.linkToken = null;
+  agenda.linkExacto = false;
+  agenda.linkDatos = null;
+  agenda.sel.doctor = null; agenda.sel.doctorNombre = ''; agenda.sel.doctorFoto = '';
+  agenda.sel.motivo = null; agenda.sel.motivoLabel = '';
+  agenda.sel.especialidad = null; agenda.sel.especialidadLabel = '';
+  agenda.citasPreviasPromise = null;
+  pasoEspecialidad();
+}
+
+// Token vencido, ya usado o inexistente. No se abre el wizard libre a ciegas:
+// se explica y se ofrecen las dos salidas (agendar normal o WhatsApp).
+function pasoLinkNoDisponible(msg) {
+  agenda.linkToken = null;
+  agenda.linkExacto = false;
+  setBody(`<div class="agenda-final err">
+    <i class="fas fa-link-slash"></i>
+    <h3>Este link ya no está disponible</h3>
+    <p>${msg || 'El link que te enviamos venció o ya fue usado.'}</p>
+    <button class="btn btn-primary btn-lg" onclick="noSoyYoLink()">Agendar mi hora</button>
+    <p class="agenda-mini"><a href="https://wa.me/56933558189?text=Hola,%20el%20link%20para%20agendar%20que%20me%20enviaron%20no%20funciona" target="_blank" rel="noopener">O escríbenos por WhatsApp</a></p>
+  </div>`);
+}
+
 function confirmarReconocido() {
   // No tocamos email/telefono: el backend usa los registrados (dedup por RUT+email).
   continuarDespuesDeDatos();
@@ -337,6 +448,9 @@ function noSoyYo(e) {
   agenda.sel.completarDatos = false;
   agenda.sel.datosOriginales = { ...agenda.sel.datos };
   agenda.sel.existe = false;
+  // Quien agenda NO es el paciente de la ficha: el estado de ese RUT ya no
+  // describe a quien está usando el wizard -> vuelve el menú completo.
+  agenda.sel.motivosPermitidos = null;
   // Conserva nombre (ya visible y no sensible); limpia contacto para que lo ingrese
   agenda.sel.datos = {
     nombres: agenda.sel.datos.nombres,
@@ -387,7 +501,7 @@ function pasoMotivo() {
   // Volver al menú de motivos cancela cualquier flujo de estudio a medias.
   agenda.estudio = null;
   agenda.filtroMinFecha = null;
-  const motivos = agenda.config.motivos.filter(m => m.especialidad === agenda.sel.especialidad && !m.oculto);
+  const motivos = _motivosDelPaso();
   const items = motivos.map(m => `
     <button class="agenda-option" onclick="${m.compuesto ? `elegirMotivoEstudio('${m.key}')` : `elegirMotivo('${m.key}', this)`}">
       <span>${m.label}</span>
@@ -400,12 +514,48 @@ function pasoMotivo() {
       <div><strong>${agenda.sel.doctorNombre}</strong><span>${agenda.sel.especialidadLabel}</span></div>
     </div>
     <h3 class="agenda-q">¿Cuál es el motivo de tu consulta?</h3>
-    <div class="agenda-options">${items}</div>`);
+    <div class="agenda-options">${items}</div>
+    ${_escapeMotivosHTML()}`);
   // Precarga SECUENCIAL (no en ráfaga) de los motivos del doctor mientras el
   // paciente lee: deja tibio para que elegir/cambiar de motivo sea instantáneo.
   // Los compuestos (Estudio) se calientan por sus 2 motivos reales.
   const aCalentar = motivos.flatMap(m => m.compuesto ? m.compuesto.map(k => ({ key: k })) : [m]);
   calentarMotivos(agenda.sel.doctor, aCalentar);
+}
+
+/* ── Menú de motivos según el estado del paciente ────────────────────────── */
+
+// El backend dice qué motivos le corresponden a este RUT (motivos_permitidos).
+// Con esa lista el paciente ve SOLO lo suyo (ej. en tratamiento con frenillos:
+// control fijo + urgencia) en vez del menú completo, donde se perdía.
+// Sin lista -> menú de siempre, quitando los motivos `solo_filtrado` (los que
+// existen únicamente para una categoría concreta, como Control de Contención).
+function _motivosDelPaso() {
+  const todos = agenda.config.motivos.filter(m => m.especialidad === agenda.sel.especialidad && !m.oculto);
+  const permitidas = agenda.sel.motivosPermitidos;
+  if (!permitidas || !permitidas.length || agenda.sel.verTodosMotivos) {
+    return todos.filter(m => !m.solo_filtrado);
+  }
+  // Se respeta el ORDEN de motivos_permitidos (el backend lo manda de más
+  // probable a menos), no el del config.
+  const filtrados = permitidas.map(k => todos.find(m => m.key === k)).filter(Boolean);
+  // Defensa: si la config y el estado quedaran desalineados (motivo renombrado
+  // o borrado), NUNCA dejar al paciente sin opciones -> menú completo.
+  return filtrados.length ? filtrados : todos.filter(m => !m.solo_filtrado);
+}
+
+function _escapeMotivosHTML() {
+  const p = agenda.sel.motivosPermitidos;
+  if (!p || !p.length || agenda.sel.verTodosMotivos) return '';
+  if (!_motivosDelPaso().length) return '';
+  return `<p class="agenda-mini" style="text-align:center;margin-top:12px">
+    <a href="#" onclick="verTodosMotivos(event)">¿Buscas otro tipo de hora? Ver todos los motivos</a></p>`;
+}
+
+function verTodosMotivos(e) {
+  if (e) e.preventDefault();
+  agenda.sel.verTodosMotivos = true;
+  pasoMotivo();
 }
 
 /* ── Precarga de disponibilidad ──────────────────────────────────────────── */
@@ -727,6 +877,9 @@ function _horasJornadaHTML(d, diaIdx) {
 // quedaron fijos con los de la cita vieja) -> "Volver" regresa a los datos.
 function _volverDesdeFechaHora() {
   if (agenda.reagendaExacto) { pasoDatos(); return; }
+  // Modo link: tampoco hay pasos previos (no se pidió RUT ni motivo) -> vuelve
+  // a la pantalla de confirmar identidad.
+  if (agenda.linkExacto) { pasoConfirmarLink(); return; }
   pasoMotivo();
 }
 
@@ -938,6 +1091,25 @@ function confirmarCitaNueva() {
 
 /* ── Resumen + confirmar ─────────────────────────────────────────────────── */
 
+// En modo link el wizard NUNCA conoce el RUT ni el email del paciente (viven
+// server-side detrás del token): se muestra solo lo enmascarado que devolvió
+// link-info, sin la fila de RUT.
+function _resumenPacienteHTML() {
+  const s = agenda.sel;
+  if (agenda.linkExacto) {
+    const p = agenda.linkDatos || {};
+    return p.nombres ? `<li><span>Paciente</span><b>${p.nombres}</b></li>` : '';
+  }
+  return `<li><span>Paciente</span><b>${s.datos.nombres} ${s.datos.apellidos}</b></li>
+      <li><span>RUT</span><b>${s.rutFmt}</b></li>`;
+}
+
+function _resumenTelefono() {
+  const s = agenda.sel;
+  if (agenda.linkExacto) return (agenda.linkDatos || {}).telefono_masked || '—';
+  return s.datos.telefono_masked || s.datos.telefono || '—';
+}
+
 function pasoResumen() {
   const s = agenda.sel;
   setBody(`<button class="agenda-back" onclick="pasoFechaHora()"><i class="fas fa-arrow-left"></i> Volver</button>
@@ -951,10 +1123,9 @@ function pasoResumen() {
       </div>
     </div>
     <ul class="agenda-detalle">
-      <li><span>Paciente</span><b>${s.datos.nombres} ${s.datos.apellidos}</b></li>
-      <li><span>RUT</span><b>${s.rutFmt}</b></li>
+      ${_resumenPacienteHTML()}
       <li><span>Especialidad</span><b>${s.especialidadLabel}</b></li>
-      <li><span>Celular</span><b>${s.datos.telefono_masked || s.datos.telefono || '—'}</b></li>
+      <li><span>Celular</span><b>${_resumenTelefono()}</b></li>
     </ul>
     ${agenda.config.turnstile_sitekey ? '<div id="agenda-captcha" style="margin:14px 0;display:flex;justify-content:center"></div>' : ''}
     <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReserva()"${agenda.config.turnstile_sitekey ? ' disabled' : ''}>
@@ -1003,7 +1174,17 @@ async function confirmarReserva() {
     // reagendaExacto: preserva el motivo y la duración ORIGINALES de la cita
     // vieja (endpoint dedicado) -- no el flujo normal, que dejaría al
     // paciente "eligiendo" un motivo del menú online.
-    const r = agenda.reagendaExacto
+    // Modo link: NO se manda rut/nombres/email — el backend los resuelve desde
+    // el token (así el link nunca lleva datos del paciente en la URL).
+    const r = agenda.linkExacto
+      ? await agendaApi('/api/agenda/reservar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            link_token: agenda.linkToken, fecha: s.fecha, hora: s.hora,
+            captcha_token: agenda.captchaToken || '',
+          }),
+        })
+      : agenda.reagendaExacto
       ? await agendaApi('/api/agenda/reservar-reagenda', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1116,6 +1297,14 @@ function _abrirDesdeHash() {
     // vez de reusar un doctor/motivo precargado de otra cita.
     agenda.reagendaExacto = false;
     agenda._reagendaInfoIntentado = false;
+    abrirAgenda();
+    return;
+  }
+  // #cita=<token>: link pre-cargado que la secretaria generó desde el F2.
+  const lk = hash.match(/^#cita=([A-Za-z0-9_-]{8,32})/);
+  if (lk) {
+    agenda.linkToken = lk[1];
+    agenda.linkExacto = false;   // forzar que abrirAgenda resuelva el token
     abrirAgenda();
   } else if (/^#(reservar|agendar)/i.test(hash)) {
     abrirAgenda();

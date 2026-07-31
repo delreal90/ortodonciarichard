@@ -30,6 +30,10 @@ SUITES = [
     ('reactivacion', 'test_reactivacion.py', 'reactivacion de inactivos (terminados / abandonados)'),
     ('reporte_semanal', 'test_reporte_semanal.py', 'reporte semanal de KPIs de negocio'),
     ('backup',      'test_backup.py',      'respaldo de datos a Google Drive'),
+    ('paciente_estado', 'test_paciente_estado.py', 'en que esta el paciente -> menu de motivos filtrado'),
+    ('link_agenda', 'test_link_agenda.py', 'links de agenda pre-cargados desde el F2'),
+    ('paciente_estado_api', 'test_paciente_estado_api.py', 'endpoints del menu filtrado (agenda + F2)'),
+    ('link_agenda_api', 'test_link_agenda_api.py', 'endpoints del link pre-cargado (F2 + paciente)'),
 ]
 
 AQUI = Path(__file__).parent

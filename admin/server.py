@@ -701,6 +701,8 @@ import recordatorios_wa
 import webhook_wa
 import recaptacion
 import control_dental
+import paciente_estado  # menu filtrado de la agenda online segun el estado clinico del paciente
+import link_agenda      # links de agenda pre-cargados (F2 -> paciente), ver link_agenda.py
 import nps
 import seguimiento_pc
 import reactivacion
@@ -735,6 +737,12 @@ def agenda_config():
                 # Flujos especiales (Estudio Integral): motivos ocultos del menu
                 # + entrada compuesta que agenda 2 citas con separacion minima.
                 'oculto': bool(v.get('oculto')),
+                # 'solo_filtrado': el motivo NO va en el menu completo/fallback;
+                # aparece solo cuando el estado del paciente lo incluye
+                # (paciente_estado.clasificar) o cuando llega por link del F2.
+                # Es un flag APARTE de 'oculto' a proposito: 'oculto' son los
+                # sub-motivos del Estudio Integral, que nunca se eligen sueltos.
+                'solo_filtrado': bool(v.get('solo_filtrado')),
                 'compuesto': v.get('compuesto') or None,
                 'separacion_min_dias': v.get('separacion_min_dias'),
                 'solo_pacientes_existentes': bool(v.get('solo_pacientes_existentes'))}
@@ -768,8 +776,24 @@ def agenda_paciente():
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
     info = dentidesk.buscar_paciente(rut)
+
+    # Menu filtrado (paciente_estado): solo la CATEGORIA y las KEYS de motivos
+    # permitidos van al frontend -- nunca fecha de cita ni motivo textual (este
+    # endpoint es publico). Best-effort: si clasificar() revienta, el paciente
+    # no debe quedar bloqueado del wizard -- se cae a menu completo (None).
+    motivos_permitidos = None
+    estado_categoria = None
+    try:
+        clasif = paciente_estado.clasificar(rut)
+        motivos_permitidos = clasif.get('motivos_permitidos')
+        estado_categoria = clasif.get('estado')
+    except Exception as e:
+        app.logger.warning('paciente_estado.clasificar fallo para %s: %s', rut, e)
+
     return jsonify({'ok': True, 'rut': scheduling.formatear_rut(rut),
-                    'existe': info['existe'], 'datos': info['datos']})
+                    'existe': info['existe'], 'datos': info['datos'],
+                    'motivos_permitidos': motivos_permitidos,
+                    'estado_categoria': estado_categoria})
 
 import threading as _threading
 
@@ -1192,6 +1216,27 @@ def agenda_reservar():
     data = request.json or {}
     cfg = scheduling.load_config()
 
+    # Reserva vía link pre-cargado (F2 -> paciente, ver link_agenda.py): si el
+    # body trae 'link_token', el RUT/doctor/motivo se resuelven SERVER-SIDE
+    # desde el token e IGNORAN lo que venga en el body para esos tres campos
+    # -- el body lo arma el navegador del paciente (no confiable), el token lo
+    # genero la secretaria desde la ficha abierta (fuente de verdad). Se
+    # sobreescribe 'data' (una copia, para no mutar lo que mando el cliente) y
+    # el resto del handler sigue igual, pasando por las MISMAS validaciones
+    # (doctor/motivo/rut) que una reserva normal -- no se saltan a proposito.
+    link_token = str(data.get('link_token') or '').strip()
+    if link_token:
+        resuelto_link = link_agenda.resolver(link_token)
+        if not resuelto_link.get('ok'):
+            motivo_falla = resuelto_link.get('motivo', 'no_existe')
+            return jsonify({'ok': False, 'motivo': motivo_falla,
+                            'error': _LINK_AGENDA_SIN_SERVIR.get(
+                                motivo_falla, _LINK_AGENDA_SIN_SERVIR['no_existe'])}), 409
+        data = dict(data)
+        data['rut'] = resuelto_link['rut']
+        data['doctor'] = resuelto_link['doctor']
+        data['motivo'] = resuelto_link['motivo']
+
     # Reagendar NO pasa por aqui: va SIEMPRE por /api/agenda/reservar-reagenda,
     # que preserva el motivo/doctor EXACTOS de la cita vieja. Este endpoint
     # (wizard libre) dejaba elegir cualquier motivo -> un reagendamiento
@@ -1231,12 +1276,20 @@ def agenda_reservar():
     # ficha. Si el RUT esta en nuestra base local, usamos SU email registrado
     # (no el que escriba) para que NO se duplique la ficha.
     import pacientes
-    rec = pacientes.lookup(rut) if cfg['dentidesk']['enabled'] else None
+    # Con link_token el paciente NUNCA escribe email/nombre (el wizard se salta
+    # esos pasos): sus datos salen siempre de la ficha, tambien en modo mock
+    # -- si no, la reserva por link moriria en la validacion de abajo.
+    rec = pacientes.lookup(rut) if (cfg['dentidesk']['enabled'] or link_token) else None
     if rec and rec.get('email'):
         email = rec['email']
     else:
         email = (data.get('email') or '').strip()
     if '@' not in email or '.' not in email:
+        # Por link no hay campo de email que corregir (nunca se le pidio): se
+        # deriva a WhatsApp en vez de dejarlo frente a un error sin salida.
+        if link_token:
+            return jsonify({'ok': False, 'error': 'No pudimos completar tu reserva con este link. '
+                                                  'Escríbenos por WhatsApp y te agendamos al tiro.'}), 409
         return jsonify({'ok': False, 'error': 'El email es obligatorio'}), 400
 
     # Revalidar en backend: ventana (max 60 dias) + anticipacion + disponibilidad
@@ -1292,6 +1345,24 @@ def agenda_reservar():
     except Exception as e:
         app.logger.error('No se pudo marcar la cita %s como confirmada (el barrido '
                          'podria reenviarla): %s', res.get('id_cita'), e)
+
+    # Anticipa el estado clinico del paciente sin esperar al barrido de mañana
+    # (paciente_estado.registrar_reserva_online). Best-effort: la cita YA quedo
+    # hecha en DentiDesk arriba, un fallo aca NO debe romper la reserva.
+    try:
+        paciente_estado.registrar_reserva_online(rut, motivo)
+    except Exception as e:
+        app.logger.error('No se pudo registrar estado del paciente %s (motivo %s): %s',
+                         rut, motivo, e)
+
+    # Si la reserva vino por link pre-cargado, sellarlo como usado -- de un
+    # solo uso, igual que el resto de tokens del proyecto. Best-effort: la
+    # cita YA quedo hecha arriba, un fallo aca no debe romper la reserva.
+    if link_token:
+        try:
+            link_agenda.marcar_usado(link_token)
+        except Exception as e:
+            app.logger.error('No se pudo marcar usado el link de agenda %s: %s', link_token, e)
 
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
@@ -1644,6 +1715,20 @@ def agenda_reservar_estudio():
                          'confirmadas; el barrido podria reenviarlas: %s',
                          res1.get('id_cita'), res2.get('id_cita'), e)
 
+    # DECISION (tarea B1): 'estudio_integral' NO esta en
+    # paciente_estado._MOTIVO_KEY_A_ESTADO (solo mapea control_fijo/
+    # alineadores/removible/pasivo/control_evolucion). Semanticamente, quien
+    # llega a agendar el Estudio Integral YA tuvo su Primera Consulta (es el
+    # gate 'solo_pacientes_existentes' de mas arriba) y sigue en la MISMA
+    # etapa clinica que 'control_evolucion' clasifica como 'primera_consulta'
+    # -- por eso se registra con esa key en vez de 'estudio_integral' (que el
+    # modulo no reconoceria y dejaria el registro sin tocar). Best-effort:
+    # ambas citas ya quedaron creadas arriba, un fallo aca no las revierte.
+    try:
+        paciente_estado.registrar_reserva_online(rut, 'control_evolucion')
+    except Exception as e:
+        app.logger.error('No se pudo registrar estado del paciente %s (estudio integral): %s', rut, e)
+
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
 
@@ -1880,8 +1965,19 @@ def whatsapp_plantillas():
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
 def agenda_citas_futuras():
     """Citas activas futuras del paciente (por RUT), para avisar de doble
-    agendamiento. Escaneo en segundo plano desde el frontend (tarda unos segundos)."""
+    agendamiento. Escaneo en segundo plano desde el frontend (tarda unos segundos).
+
+    Acepta 'link_token' como alternativa a 'rut' -- en modo link (F2) el
+    frontend nunca conoce el RUT del paciente, asi que lo resuelve del token
+    igual que /api/agenda/reservar. Si no viene ninguno, o el token no
+    resuelve, sigue el comportamiento de siempre (RUT invalido -> 400)."""
     rut = request.args.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        link_token = (request.args.get('link_token') or '').strip()
+        if link_token:
+            resuelto_link = link_agenda.resolver(link_token)
+            if resuelto_link.get('ok'):
+                rut = resuelto_link['rut']
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
     cfg = scheduling.load_config()
@@ -1890,6 +1986,204 @@ def agenda_citas_futuras():
     except Exception:
         citas = []
     return jsonify({'ok': True, 'citas': citas})
+
+
+# ── Links de agenda pre-cargados (F2 -> paciente) ────────────────────────────
+# La secretaria, con la ficha abierta en DentiDesk, genera un link corto que ya
+# trae RUT + doctor + motivo elegidos; el paciente solo elige fecha/hora. Ver
+# admin/link_agenda.py para el modulo que guarda/resuelve el token.
+
+# Mensaje unico para las 3 formas en que un link deja de servir -- todas
+# derivan a WhatsApp, que es el canal de respaldo humano de todo el proyecto.
+_LINK_AGENDA_SIN_SERVIR = {
+    'no_existe': 'Este link no es válido. Escríbenos por WhatsApp y te ayudamos a agendar.',
+    'expirado':  'Este link ya venció. Escríbenos por WhatsApp y te ayudamos a agendar.',
+    'usado':     'Este link ya se usó. Escríbenos por WhatsApp y te ayudamos a agendar.',
+}
+
+_TITULOS_DOCTOR = ('dr.', 'dr', 'dra.', 'dra', 'sr.', 'sr', 'sra.', 'sra', 'srta.', 'srta')
+
+
+def _doc_key_flexible(cfg, texto):
+    """Dado el texto de doctor que trae el modal de F2 ("Dr. Alberto Del Real
+    V."), devuelve la LISTA de keys de cfg['doctores'] que matchean -- una
+    lista (no un solo key) para que el llamador distinga 0/1/>1 matches
+    (CONTINGENCIA 4: doctor ambiguo o no encontrado => la secretaria elige a
+    mano en un <select>).
+
+    Primero intenta el match EXACTO que ya usa dentidesk.doc_key_por_nombre
+    (compara tal cual contra 'professional_name'). Si no hay match, normaliza
+    el texto (dentidesk._norm_motivo: minusculas, sin tildes, espacios
+    colapsados -- mismo normalizador que usa el resto del proyecto para este
+    tipo de comparacion difusa), le quita titulos (Dr./Dra./Sr./Sra./Srta.) e
+    iniciales sueltas al final (tokens de 1 letra, con o sin punto -- la "V."
+    de "Alberto Del Real V.") y compara por INCLUSION contra el nombre
+    normalizado de cada doctor."""
+    texto = (texto or '').strip()
+    if not texto:
+        return []
+
+    exacto = dentidesk.doc_key_por_nombre(cfg, texto)
+    if exacto:
+        return [exacto]
+
+    tokens = dentidesk._norm_motivo(texto).split()
+    tokens = [t for t in tokens if t not in _TITULOS_DOCTOR]
+    while tokens and len(tokens[-1].rstrip('.')) <= 1:
+        tokens.pop()
+    candidato = ' '.join(tokens)
+    if not candidato:
+        return []
+
+    encontrados = []
+    for k, dc in cfg['doctores'].items():
+        if k.startswith('_') or not isinstance(dc, dict):
+            continue
+        nombre_norm = dentidesk._norm_motivo(dc.get('professional_name', ''))
+        if nombre_norm and (candidato in nombre_norm or nombre_norm in candidato):
+            encontrados.append(k)
+    return encontrados
+
+
+def _doctores_para_select(cfg, especialidad=None):
+    """Lista {key,nombre} de doctores que atienden online, para que el F2
+    arme un <select> cuando _doc_key_flexible no pudo resolver solo. Si se
+    pide una especialidad, prioriza los que la comparten (es lo util para la
+    secretaria: el motivo ya fija la especialidad); si ninguno la comparte
+    (config rara / especialidad vacia), cae a TODOS los que atienden en vez de
+    devolver una lista vacia que no ayuda en nada."""
+    doctors_data = read_doctor_data()
+
+    def _armar(keys):
+        out = []
+        for k in keys:
+            dc = cfg['doctores'].get(k, {})
+            info = doctors_data.get(k, {})
+            out.append({'key': k, 'nombre': info.get('name', dc.get('professional_name', k.title()))})
+        return out
+
+    atienden = [k for k, dc in cfg['doctores'].items()
+                if not k.startswith('_') and isinstance(dc, dict) and dc.get('atiende')]
+    if especialidad:
+        de_la_especialidad = [k for k in atienden if cfg['doctores'][k].get('especialidad') == especialidad]
+        if de_la_especialidad:
+            return _armar(de_la_especialidad)
+    return _armar(atienden)
+
+
+@app.route('/api/asistente/link-agenda', methods=['POST'])
+def asistente_link_agenda():
+    """Genera un link de agenda pre-cargado (RUT + doctor + motivo) para que
+    el F2 se lo mande al paciente. Body: {rut, doctor_texto, motivo, id_agenda?,
+    doctor_key?}. Protegido por ADMIN_TOKEN (lo llama la extension F2, no un
+    paciente)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+
+    data = request.json or {}
+    cfg = scheduling.load_config()
+
+    rut = data.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+
+    motivo = data.get('motivo')
+    if motivo not in cfg['motivos']:
+        return jsonify({'ok': False, 'error': 'Motivo invalido'}), 400
+    motivo_cfg = cfg['motivos'][motivo]
+    # Estudio Integral agenda 2 citas encadenadas (ver reservar-estudio) -- ese
+    # flujo compuesto queda fuera de esta v1 del link pre-cargado.
+    if motivo_cfg.get('compuesto'):
+        return jsonify({'ok': False, 'error': 'Este motivo se agenda por un flujo especial, '
+                                              'no por link'}), 400
+
+    # doctor_key (explicito, elegido a mano por la secretaria en un <select>
+    # de una ambiguedad previa) tiene PRECEDENCIA sobre doctor_texto -- si
+    # viene y es un doctor real que atiende, se usa directo sin matchear texto.
+    doctor_key = (data.get('doctor_key') or '').strip()
+    if doctor_key:
+        dc_explicito = cfg['doctores'].get(doctor_key)
+        if not (isinstance(dc_explicito, dict) and dc_explicito.get('atiende')):
+            return jsonify({'ok': False, 'error': 'doctor_key invalido'}), 400
+        doc_matches = [doctor_key]
+    else:
+        doc_matches = _doc_key_flexible(cfg, data.get('doctor_texto') or '')
+
+    if len(doc_matches) != 1:
+        return jsonify({
+            'ok': False,
+            'error': 'No se encontró un único doctor: elige de la lista.' if not doc_matches
+                     else 'Ese texto matchea más de un doctor: elige de la lista.',
+            'doctores': _doctores_para_select(cfg, motivo_cfg.get('especialidad')),
+        }), 422
+
+    doc_id = doc_matches[0]
+    doc_cfg = cfg['doctores'][doc_id]
+    if doc_cfg.get('especialidad') != motivo_cfg.get('especialidad'):
+        return jsonify({'ok': False,
+                        'error': 'El doctor elegido no atiende la especialidad de ese motivo'}), 400
+
+    # El paciente que llega por link NO escribe su email (el wizard se lo salta
+    # entero), asi que el de su ficha es el unico que hay -- y DentiDesk exige
+    # email para crear la cita. Si falta, se corta ACA: la secretaria tiene la
+    # ficha abierta y puede agregarlo, mientras que el paciente al final del
+    # flujo solo veria un error sin salida.
+    import pacientes
+    rec = pacientes.lookup(rut)
+    if not rec or not (rec.get('email') or '').strip():
+        return jsonify({'ok': False, 'error': 'Este paciente no tiene email registrado en su ficha. '
+                                              'Agrégalo en DentiDesk, guarda, y vuelve a generar el link.'}), 409
+    nombre = f"{rec.get('nombres', '')} {rec.get('apellidos', '')}".strip()
+
+    link = link_agenda.crear(rut, doc_id, motivo, cfg, id_agenda_origen=data.get('id_agenda', ''))
+    return jsonify({'ok': True, 'url': link['url'], 'expira': link['expira'], 'nombre': nombre})
+
+
+# 10/min: mismo criterio que /api/agenda/paciente -- es un oraculo (dado un
+# token, dice si hay un paciente detras), asi que va con el mismo limite bajo.
+@rate_limit('10 per minute')
+@app.route('/api/agenda/link-info', methods=['GET'])
+def agenda_link_info():
+    """Resuelve un token de link pre-cargado para que la pagina de agenda
+    salte directo a elegir hora. PUBLICA (el paciente la abre sin sesion) --
+    por eso SOLO devuelve datos ENMASCARADOS: nunca el RUT completo ni el
+    email completo (pacientes.display() ya viene enmascarado, igual que usa
+    dentidesk.buscar_paciente)."""
+    token = (request.args.get('token') or '').strip()
+    resuelto = link_agenda.resolver(token)
+    if not resuelto.get('ok'):
+        motivo_falla = resuelto.get('motivo', 'no_existe')
+        # no_existe: el token nunca existio (404, "no encontrado").
+        # expirado/usado: existio pero ya no sirve (410 Gone -- el recurso
+        # existio y dejo de estar disponible, mas preciso que un 404 generico).
+        status = 404 if motivo_falla == 'no_existe' else 410
+        return jsonify({'ok': False, 'motivo': motivo_falla,
+                        'error': _LINK_AGENDA_SIN_SERVIR.get(
+                            motivo_falla, _LINK_AGENDA_SIN_SERVIR['no_existe'])}), status
+
+    cfg = scheduling.load_config()
+    doctors_data = read_doctor_data()
+    doc_id = resuelto.get('doctor', '')
+    doc_info = doctors_data.get(doc_id, {})
+    motivo_id = resuelto.get('motivo', '')
+    motivo_cfg = cfg['motivos'].get(motivo_id, {}) if isinstance(cfg['motivos'].get(motivo_id), dict) else {}
+
+    import pacientes
+    rec = pacientes.lookup(resuelto.get('rut', ''))
+    paciente_masked = pacientes.display(rec) if rec else {}
+
+    return jsonify({
+        'ok': True,
+        'doctor': {'key': doc_id, 'nombre': doc_info.get('name', doc_id.title() if doc_id else ''),
+                  'foto': doc_info.get('photo', '')},
+        'motivo': {'key': motivo_id, 'label': motivo_cfg.get('label', '')},
+        'paciente': {
+            'nombres': paciente_masked.get('nombres', ''),
+            'email_masked': paciente_masked.get('email_masked', ''),
+            'telefono_masked': paciente_masked.get('telefono_masked', ''),
+        },
+    })
+
 
 @rate_limit('120 per minute')
 @app.route('/api/agenda/evento', methods=['POST'])
@@ -3991,6 +4285,84 @@ def control_dental_motivos_desconocidos():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ESTADO DEL PACIENTE (menu filtrado de la agenda online) ── paciente_estado.py
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Tres endpoints, TODOS con ADMIN_TOKEN (a diferencia de /api/agenda/paciente,
+# que es publico y solo expone estado_categoria/motivos_permitidos filtrados).
+# Se ubican junto a CONTROL DENTAL a proposito: mismo molde de barrido/backfill.
+
+@app.route('/api/asistente/paciente-estado', methods=['GET'])
+def asistente_paciente_estado_get():
+    """F2/panel: el registro completo de un paciente para mostrarlo en el
+    panel -- combina get() (ultima_cita/ultimo_motivo/fuente cruda del store)
+    con clasificar() (estado ya resuelto + vigencia + motivos_permitidos, que
+    es lo mismo que consulta el agendamiento online)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    rut = request.args.get('rut', '')
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    reg = paciente_estado.get(rut) or {}
+    clasif = paciente_estado.clasificar(rut)
+    return jsonify({
+        'ok': True,
+        'estado': clasif.get('estado'),
+        'fuente': clasif.get('fuente'),
+        'ultima_cita': reg.get('ultima_cita', ''),
+        'ultimo_motivo': reg.get('ultimo_motivo', ''),
+        'motivos_permitidos': clasif.get('motivos_permitidos'),
+    })
+
+
+@app.route('/api/asistente/paciente-estado', methods=['POST'])
+def asistente_paciente_estado_post():
+    """F2/panel: override manual del estado clinico (set_manual). estado=''
+    limpia el override -- vuelve a que el barrido/reserva online decidan."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    estado = (data.get('estado') or '').strip()
+    if estado and estado not in paciente_estado._ESTADOS_VALIDOS:
+        return jsonify({'ok': False,
+                        'error': f'estado desconocido: {estado!r} (validos: '
+                                 f'{sorted(paciente_estado._ESTADOS_VALIDOS)})'}), 400
+    p = paciente_estado.set_manual(rut, estado)
+    return jsonify({'ok': True, 'estado': p.get('estado'), 'fuente': p.get('fuente'),
+                    'bloqueo_manual': p.get('bloqueo_manual', False)})
+
+
+@app.route('/api/paciente-estado/backfill', methods=['POST'])
+def paciente_estado_backfill():
+    """Panel: poblar el store la primera vez (cartera ya en tratamiento).
+    Patron EXACTO de /api/control-dental/backfill -- son ~130 llamadas a
+    DentiDesk, no pueden correr dentro del request: se lanzan en un hilo
+    daemon y se responde de inmediato; el resultado queda en el log."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg_dd = scheduling.load_config()
+    if not cfg_dd['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk'}), 400
+    data = request.json or {}
+    try:
+        meses = int(data.get('meses', 6))
+    except (TypeError, ValueError):
+        meses = 6
+
+    def job():
+        try:
+            r = paciente_estado.backfill(meses=meses)
+            print('[paciente-estado] backfill:', r)
+        except Exception as e:
+            print('[paciente-estado] error en backfill:', e)
+    _threading.Thread(target=job, daemon=True).start()
+    return jsonify({'ok': True, 'iniciado': True})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SEGUIMIENTO PRIMERA CONSULTA  (reencantar a quien no avanzo — seguimiento_pc.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -5094,6 +5466,15 @@ def _loop_refresco_pacientes():
                       'actualizados', 'emails_rellenados') if k in r})
         except Exception as e:
             print('[fichas] error:', e)
+        # Barrido incremental del estado clinico del paciente (menu filtrado de
+        # la agenda online). Propio try/except: un fallo aca NO debe tumbar el
+        # refresco de pacientes ni el de fichas de arriba, que ya corrieron.
+        try:
+            if cfg['dentidesk']['enabled']:
+                r = paciente_estado.barrer(cfg, dias_atras=7)
+                print('[paciente-estado]', r)
+        except Exception as e:
+            print('[paciente-estado] error:', e)
         primera = False
         time.sleep(12 * 3600)  # cada 12 horas
 

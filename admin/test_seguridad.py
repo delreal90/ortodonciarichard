@@ -178,6 +178,7 @@ class TestCoberturaDeAuth(unittest.TestCase):
         '/api/agenda/config':                   'catalogo de doctores y motivos',
         '/api/agenda/paciente':                 'existe el RUT (rate limit 10/min)',
         '/api/agenda/citas-futuras':            'aviso de doble hora (rate limit 10/min)',
+        '/api/agenda/link-info':                'datos enmascarados del link pre-cargado (rate limit 10/min)',
         '/api/agenda/disponibilidad':           'horas libres',
         '/api/agenda/disponibilidad-reagendar': 'horas libres al reagendar',
         '/api/agenda/reagendar-info':           'datos de la cita a reagendar',
