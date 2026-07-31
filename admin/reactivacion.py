@@ -63,13 +63,16 @@ _DEFAULT_CONFIG = {
     'dias_atras': 545,               # ~18 meses hacia atras.
     'dias_adelante': 30,             # hacia adelante (para ver hora futura -> 'volvio').
     'hora_barrido': '02:00',
-    'mensaje_terminado': ('Hola {nombre} 😊 Le escribo del equipo del Dr. Alberto Del Real. '
-                          'Como ya terminó su tratamiento, queríamos invitarlo a un control de '
-                          'sus retenedores para asegurarnos de que todo siga en su lugar. '
-                          '¿Le acomoda que coordinemos una hora?'),
-    'mensaje_abandono': ('Hola {nombre} 😊 Soy el Dr. Alberto Del Real. Vi que quedó pendiente '
-                         'su tratamiento hace un tiempo y quería saber cómo está y si le '
-                         'gustaría retomarlo. Quedo atento.'),
+    'mensaje_terminado': ('Hola {nombre}, ¿cómo estás? Soy el Dr. Alberto Del Real, tu '
+                          'ortodoncista. Vi que ya ha pasado un tiempo desde tu último control, '
+                          'así que quise escribirte para saber cómo has estado con la placa y '
+                          'los retenedores. Conviene hacer un control de vez en cuando para '
+                          'confirmar que todo siga estable. Si te parece, podemos coordinar una '
+                          'hora cuando te acomode. ¡Quedo atento!'),
+    'mensaje_abandono': ('Hola {nombre}, ¿cómo estás? Soy el Dr. Alberto Del Real, tu '
+                         'ortodoncista. Vi que quedó pendiente tu tratamiento hace un tiempo y '
+                         'quería saber cómo has estado y si te gustaría retomarlo. Si te parece, '
+                         'podemos coordinar una hora cuando te acomode. ¡Quedo atento!'),
 }
 
 _rut_key = avisos.rut_key

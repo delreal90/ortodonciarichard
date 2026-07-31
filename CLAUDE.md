@@ -1424,6 +1424,34 @@ escaneable + texto correctos.
 
 ---
 
+## Analytics — registro histórico de atenciones (`ortodonciarichard-analytics/`)
+
+Subproyecto de **análisis de datos** (NO es parte del backend Flask ni del sitio; no toca
+`admin/`, no se despliega). Vive en la subcarpeta `ortodonciarichard-analytics/` y tiene su
+**propio `CLAUDE.md`** con el detalle completo — léelo antes de trabajar ahí.
+
+- **Qué es:** el registro histórico de atenciones de la clínica (agenda exportada de
+  DentiDesk) más el análisis derivado. Marca: ortodonciarichard.cl.
+- **Fuente de datos:** `data/atendidos_2021-jul2026.parquet` (usar esta; CSV de respaldo).
+  46.692 atenciones · 3.654 pacientes únicos · rango **2021-01-04 a 2026-07-30**. RUT es el
+  identificador de paciente (~20 nulos → usar Nombre como fallback).
+- **Scripts** (`scripts/`): `analisis_general.py` (estadísticas generales) y
+  `analisis_derivaciones.py` (Vial ↔ ortodoncistas). Reproducen el informe.
+- **Informes** (`informes/informe_YYYY-MM-DD.md`): el vigente es `informe_2026-07-30.md`.
+- ⚠️ **Sesgo de truncamiento a la izquierda:** el archivo parte en enero 2021; los pacientes
+  ya en tratamiento antes aparecen con "primera visita" artificial en 2021. Para
+  captación/derivaciones, filtrar cohortes por primera cita `>= 2022-01-01`.
+- 🔒 **Datos sensibles:** el parquet trae RUT, nombres y teléfonos → **nunca** en los informes
+  (solo agregados). Este subproyecto **no debe subirse al repo público** con datos crudos.
+
+**Titulares del informe 2026-07-30:** volumen en plateau/declive suave (~7.700 proyectado
+2026); **pipeline de pacientes nuevos cayendo ~50% en 3 años** (métrica más preocupante);
+Dr. Octavio en reducción marcada (transición pendiente); Alberto = ortodoncista digital de la
+clínica; derivaciones internas asimétricas (ortodoncistas → Vial ≈ 2,5× lo inverso);
+reactivaciones creciendo; capacidad de sillón de Alberto subutilizada (~4,3 h/día).
+
+---
+
 ## Infraestructura decidida (producción)
 
 | Servicio | Rol | Costo |
