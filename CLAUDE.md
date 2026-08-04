@@ -649,33 +649,83 @@ En una sesión Code, Claude puede orquestar (abrir paciente, click Subir, verifi
 la extensión — el humano solo elige el archivo. Si algún día DentiDesk expone API de
 documentos, reemplazar este flujo por subida directa.
 
-### Aviso a recepción: consentimientos sin firmar con cita próxima (2026-07-29)
+### Aviso a recepción: consentimientos sin firmar con cita ese día (2026-07-29, rediseñado 2026-08-04)
 
 El Dr. Alberto notó pacientes con hora agendada que aún no habían firmado su
-consentimiento (enviado pero nunca firmado). A diferencia del aviso de alineadores
-9+ meses (que scrapea DentiDesk vía el runbook de `revision-evoluciones/`), esto
-**no necesita scraping**: el estado "sin firmar" ya vive en `consentimientos_registro.json`
-y la cita futura se resuelve por API (`dentidesk.citas_futuras_paciente`, el mismo
-mecanismo que usa `admin/recaptacion.py` para "¿ya tiene hora?").
+consentimiento. A diferencia del aviso de alineadores 9+ meses (que scrapea DentiDesk vía
+el runbook de `revision-evoluciones/`), esto **no necesita scraping**: el estado "sin
+firmar" ya vive en `consentimientos_registro.json` y la cita se resuelve por API.
 
-- **`consentimientos.pendientes_con_cita_proxima()`** — cruza `listar(estado='enviado')`
-  con `dentidesk.citas_futuras_paciente(rut)` por cada pendiente. Si DentiDesk está
-  deshabilitado o no hay pendientes, corta temprano sin llamar a la API. Devuelve
-  `[{consent_id, rut, nombre, tipo, canal, creado, fecha_cita, hora_cita, doctor_cita}]`
-  ordenado por fecha de cita ascendente.
-- **`notify.avisar_recepcion_consentimientos_pendientes(lista)`** — UN solo correo
-  agrupado a recepción (nunca uno por paciente), mismo patrón que
-  `avisar_recepcion_control_dental_sin_email`.
-- **`_loop_alerta_consentimientos()`** (`server.py`) — barrido diario a las **09:30
-  hora Chile** (patrón VENTANA hasta las 17:00, igual que `_loop_control_dental`, para
-  sobrevivir un reinicio de Render justo en el minuto exacto). Sin config propia ni
-  toggle: es liviano (una llamada por pendiente, normalmente pocos) y siempre útil.
-- Endpoints (`server.py`, ADMIN_TOKEN): `GET /api/consentimiento/alerta-pendientes`
-  (solo lectura, para panel/diagnóstico) y `POST /api/consentimiento/alerta-pendientes/run`
-  (fuerza el barrido + envío ahora, sin esperar a las 09:30 — útil para probar).
-- **Pendiente:** no tiene pestaña propia en el panel todavía (solo los 2 endpoints);
-  si se quiere ver la lista sin usar curl/Postman, agregar una tabla en la pestaña
-  Consentimientos que llame a `GET /api/consentimiento/alerta-pendientes`.
+**Correo diario a las 08:30 (hora Chile), con dos bloques:**
+- **Vienen HOY sin firmar** — recepción les pasa la tablet cuando llegan.
+- **Vienen MAÑANA sin firmar** — todavía se alcanza a reenviarles el link. Usa
+  `scheduling.siguiente_dia_habil(hoy + 1 día)`, así el viernes avisa de los del lunes.
+  Un paciente que ya salió en HOY se excluye de MAÑANA.
+
+Piezas:
+- **`consentimientos.pendientes_con_cita_en(fecha)`** — `listar(estado='enviado')` cruzado
+  contra **UNA** llamada a `dentidesk._get_agenda_day(fecha)` (que ya trae las citas de
+  todos los profesionales de ese día). Corta temprano sin tocar la API si no hay
+  pendientes o DentiDesk está deshabilitado.
+- **`notify.avisar_recepcion_consentimientos_pendientes(hoy, manana)`** — UN solo correo
+  agrupado (nunca uno por paciente), patrón de `avisar_recepcion_control_dental_sin_email`.
+- **`_loop_alerta_consentimientos()`** (`server.py`) — patrón VENTANA `08:30–17:00` (igual
+  que `_loop_control_dental`, para sobrevivir un reinicio de Render en el minuto exacto)
+  y **solo días hábiles**. Sin config propia ni toggle: son 2 llamadas al día.
+- Endpoints (ADMIN_TOKEN): `GET /api/consentimiento/alerta-pendientes[?fecha=YYYY-MM-DD]`
+  (solo lectura) y `POST /api/consentimiento/alerta-pendientes/run` (fuerza barrido+envío).
+
+> ⚠️ **Por qué NO se usa `dentidesk.citas_futuras_paciente()` acá** (así era hasta el
+> 2026-08-04): barre 45 días, así que un paciente con hora en tres semanas salía en el
+> correo **todos los días** hasta firmar, y costaba una llamada por pendiente. El aviso se
+> volvió ruido y dejó de leerse. Mirar UN día lo hace accionable y 45× más barato.
+
+> ⚠️ **Estados de cita:** `consentimientos._ESTADOS_CITA_NO_CUENTA` excluye
+> cancelada/no llega/no seguir/reagendada, pero **NO** "Atendido" — a diferencia de
+> `dentidesk._ESTADOS_INACTIVOS`, que sí lo excluye porque está pensada para citas
+> FUTURAS. Acá la cita es de hoy: si al paciente ya lo atendieron sin firmar, ese es
+> justamente el caso que hay que avisar. Mismo razonamiento que
+> `control_dental._ESTADOS_NO_OCURRIO`.
+
+### Un consentimiento por paciente y tipo — estado `reemplazado` (2026-08-04)
+
+Se detectó que **8 de los 12 pendientes en producción eran huérfanos**: al paciente se le
+mandó el link 2-3 veces (no llegó el WhatsApp, cambió de canal), firmó UNO y los demás
+quedaron en `enviado` para siempre, saliendo en el aviso diario. Caso reportado: RUT
+`<RUT_PACIENTE_CONSENT>` con 3 registros, 1 firmado y 2 colgados.
+
+Tres piezas, todas en `consentimientos.py`:
+
+1. **`obtener_o_crear_registro(rut, tipo, canal)`** — lo que usa ahora
+   `POST /api/consentimiento/enviar`. Si ya hay un `enviado` del mismo rut+tipo creado hace
+   menos de `VENTANA_DEDUP_MESES` (**6**), lo **reutiliza**: mismo `consent_id`, actualiza
+   `canal` y deja rastro en `reenvios[]`. El token no se guarda (se genera en cada envío),
+   así que reutilizar un registro viejo igual manda un link fresco de 30 días.
+   Un `firmado`/`subido`/`reemplazado` **no** bloquea: si la secretaria manda de nuevo es
+   porque quiere una firma nueva (otra fase del tratamiento).
+   `crear_registro()` se mantiene y **siempre** crea: lo usa el walk-up de la tablet, donde
+   el registro nace y se firma en el mismo request.
+2. **`marcar_firmado()` cierra los hermanos** (`_cerrar_hermanos`): los otros `enviado` del
+   mismo rut+tipo **creados antes de esa firma** pasan a `estado='reemplazado'` con
+   `reemplazado_por` y `reemplazado_ts`. Nunca se borran (documento legal). La condición
+   "creados antes" es deliberada: uno enviado *después* de una firma es una petición nueva.
+3. **`limpiar_huerfanos()`** + `POST /api/consentimiento/limpiar-huerfanos` (ADMIN_TOKEN) —
+   aplica lo mismo retroactivamente a todo el historial, recorriendo las firmas de cada
+   grupo en orden **cronológico** (así, con varias firmas, cada huérfano lo cierra la que
+   le corresponde). Idempotente y sin red. Se corrió una vez tras desplegar.
+
+`borrar_registro()` no necesitó cambios: su guarda `estado != 'enviado'` ya protege a los
+`reemplazado`. En `panel.html` **sí** hubo que agregar la rama explícita en
+`_accionesConsent()` — sin ella un `reemplazado` caía en el `return` final y ofrecía
+"Abrir en DentiDesk" / "Ya lo subí" sobre un registro que nunca tuvo PDF.
+
+**Pruebas:** `admin/test_consentimientos.py` — 33 pruebas, cero red (dedup, cierre de
+hermanos, limpieza retroactiva idempotente, el cruce con la agenda del día incluyendo el
+caso "Atendido", y compatibilidad con registros viejos sin las claves nuevas).
+
+**Pendiente:** no hay pestaña propia en el panel para la lista del día (solo los endpoints);
+si se quiere verla sin curl, agregar una tabla en la pestaña Consentimientos que llame a
+`GET /api/consentimiento/alerta-pendientes`.
 
 ---
 

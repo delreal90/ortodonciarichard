@@ -365,7 +365,11 @@ def enviar_texto_libre(telefono, texto):
         return {'ok': False, 'error': str(e)}
 
 
-def _aviso_recepcion_html(titulo, filas_html):
+def _aviso_recepcion_html(titulo, filas_html, etiqueta='WhatsApp — Aviso',
+                          pie='Ortodoncia Richard · Recordatorios automáticos por WhatsApp'):
+    """Sobre comun de los avisos internos a recepcion. `etiqueta`/`pie` traen
+    por defecto el texto de WhatsApp porque casi todos estos avisos nacen de
+    ahi; los que no (ej. consentimientos pendientes) pasan el suyo."""
     return f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f0f5fb;font-family:Arial,Helvetica,sans-serif;">
@@ -373,7 +377,7 @@ def _aviso_recepcion_html(titulo, filas_html):
 <tr><td align="center">
 <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(26,46,74,0.10);">
   <tr><td style="background:#1A2E4A;padding:24px 32px;">
-    <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase">WhatsApp — Aviso</p>
+    <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase">{etiqueta}</p>
     <h1 style="margin:6px 0 0;color:#fff;font-size:20px">{titulo}</h1>
   </td></tr>
   <tr><td style="padding:24px 32px;">
@@ -382,7 +386,7 @@ def _aviso_recepcion_html(titulo, filas_html):
     </table>
   </td></tr>
   <tr><td style="background:#1A2E4A;padding:16px 32px;text-align:center;">
-    <p style="margin:0;color:#8fa8c8;font-size:12px">Ortodoncia Richard · Recordatorios automáticos por WhatsApp</p>
+    <p style="margin:0;color:#8fa8c8;font-size:12px">{pie}</p>
   </td></tr>
 </table>
 </td></tr></table>
@@ -1041,25 +1045,59 @@ def avisar_recepcion_control_dental_sin_email(lista):
         f'Control dental — {len(lista)} paciente(s) sin email', html)
 
 
-def avisar_recepcion_consentimientos_pendientes(lista):
-    """Aviso agrupado a recepcion con los consentimientos SIN FIRMAR cuyo
-    paciente tiene una cita proxima, para que se aseguren de que firme antes
-    de la atencion. UN solo correo con la lista completa (no uno por
-    paciente). lista: [{nombre, rut, tipo, fecha_cita, hora_cita,
-    doctor_cita, ...}] (ver consentimientos.pendientes_con_cita_proxima).
-    Si viene vacia, no manda nada."""
-    if not lista:
+def _fila_seccion(texto):
+    """Fila de encabezado a todo el ancho, para separar bloques dentro de la
+    tabla de un aviso a recepcion."""
+    return (f'<tr><td colspan="2" style="padding:10px 14px;background:#1A2E4A;'
+            f'color:#ffffff;font-size:13px;font-weight:700;letter-spacing:.5px">'
+            f'{texto}</td></tr>')
+
+
+def _filas_consentimientos(lista):
+    """Una fila por paciente: nombre a la izquierda, y a la derecha el RUT, el
+    documento y la hora con su doctor."""
+    filas = []
+    for p in lista:
+        hora = p.get('hora_cita') or ''
+        doctor = (p.get('doctor_cita') or '').strip()
+        cita = f'{hora} con {doctor}'.strip() if doctor else (hora or 'sin hora')
+        filas.append(_fila(
+            p.get('nombre', ''),
+            f"{p.get('rut', '')} · {p.get('tipo', '')}<br>"
+            f"<span style=\"color:#718096;font-size:13px\">{cita}</span>"))
+    return ''.join(filas)
+
+
+def avisar_recepcion_consentimientos_pendientes(hoy, manana=None):
+    """Aviso agrupado a recepcion con los pacientes que tienen hora y AUN NO
+    firman su consentimiento. UN solo correo con las dos listas (nunca uno por
+    paciente); si ambas vienen vacias no manda nada.
+
+    `hoy` y `manana` son listas de {nombre, rut, tipo, hora_cita, doctor_cita,
+    ...} tal como las devuelve consentimientos.pendientes_con_cita_en().
+
+    Van en dos bloques a proposito: a los de HOY hay que pasarles la tablet de
+    recepcion cuando lleguen; a los de MAÑANA todavia se les alcanza a reenviar
+    el link para que lleguen firmando."""
+    manana = manana or []
+    if not hoy and not manana:
         return False
-    filas = ''.join(
-        _fila('Paciente', p.get('nombre', '')) + _fila('RUT', p.get('rut', ''))
-        + _fila('Documento', p.get('tipo', ''))
-        + _fila('Próxima cita', (f"{p.get('fecha_cita', '')} {p.get('hora_cita', '')} — "
-                                  f"{p.get('doctor_cita') or 'sin doctor asignado'}").strip())
-        for p in lista)
+
+    filas = ''
+    if hoy:
+        filas += _fila_seccion(f'⚠️ Vienen HOY sin firmar ({len(hoy)})')
+        filas += _filas_consentimientos(hoy)
+    if manana:
+        filas += _fila_seccion(f'📅 Vienen MAÑANA sin firmar ({len(manana)})')
+        filas += _filas_consentimientos(manana)
+
+    partes = ([f'{len(hoy)} hoy'] if hoy else []) + ([f'{len(manana)} mañana'] if manana else [])
     html = _aviso_recepcion_html(
-        f'Consentimientos sin firmar con cita próxima ({len(lista)})', filas)
+        'Consentimientos pendientes de firma', filas,
+        etiqueta='Consentimientos — Aviso diario',
+        pie='Ortodoncia Richard · Aviso automático de consentimientos sin firmar')
     return _enviar_email_recepcion(
-        f'Consentimientos pendientes de firma — {len(lista)} paciente(s)', html)
+        f"Consentimientos pendientes de firma — {', '.join(partes)}", html)
 
 
 def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento informado'):

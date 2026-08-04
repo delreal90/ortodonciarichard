@@ -3255,18 +3255,23 @@ def consentimiento_enviar():
     if not rut:
         return jsonify({'ok': False, 'error': 'Falta el RUT del paciente'}), 400
 
-    consent_id = consentimientos.crear_registro(rut, tipo, canal)
+    # Reutiliza el consentimiento pendiente del mismo rut+tipo si lo hay (ver
+    # consentimientos.obtener_o_crear_registro): reenviar el link no debe dejar
+    # un duplicado que quede huerfano cuando el paciente firme cualquiera.
+    consent_id, reutilizado = consentimientos.obtener_o_crear_registro(rut, tipo, canal)
 
     if canal == 'tablet':
         consentimientos.poner_en_cola_tablet(rut, tipo, consent_id)
-        return jsonify({'ok': True, 'canal': 'tablet', 'id': consent_id})
+        return jsonify({'ok': True, 'canal': 'tablet', 'id': consent_id,
+                        'reutilizado': reutilizado})
 
     token = consentimientos.generar_token(rut, tipo, consent_id)
     link = f"{request.url_root.rstrip('/')}/consentimiento?token={token}"
     tipo_label = consentimientos.TIPOS_DOCUMENTO[tipo]
     resultado = notify.enviar_link_consentimiento(rec, link, canal, tipo_label)
     return jsonify({'ok': resultado.get('ok', False), 'canal': resultado.get('canal', canal),
-                    'id': consent_id, 'error': resultado.get('error')})
+                    'id': consent_id, 'reutilizado': reutilizado,
+                    'error': resultado.get('error')})
 
 
 @app.route('/api/consentimiento/firmar', methods=['POST'])
@@ -3449,23 +3454,46 @@ def consentimiento_reenviar_copia():
 
 @app.route('/api/consentimiento/alerta-pendientes', methods=['GET'])
 def consentimiento_alerta_pendientes():
-    """Panel/diagnostico: consentimientos sin firmar cuyo paciente tiene una
-    cita proxima en DentiDesk (mismo cruce que el barrido diario de las
-    09:30). Solo lectura, no manda correo. Protegido por ADMIN_TOKEN."""
+    """Panel/diagnostico: consentimientos sin firmar cuyo paciente tiene cita
+    HOY (o el dia que se pase en ?fecha=YYYY-MM-DD, util para mirar el de
+    mañana sin esperar al barrido de las 08:30). Solo lectura, no manda
+    correo. Protegido por ADMIN_TOKEN."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    return jsonify({'ok': True, 'items': consentimientos.pendientes_con_cita_proxima()})
+    fecha = request.args.get('fecha') or fechas.hoy_chile()
+    try:
+        items = consentimientos.pendientes_con_cita_en(fecha)
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Fecha invalida, usa YYYY-MM-DD'}), 400
+    return jsonify({'ok': True, 'items': items})
 
 
 @app.route('/api/consentimiento/alerta-pendientes/run', methods=['POST'])
 def consentimiento_alerta_pendientes_run():
     """Corre a mano el barrido + aviso a recepcion (para probar sin esperar
-    a las 09:30) -- mismo criterio que /api/control-dental/run. Protegido
+    a las 08:30) -- mismo criterio que /api/control-dental/run. Protegido
     por ADMIN_TOKEN."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    pendientes = _procesar_alerta_consentimientos()
-    return jsonify({'ok': True, 'items': pendientes, 'avisado': bool(pendientes)})
+    hoy, manana = _procesar_alerta_consentimientos()
+    return jsonify({'ok': True, 'hoy': hoy, 'manana': manana,
+                    'avisado': bool(hoy or manana)})
+
+
+@app.route('/api/consentimiento/limpiar-huerfanos', methods=['POST'])
+def consentimiento_limpiar_huerfanos():
+    """One-off: aplica retroactivamente a TODO el historial el cierre de
+    hermanos que hoy hace marcar_firmado() -- los consentimientos que quedaron
+    en 'enviado' cuando el paciente ya habia firmado otro del mismo tipo.
+
+    Pensado para correrse UNA vez tras desplegar este cambio, pero es
+    idempotente y no hace red (solo reescribe estados en el JSON), asi que
+    re-correrlo es inofensivo. Protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = consentimientos.limpiar_huerfanos()
+    print('[consentimiento] limpiar-huerfanos:', r)
+    return jsonify({'ok': True, **r})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5909,37 +5937,58 @@ def _loop_backup():
 
 
 def _procesar_alerta_consentimientos():
-    """Cruza los consentimientos SIN FIRMAR con la agenda de DentiDesk
-    (consentimientos.pendientes_con_cita_proxima()) y, si hay alguno cuyo
-    paciente tiene una cita futura activa, manda UN aviso agrupado a
-    recepcion (nunca uno por paciente). Devuelve la lista de pendientes
-    (vacia si no hay nada que avisar)."""
-    pendientes = consentimientos.pendientes_con_cita_proxima()
-    if pendientes:
-        notify.avisar_recepcion_consentimientos_pendientes(pendientes)
-    return pendientes
+    """Cruza los consentimientos SIN FIRMAR con la agenda de DentiDesk y manda
+    UN aviso agrupado a recepcion (nunca uno por paciente).
+
+    Dos bloques, con proposito distinto:
+      - HOY: recepcion les pasa la tablet cuando lleguen.
+      - MAÑANA (proximo dia habil, asi el viernes avisa de los del lunes):
+        todavia se alcanza a reenviarles el link para que lleguen firmando.
+    Un paciente que ya aparece en HOY se excluye de MAÑANA para no repetirlo.
+
+    Devuelve (hoy, manana)."""
+    hoy_fecha = fechas.hoy_chile()
+    hoy = consentimientos.pendientes_con_cita_en(hoy_fecha)
+    # Desde MAÑANA en adelante: siguiente_dia_habil() devuelve el mismo dia si
+    # ya es habil, asi que hay que partir del dia siguiente.
+    manana_fecha = scheduling.siguiente_dia_habil(hoy_fecha + timedelta(days=1))
+    manana = consentimientos.pendientes_con_cita_en(manana_fecha)
+    ya = {p['consent_id'] for p in hoy}
+    manana = [p for p in manana if p['consent_id'] not in ya]
+    if hoy or manana:
+        notify.avisar_recepcion_consentimientos_pendientes(hoy, manana)
+    return hoy, manana
 
 
 def _loop_alerta_consentimientos():
-    """Barrido diario (una vez al dia, ventana 09:30-17:00 hora Chile --
+    """Barrido diario (una vez al dia, ventana 08:30-17:00 hora Chile --
     mismo patron VENTANA que _loop_control_dental, para sobrevivir un
     reinicio de Render que caiga justo en el minuto exacto de disparo).
-    No hay config propia ni toggle: es liviano (una llamada por
-    consentimiento pendiente, normalmente pocos) y siempre util saberlo."""
+
+    08:30 porque la clinica abre a las 9:00: recepcion alcanza a ver la lista
+    antes del primer paciente. El tope de las 17:00 se mantiene aunque el
+    correo ahora sea del dia: si Render estuvo caido toda la mañana, un aviso
+    a media tarde igual sirve para los pacientes que quedan por atender.
+
+    Solo dias habiles: la clinica atiende L-V, y sin esta guarda el sabado
+    mandaria un correo sobre el lunes. No hay config propia ni toggle: son 2
+    llamadas a la agenda al dia, y siempre es util saberlo."""
     import time
     ya_corrio = None
-    HORA_ENVIO = '09:30'
+    HORA_ENVIO = '08:30'
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
             cfg_dd = scheduling.load_config()
             if (cfg_dd['dentidesk']['enabled']
+                    and ahora.isoweekday() < 6
                     and HORA_ENVIO <= slot < '17:00'
                     and ya_corrio != ahora.date()):
                 ya_corrio = ahora.date()
-                r = _procesar_alerta_consentimientos()
-                print('[alerta-consentimientos]', slot, f'{len(r)} pendiente(s)')
+                hoy, manana = _procesar_alerta_consentimientos()
+                print('[alerta-consentimientos]', slot,
+                      f'{len(hoy)} hoy, {len(manana)} manana')
         except Exception as e:
             print('[alerta-consentimientos] error:', e)
         time.sleep(40)

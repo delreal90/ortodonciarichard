@@ -347,6 +347,7 @@
         <button onclick="filtrarConsentimientos('enviado', this)">Enviados</button>
         <button onclick="filtrarConsentimientos('firmado', this)">Firmados (falta subir)</button>
         <button onclick="filtrarConsentimientos('subido', this)">Subidos a DentiDesk</button>
+        <button onclick="filtrarConsentimientos('reemplazado', this)">Reemplazados</button>
       </div>
 
       <div id="consent-resultado"></div>
@@ -1571,8 +1572,8 @@ function filtrarConsentimientos(estado, btn) {
   renderConsentimientos();
 }
 
-const CONSENT_ESTADO_LABEL = { enviado: 'Enviado', firmado: 'Firmado', subido: 'Subido a DentiDesk' };
-const CONSENT_ESTADO_COLOR = { enviado: '#a0aec0', firmado: '#C9A84C', subido: '#38a169' };
+const CONSENT_ESTADO_LABEL = { enviado: 'Enviado', firmado: 'Firmado', subido: 'Subido a DentiDesk', reemplazado: 'Reemplazado' };
+const CONSENT_ESTADO_COLOR = { enviado: '#a0aec0', firmado: '#C9A84C', subido: '#38a169', reemplazado: '#cbd5e0' };
 const CONSENT_CANAL_LABEL  = { mail: 'Mail', whatsapp: 'WhatsApp', tablet: 'Tablet' };
 const CONSENT_TIPO_LABEL   = { ortodoncia: 'Ortodoncia', rehabilitacion: 'Rehabilitación oral' };
 
@@ -1664,6 +1665,14 @@ function _accionesConsent(i) {
     return `<span style="color:#a0aec0">Aún sin firmar</span>
       <button class="btn btn-sm" style="background:#fed7d7;color:#c53030;margin-left:6px"
         onclick="borrarConsent('${idLimpio}')">Borrar</button>`;
+  }
+
+  if (i.estado === 'reemplazado') {
+    // Envío duplicado que quedó cubierto por otra firma del mismo paciente y
+    // tipo. No tiene PDF propio, así que NO puede caer en la rama de abajo
+    // (mostraría "Abrir en DentiDesk" / "Ya lo subí" sobre un documento que
+    // no existe). Se conserva como rastro; el backend tampoco deja borrarlo.
+    return `<span style="color:#a0aec0">Reemplazado por una firma posterior</span>`;
   }
 
   // A partir de aquí, 'firmado' o 'subido': ya existe un documento firmado —

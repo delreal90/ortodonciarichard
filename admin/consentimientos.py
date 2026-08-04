@@ -30,7 +30,7 @@ import base64
 import hashlib
 import threading
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
@@ -64,6 +64,26 @@ TIPOS_DOCUMENTO = {
 }
 
 TOKEN_MAX_AGE_SEGUNDOS = 30 * 24 * 3600  # 30 dias
+
+# Si al enviar ya existe un consentimiento 'enviado' del mismo rut+tipo creado
+# hace menos que esto, se REUTILIZA en vez de crear otro (ver
+# obtener_o_crear_registro). Sin esto, la secretaria que manda el link 2-3 veces
+# (no llego el WhatsApp, cambio de canal) dejaba 2-3 registros y el paciente
+# firmaba UNO: los otros quedaban colgados en 'enviado' para siempre y el aviso
+# diario a recepcion los reportaba como pendientes. Constante de modulo (mismo
+# criterio que TOKEN_MAX_AGE_SEGUNDOS): si algun dia hay que ajustarlo sin
+# deploy, promoverlo a JsonStore con load_config()/save_config().
+VENTANA_DEDUP_MESES = 6
+
+# Estados de cita que significan que la atencion NO va a ocurrir (o no ocurrio).
+# OJO, es DISTINTA a dentidesk._ESTADOS_INACTIVOS a proposito: esa incluye
+# 'atendid' porque esta pensada para citas FUTURAS (una cita ya atendida no es
+# una "hora proxima"). Aca la cita es de HOY, y si al paciente ya lo atendieron
+# sin firmar ese es justamente el caso que hay que avisar -- falta el documento
+# de una atencion que ya ocurrio. Mismo razonamiento que
+# control_dental._ESTADOS_NO_OCURRIO (no se importa ese modulo: es pesado y no
+# tiene relacion con consentimientos).
+_ESTADOS_CITA_NO_CUENTA = ('cancel', 'no llega', 'no seguir', 'reagend', 're-agend')
 
 
 def _secret():
@@ -123,24 +143,88 @@ def _save_registro(idx):
     _STORE.save(idx)
 
 
+def _nuevo_item(rut, tipo, canal):
+    """El dict de un registro recien creado. Extraido de crear_registro() para
+    que obtener_o_crear_registro() lo pueda armar SIN volver a tomar _LOCK
+    (es un threading.Lock() normal, no reentrante: tomarlo dos veces cuelga)."""
+    return {
+        'rut': _limpiar_rut(rut),
+        'tipo': tipo,
+        'canal': canal,
+        'estado': 'enviado',
+        'creado': ahora_chile().isoformat(timespec='seconds'),
+        'firmado': None,
+        'pdf_path': None,
+        'subido_dentidesk': False,
+        'respaldo_drive': None,   # None = aún no se firma; True/False tras el intento
+    }
+
+
 def crear_registro(rut, tipo, canal):
-    """canal: 'mail' | 'whatsapp' | 'tablet'. Devuelve el id del registro."""
+    """canal: 'mail' | 'whatsapp' | 'tablet'. Devuelve el id del registro.
+
+    SIEMPRE crea uno nuevo. Lo usa el flujo walk-up de la tablet, donde el
+    registro nace y se firma en el mismo request (no alcanza a quedar huerfano).
+    Para el envio del link desde el F2 usar obtener_o_crear_registro()."""
     consent_id = uuid.uuid4().hex[:12]
     with _LOCK:
         idx = _load_registro()
-        idx[consent_id] = {
-            'rut': _limpiar_rut(rut),
-            'tipo': tipo,
-            'canal': canal,
-            'estado': 'enviado',
-            'creado': ahora_chile().isoformat(timespec='seconds'),
-            'firmado': None,
-            'pdf_path': None,
-            'subido_dentidesk': False,
-            'respaldo_drive': None,   # None = aún no se firma; True/False tras el intento
-        }
+        idx[consent_id] = _nuevo_item(rut, tipo, canal)
         _save_registro(idx)
     return consent_id
+
+
+def obtener_o_crear_registro(rut, tipo, canal, meses=VENTANA_DEDUP_MESES):
+    """Punto de entrada de POST /api/consentimiento/enviar.
+
+    Si ya existe un registro 'enviado' del mismo rut+tipo creado hace menos de
+    `meses`, lo REUTILIZA: mismo consent_id, se actualiza el canal y se deja
+    rastro en 'reenvios'. Asi, reenviar el link no genera un duplicado que
+    quedaria huerfano cuando el paciente firme cualquiera de ellos.
+
+    Un registro 'firmado'/'subido'/'reemplazado' NO bloquea: si la secretaria
+    manda el consentimiento de nuevo es porque quiere una firma nueva (otra
+    fase del tratamiento), y eso debe crear un registro aparte.
+
+    El token no se guarda, se genera en cada envio, asi que reutilizar un
+    registro de hace meses igual manda un link fresco (30 dias de validez).
+
+    Devuelve (consent_id, reutilizado: bool)."""
+    rut_l = _limpiar_rut(rut)
+    limite = ahora_chile() - timedelta(days=30 * meses)
+    # Buscar y crear/actualizar bajo el MISMO lock: si se hicieran en dos
+    # bloques, dos envios simultaneos del mismo paciente podrian no verse entre
+    # si y crear igual el duplicado que esta funcion existe para evitar.
+    with _LOCK:
+        idx = _load_registro()
+        vigentes = []
+        for k, v in idx.items():
+            if (v.get('rut') != rut_l or v.get('tipo') != tipo
+                    or v.get('estado') != 'enviado'):
+                continue
+            try:
+                creado_dt = datetime.fromisoformat(v['creado'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if creado_dt >= limite:
+                vigentes.append((creado_dt, k))
+
+        if vigentes:
+            # El mas reciente, por si quedaron varios de antes de este cambio.
+            consent_id = max(vigentes)[1]
+            item = idx[consent_id]
+            item['canal'] = canal
+            item.setdefault('reenvios', []).append({
+                'ts': ahora_chile().isoformat(timespec='seconds'),
+                'canal': canal,
+            })
+            _save_registro(idx)
+            return consent_id, True
+
+        consent_id = uuid.uuid4().hex[:12]
+        idx[consent_id] = _nuevo_item(rut, tipo, canal)
+        _save_registro(idx)
+        return consent_id, False
 
 
 def obtener_registro(consent_id):
@@ -150,16 +234,83 @@ def obtener_registro(consent_id):
 def marcar_firmado(consent_id, pdf_path, pdf_sha256=None):
     with _LOCK:
         idx = _load_registro()
-        if consent_id in idx:
-            idx[consent_id]['estado'] = 'firmado'
-            idx[consent_id]['firmado'] = ahora_chile().isoformat(timespec='seconds')
-            idx[consent_id]['pdf_path'] = str(pdf_path)
-            # Hash SHA-256 de los bytes REALES del PDF final. Es el ancla de
-            # integridad verificable: si el archivo se altera luego, al re-calcular
-            # el hash ya no coincide con este valor guardado del lado del servidor.
-            if pdf_sha256:
-                idx[consent_id]['pdf_sha256'] = pdf_sha256
-            _save_registro(idx)
+        item = idx.get(consent_id)
+        if not item:
+            return
+        item['estado'] = 'firmado'
+        item['firmado'] = ahora_chile().isoformat(timespec='seconds')
+        item['pdf_path'] = str(pdf_path)
+        # Hash SHA-256 de los bytes REALES del PDF final. Es el ancla de
+        # integridad verificable: si el archivo se altera luego, al re-calcular
+        # el hash ya no coincide con este valor guardado del lado del servidor.
+        if pdf_sha256:
+            item['pdf_sha256'] = pdf_sha256
+        _cerrar_hermanos(idx, consent_id, item)
+        _save_registro(idx)
+
+
+def _cerrar_hermanos(idx, consent_id, firmado):
+    """Marca 'reemplazado' los otros consentimientos del mismo rut+tipo que
+    seguian en 'enviado' y son ANTERIORES a esta firma. Muta `idx` en memoria;
+    quien llama guarda. Se asume el lock ya tomado (_LOCK no es reentrante).
+
+    Por que existe: al paciente se le puede haber mandado el link 2-3 veces.
+    Firma uno solo, y los demas quedaban en 'enviado' para siempre haciendo
+    ruido en el aviso diario a recepcion (8 casos reales en produccion).
+
+    La condicion "creados ANTES de la firma" es deliberada: un consentimiento
+    enviado DESPUES de una firma es una peticion nueva y legitima (otra fase
+    del tratamiento), y no se toca.
+
+    Nunca se borra nada: son registros de un documento legal, solo cambian de
+    estado y quedan con el rastro de que firma los reemplazo."""
+    rut, tipo = firmado.get('rut'), firmado.get('tipo')
+    firmado_ts = firmado.get('firmado') or ''
+    for otro_id, otro in idx.items():
+        if otro_id == consent_id:
+            continue
+        if (otro.get('rut') == rut and otro.get('tipo') == tipo
+                and otro.get('estado') == 'enviado'
+                and (otro.get('creado') or '') < firmado_ts):
+            otro['estado'] = 'reemplazado'
+            otro['reemplazado_por'] = consent_id
+            otro['reemplazado_ts'] = firmado_ts
+
+
+def limpiar_huerfanos():
+    """Aplica _cerrar_hermanos() retroactivamente a TODO el historial, para los
+    duplicados que quedaron colgados antes de que existiera ese cierre
+    automatico. Se corre una vez tras desplegar, por endpoint.
+
+    Recorre las firmas de cada (rut, tipo) en orden CRONOLOGICO: asi, si un
+    paciente tiene varias firmas con envios intercalados, cada huerfano lo
+    cierra la firma que le corresponde (y no la ultima de todas).
+
+    Idempotente -- la segunda corrida devuelve cerrados=0 -- y sin red: es solo
+    manipulacion del JSON. No borra nada. Devuelve {'cerrados': N, 'ids': [...]}."""
+    with _LOCK:
+        idx = _load_registro()
+        grupos = {}
+        for k, v in idx.items():
+            grupos.setdefault((v.get('rut'), v.get('tipo')), []).append(k)
+
+        cerrados = []
+        for ids in grupos.values():
+            firmas = sorted(
+                (k for k in ids if idx[k].get('estado') in ('firmado', 'subido')),
+                key=lambda k: idx[k].get('firmado') or idx[k].get('creado') or '')
+            for fk in firmas:
+                item = idx[fk]
+                # Los 'subido' viejos podrian no tener 'firmado'; se cae a 'creado'
+                # para no quedarse sin punto de corte temporal.
+                referencia = dict(item)
+                referencia['firmado'] = item.get('firmado') or item.get('creado') or ''
+                antes = {k for k in ids if idx[k].get('estado') == 'enviado'}
+                _cerrar_hermanos(idx, fk, referencia)
+                cerrados.extend(k for k in antes if idx[k].get('estado') == 'reemplazado')
+
+        _save_registro(idx)
+        return {'cerrados': len(cerrados), 'ids': cerrados}
 
 
 def hash_pdf(ruta):
@@ -172,16 +323,19 @@ def hash_pdf(ruta):
 
 
 def borrar_registro(consent_id):
-    """Borra un consentimiento SOLO si no fue firmado (estado 'enviado').
+    """Borra un consentimiento SOLO si sigue en estado 'enviado'.
     Devuelve (ok, error). Un consentimiento firmado NUNCA se borra desde aquí
-    (es un registro clínico/legal)."""
+    (es un registro clínico/legal), y tampoco uno 'reemplazado': ese es el
+    rastro de que hubo un envío duplicado y quedó cubierto por otra firma."""
     with _LOCK:
         idx = _load_registro()
         item = idx.get(consent_id)
         if not item:
             return False, 'Consentimiento no encontrado'
         if item.get('estado') != 'enviado':
-            return False, 'No se puede borrar un consentimiento ya firmado'
+            # Ojo: server.py responde 409 si el mensaje menciona "firmado".
+            return False, ('No se puede borrar: este consentimiento ya fue firmado '
+                           'o quedó reemplazado por otra firma')
         # Si estaba en la cola de la tablet, limpiarla también
         cola = obtener_cola_tablet()
         if cola and cola.get('id') == consent_id:
@@ -218,20 +372,28 @@ def listar(estado=None):
     return sorted(items, key=lambda i: i['creado'], reverse=True)
 
 
-# ── Alerta de pendientes con cita próxima ────────────────────────────────────
+# ── Alerta de pendientes con cita ese día ────────────────────────────────────
 # Barrido diario (server.py -> _loop_alerta_consentimientos): cruza los
-# consentimientos SIN FIRMAR (estado 'enviado') con la agenda de DentiDesk. Si
-# el paciente tiene una cita futura activa, hay que avisar a recepción para
-# que se asegure de que firme antes de la atención (mismo espíritu que el
-# aviso de alineadores 9+ meses, pero sin scraping: acá el dato de "sin
-# firmar" ya vive en este registro y la cita se resuelve por API).
+# consentimientos SIN FIRMAR (estado 'enviado') con la agenda de DentiDesk del
+# día, para avisarle a recepción que ese paciente llega sin el documento
+# firmado (mismo espíritu que el aviso de alineadores 9+ meses, pero sin
+# scraping: acá el dato de "sin firmar" ya vive en este registro y la cita se
+# resuelve por API).
 
-def pendientes_con_cita_proxima():
-    """Consentimientos sin firmar cuyo paciente tiene una cita futura activa
-    en DentiDesk. Devuelve una lista ordenada por fecha de cita ASCENDENTE:
-    [{'consent_id','rut','nombre','tipo','canal','creado','fecha_cita',
-      'hora_cita','doctor_cita'}]. Si DentiDesk está deshabilitado, o no hay
-    consentimientos pendientes, devuelve []."""
+def pendientes_con_cita_en(fecha):
+    """Consentimientos sin firmar cuyo paciente tiene cita ESE día.
+
+    `fecha` es un date o un ISO 'YYYY-MM-DD'. Devuelve una lista ordenada por
+    hora ASCENDENTE: [{'consent_id','rut','nombre','tipo','canal','creado',
+    'fecha_cita','hora_cita','doctor_cita'}]. Si DentiDesk está deshabilitado,
+    o no hay consentimientos pendientes, devuelve [] sin tocar la API.
+
+    Reemplaza a la versión anterior, que preguntaba por las citas de los
+    próximos 45 días: eso hacía que un paciente con hora en tres semanas
+    apareciera en el correo TODOS los días hasta firmar, y costaba una llamada
+    por pendiente (cada una barriendo 45 días). Acá es UNA sola llamada a
+    dentidesk._get_agenda_day(), que ya trae las citas de todos los
+    profesionales de ese día, cruzada contra el set de RUTs pendientes."""
     import dentidesk
     import scheduling
 
@@ -242,26 +404,44 @@ def pendientes_con_cita_proxima():
     if not scfg['dentidesk']['enabled']:
         return []
 
-    out = []
+    if isinstance(fecha, str):
+        objetivo = datetime.strptime(fecha[:10], '%Y-%m-%d').date()
+    else:
+        objetivo = fecha
+
+    por_rut = {}
     for p in pendientes:
-        citas = dentidesk.citas_futuras_paciente(p['rut'], scfg)
-        if not citas:
+        por_rut.setdefault(p['rut'], []).append(p)
+
+    out = []
+    for c in dentidesk._get_agenda_day(scfg, objetivo):
+        rut = dentidesk.limpiar_rut(str(c.get('PatientDocument', '')))
+        if rut not in por_rut:
             continue
-        proxima = citas[0]
-        rec = pacientes.lookup(p['rut']) or {}
+        estado = (c.get('Status') or '').lower()
+        if any(s in estado for s in _ESTADOS_CITA_NO_CUENTA):
+            continue
+        hora = (c.get('time') or '')[:5]
+        doctor = (c.get('ProfessionalName') or '').strip()
+        fecha_cita = c.get('Date') or objetivo.isoformat()
+        rec = pacientes.lookup(rut) or {}
         nombre = f"{rec.get('nombres', '')} {rec.get('apellidos', '')}".strip()
-        out.append({
-            'consent_id': p['id'],
-            'rut': _formatear_rut(p['rut']),
-            'nombre': nombre or p['rut'],
-            'tipo': TIPOS_DOCUMENTO.get(p['tipo'], p['tipo']),
-            'canal': p['canal'],
-            'creado': p['creado'],
-            'fecha_cita': proxima['fecha'],
-            'hora_cita': proxima['hora'],
-            'doctor_cita': proxima['profesional'],
-        })
-    out.sort(key=lambda i: (i['fecha_cita'], i['hora_cita']))
+        # Normalmente hay UNO por paciente (obtener_o_crear_registro deduplica),
+        # pero se listan todos: mejor mostrar de más que ocultar un pendiente
+        # real por asumir una unicidad que esta función no controla.
+        for p in por_rut[rut]:
+            out.append({
+                'consent_id': p['id'],
+                'rut': _formatear_rut(p['rut']),
+                'nombre': nombre or _formatear_rut(p['rut']),
+                'tipo': TIPOS_DOCUMENTO.get(p['tipo'], p['tipo']),
+                'canal': p['canal'],
+                'creado': p['creado'],
+                'fecha_cita': fecha_cita,
+                'hora_cita': hora,
+                'doctor_cita': doctor,
+            })
+    out.sort(key=lambda i: i['hora_cita'])
     return out
 
 

@@ -24,6 +24,7 @@ SUITES = [
     ('cumpleanos',  'test_cumpleanos.py',  'importacion de fechas de nacimiento'),
     ('webhook_wa',  'test_webhook_wa.py',  'el webhook que cancela citas reales'),
     ('avisos',      'test_avisos.py',      'guardas de recaptacion / control dental / NPS'),
+    ('consentimientos', 'test_consentimientos.py', 'no duplicar consentimientos + aviso del dia'),
     ('compras',     'test_compras.py',     'recurrentes, stock y migraciones'),
     ('fichas',      'test_fichas.py',      'ficha primera consulta (Google Form) -> base'),
     ('seguimiento_pc', 'test_seguimiento_pc.py', 'seguimiento de primeras consultas que no avanzaron'),
