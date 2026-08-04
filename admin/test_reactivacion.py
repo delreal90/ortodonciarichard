@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import fechas                # noqa: E402
 import control_dental        # noqa: E402
+import pacientes             # noqa: E402
 import reactivacion as rc    # noqa: E402
 
 HOY = date(2026, 7, 29)
@@ -197,6 +198,25 @@ class TestPendientes(unittest.TestCase):
         rc._save_registro(reg)
         items = rc.pendientes(fecha=HOY, cfg=cfg)
         self.assertEqual(len(items), 2)
+
+    def test_trae_id_paciente_de_la_base_local_para_el_link_a_la_ficha(self):
+        # El paciente ya no aparece en la agenda reciente (por eso es candidato
+        # a reactivar), asi que el cache de fichas del runbook casi nunca lo
+        # tiene -- pendientes() debe resolverlo el mismo desde pacientes.py.
+        pacientes._save_index({'11111111': {
+            'nombres': 'Maria Jose', 'apellidos': 'Soto', 'email': 'mj@x.cl',
+            'telefono': '987654321', 'genero': 'F', 'id_paciente': '77889'}})
+        f = _meses_atras(7).isoformat()
+        _barrer({f: [_cita('11111111', f, reason='Retiro Total', nombre='Maria Jose Soto')]})
+        items = rc.pendientes(fecha=HOY)
+        self.assertEqual(items[0]['id_paciente'], '77889')
+
+    def test_sin_id_paciente_en_la_base_devuelve_vacio_no_inventa(self):
+        pacientes._save_index({})
+        f = _meses_atras(7).isoformat()
+        _barrer({f: [_cita('11111111', f, reason='Retiro Total')]})
+        items = rc.pendientes(fecha=HOY)
+        self.assertEqual(items[0]['id_paciente'], '')
 
 
 class TestDosToques(unittest.TestCase):

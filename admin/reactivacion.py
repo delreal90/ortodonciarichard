@@ -524,6 +524,13 @@ def pendientes(fecha=None, doctor=None, cfg=None):
     profesional). Excluye 'no molestar'. Elige la plantilla segun 'poblacion'.
     Ordena por proxima_fecha asc y corta en max_por_reporte.
 
+    Cada item trae 'id_paciente' (de la base local pacientes.py, mismo patron
+    que pacientes.cumplen_el) para que el correo arme el link a la ficha de
+    DentiDesk sin depender de scrapear -- estos pacientes llevan meses sin
+    aparecer en la agenda, asi que el cache de fichas del runbook
+    (poblado desde la agenda reciente) casi nunca los tiene. '' si no esta
+    en la base local (paciente sin sembrar o sin id capturado aun).
+
     Lo consume el runbook revision-evoluciones para la seccion de reactivacion
     del correo del Dr. Alberto."""
     cfg = cfg or load_config()
@@ -532,6 +539,11 @@ def pendientes(fecha=None, doctor=None, cfg=None):
     doc_norm = _normalizar(doctor) if doctor else ''
     reg = _load_registro()
     no_molestar = set(reg.get('no_molestar') or [])
+
+    try:
+        import pacientes
+    except Exception:
+        pacientes = None
 
     out = []
     for rut, c in (reg.get('candidatos') or {}).items():
@@ -553,9 +565,16 @@ def pendientes(fecha=None, doctor=None, cfg=None):
             f_ref_leg = fecha_legible(f_ref)
         except (TypeError, ValueError):
             f_ref_leg = c.get('fecha_ref', '')
+        id_paciente = ''
+        if pacientes:
+            try:
+                id_paciente = (pacientes.lookup(rut) or {}).get('id_paciente', '') or ''
+            except Exception:
+                id_paciente = ''
         out.append({
             'rut': rut,
             'nombre': nombre,
+            'id_paciente': id_paciente,
             'telefono': c.get('telefono', ''),
             'wa_numero': normalizar_wa(c.get('telefono', '')),
             'poblacion': poblacion,
