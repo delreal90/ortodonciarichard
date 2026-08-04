@@ -723,7 +723,15 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                         page.insert_text((x, H - y), texto, fontsize=fs or 9)
                     except Exception:
                         pass
-        doc.save(str(ruta_out))
+        # APLANAR el formulario: convierte los campos rellenados en contenido fijo
+        # de la pagina. Sin esto, el texto vive en campos interactivos y algunos
+        # visores (Chrome) lo muestran BORROSO hasta que se hace click en el campo.
+        # Aplanado = nitido siempre y no editable (el paciente lo imprime/firma).
+        try:
+            doc.bake(annots=False, widgets=True)   # PyMuPDF >= 1.24.2
+        except Exception:
+            pass  # si la version no soporta bake, queda como campo (peor pero funciona)
+        doc.save(str(ruta_out), garbage=3, deflate=True)
         doc.close()
         return ruta_out
 
