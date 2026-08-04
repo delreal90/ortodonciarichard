@@ -638,8 +638,10 @@ async function verProducto(id) {
     const hist = (p.historial_precios || []).slice(0, 8);
     const maxP = Math.max(1, ...hist.map(h => h.precio_unitario));
     const m = modal(`
-      <h3>${esc(p.nombre)}</h3>
-      <p class="muted" style="margin-bottom:10px">${esc(p.categoria_prod || 'sin categoría')} · ${esc(p.unidad)}${p.marca ? ' · última marca: ' + esc(p.marca) : ''} · stock <b>${p.stock_actual}</b> (mín. ${p.stock_minimo})</p>
+      <div class="flex"><h3 style="margin:0">${esc(p.nombre)}</h3><div class="spacer"></div>
+        ${puede('registrar') ? `<button class="btn ghost sm" id="vpEditar">✏️ Editar</button>` : ''}
+        ${puede('admin') ? `<button class="btn danger sm" id="vpEliminar">🗑️ Eliminar</button>` : ''}</div>
+      <p class="muted" style="margin:6px 0 10px">${esc(p.categoria_prod || 'sin categoría')} · ${esc(p.unidad)}${p.marca ? ' · última marca: ' + esc(p.marca) : ''} · stock <b>${p.stock_actual}</b> (mín. ${p.stock_minimo})</p>
       <div class="field"><label>Códigos asociados (barras/QR)</label><div>${codigos}</div>
         ${puede('registrar') ? `<div class="flex" style="margin-top:8px">
           <input id="vpCod" placeholder="Escanea o escribe un código" style="flex:1">
@@ -668,8 +670,56 @@ async function verProducto(id) {
           toast('Código ' + r.codigo + ' generado y enviado a imprimir ✓', 'ok'); verProducto(id);
         } catch (e) { toast(e.message, 'err'); }
       };
+      m.querySelector('#vpEditar').onclick = () => editarProducto(p);
+    }
+    if (puede('admin')) {
+      m.querySelector('#vpEliminar').onclick = () => eliminarProducto(p);
     }
   } catch (e) { toast(e.message, 'err'); }
+}
+
+function editarProducto(p) {
+  const m = modal(`<h3>Editar producto</h3>
+    <div class="field"><label>Nombre</label><input id="epN" value="${esc(p.nombre)}"></div>
+    <div class="row c2">
+      <div class="field"><label>Categoría producto</label><input id="epC" value="${esc(p.categoria_prod || '')}"></div>
+      <div class="field"><label>Unidad</label><select id="epU">
+        ${['unidad','caja','paquete','litro','kilo','metro','par','set'].map(u => `<option ${p.unidad===u?'selected':''}>${u}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Stock mínimo (alerta)</label><input id="epMin" type="number" step="any" min="0" value="${p.stock_minimo}"></div>
+    <div class="field"><label>Notas</label><textarea id="epNotas" rows="2">${esc(p.notas || '')}</textarea></div>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="epOk">Guardar</button></div>`);
+  m.querySelector('#epOk').onclick = async () => {
+    try {
+      await api('/api/compras/productos/actualizar', { method: 'POST', body: {
+        id: p.id, nombre: m.querySelector('#epN').value, categoria_prod: m.querySelector('#epC').value,
+        unidad: m.querySelector('#epU').value, stock_minimo: Number(m.querySelector('#epMin').value) || 0,
+        notas: m.querySelector('#epNotas').value } });
+      closeModal(); toast('Producto actualizado ✓', 'ok'); await recargarCaches(); verProducto(p.id);
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+function eliminarProducto(p) {
+  const m = modal(`<h3>Eliminar producto</h3>
+    <p class="muted" style="margin-bottom:14px">«${esc(p.nombre)}» se eliminará por completo (códigos y movimientos asociados también). Solo se puede si nunca tuvo compras registradas — si las tiene, te ofrecemos archivarlo en su lugar (deja de aparecer en las listas, pero conserva su historial).</p>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn ghost sm" id="epArchivar">📦 Archivar en vez de eliminar</button>
+      <button class="btn danger" id="epDelOk">Eliminar definitivamente</button></div>`);
+  m.querySelector('#epArchivar').onclick = async () => {
+    try { await api('/api/compras/productos/actualizar', { method: 'POST', body: { id: p.id, archivado: true } });
+      closeModal(); toast('Producto archivado ✓', 'ok'); await recargarCaches(); RENDER.stock();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  m.querySelector('#epDelOk').onclick = async () => {
+    try {
+      await api('/api/compras/productos/eliminar', { method: 'POST', body: { id: p.id } });
+      closeModal(); toast('Producto eliminado ✓', 'ok'); await recargarCaches(); RENDER.stock();
+    } catch (e) { toast(e.message, 'err'); }
+  };
 }
 
 function modalSalida(prod) {

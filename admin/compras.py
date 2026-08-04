@@ -642,7 +642,12 @@ def actualizar_producto(prod_id, **campos):
     for k, v in campos.items():
         if k not in permit:
             continue
-        if k == 'stock_minimo':
+        if k == 'nombre':
+            v = _norm(v)
+            if not v:
+                raise ValueError('El nombre no puede quedar vacío')
+            sets.append('nombre=?'); vals.append(v)
+        elif k == 'stock_minimo':
             sets.append('stock_minimo=?'); vals.append(float(v or 0))
         elif k == 'archivado':
             sets.append('archivado=?'); vals.append(1 if v else 0)
@@ -654,6 +659,26 @@ def actualizar_producto(prod_id, **campos):
     con = _conn()
     try:
         con.execute(f'UPDATE productos SET {",".join(sets)} WHERE id=?', vals)
+        con.commit()
+    finally:
+        con.close()
+
+
+def eliminar_producto(prod_id):
+    """Borra un producto DE VERDAD (no solo archivar). Solo se permite si nunca tuvo
+    compras registradas — borrarlo con historial de compras dejaría ítems huérfanos y
+    distorsionaría reportes pasados. Si tiene historial, hay que archivarlo en su lugar
+    (actualizar_producto con archivado=True) o cancelar cualquier pendiente asociado."""
+    con = _conn()
+    try:
+        n = con.execute('SELECT COUNT(*) AS n FROM compra_items WHERE producto_id=?',
+                        (prod_id,)).fetchone()['n']
+        if n > 0:
+            raise ValueError('Este producto tiene compras registradas — no se puede '
+                             'eliminar sin perder ese historial. Archívalo en su lugar.')
+        # codigos_producto, movimientos_stock y pendientes_compra tienen ON DELETE
+        # CASCADE hacia productos, así que se limpian solos.
+        con.execute('DELETE FROM productos WHERE id=?', (prod_id,))
         con.commit()
     finally:
         con.close()
@@ -1139,6 +1164,14 @@ def eliminar_compra(compra_id):
     ahora = ahora_cl().isoformat(timespec='seconds')
     con = _conn()
     try:
+        compra = con.execute('SELECT fecha,suscripcion_id FROM compras WHERE id=?',
+                             (compra_id,)).fetchone()
+        # Si nació de un cargo recurrente, liberar 'ultima_generada' de ESE mes para que
+        # el barrido diario la vuelva a generar (si no, la suscripción cree que ya cobró).
+        if compra and compra['suscripcion_id']:
+            mes = (compra['fecha'] or '')[:7]
+            con.execute("UPDATE suscripciones SET ultima_generada=NULL "
+                       "WHERE id=? AND ultima_generada=?", (compra['suscripcion_id'], mes))
         items = con.execute('SELECT producto_id,cantidad FROM compra_items WHERE compra_id=?',
                             (compra_id,)).fetchall()
         for it in items:
@@ -1152,6 +1185,11 @@ def eliminar_compra(compra_id):
         # Desacoplar los movimientos de la compra (mantiene el historial del libro
         # mayor, pero libera la FK para poder borrar la compra).
         con.execute('UPDATE movimientos_stock SET compra_id=NULL WHERE compra_id=?', (compra_id,))
+        # Si esta compra había resuelto una solicitud pendiente (auto-resolución al
+        # comprar), al borrarla esa solicitud vuelve a quedar pendiente — ya no está
+        # comprada de verdad. Si no, la FK de pendientes_compra.compra_id bloquea el DELETE.
+        con.execute("UPDATE pendientes_compra SET estado='pendiente', compra_id=NULL, "
+                    "resuelto=NULL WHERE compra_id=? AND estado='comprado'", (compra_id,))
         con.execute('DELETE FROM compra_items WHERE compra_id=?', (compra_id,))
         con.execute('DELETE FROM compras WHERE id=?', (compra_id,))
         con.commit()

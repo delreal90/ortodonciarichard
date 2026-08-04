@@ -1433,8 +1433,24 @@ agrega un índice sobre una columna nueva, va en ese segundo bloque.
 - **Reportes**: tiles (total, n° compras, fijos, variables), barras por mes/categoría/
   proveedor, filtro por fechas, **export a Excel** (openpyxl, una fila por ítem).
 - **Historial** de compras con filtros; ver detalle (ítems + foto adjunta); eliminar (admin)
-  **revierte el stock** (movimiento 'ajuste', y desacopla los movimientos de la compra
-  antes de borrar — si no, la FK `movimientos_stock.compra_id` impide el DELETE).
+  **revierte el stock** (movimiento 'ajuste') y desacopla ANTES de borrar tres cosas que
+  referencian `compras.id` por FK (si no, el DELETE falla con 500 — bug real encontrado y
+  corregido 2026-07-09, reproducido en vivo):
+  1. `movimientos_stock.compra_id` → se pone NULL (mantiene el libro mayor).
+  2. `pendientes_compra.compra_id` → si esta compra había auto-resuelto una solicitud
+     (estado='comprado'), **la solicitud vuelve a 'pendiente'** (ya no está comprada de
+     verdad) en vez de dejar una FK huérfana.
+  3. `suscripciones.ultima_generada` → si la compra nació de un cargo recurrente, se
+     libera ese mes para que el barrido diario la regenere (si no, la suscripción cree
+     que ya cobró ese mes y no vuelve a intentarlo).
+- **Productos: editar y eliminar** (2026-07-09). Desde el detalle del producto (pestaña
+  Stock): botón **✏️ Editar** (rol `registrar`: nombre, categoría, unidad, stock mínimo,
+  notas — `actualizar_producto` ya lo permitía, faltaba la UI) y **🗑️ Eliminar** (rol
+  `admin`, `eliminar_producto`/`POST /api/compras/productos/eliminar`). El borrado es
+  DEFINITIVO y solo se permite si el producto **nunca tuvo compras** (`compra_items`
+  vacío) — si tiene historial, la API responde 400 y la UI ofrece **archivar** en su lugar
+  (`archivado=true`, ya existía el campo, solo faltaba el botón). Códigos/movimientos/
+  pendientes del producto tienen `ON DELETE CASCADE`, se limpian solos.
 - **Admin**: categorías (crear/archivar), proveedores (CRUD), usuarios (crear/editar rol/
   estado/password).
 

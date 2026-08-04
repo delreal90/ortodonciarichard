@@ -5129,7 +5129,23 @@ def compras_productos_actualizar():
     if err:
         return err
     d = request.json or {}
-    _compras.actualizar_producto(d.pop('id', None), **{k: v for k, v in d.items()})
+    try:
+        _compras.actualizar_producto(d.pop('id', None), **{k: v for k, v in d.items()})
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+@app.route('/api/compras/productos/eliminar', methods=['POST'])
+def compras_productos_eliminar():
+    """Borra un producto DE VERDAD. Solo permitido (por compras.eliminar_producto) si
+    nunca tuvo compras registradas; si no, sugiere archivar (rol admin, es destructivo)."""
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    try:
+        _compras.eliminar_producto((request.json or {}).get('id'))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True})
 
 @app.route('/api/compras/productos/codigo', methods=['POST'])
