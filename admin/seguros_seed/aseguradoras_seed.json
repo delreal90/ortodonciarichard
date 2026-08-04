@@ -23,9 +23,6 @@
    "lesion": {
     "campo": "Naturaleza EnfermedadLesiónRow1"
    },
-   "fecha_emision": {
-    "campo": "Fecha DiagnósticoRow1"
-   },
    "doctor_nombre": {
     "campo": "Nombre del profesionalRow1"
    },
@@ -129,7 +126,10 @@
     {
      "campo": "TotalRow5"
     }
-   ]
+   ],
+   "fecha_atencion": {
+    "campo": "Fecha DiagnósticoRow1"
+   }
   },
   "max_prestaciones_por_form": 5,
   "plantilla_pdf": "zurich.pdf",

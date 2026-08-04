@@ -635,6 +635,51 @@ def _overlay_pdf(plantilla_path, textos_por_pagina, imagenes_por_pagina):
     return writer
 
 
+def _stampar_campo(doc, page, w, value, fixed_fs):
+    """Dibuja el valor de un campo AcroForm como TEXTO ESTATICO en la pagina (en
+    la posicion/alineacion del campo), para luego borrar el widget. Asi ese dato
+    queda 'aplanado' (nitido, no borroso en Chrome) mientras que los campos que NO
+    llenamos siguen siendo editables por el paciente."""
+    import fitz
+    value = str(value or '')
+    if not value:
+        return
+    r = w.rect
+    pad = 2.0
+    avail = r.width - 2 * pad
+    try:
+        font = fitz.Font('helv')
+    except Exception:
+        font = None
+    if fixed_fs:
+        fs = float(fixed_fs)
+    else:
+        fs = min(10.5, max(4.0, r.height - 2))
+        if font:
+            while fs > 3.5 and font.text_length(value, fs) > avail:
+                fs -= 0.25
+    tw = font.text_length(value, fs) if font else 0
+    # alineacion segun el quadding del campo (/Q): 0 izq, 1 centro, 2 derecha
+    quad = 0
+    try:
+        k = doc.xref_get_key(w.xref, 'Q')
+        if k and k[0] == 'int':
+            quad = int(k[1])
+    except Exception:
+        pass
+    if quad == 1:
+        x = r.x0 + (r.width - tw) / 2
+    elif quad == 2:
+        x = r.x1 - pad - tw
+    else:
+        x = r.x0 + pad
+    y = r.y0 + (r.height + fs * 0.72) / 2   # baseline aprox. centrado vertical
+    try:
+        page.insert_text((x, y), value, fontsize=fs, fontname='helv', color=(0, 0, 0))
+    except Exception:
+        pass
+
+
 def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     """Rellena el PDF oficial de la aseguradora con `valores`
     ({campo_logico: texto}). Devuelve la ruta del PDF generado.
@@ -696,16 +741,21 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     if tipo == 'acroform' or campos_acro:
         import fitz
         doc = fitz.open(str(plantilla))
+        # APLANADO SELECTIVO: los campos que LLENAMOS se dibujan como texto estatico
+        # (nitido, no borroso) y se borra su widget; los campos vacios que llena el
+        # paciente (RUT titular, N poliza, firma asegurado, etc.) quedan editables.
         for page in doc:
             for w in (page.widgets() or []):
                 if w.field_name in campos_acro:
+                    _stampar_campo(doc, page, w, campos_acro[w.field_name],
+                                   campos_acro_fs.get(w.field_name))
+        for page in doc:
+            for w in list(page.widgets() or []):
+                if w.field_name in campos_acro:
                     try:
-                        w.field_value = campos_acro[w.field_name]
-                        # fontsize fijo si el mapeo lo pidio; si no, 0 = auto-ajuste
-                        w.text_fontsize = campos_acro_fs.get(w.field_name, 0)
-                        w.update()
+                        page.delete_widget(w)
                     except Exception:
-                        pass  # un campo problematico no debe botar el formulario
+                        pass
         for pnum, imgs in imagenes.items():
             if 0 <= pnum - 1 < len(doc):
                 page = doc[pnum - 1]; H = page.rect.height
@@ -723,14 +773,6 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                         page.insert_text((x, H - y), texto, fontsize=fs or 9)
                     except Exception:
                         pass
-        # APLANAR el formulario: convierte los campos rellenados en contenido fijo
-        # de la pagina. Sin esto, el texto vive en campos interactivos y algunos
-        # visores (Chrome) lo muestran BORROSO hasta que se hace click en el campo.
-        # Aplanado = nitido siempre y no editable (el paciente lo imprime/firma).
-        try:
-            doc.bake(annots=False, widgets=True)   # PyMuPDF >= 1.24.2
-        except Exception:
-            pass  # si la version no soporta bake, queda como campo (peor pero funciona)
         doc.save(str(ruta_out), garbage=3, deflate=True)
         doc.close()
         return ruta_out
