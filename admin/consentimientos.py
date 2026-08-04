@@ -409,8 +409,18 @@ def pendientes_con_cita_en(fecha):
     else:
         objetivo = fecha
 
-    por_rut = {}
+    # Un pendiente por (rut, tipo): el mas reciente. De aqui en adelante no
+    # deberian existir duplicados (obtener_o_crear_registro los evita), pero
+    # los que quedaron de antes harian aparecer al mismo paciente dos veces en
+    # el correo -- justo el ruido que este aviso trata de eliminar. Se muestra
+    # el ultimo porque es el del link que se le mando por ultima vez.
+    ultimo = {}
     for p in pendientes:
+        clave = (p['rut'], p['tipo'])
+        if p['creado'] > ultimo.get(clave, {}).get('creado', ''):
+            ultimo[clave] = p
+    por_rut = {}
+    for p in ultimo.values():
         por_rut.setdefault(p['rut'], []).append(p)
 
     out = []
@@ -426,9 +436,8 @@ def pendientes_con_cita_en(fecha):
         fecha_cita = c.get('Date') or objetivo.isoformat()
         rec = pacientes.lookup(rut) or {}
         nombre = f"{rec.get('nombres', '')} {rec.get('apellidos', '')}".strip()
-        # Normalmente hay UNO por paciente (obtener_o_crear_registro deduplica),
-        # pero se listan todos: mejor mostrar de más que ocultar un pendiente
-        # real por asumir una unicidad que esta función no controla.
+        # Uno por tipo de documento: si al paciente le falta firmar dos
+        # consentimientos DISTINTOS, ambos deben salir.
         for p in por_rut[rut]:
             out.append({
                 'consent_id': p['id'],

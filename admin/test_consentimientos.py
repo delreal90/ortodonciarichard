@@ -349,6 +349,26 @@ class TestPendientesConCitaEn(unittest.TestCase):
         self.assertEqual(len(r), 1)
         self.assertEqual(m.call_args[0][1], HOY)
 
+    def test_dos_pendientes_del_mismo_tipo_salen_una_sola_vez(self):
+        """Los duplicados que quedaron de antes del dedup no deben mostrar al
+        mismo paciente dos veces en el correo (caso real: un RUT con dos
+        'enviado' sin firmar, que no tienen firma que los cierre)."""
+        _poner('v1', RUT, TIPO, 'enviado', _hace(10))
+        _poner('v2', RUT, TIPO, 'enviado', _hace(2))
+        cfg, agenda = _con_dentidesk([_cita('22222222-9')])
+        with cfg, agenda:
+            r = consentimientos.pendientes_con_cita_en(HOY)
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]['consent_id'], 'v2')   # el mas reciente
+
+    def test_dos_tipos_distintos_si_salen_los_dos(self):
+        _poner('orto', RUT, TIPO, 'enviado', _hace(3))
+        _poner('rehab', RUT, 'rehabilitacion', 'enviado', _hace(3))
+        cfg, agenda = _con_dentidesk([_cita('22222222-9')])
+        with cfg, agenda:
+            r = consentimientos.pendientes_con_cita_en(HOY)
+        self.assertEqual(len(r), 2)
+
     def test_sale_ordenado_por_hora(self):
         consentimientos.obtener_o_crear_registro(RUT, TIPO, 'mail')
         consentimientos.obtener_o_crear_registro(OTRO_RUT, TIPO, 'mail')
