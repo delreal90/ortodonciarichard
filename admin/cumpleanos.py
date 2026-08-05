@@ -66,7 +66,20 @@ _STORE = jsonstore.JsonStore(EQUIPO_PATH, default=[], indent=1)
 def _load_equipo():
     data = _STORE.load()
     # Formato historico: hubo una version que guardaba {'equipo': [...]}.
-    return data if isinstance(data, list) else (data or {}).get('equipo', [])
+    lista = data if isinstance(data, list) else (data or {}).get('equipo', [])
+    # Migracion en caliente: registros importados ANTES de que existiera
+    # 'dia_mes' (solo tenian fecha_nacimiento completa) no lo traen guardado.
+    # Derivarlo aca evita que el equipo entero desaparezca del correo hasta
+    # el proximo re-import -- no se reescribe el archivo, solo se completa
+    # en memoria para esta lectura.
+    for p in lista:
+        if not p.get('dia_mes') and p.get('fecha_nacimiento'):
+            try:
+                f = date.fromisoformat(p['fecha_nacimiento'])
+                p['dia_mes'] = f'{f.day:02d}-{f.month:02d}'
+            except ValueError:
+                pass
+    return lista
 
 
 def _save_equipo(lista):
@@ -79,6 +92,9 @@ def _norm(s):
 
 
 _RE_DMY = re.compile(r'^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$')
+# Dia/mes SIN año conocido: '23/04' o '23/04/xxxx' (la convencion que usa la
+# clinica en el .txt para marcar "se el dia, no el año").
+_RE_DM_SIN_ANIO = re.compile(r'^(\d{1,2})[/-](\d{1,2})(?:[/-][xX]{2,4})?$')
 
 
 def parsear_tabla_equipo(texto):
@@ -88,12 +104,17 @@ def parsear_tabla_equipo(texto):
         | Nombre           | Fecha de nacimiento |
         | ---------------- | ------------------- |
         | Rodrigo Oyonarte | 13/04/1973          |
+        | Ana Maria        | 23/04/xxxx          |
         | Felipe Pozo      | PENDIENTE           |
 
-    Devuelve [{nombre, fecha_nacimiento (ISO o ''), pendiente (bool)}].
-    Las filas sin fecha valida (p.ej. 'PENDIENTE') NO se descartan: se guardan
-    con pendiente=True para que se vea a quien le falta el dato, en vez de que
-    la persona desaparezca en silencio."""
+    Devuelve [{nombre, fecha_nacimiento (ISO o ''), dia_mes ('DD-MM' o ''),
+    pendiente (bool)}]. 'fecha_nacimiento' solo se llena si se conoce el año
+    (hace falta para calcular la edad). 'dia_mes' se llena si se conoce el
+    dia y el mes, CON o SIN año (acepta 'DD/MM/xxxx' o 'DD/MM' a secas) --
+    es lo que usa la deteccion de cumpleanos cuando no hay año. 'pendiente'
+    es SOLO cuando no hay ni dia/mes (p.ej. 'PENDIENTE'): alguien con dia/mes
+    pero sin año YA sirve para saludar, no se descarta ni se marca pendiente
+    -- solo no se le puede mostrar la edad."""
     out = []
     for linea in (texto or '').splitlines():
         linea = linea.strip()
@@ -107,16 +128,26 @@ def parsear_tabla_equipo(texto):
             continue                                   # separador |---|---|
         if _norm(nombre) in ('nombre', 'nombre completo'):
             continue                                   # cabecera
-        iso, pendiente = '', True
+        iso, dia_mes = '', ''
         m = _RE_DMY.match(fecha_txt)
         if m:
             d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
             try:
                 iso = date(y, mo, d).isoformat()
-                pendiente = False
+                dia_mes = f'{d:02d}-{mo:02d}'
             except ValueError:
-                iso, pendiente = '', True
-        out.append({'nombre': nombre, 'fecha_nacimiento': iso, 'pendiente': pendiente})
+                iso = ''
+        if not dia_mes:
+            m2 = _RE_DM_SIN_ANIO.match(fecha_txt)
+            if m2:
+                d, mo = int(m2.group(1)), int(m2.group(2))
+                try:
+                    date(2000, mo, d)  # solo valida que el dia exista en ese mes (2000=bisiesto)
+                    dia_mes = f'{d:02d}-{mo:02d}'
+                except ValueError:
+                    pass
+        out.append({'nombre': nombre, 'fecha_nacimiento': iso, 'dia_mes': dia_mes,
+                    'pendiente': not dia_mes})
     return out
 
 
@@ -138,6 +169,7 @@ def importar_equipo(texto, reemplazar=True):
     lista = _load_equipo()
     return {'total': len(lista),
             'con_fecha': sum(1 for p in lista if not p.get('pendiente')),
+            'con_anio': sum(1 for p in lista if p.get('fecha_nacimiento')),
             'pendientes': [p['nombre'] for p in lista if p.get('pendiente')]}
 
 
@@ -148,24 +180,31 @@ def equipo():
 # ── Consulta ─────────────────────────────────────────────────────────────────
 
 def equipo_cumple_el(fecha):
-    """Miembros del equipo que cumplen anios en 'fecha' (date).
-    Devuelve [{nombre, fecha_nacimiento, edad}] ordenado por nombre."""
+    """Miembros del equipo que cumplen anios (o cuyo dia es hoy, si no se
+    conoce el año) en 'fecha' (date). Devuelve [{nombre, fecha_nacimiento,
+    edad}] ordenado por nombre. 'edad' es None cuando no se conoce el año de
+    nacimiento -- el saludo se muestra igual, solo sin la edad."""
     import pacientes as _pac
     objetivo = _pac.dias_objetivo_cumple(fecha)
     out = []
     for p in _load_equipo():
-        iso = (p.get('fecha_nacimiento') or '').strip()
-        if not iso:
-            continue
+        dia_mes = (p.get('dia_mes') or '').strip()
+        if not dia_mes:
+            continue  # compat con registros viejos sin dia_mes: ver migracion en _load_equipo
         try:
-            f = date.fromisoformat(iso)
+            d, mo = (int(x) for x in dia_mes.split('-'))
         except ValueError:
             continue
-        if (f.day, f.month) not in objetivo:
+        if (d, mo) not in objetivo:
             continue
-        out.append({'nombre': p.get('nombre', ''),
-                    'fecha_nacimiento': iso,
-                    'edad': fecha.year - f.year})
+        iso = (p.get('fecha_nacimiento') or '').strip()
+        edad = None
+        if iso:
+            try:
+                edad = fecha.year - date.fromisoformat(iso).year
+            except ValueError:
+                edad = None
+        out.append({'nombre': p.get('nombre', ''), 'fecha_nacimiento': iso, 'edad': edad})
     out.sort(key=lambda p: _norm(p['nombre']))
     return out
 

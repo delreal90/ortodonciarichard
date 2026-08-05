@@ -226,6 +226,37 @@ class TestEquipo(unittest.TestCase):
         self.assertEqual(d['pacientes'][0]['edad'], 16)
         self.assertIn('29 de julio', d['fecha_legible'])
 
+    def test_dia_mes_sin_anio_xxxx_no_es_pendiente_y_saluda_sin_edad(self):
+        tabla = self.TABLA + "| Ana Maria            | 23/04/xxxx          |\n"
+        res = cumpleanos.importar_equipo(tabla)
+        self.assertEqual(res['total'], 4)
+        self.assertEqual(res['con_fecha'], 3)          # dia/mes conocido: 3 de 4
+        self.assertEqual(res['con_anio'], 2)            # año conocido: solo 2
+        self.assertEqual(res['pendientes'], ['Felipe Pozo'])  # sigue siendo la unica de verdad pendiente
+
+        r = cumpleanos.equipo_cumple_el(date(2026, 4, 23))
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]['nombre'], 'Ana Maria')
+        self.assertIsNone(r[0]['edad'])
+        self.assertEqual(r[0]['fecha_nacimiento'], '')
+
+    def test_dia_mes_sin_anio_sin_sufijo_tambien_se_reconoce(self):
+        tabla = self.TABLA + "| Marina               | 29/09                |\n"
+        res = cumpleanos.importar_equipo(tabla)
+        self.assertIn('Marina', [p['nombre'] for p in cumpleanos.equipo()])
+        self.assertNotIn('Marina', res['pendientes'])
+        r = cumpleanos.equipo_cumple_el(date(2026, 9, 29))
+        self.assertEqual([p['nombre'] for p in r], ['Marina'])
+
+    def test_registros_viejos_sin_dia_mes_se_migran_solos_al_leer(self):
+        # Simula un archivo escrito por la version anterior del importador,
+        # que no guardaba 'dia_mes' -- no debe desaparecer del correo.
+        cumpleanos._save_equipo([{'nombre': 'Octavio Del Real',
+                                  'fecha_nacimiento': '1954-07-29', 'pendiente': False}])
+        r = cumpleanos.equipo_cumple_el(date(2026, 7, 29))
+        self.assertEqual([p['nombre'] for p in r], ['Octavio Del Real'])
+        self.assertEqual(r[0]['edad'], 72)
+
 
 class TestSegurosFallback(unittest.TestCase):
     """La fecha de nacimiento tenia que tipearse a mano en cada formulario."""
