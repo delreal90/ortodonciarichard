@@ -52,6 +52,7 @@ class _Base(unittest.TestCase):
         self.notify = mock.patch.object(webhook_wa, 'notify').start()
         self.nps = mock.patch.object(webhook_wa, 'nps').start()
         self.recaptacion = mock.patch.object(webhook_wa, 'recaptacion').start()
+        self.pendientes = mock.patch.object(webhook_wa, 'reagenda_pendientes').start()
         self.nps.load_config.return_value = {'review_url': 'https://g.page/x/review'}
         self.dentidesk.info_cita.return_value = None
         self.addCleanup(mock.patch.stopall)
@@ -120,9 +121,24 @@ class TestAcciones(_Base):
         webhook_wa.procesar_evento(evento('dia:13389698:2026-08-03', 'Reagendar'), CFG)
         self.dentidesk.actualizar_estado_cita.assert_called_once_with(
             '13389698', 33579, CFG)
-        self.notify.avisar_recepcion_quiere_reagendar.assert_called_once()
         texto = self.notify.enviar_texto_libre.call_args[0][1]
         self.assertIn('#reagendar=13389698&fecha=2026-08-03', texto)
+
+    def test_reagendar_no_avisa_a_recepcion_al_tiro_sino_que_anota(self):
+        """El aviso espera unos minutos: la mayoria elige su hora nueva al tiro
+        con el link, y ese correo llenaba la bandeja de recepcion sin necesidad.
+        Quien decide es el barrido (_procesar_reagenda_pendientes)."""
+        webhook_wa.procesar_evento(evento('dia:13389698:2026-08-03', 'Reagendar'), CFG)
+        self.notify.avisar_recepcion_quiere_reagendar.assert_not_called()
+        self.pendientes.registrar.assert_called_once()
+        args = self.pendientes.registrar.call_args[0]
+        self.assertEqual(args[0], '13389698')
+
+    def test_si_no_se_puede_anotar_el_pendiente_se_avisa_al_tiro(self):
+        """Mejor un correo de mas que dejar a recepcion sin enterarse."""
+        self.pendientes.registrar.side_effect = RuntimeError('disco lleno')
+        webhook_wa.procesar_evento(evento('dia:13389698:2026-08-03', 'Reagendar'), CFG)
+        self.notify.avisar_recepcion_quiere_reagendar.assert_called_once()
 
     def test_reagendar_desde_los_tres_origenes(self):
         """El boton Reagendar existe en recordatorio_semana, recordatorio_dia e
@@ -156,13 +172,17 @@ class TestAcciones(_Base):
         r = webhook_wa.procesar_evento(evento('dia:1:2026-08-03', 'Reagendar'), CFG)
         self.assertEqual(r['procesados'], 1)
         self.notify.enviar_texto_libre.assert_called_once()
-        self.notify.avisar_recepcion_quiere_reagendar.assert_called_once()
+        self.pendientes.registrar.assert_called_once()
 
-    def test_reagendar_usa_el_nombre_de_dentidesk(self):
-        self.dentidesk.info_cita.return_value = {'PatientName': 'Juan Perez'}
+    def test_reagendar_guarda_nombre_y_rut_para_el_barrido(self):
+        """El RUT es lo que despues permite preguntarle a DentiDesk si el
+        paciente ya agendo: sin el, el aviso sale igual."""
+        self.dentidesk.info_cita.return_value = {
+            'PatientName': 'Juan Perez', 'PatientDocument': '11.111.111-1'}
         webhook_wa.procesar_evento(evento('dia:1:2026-08-03', 'Reagendar'), CFG)
-        args = self.notify.avisar_recepcion_quiere_reagendar.call_args[0]
+        args = self.pendientes.registrar.call_args[0]
         self.assertIn('Juan Perez', args)
+        self.assertIn('11.111.111-1', args)
 
     def test_agendar_por_whatsapp_no_toca_dentidesk_y_avisa(self):
         self.dentidesk.info_cita.return_value = {

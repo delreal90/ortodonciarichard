@@ -4605,6 +4605,34 @@ def asistente_paciente_estado_post():
                     'bloqueo_manual': p.get('bloqueo_manual', False)})
 
 
+@app.route('/api/reagenda-pendientes', methods=['GET'])
+def reagenda_pendientes_listar():
+    """Los "quiere reagendar" que todavia estan en espera (aun no se decide si
+    avisar a recepcion). Util para ver por que un aviso no ha llegado."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import reagenda_pendientes
+    pend = reagenda_pendientes.listar()
+    # Sin telefono ni RUT: esto se mira y se comenta, y el repo es publico.
+    seguro = {ida: {'nombre': p.get('nombre', ''), 'fecha_cita': p.get('fecha_cita', ''),
+                    'pedido': p.get('pedido', '')}
+              for ida, p in pend.items()}
+    return jsonify({'ok': True, 'pendientes': seguro,
+                    'minutos_espera': reagenda_pendientes.MINUTOS_ESPERA})
+
+
+@app.route('/api/reagenda-pendientes/run', methods=['POST'])
+def reagenda_pendientes_run():
+    """Fuerza el barrido ahora (sin esperar el ciclo de 1 min). Respeta la
+    espera de cada pendiente: no adelanta avisos que aun no vencen."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg_dd = scheduling.load_config()
+    if not cfg_dd['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk'}), 400
+    return jsonify({'ok': True, 'resultado': _procesar_reagenda_pendientes(cfg_dd)})
+
+
 @app.route('/api/paciente-estado/motivos-desconocidos', methods=['GET'])
 def paciente_estado_motivos_desconocidos():
     """Panel: los motivos de DentiDesk que el barrido no supo clasificar, con
@@ -5993,6 +6021,71 @@ def _loop_recaptacion_programados():
             print('[recaptacion-programados] error:', e)
         time.sleep(40)
 
+def _procesar_reagenda_pendientes(cfg_dd, ahora=None):
+    """Resuelve los avisos de "quiere reagendar" que ya cumplieron su espera.
+
+    Por cada pendiente vencido se le pregunta a DentiDesk si el paciente YA
+    tiene una hora nueva (da lo mismo el canal: online o agendada en el meson,
+    ambas viven en la agenda). Si la tiene, el aviso se descarta sin correo --
+    ese era justo el ruido que llenaba la bandeja de recepcion. Si no, sale el
+    correo.
+
+    Un fallo de red al consultar NO resuelve el pendiente: queda para el
+    proximo ciclo. Un fallo al ENVIAR el correo tampoco, asi el aviso no se
+    pierde por un problema momentaneo de SMTP."""
+    import reagenda_pendientes
+    ahora = ahora or fechas.ahora_chile()
+    vencidos = reagenda_pendientes.vencidos(ahora=ahora)
+    if not vencidos:
+        return {'vencidos': 0}
+
+    avisados = ya_agendaron = errores = 0
+    for id_agenda, p in vencidos:
+        try:
+            rut = (p.get('rut') or '').strip()
+            if rut:
+                # Se EXCLUYE la cita original: sigue vigente (en "Pidio cambiar
+                # su hora"), asi que si es futura aparece aca y se veria como
+                # si el paciente ya hubiera resuelto, cuando no lo hizo.
+                otras = [c for c in dentidesk.citas_futuras_paciente(rut, cfg_dd)
+                         if str(c.get('id_agenda') or '') != str(id_agenda)]
+                if otras:
+                    reagenda_pendientes.resolver(id_agenda, 'ya_agendo')
+                    ya_agendaron += 1
+                    continue
+            notify.avisar_recepcion_quiere_reagendar(
+                id_agenda, p.get('telefono', ''), p.get('nombre', ''), p.get('fecha_cita', ''))
+            reagenda_pendientes.resolver(id_agenda, 'avisado')
+            avisados += 1
+        except Exception as e:
+            # Se deja pendiente a proposito: se reintenta en el proximo ciclo.
+            errores += 1
+            print('[reagenda-pendientes] error con la cita', id_agenda, ':', e)
+    reagenda_pendientes.podar(ahora=ahora)
+    return {'vencidos': len(vencidos), 'avisados': avisados,
+            'ya_agendaron': ya_agendaron, 'errores': errores}
+
+
+def _loop_reagenda_pendientes():
+    """Revisa cada minuto si algun "quiere reagendar" ya cumplio su espera.
+
+    A diferencia de los otros loops NO dispara a una hora del dia: la espera es
+    de minutos desde que el paciente toco el boton, asi que el ciclo corto es
+    el que importa. Sin DentiDesk habilitado no se puede comprobar si el
+    paciente agendo, asi que no se procesa nada (los pendientes esperan)."""
+    import time
+    while True:
+        try:
+            cfg_dd = scheduling.load_config()
+            if cfg_dd['dentidesk']['enabled']:
+                r = _procesar_reagenda_pendientes(cfg_dd)
+                if r.get('vencidos'):
+                    print('[reagenda-pendientes]', r)
+        except Exception as e:
+            print('[reagenda-pendientes] error:', e)
+        time.sleep(60)
+
+
 def _procesar_control_dental(cfg_cd, hoy):
     """Barre la agenda y envia (email) los recordatorios de control dental
     vencidos. Mismo criterio que _procesar_programados_vencidos: los fallos
@@ -6577,6 +6670,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_confirmaciones, daemon=True).start()
     threading.Thread(target=_loop_recordatorios, daemon=True).start()
     threading.Thread(target=_loop_recaptacion_programados, daemon=True).start()
+    threading.Thread(target=_loop_reagenda_pendientes, daemon=True).start()
     threading.Thread(target=_loop_calentador, daemon=True).start()
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     threading.Thread(target=_loop_control_dental, daemon=True).start()

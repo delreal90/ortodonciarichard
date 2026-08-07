@@ -1765,6 +1765,23 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
   - **NO agregar 33579 a esas tuplas**: en `_ESTADOS_INACTIVOS` haría que
     `citas_futuras_paciente` deje de ver la hora y la guarda `ya_tiene_hora` de recaptación
     caería del lado permisivo (le mandaría recordatorios a alguien que sí tiene hora).
+  - **El correo a recepción ESPERA 5 minutos** (`admin/reagenda_pendientes.py`, 2026-08-07).
+    Salía en el mismo instante del toque, pero la mayoría de los pacientes elige su hora nueva
+    en el minuto siguiente con el link que acaba de recibir: ese aviso llegaba igual y llenaba
+    la bandeja. Ahora `_reagendar` solo **anota un pendiente**; `_procesar_reagenda_pendientes`
+    (loop `_loop_reagenda_pendientes`, poll 60 s) lo resuelve pasada la espera preguntándole a
+    DentiDesk si el paciente ya tiene otra hora — da lo mismo el canal, online o agendada en el
+    mesón, ambas viven en la agenda. Si la tiene, se descarta sin correo.
+    - ⚠️ Al comprobar se **excluye la cita original por `id_agenda`**: sigue vigente (en "Pidió
+      cambiar su hora"), así que si es futura aparece en `citas_futuras_paciente` y se leería
+      como "ya agendó" justo cuando hay que avisar.
+    - Los pendientes viven en **disco** (`reagenda_pendientes.json`, jsonstore), no en memoria:
+      un reinicio de Render no puede dejar a recepción sin enterarse. Se podan a los 7 días.
+    - Nada se resuelve ante un fallo (de red o de SMTP): queda pendiente y se reintenta. Si
+      falla *anotar* el pendiente, el correo sale al tiro (mejor uno de más que ninguno).
+    - Endpoints (ADMIN_TOKEN): `GET /api/reagenda-pendientes` (los que están en espera, sin
+      teléfono ni RUT) y `POST /api/reagenda-pendientes/run` (fuerza el barrido; respeta la
+      espera de cada uno).
 
 - **Por qué falla un link de reagendar, y cómo saberlo (2026-08-07).** Un paciente reportó que
   su link mostraba "no disponible". No se pudo diagnosticar: las ~6 ramas de fallo devolvían el

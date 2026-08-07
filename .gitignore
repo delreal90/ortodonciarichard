@@ -97,3 +97,8 @@ ortodonciarichard-analytics/
 # PATIENT_INDEX_PATH), así que sobreviven a los redeploys.
 admin/paciente_estado.json
 admin/links_agenda.json
+
+# Avisos de "quiere reagendar" en espera (teléfono + RUT del paciente mientras
+# se decide si avisar a recepción). Mismo criterio: datos de pacientes, disco
+# persistente en Render, nunca a git.
+admin/reagenda_pendientes.json

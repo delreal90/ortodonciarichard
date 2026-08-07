@@ -44,6 +44,7 @@ from datetime import datetime
 import dentidesk
 import notify
 import nps
+import reagenda_pendientes
 import recaptacion
 
 log = logging.getLogger(__name__)
@@ -171,6 +172,25 @@ def _nombre_paciente(cfg, id_agenda, fecha, perfil_nombre=''):
     return nombre
 
 
+def _nombre_y_rut(cfg, id_agenda, fecha, perfil_nombre=''):
+    """Como _nombre_paciente, pero devuelve tambien el RUT: el barrido de
+    pendientes lo necesita para preguntarle a DentiDesk si el paciente ya
+    tiene una hora nueva. Sin RUT no se puede comprobar y el aviso sale igual."""
+    nombre, rut = '', ''
+    if fecha:
+        try:
+            f = datetime.strptime(fecha, '%Y-%m-%d').date()
+            c = dentidesk.info_cita(cfg, id_agenda, f)
+            if c:
+                nombre = (c.get('PatientName') or '').strip()
+                rut = (c.get('PatientDocument') or '').strip()
+        except Exception as e:
+            log.warning('No se pudo obtener nombre/rut de la cita %s: %s', id_agenda, e)
+    if not nombre:
+        nombre = (perfil_nombre or '').strip()
+    return nombre, rut
+
+
 def _anular(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
     id_status = cfg['dentidesk'].get('id_status_cancelado')
     if id_status:
@@ -199,13 +219,19 @@ def _reagendar(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
 
     fecha vacia (botones enviados antes de este cambio): el link igual abre
     con el id -- el frontend simplemente no puede precargar doctor/motivo y
-    cae de vuelta al wizard completo (pidiendole todo al paciente)."""
+    cae de vuelta al wizard completo (pidiendole todo al paciente).
+
+    El aviso a recepcion NO sale aca: se anota como pendiente y lo resuelve el
+    barrido unos minutos despues (ver reagenda_pendientes.py). La mayoria de
+    los pacientes elige su hora nueva en el minuto siguiente con el link que
+    acaba de recibir, y ese correo llenaba la bandeja con avisos que ya no
+    habia que atender."""
     id_status = cfg['dentidesk'].get('id_status_quiere_reagendar')
     if id_status:
         _actualizar_dentidesk(id_agenda, id_status, cfg, 'marcar como "pidio cambiar su hora"')
     else:
         log.warning('id_status_quiere_reagendar no configurado -- no se actualiza DentiDesk (cita %s)', id_agenda)
-    nombre = _nombre_paciente(cfg, id_agenda, fecha, perfil_nombre)
+    nombre, rut = _nombre_y_rut(cfg, id_agenda, fecha, perfil_nombre)
     link = URL_REAGENDA.format(id_agenda=id_agenda, fecha=fecha)
     notify.enviar_texto_libre(
         telefono,
@@ -216,7 +242,13 @@ def _reagendar(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
         'enlace:\n' + link + '\n\n'
         'Su hora actual se mantiene agendada hasta que confirme la nueva. 🦷'
     )
-    notify.avisar_recepcion_quiere_reagendar(id_agenda, telefono, nombre, fecha)
+    # Best-effort: si anotar el pendiente falla, se avisa AL TIRO (mejor un
+    # correo de mas que dejar a recepcion sin enterarse de este paciente).
+    try:
+        reagenda_pendientes.registrar(id_agenda, telefono, nombre, fecha, rut)
+    except Exception as e:
+        log.error('No se pudo anotar el pendiente de reagenda %s (%s) -- se avisa ahora', id_agenda, e)
+        notify.avisar_recepcion_quiere_reagendar(id_agenda, telefono, nombre, fecha)
 
 
 def _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
