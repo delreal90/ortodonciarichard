@@ -19,6 +19,7 @@ Docs API: https://documentation-api-dd-...run.app/documentacion_api_dd_chile.php
 """
 
 import hashlib
+import logging
 import unicodedata
 from datetime import date, datetime, time, timedelta
 
@@ -28,6 +29,8 @@ except ImportError:  # el bosquejo no rompe si requests no esta instalado
     requests = None
 
 from scheduling import load_config, generar_grilla, _hash01, limpiar_rut, grilla_horario_doctor
+
+log = logging.getLogger(__name__)
 
 
 class DentiDeskError(Exception):
@@ -130,7 +133,15 @@ def _get_agenda_day(cfg, target_date, force=False):
     url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
     resp = requests.post(url, json={'IdLocation': dd['id_location'],
                                     'Date': target_date.isoformat(), 'Token': token}, timeout=25)
-    data = (resp.json() or {}).get('data', []) if resp.status_code == 200 else []
+    if resp.status_code != 200:
+        log.warning('_get_agenda_day: DentiDesk respondio %s para %s (no se cachea)',
+                    resp.status_code, key)
+        return []
+    try:
+        data = (resp.json() or {}).get('data', [])
+    except ValueError:
+        log.warning('_get_agenda_day: respuesta 200 con JSON invalido para %s (no se cachea)', key)
+        return []
     _AGENDA_DIA_CACHE[key] = (_t.time(), data)
     return data
 
@@ -340,7 +351,7 @@ def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
             # Loguear: un token vencido o un 500 de DentiDesk devolvia [] igual que
             # "ese dia no tiene citas". Las guardas que dependen de esto (ya_tiene_hora)
             # se caian del lado permisivo sin dejar rastro.
-            print(f'[dentidesk] fallo al leer la agenda del {d}: {e!r}')
+            log.warning('citas_futuras_paciente: fallo al leer la agenda del %s: %r', d, e)
             return []
 
     citas = []
@@ -474,10 +485,13 @@ def doc_key_por_nombre(cfg, professional_name):
     professional_name = (professional_name or '').strip()
     if not professional_name:
         return ''
+    objetivo = _norm_motivo(professional_name)
     for k, v in cfg['doctores'].items():
         if (not k.startswith('_') and isinstance(v, dict)
-                and (v.get('professional_name') or '').strip() == professional_name):
+                and _norm_motivo(v.get('professional_name') or '') == objetivo):
             return k
+    log.warning('doc_key_por_nombre: sin match para professional_name=%r (normalizado=%r)',
+                professional_name, objetivo)
     return ''
 
 
@@ -529,20 +543,46 @@ def id_reason_por_label(cfg, doc_key, label):
     label = (label or '').strip()
     if not label:
         return None
+    objetivo = _norm_motivo(label)
+
     esp = cfg['doctores'].get(doc_key, {}).get('especialidad')
     if esp:
+        ids = set()
         for k, v in cfg['motivos'].items():
             if (not k.startswith('_') and isinstance(v, dict)
                     and v.get('especialidad') == esp
-                    and (v.get('label') or '').strip() == label
-                    and v.get('id_reason')):
-                return v['id_reason']
+                    and v.get('id_reason')
+                    and _norm_motivo(v.get('label') or '') == objetivo):
+                ids.add(v['id_reason'])
+        if ids:
+            if len(ids) > 1:
+                log.warning('id_reason_por_label: colision en cfg.motivos para label=%r '
+                            '(normalizado=%r): IdReason distintos %s -- no se adivina',
+                            label, objetivo, sorted(ids))
+                return None
+            return next(iter(ids))
+
     extra = cfg.get('motivos_id_reason_extra') or {}
-    if label in extra:
+    ids = set()
+    for k, v in extra.items():
+        if k.startswith('_'):
+            continue  # ej. "_comment": no es un motivo
+        if _norm_motivo(k) != objetivo:
+            continue
         try:
-            return int(extra[label])
+            ids.add(int(v))
         except (TypeError, ValueError):
+            log.warning('id_reason_por_label: motivos_id_reason_extra[%r]=%r no es un IdReason valido', k, v)
+    if ids:
+        if len(ids) > 1:
+            log.warning('id_reason_por_label: colision en motivos_id_reason_extra para label=%r '
+                        '(normalizado=%r): IdReason distintos %s -- no se adivina',
+                        label, objetivo, sorted(ids))
             return None
+        return next(iter(ids))
+
+    log.warning('id_reason_por_label: sin match para label=%r (normalizado=%r) -- agregar '
+                'este motivo a motivos_id_reason_extra en scheduling_config.json', label, objetivo)
     return None
 
 

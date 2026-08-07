@@ -154,30 +154,62 @@ async function abrirAgenda() {
   // real: "Imp essix" terminó como "Control Fijo"). En su lugar derivamos a
   // WhatsApp sin tocar la cita vieja.
   if (agenda.reagendaId) {
-    if (agenda.reagendaFecha && !agenda._reagendaInfoIntentado) {
-      agenda._reagendaInfoIntentado = true;
-      try {
-        const info = await agendaApi(`/api/agenda/reagendar-info?id_agenda=${encodeURIComponent(agenda.reagendaId)}&fecha=${encodeURIComponent(agenda.reagendaFecha)}`);
-        const doc = info.ok ? (agenda.config.doctores || []).find(d => d.key === info.doctor) : null;
-        if (doc) {
-          const esp = (agenda.config.especialidades || []).find(e => e.key === doc.especialidad);
-          agenda.reagendaExacto = true;
-          agenda.reagendaDuracion = info.duracion_min;
-          agenda.reagendaSoloManana = !!info.solo_manana;
-          agenda.sel.doctor = doc.key;
-          agenda.sel.doctorNombre = info.doctor_nombre || doc.name;
-          agenda.sel.doctorFoto = info.doctor_foto || doc.photo;
-          agenda.sel.especialidad = doc.especialidad;
-          agenda.sel.especialidadLabel = esp ? esp.label : '';
-          agenda.sel.motivoLabel = info.motivo_label;
-          pasoRut();
-          return;
-        }
-      } catch (e) { /* cae al mensaje de reagenda-no-disponible */ }
-    }
-    return pasoReagendaNoDisponible();
+    return _reagendaResolverInfo();
   }
   pasoEspecialidad();
+}
+
+// Intenta precargar doctor+motivo de la cita vieja (ver /api/agenda/reagendar-info).
+// Vive en su propia función (en vez de estar inline en abrirAgenda) porque el botón
+// "Reintentar" de pasoReagendaNoDisponible(codigo='error_dentidesk') necesita volver
+// a llamar exactamente esta misma lógica sin duplicarla.
+async function _reagendaResolverInfo() {
+  if (!agenda.reagendaFecha) {
+    // Link viejo sin fecha codificada (#reagendar=<id> sin &fecha=): nunca hay
+    // cómo pedirle /reagendar-info al backend (exige id_agenda + fecha).
+    return pasoReagendaNoDisponible('sin_fecha');
+  }
+  if (agenda._reagendaInfoIntentado) {
+    return pasoReagendaNoDisponible();
+  }
+  agenda._reagendaInfoIntentado = true;
+  try {
+    const info = await agendaApi(`/api/agenda/reagendar-info?id_agenda=${encodeURIComponent(agenda.reagendaId)}&fecha=${encodeURIComponent(agenda.reagendaFecha)}`);
+    const doc = info.ok ? (agenda.config.doctores || []).find(d => d.key === info.doctor) : null;
+    if (doc) {
+      const esp = (agenda.config.especialidades || []).find(e => e.key === doc.especialidad);
+      agenda.reagendaExacto = true;
+      agenda.reagendaDuracion = info.duracion_min;
+      agenda.reagendaSoloManana = !!info.solo_manana;
+      agenda.sel.doctor = doc.key;
+      agenda.sel.doctorNombre = info.doctor_nombre || doc.name;
+      agenda.sel.doctorFoto = info.doctor_foto || doc.photo;
+      agenda.sel.especialidad = doc.especialidad;
+      agenda.sel.especialidadLabel = esp ? esp.label : '';
+      agenda.sel.motivoLabel = info.motivo_label;
+      pasoRut();
+      return;
+    }
+    // El backend respondió ok:true pero el doctor no está en agenda.config.doctores
+    // (config del frontend desalineada) -- misma causa que el 'doctor_no_resuelto'
+    // del backend, desde el punto de vista del paciente.
+    return pasoReagendaNoDisponible('doctor_no_resuelto');
+  } catch (e) {
+    // agendaApi() lanza con .data = el JSON de error del servidor (ver línea 47),
+    // que ahora trae 'codigo' además de 'error'.
+    const codigo = (e.data && e.data.codigo) || '';
+    const msgServidor = (e.data && e.data.error) || '';
+    return pasoReagendaNoDisponible(codigo, msgServidor);
+  }
+}
+
+// Reintentar tras 'error_dentidesk' (único código TRANSITORIO: timeout o error
+// hablando con DentiDesk). Limpia la guarda _reagendaInfoIntentado -- si no, el
+// segundo intento caería directo al mensaje sin volver a llamar al backend.
+function _reagendaReintentar() {
+  agenda._reagendaInfoIntentado = false;
+  setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Reintentando…</div>');
+  _reagendaResolverInfo();
 }
 
 function cerrarAgenda() {
@@ -1247,22 +1279,81 @@ function pasoError(msg) {
   </div>`);
 }
 
-// Reagenda que no se pudo preparar automáticamente (link sin fecha, motivo no
-// reconocido, cita movida de día, etc.). NO se abre el wizard libre — se deriva
-// a WhatsApp para que la clínica reagende con el MISMO motivo, sin riesgo de que
-// el paciente termine con un tipo de cita distinto. La cita vieja NO se toca.
-function pasoReagendaNoDisponible() {
+// Reagenda que no se pudo preparar automáticamente. NO se abre el wizard libre —
+// se deriva a WhatsApp para que la clínica reagende con el MISMO motivo, sin
+// riesgo de que el paciente termine con un tipo de cita distinto. `codigo` viene
+// de /api/agenda/reagendar-info (campo 'codigo' del JSON de error) o de una de las
+// dos ramas locales que hoy detecta el frontend antes de llamar al backend
+// ('sin_fecha', 'doctor_no_resuelto' con ok:true). Ambos parámetros son opcionales
+// -- llamada sin argumentos = mensaje genérico de siempre.
+function pasoReagendaNoDisponible(codigo, msgServidor) {
+  codigo = codigo || '';
   const fechaTxt = agenda.reagendaFecha ? ` (mi hora del ${agenda.reagendaFecha})` : '';
   const wa = 'https://wa.me/56933558189?text=' +
     encodeURIComponent(`Hola, quiero reagendar mi hora${fechaTxt}. ¿Me pueden ayudar a coordinar una nueva?`);
+  const waBtn = `<a class="btn btn-primary btn-lg" href="${wa}" target="_blank" rel="noopener">
+      <i class="fab fa-whatsapp"></i> Escríbenos por WhatsApp
+    </a>`;
+  // Referencia discreta para recepción -- para que sepan qué pasó sin mirar logs.
+  const ref = `<p class="agenda-mini" style="opacity:.65">ref: ${codigo || 'desconocido'}</p>`;
+
+  // Único código TRANSITORIO (timeout o error hablando con DentiDesk): se ofrece
+  // reintentar en vez de derivar directo a WhatsApp -- hoy se le cerraba la
+  // puerta al paciente por un simple timeout.
+  if (codigo === 'error_dentidesk') {
+    setBody(`<div class="agenda-final err">
+      <i class="fas fa-triangle-exclamation"></i>
+      <h3>Tuvimos un problema técnico</h3>
+      <p>Puede que se haya cortado la conexión por un instante. Vuelve a intentarlo.</p>
+      <button class="btn btn-primary btn-lg" onclick="_reagendaReintentar()">
+        <i class="fas fa-rotate-right"></i> Reintentar
+      </button>
+      ${waBtn}
+      <p class="agenda-mini">Tu hora actual sigue agendada mientras tanto.</p>
+      ${ref}
+    </div>`);
+    return;
+  }
+
+  // cita_no_encontrada: la cita no aparece ese día en DentiDesk (link viejo, cita
+  // movida de día). No es seguro afirmar que "sigue agendada" -- puede que sí
+  // (solo se movió de fecha) o no, así que se omite esa línea en este caso.
+  if (codigo === 'cita_no_encontrada') {
+    setBody(`<div class="agenda-final err">
+      <i class="fas fa-calendar-xmark"></i>
+      <h3>No encontramos tu hora</h3>
+      <p>No encontramos tu hora${fechaTxt ? ` del ${agenda.reagendaFecha}` : ''}. Escríbenos y te ayudamos a coordinar tu reagendamiento.</p>
+      ${waBtn}
+      <p class="agenda-mini">No hemos anulado ninguna hora tuya.</p>
+      ${ref}
+    </div>`);
+    return;
+  }
+
+  // cita_no_vigente: la cita YA fue anulada, reagendada o atendida -- afirmar que
+  // "sigue agendada" sería falso, así que acá se omite esa línea a propósito.
+  if (codigo === 'cita_no_vigente') {
+    setBody(`<div class="agenda-final err">
+      <i class="fas fa-calendar-xmark"></i>
+      <h3>Esa hora ya no está disponible</h3>
+      <p>Esa hora ya fue anulada o reagendada. Escríbenos y coordinamos una nueva contigo.</p>
+      ${waBtn}
+      ${ref}
+    </div>`);
+    return;
+  }
+
+  // motivo_no_resuelto, doctor_no_resuelto, sin_fecha, sin_parametros,
+  // fecha_invalida, modo_demo y cualquier código desconocido: el mensaje de
+  // siempre (la cita vieja sigue intacta y sin tocar, así que la línea de abajo
+  // es siempre verdadera acá).
   setBody(`<div class="agenda-final ok">
     <i class="fas fa-comments"></i>
     <h3>Reagendemos tu hora juntos</h3>
     <p>Para esta hora preferimos coordinar el nuevo horario contigo directamente, así nos aseguramos de mantener el mismo tipo de atención.</p>
-    <a class="btn btn-primary btn-lg" href="${wa}" target="_blank" rel="noopener">
-      <i class="fab fa-whatsapp"></i> Escríbenos por WhatsApp
-    </a>
+    ${waBtn}
     <p class="agenda-mini">Tu hora actual sigue agendada hasta que coordinemos la nueva.</p>
+    ${ref}
   </div>`);
 }
 

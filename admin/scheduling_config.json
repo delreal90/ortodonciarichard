@@ -14,7 +14,8 @@
     "id_status_confirmado_whatsapp": 32180,
     "id_status_cancelado": 2122,
     "id_status_reagendada": 2132,
-    "_comment_status": "IdStatus del diccionario oficial DentiDesk (16-06-2026): 40968 = '1 SEMANA Confirmado por WhatsApp' (boton Confirmo del recordatorio de 1 semana), 32180 = 'Confirmado por WhatsApp' (boton Confirmo del recordatorio de 1 dia), 2122 = 'Hora Cancelada' (boton Anular, cualquier origen), 2132 = 'Re-agendado' (cita vieja cuando el paciente agenda una nueva desde el link de reagendar).",
+    "id_status_quiere_reagendar": 33579,
+    "_comment_status": "IdStatus del diccionario oficial DentiDesk (16-06-2026): 40968 = '1 SEMANA Confirmado por WhatsApp' (boton Confirmo del recordatorio de 1 semana), 32180 = 'Confirmado por WhatsApp' (boton Confirmo del recordatorio de 1 dia), 2122 = 'Hora Cancelada' (boton Anular, cualquier origen), 2132 = 'Re-agendado' (cita vieja cuando el paciente agenda una nueva desde el link de reagendar), 33579 = 'Pidio cambiar su hora' (el paciente toco el boton Reagendar en WhatsApp; la cita SIGUE VIGENTE con este estado, solo pasa a 2132 cuando el paciente concreta la hora nueva por el link).",
     "_comment": "Credenciales reales de DentiDesk. NUNCA se sube a git (esta en .gitignore). Solo para probar en vivo desde tu PC. En produccion (Render) van como variables de entorno."
   },
   "motivos_primera_consulta": ["Primera Consulta"],

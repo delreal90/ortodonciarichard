@@ -279,7 +279,7 @@ DentiDesk usa íconos de colores para indicar el estado de cada cita en la agend
 | Primera Consulta Ingresada | Nueva consulta inicial registrada |
 | Ficha Primera Consulta | Primera consulta con ficha clínica |
 | Confirmado por WhatsApp | Confirmación recibida por WhatsApp |
-| Falta enviada por WhatsApp | Se notificó falta al paciente por WhatsApp |
+| Pidió cambiar su hora | El paciente tocó "Reagendar" en WhatsApp (IdStatus **33579**, renombrado 2026-08-07 desde "Falta enviada por WhatsApp"). **La cita sigue VIGENTE** hasta que concrete la nueva |
 | 1 SEMANA Confirmado por WhatsApp | Confirmación enviada con 1 semana de anticipación |
 | No seguir (conversado con tratante) | Paciente no continúa tratamiento |
 
@@ -1744,6 +1744,57 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
   es email-primero / WhatsApp-fallback. Si el update de la cita vieja falla, se loguea pero
   NO rompe la reserva nueva (que sí quedó hecha).
   **Pendiente:** el usuario debe crear y aprobar la plantilla `reagenda_confirmada` en Meta.
+
+- **Pedir reagendar deja rastro en DentiDesk (2026-08-07).** Hasta acá, tocar "Reagendar" no
+  cambiaba NADA en la agenda: recepción no se enteraba de que ese paciente quería otra hora.
+  Ahora `_reagendar` marca la cita con **`id_status_quiere_reagendar` = 33579
+  ("Pidió cambiar su hora")** y manda un correo a recepción
+  (`notify.avisar_recepcion_quiere_reagendar`, molde de `avisar_recepcion_anulacion`). Aplica
+  a los tres orígenes del botón (recordatorio de semana, del día e inasistencia).
+  - **La cita NO se cancela**: sigue vigente y sigue ocupando su bloque. Solo
+    `/api/agenda/reservar-reagenda` la pasa a "Re-agendado" (2132) cuando el paciente concreta
+    la hora nueva. Si se cancelara acá y abandonara el flujo, quedaría sin hora.
+  - ⚠️ **El nombre del estado NO puede contener `cancel`, `no llega`, `no seguir`, `reagend`,
+    `re-agend` ni `atendid`.** DentiDesk solo devuelve el NOMBRE del estado (nunca el IdStatus),
+    así que cuatro módulos deciden por subcadena si una cita sigue viva: `server.py`
+    (`_ESTADOS_NO_REAGENDABLES`), `dentidesk.py` (`_ESTADOS_INACTIVOS`), `control_dental.py`
+    (`_ESTADOS_NO_OCURRIO`) y `consentimientos.py` (`_ESTADOS_CITA_NO_CUENTA`). Por eso
+    "Quiere reagendar" **no servía**: contiene `reagend` → el paciente marcado no habría podido
+    reagendar por el link (justo lo contrario del objetivo). Si algún día se renombra, respetar
+    esa restricción; hay una prueba que la fija (`test_reagenda_diagnostico.py`).
+  - **NO agregar 33579 a esas tuplas**: en `_ESTADOS_INACTIVOS` haría que
+    `citas_futuras_paciente` deje de ver la hora y la guarda `ya_tiene_hora` de recaptación
+    caería del lado permisivo (le mandaría recordatorios a alguien que sí tiene hora).
+
+- **Por qué falla un link de reagendar, y cómo saberlo (2026-08-07).** Un paciente reportó que
+  su link mostraba "no disponible". No se pudo diagnosticar: las ~6 ramas de fallo devolvían el
+  MISMO mensaje genérico, el frontend tenía un `catch` vacío que descartaba el error del
+  servidor, y no había una sola línea de log en la cadena. Se descartaron dos sospechas: ni la
+  fecha pasada ni el estado "Paciente no llega" bloquean (ninguna se compara con hoy, y ese
+  estado no está en `_ESTADOS_NO_REAGENDABLES` — a propósito: el link de inasistencia existe
+  justo para esas citas). Lo que se hizo:
+  - **Cada rama devuelve un `codigo`**: `sin_parametros`, `fecha_invalida`, `modo_demo`,
+    `cita_no_encontrada` (404), `cita_no_vigente` (409), `doctor_no_resuelto`,
+    `motivo_no_resuelto` (409) y `error_dentidesk` (**502 con JSON**, antes un timeout salía
+    como página HTML de Flask que el frontend ni podía leer). El JS muestra un mensaje por
+    caso — y en el transitorio ofrece **reintentar**, en vez de cerrarle la puerta al paciente
+    por un blip de red. Ninguna rama abre el wizard libre (ver el bug de "Imp essix").
+  - **`id_reason_por_label` y `doc_key_por_nombre` normalizan** (`_norm_motivo`: tildes,
+    mayúsculas, espacios de más). Antes el match era byte-a-byte: `'control fijo'` NO resolvía.
+    Si dos motivos normalizan igual con IdReason distintos, devuelve `None` y loguea en vez de
+    adivinar.
+  - **`_get_agenda_day` ya no cachea los fallos** — antes una respuesta ≠200 dejaba la lista
+    vacía en el caché por 10 minutos, convirtiendo un blip en 10 min de "no encontramos esa
+    cita" para todo el sistema.
+  - **Logging en WARNING** (INFO no se ve en Render sin `basicConfig`; se agregó uno con
+    `LOG_LEVEL` para poder subirlo sin deploy).
+  - 🔧 **Herramienta operativa:** `GET /api/agenda/diagnostico-reagenda?id_agenda=&fecha=`
+    (ADMIN_TOKEN) recorre TODOS los pasos y devuelve la traza (cita/estado/doctor/motivo/
+    duración) en vez de cortar en el primero; si el motivo no resuelve, sugiere los nombres
+    parecidos de la tabla. **Si un paciente reporta que su link no funciona, correr esto.**
+    Y `GET /api/agenda/diagnostico-motivos?dias=N` lista los motivos vistos en la agenda que
+    NO resuelven — detecta un motivo nuevo o renombrado en DentiDesk antes de que un paciente
+    choque con él. Ninguno de los dos devuelve datos del paciente.
   - `server.py`: `GET/POST /api/whatsapp/webhook` — el GET es el handshake que exige Meta
     (`WA_VERIFY_TOKEN`); el POST valida `X-Hub-Signature-256` (HMAC-SHA256 con `WA_APP_SECRET`,
     **fail-closed**: sin secret configurado se rechaza todo) antes de procesar nada — esto

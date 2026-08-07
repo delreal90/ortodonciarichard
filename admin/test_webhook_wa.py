@@ -30,6 +30,7 @@ CFG = {'dentidesk': {
     'id_status_confirmado_semana':   40968,
     'id_status_confirmado_whatsapp': 32180,
     'id_status_cancelado':           2122,
+    'id_status_quiere_reagendar':    33579,
 }}
 
 
@@ -111,18 +112,57 @@ class TestAcciones(_Base):
                 self.dentidesk.actualizar_estado_cita.assert_called_once_with(
                     '1', esperado, CFG)
 
-    def test_reagendar_no_toca_dentidesk(self):
-        """La cita vieja sigue VIGENTE hasta que el paciente concrete la nueva:
-        si se cancelara aca y abandona el flujo, queda sin hora."""
+    def test_reagendar_marca_pidio_cambiar_hora(self):
+        """Se marca 33579 ('Pidio cambiar su hora') para que recepcion vea la
+        intencion en la agenda, PERO la cita sigue VIGENTE: solo
+        /reservar-reagenda la pasa a 'Re-agendado' cuando el paciente concreta
+        la hora nueva. Si se cancelara aca y abandona el flujo, queda sin hora."""
         webhook_wa.procesar_evento(evento('dia:13389698:2026-08-03', 'Reagendar'), CFG)
-        self.dentidesk.actualizar_estado_cita.assert_not_called()
+        self.dentidesk.actualizar_estado_cita.assert_called_once_with(
+            '13389698', 33579, CFG)
+        self.notify.avisar_recepcion_quiere_reagendar.assert_called_once()
         texto = self.notify.enviar_texto_libre.call_args[0][1]
         self.assertIn('#reagendar=13389698&fecha=2026-08-03', texto)
+
+    def test_reagendar_desde_los_tres_origenes(self):
+        """El boton Reagendar existe en recordatorio_semana, recordatorio_dia e
+        inasistencia_reagendar: los tres deben marcar igual."""
+        for payload in ('semana:1:2026-08-03', 'dia:1:2026-08-03', 'inasistencia:1:2026-08-03'):
+            with self.subTest(payload=payload):
+                self.dentidesk.reset_mock()
+                webhook_wa.procesar_evento(evento(payload, 'Reagendar'), CFG)
+                self.dentidesk.actualizar_estado_cita.assert_called_once_with(
+                    '1', 33579, CFG)
 
     def test_reagendar_sin_fecha_manda_link_igual(self):
         webhook_wa.procesar_evento(evento('dia:13389698', 'Reagendar'), CFG)
         texto = self.notify.enviar_texto_libre.call_args[0][1]
         self.assertIn('#reagendar=13389698', texto)
+        self.dentidesk.actualizar_estado_cita.assert_called_once_with(
+            '13389698', 33579, CFG)
+
+    def test_reagendar_sin_id_status_configurado_no_inventa(self):
+        """Config incompleta: NO se llama a DentiDesk con None, pero el paciente
+        igual recibe su link (el mensaje nunca depende del marcado)."""
+        webhook_wa.procesar_evento(evento('dia:1:2026-08-03', 'Reagendar'),
+                                   {'dentidesk': {}})
+        self.dentidesk.actualizar_estado_cita.assert_not_called()
+        self.notify.enviar_texto_libre.assert_called_once()
+
+    def test_reagendar_con_dentidesk_caido_igual_manda_link(self):
+        """Regla del proyecto: el webhook nunca se cae porque un paso
+        secundario falle -- el mensaje al paciente sale igual."""
+        self.dentidesk.actualizar_estado_cita.side_effect = RuntimeError('502 Bad Gateway')
+        r = webhook_wa.procesar_evento(evento('dia:1:2026-08-03', 'Reagendar'), CFG)
+        self.assertEqual(r['procesados'], 1)
+        self.notify.enviar_texto_libre.assert_called_once()
+        self.notify.avisar_recepcion_quiere_reagendar.assert_called_once()
+
+    def test_reagendar_usa_el_nombre_de_dentidesk(self):
+        self.dentidesk.info_cita.return_value = {'PatientName': 'Juan Perez'}
+        webhook_wa.procesar_evento(evento('dia:1:2026-08-03', 'Reagendar'), CFG)
+        args = self.notify.avisar_recepcion_quiere_reagendar.call_args[0]
+        self.assertIn('Juan Perez', args)
 
     def test_agendar_por_whatsapp_no_toca_dentidesk_y_avisa(self):
         self.dentidesk.info_cita.return_value = {

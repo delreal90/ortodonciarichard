@@ -533,12 +533,18 @@ def avisar_recepcion_anulacion(id_agenda, telefono, nombre=''):
     return _enviar_email_recepcion(f'Anulación por WhatsApp — cita {id_agenda}', html)
 
 
-def avisar_recepcion_reagendar(id_agenda, telefono, nombre=''):
-    """El paciente pidio reagendar -- por ahora esto se gestiona a mano
-    (la logica de horas disponibles queda para una fase futura)."""
-    filas = _fila('Cita', id_agenda) + _fila('Paciente', nombre) + _fila('Teléfono', telefono)
-    html = _aviso_recepcion_html('Un paciente pidió reagendar por WhatsApp', filas)
-    return _enviar_email_recepcion(f'Solicitud de reagendar — cita {id_agenda}', html)
+def avisar_recepcion_quiere_reagendar(id_agenda, telefono, nombre='', fecha=''):
+    """El paciente toco el boton 'Reagendar' en WhatsApp -- la cita quedo
+    marcada en DentiDesk con el estado 'Pidio cambiar su hora' y SIGUE
+    VIGENTE: recepcion no debe anularla, solo pasa a 'Re-agendado' cuando el
+    paciente concreta la hora nueva por el link."""
+    filas = (_fila('Cita', id_agenda) + _fila('Paciente', nombre)
+             + _fila('Teléfono', telefono) + _fila('Fecha de la hora actual', fecha)
+             + _fila('Estado', 'Pidió cambiar su hora'))
+    html = _aviso_recepcion_html(
+        'Un paciente pidió cambiar su hora por WhatsApp — la hora SIGUE agendada, no anular',
+        filas)
+    return _enviar_email_recepcion(f'Pidió cambiar su hora — cita {id_agenda}', html)
 
 
 # ── NPS / encuesta de satisfaccion ───────────────────────────────────────────

@@ -13,16 +13,18 @@ Reglas de negocio:
                   + mensaje de agradecimiento al paciente.
   - Anular     -> actualizar_estado_cita() con IdStatus 2122 (Hora Cancelada)
                   + mensaje al paciente + aviso INMEDIATO a recepcion por email.
-  - Reagendar  -> manda al paciente el link de la agenda online con el id (y la
-                  fecha) de su cita vieja codificados en el hash (#reagendar=
-                  <id>&fecha=<fecha>). El frontend usa esos datos para precargar
-                  doctor + motivo (/api/agenda/reagendar-info) y saltar directo
-                  a elegir hora -- el paciente no puede cambiar de doctor ni de
-                  motivo. Cuando complete la reserva nueva ahi, el backend marca
-                  la cita vieja como "Re-agendado" (2132) y la mueve fuera de
-                  horario (libera su bloque original). La cita vieja se mantiene
-                  vigente hasta que confirme la nueva (asi no queda sin hora si
-                  abandona el flujo).
+  - Reagendar  -> marca la cita en DentiDesk con el IdStatus
+                  id_status_quiere_reagendar ("Pidio cambiar su hora") y avisa a
+                  recepcion por email, ademas de mandarle al paciente el link de
+                  la agenda online con el id (y la fecha) de su cita vieja
+                  codificados en el hash (#reagendar=<id>&fecha=<fecha>). El
+                  frontend usa esos datos para precargar doctor + motivo
+                  (/api/agenda/reagendar-info) y saltar directo a elegir hora --
+                  el paciente no puede cambiar de doctor ni de motivo. La cita
+                  vieja se mantiene VIGENTE hasta que el paciente concrete la
+                  nueva (asi no queda sin hora si abandona el flujo); recien al
+                  completar la reserva nueva ahi, el backend la marca como
+                  "Re-agendado" (2132).
 
   - Agendar por WhatsApp (recaptacion) -> viene del recordatorio de control
                   (ver recaptacion.py), payload "control:{id_agenda}:{fecha}".
@@ -123,7 +125,7 @@ def _procesar_mensaje(msg, cfg, contactos=None):
     elif texto == ACCION_ANULAR:
         _anular(id_agenda, telefono, cfg, fecha, perfil_nombre)
     elif texto == ACCION_REAGENDAR:
-        _reagendar(id_agenda, telefono, cfg, fecha)
+        _reagendar(id_agenda, telefono, cfg, fecha, perfil_nombre)
     elif texto == ACCION_AGENDAR_WA:
         _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha, perfil_nombre)
     elif tipo == 'nps':
@@ -152,14 +154,9 @@ def _confirmar(id_agenda, tipo, telefono, cfg):
     notify.enviar_texto_libre(telefono, '¡Gracias! Su asistencia quedó confirmada. Le esperamos.')
 
 
-def _anular(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
-    id_status = cfg['dentidesk'].get('id_status_cancelado')
-    if id_status:
-        _actualizar_dentidesk(id_agenda, id_status, cfg, 'anular')
-    else:
-        log.warning('id_status_cancelado no configurado -- no se actualiza DentiDesk (cita %s)', id_agenda)
-    # Nombre del paciente: DentiDesk (autoritativo, necesita fecha) y si no,
-    # el nombre de perfil de WhatsApp del propio evento (fallback botones viejos).
+def _nombre_paciente(cfg, id_agenda, fecha, perfil_nombre=''):
+    """Nombre del paciente: DentiDesk (autoritativo, necesita fecha) y si no,
+    el nombre de perfil de WhatsApp del propio evento (fallback botones viejos)."""
     nombre = ''
     if fecha:
         try:
@@ -171,22 +168,44 @@ def _anular(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
             log.warning('No se pudo obtener el nombre de la cita %s: %s', id_agenda, e)
     if not nombre:
         nombre = (perfil_nombre or '').strip()
+    return nombre
+
+
+def _anular(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
+    id_status = cfg['dentidesk'].get('id_status_cancelado')
+    if id_status:
+        _actualizar_dentidesk(id_agenda, id_status, cfg, 'anular')
+    else:
+        log.warning('id_status_cancelado no configurado -- no se actualiza DentiDesk (cita %s)', id_agenda)
+    nombre = _nombre_paciente(cfg, id_agenda, fecha, perfil_nombre)
     notify.enviar_texto_libre(telefono, 'Su hora quedó anulada. Si desea reagendar, puede escribirnos por este mismo medio.')
     notify.avisar_recepcion_anulacion(id_agenda, telefono, nombre)
 
 
-def _reagendar(id_agenda, telefono, cfg, fecha=''):
-    """Le manda al paciente el link de la agenda online con el id (y la fecha)
-    de su cita vieja codificados. El frontend usa esos datos para precargar
-    doctor + motivo (/api/agenda/reagendar-info) y saltar directo a elegir
-    hora. Cuando complete la reserva nueva ahi, /api/agenda/reservar-reagenda
-    marca esta cita vieja como 'Re-agendado' y le avisa (ver ese endpoint).
-    No toca DentiDesk aca todavia -- la cita vieja sigue vigente hasta que el
-    paciente concrete la nueva (asi no queda sin hora si abandona el flujo).
+def _reagendar(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
+    """Marca la cita en DentiDesk con el IdStatus id_status_quiere_reagendar
+    ("Pidio cambiar su hora", cfg['dentidesk']) y avisa a recepcion por email
+    (notify.avisar_recepcion_quiere_reagendar). La cita vieja sigue VIGENTE
+    hasta que el paciente concrete la nueva -- asi no queda sin hora si
+    abandona el flujo -- por eso el IdStatus es solo informativo para
+    recepcion, no un estado terminal.
+
+    Ademas le manda al paciente el link de la agenda online con el id (y la
+    fecha) de su cita vieja codificados. El frontend usa esos datos para
+    precargar doctor + motivo (/api/agenda/reagendar-info) y saltar directo a
+    elegir hora. Cuando complete la reserva nueva ahi, /api/agenda/reservar-
+    reagenda marca esta cita vieja como 'Re-agendado' (2132) y le avisa (ver
+    ese endpoint).
 
     fecha vacia (botones enviados antes de este cambio): el link igual abre
     con el id -- el frontend simplemente no puede precargar doctor/motivo y
     cae de vuelta al wizard completo (pidiendole todo al paciente)."""
+    id_status = cfg['dentidesk'].get('id_status_quiere_reagendar')
+    if id_status:
+        _actualizar_dentidesk(id_agenda, id_status, cfg, 'marcar como "pidio cambiar su hora"')
+    else:
+        log.warning('id_status_quiere_reagendar no configurado -- no se actualiza DentiDesk (cita %s)', id_agenda)
+    nombre = _nombre_paciente(cfg, id_agenda, fecha, perfil_nombre)
     link = URL_REAGENDA.format(id_agenda=id_agenda, fecha=fecha)
     notify.enviar_texto_libre(
         telefono,
@@ -197,6 +216,7 @@ def _reagendar(id_agenda, telefono, cfg, fecha=''):
         'enlace:\n' + link + '\n\n'
         'Su hora actual se mantiene agendada hasta que confirme la nueva. 🦷'
     )
+    notify.avisar_recepcion_quiere_reagendar(id_agenda, telefono, nombre, fecha)
 
 
 def _agendar_por_whatsapp(id_agenda, telefono, cfg, fecha='', perfil_nombre=''):
