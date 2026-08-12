@@ -724,6 +724,20 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                 # si no se especifica, queda 0 = auto-ajuste al ancho del campo.
                 if s.get('fontsize'):
                     campos_acro_fs[s['campo']] = s['fontsize']
+            elif 'casillas' in s and all(k in s for k in ('pagina', 'y')):
+                # Casillero por dígito (RUT, fechas dd-mm-aa): un carácter por
+                # casilla, centrado en cada x. align='right' llena desde la
+                # derecha (útil para RUT: DV en la última, cuerpo pegado al guión).
+                cas = s['casillas']; fs = s.get('fontsize', 10)
+                val = str(valor)
+                if s.get('align') == 'right':
+                    val = val[-len(cas):]; ini = len(cas) - len(val)
+                else:
+                    val = val[:len(cas)]; ini = 0
+                for i, ch in enumerate(val):
+                    cx = cas[ini + i]
+                    textos.setdefault(s['pagina'], []).append(
+                        (cx - 0.278 * fs, s['y'], ch, fs))
             elif all(k in s for k in ('pagina', 'x', 'y')):
                 textos.setdefault(s['pagina'], []).append(
                     (s['x'], s['y'], str(valor), s.get('fontsize', 9)))
@@ -993,6 +1007,10 @@ def armar_valores(datos, filas):
         'paciente_nombre_completo': nombre_completo,
         'paciente_rut': datos.get('rut', ''),
         'paciente_rut_fmt': _formatear_rut(datos.get('rut', '')),
+        # RUT partido para formularios con CASILLAS (un dígito por casilla, ej.
+        # SURA): cuerpo (sin puntos ni guión) y dígito verificador por separado.
+        'paciente_rut_cuerpo': _limpiar_rut(datos.get('rut', ''))[:-1],
+        'paciente_rut_dv': _limpiar_rut(datos.get('rut', ''))[-1:],
         'paciente_email': datos.get('email', ''),
         'paciente_telefono': datos.get('telefono', ''),
         # Normalizada a DD-MM-YYYY: la base local la guarda en ISO y los
@@ -1002,7 +1020,14 @@ def armar_valores(datos, filas):
         'paciente_edad': _calcular_edad(extra.get('fecha_nacimiento', '')),
         'paciente_direccion': extra.get('direccion', ''),
         'fecha_emision': ahora_chile().strftime('%d-%m-%Y'),
+        'fecha_emision_dia': ahora_chile().strftime('%d'),
+        'fecha_emision_mes': ahora_chile().strftime('%m'),
+        'fecha_emision_anio': ahora_chile().strftime('%Y'),
         'fecha_atencion': _fecha_ddmmyyyy(datos.get('fecha_atencion', '')),
+        # Partes de la fecha de atención (formularios con casillas dd/mm/aa)
+        'fecha_atencion_dia': _partes_fecha(_fecha_ddmmyyyy(datos.get('fecha_atencion', '')))[0],
+        'fecha_atencion_mes': _partes_fecha(_fecha_ddmmyyyy(datos.get('fecha_atencion', '')))[1],
+        'fecha_atencion_aa': _partes_fecha(_fecha_ddmmyyyy(datos.get('fecha_atencion', '')))[2][-2:],
         'doctor_nombre': datos.get('doctor_nombre', ''),
         # Naturaleza de la atencion (Zurich pide "lesion" / naturaleza)
         'lesion': 'Tratamiento de ortodoncia',
@@ -1034,12 +1059,17 @@ def armar_valores(datos, filas):
         valores[f'prestacion_{i}_fecha_dia'] = _dp[0]
         valores[f'prestacion_{i}_fecha_mes'] = _dp[1]
         valores[f'prestacion_{i}_fecha_anio'] = _dp[2]
+        valores[f'prestacion_{i}_fecha_aa'] = _dp[2][-2:]  # año 2 dígitos (casillas)
         try:
             v = int(fila.get('valor') or 0)
         except (TypeError, ValueError):
             v = 0
         total += v
-        valores[f'prestacion_{i}_valor'] = f'{v:,}'.replace(',', '.') if v else ''
+        _vfmt = f'{v:,}'.replace(',', '.') if v else ''
+        valores[f'prestacion_{i}_valor'] = _vfmt
+        # cantidad 1 ⇒ valor total de la fila = valor unitario (formularios con
+        # columnas separadas Valor Unitario / Valor Total, ej. SURA)
+        valores[f'prestacion_{i}_valor_total'] = _vfmt
         valores[f'prestacion_{i}_cantidad'] = '1'
     valores['total'] = f'{total:,}'.replace(',', '.') if total else ''
     # "Tratamiento indicado" (formularios tipo Colmena): la primera prestacion
