@@ -1008,8 +1008,8 @@ def armar_valores(datos, filas):
         'lesion': 'Tratamiento de ortodoncia',
         # Datos de ortodoncia por paciente (guardados en datos_extra por RUT)
         'orto_tipo_aparatos': extra.get('tipo_aparatos', ''),
-        'orto_fecha_instalacion': extra.get('fecha_instalacion', ''),
-        'orto_fecha_primer_control': extra.get('fecha_primer_control', ''),
+        'orto_fecha_instalacion': _fecha_ddmmyyyy(extra.get('fecha_instalacion', '')),
+        'orto_fecha_primer_control': _fecha_ddmmyyyy(extra.get('fecha_primer_control', '')),
         'orto_duracion': extra.get('duracion_tratamiento', ''),
         'orto_valor_aparatos': _fmt_monto(extra.get('valor_aparatos', '')),
         'orto_valor_controles': _fmt_monto(extra.get('valor_controles', '')),

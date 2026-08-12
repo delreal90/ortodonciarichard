@@ -1513,5 +1513,548 @@
    }
   },
   "max_prestaciones_por_form": 5
+ },
+ "help": {
+  "nombre": "HELP",
+  "activa": true,
+  "plantilla_pdf": "help.pdf",
+  "tipo_plantilla": "acroform",
+  "mapeo_campos": {
+   "paciente_nombre_completo": [
+    {
+     "campo": "Nombre paciente"
+    },
+    {
+     "campo": "Nombre paciente_2"
+    }
+   ],
+   "paciente_rut_fmt": [
+    {
+     "campo": "RUT paciente"
+    },
+    {
+     "campo": "RUT paciente_2"
+    }
+   ],
+   "paciente_fecha_nacimiento": {
+    "campo": "Fecha nacimiento"
+   },
+   "doctor_nombre": {
+    "campo": "Nombre odontólogo"
+   },
+   "doctor_rut": {
+    "campo": "RUT odontólogo"
+   },
+   "clinica_direccion": {
+    "campo": "Dirección completa"
+   },
+   "clinica_telefono": {
+    "campo": "Teléfono"
+   },
+   "total": {
+    "campo": "TotalTotal"
+   },
+   "orto_tipo_aparatos": {
+    "campo": "Tipos de aparatos"
+   },
+   "orto_fecha_instalacion": {
+    "campo": "Fecha instalación"
+   },
+   "orto_fecha_primer_control": {
+    "campo": "Fecha primer control"
+   },
+   "orto_duracion": {
+    "campo": "Duración total tratamiento"
+   },
+   "orto_valor_aparatos": {
+    "campo": "Valor clínico aparatos"
+   },
+   "orto_valor_controles": {
+    "campo": "Controles mensuales"
+   },
+   "prestacion_1_descripcion": {
+    "campo": "Prestaciones y caras involucradasRow1"
+   },
+   "prestacion_1_cantidad": {
+    "campo": "CantidadRow1"
+   },
+   "prestacion_1_fecha": {
+    "campo": "Fecha atención Día Mes AñoRow1"
+   },
+   "prestacion_1_valor": [
+    {
+     "campo": "Valor UnitarioRow1"
+    },
+    {
+     "campo": "TotalRow1"
+    }
+   ],
+   "prestacion_2_descripcion": {
+    "campo": "Prestaciones y caras involucradasRow2"
+   },
+   "prestacion_2_cantidad": {
+    "campo": "CantidadRow2"
+   },
+   "prestacion_2_fecha": {
+    "campo": "Fecha atención Día Mes AñoRow2"
+   },
+   "prestacion_2_valor": [
+    {
+     "campo": "Valor UnitarioRow2"
+    },
+    {
+     "campo": "TotalRow2"
+    }
+   ],
+   "prestacion_3_descripcion": {
+    "campo": "Prestaciones y caras involucradasRow3"
+   },
+   "prestacion_3_cantidad": {
+    "campo": "CantidadRow3"
+   },
+   "prestacion_3_fecha": {
+    "campo": "Fecha atención Día Mes AñoRow3"
+   },
+   "prestacion_3_valor": [
+    {
+     "campo": "Valor UnitarioRow3"
+    },
+    {
+     "campo": "TotalRow3"
+    }
+   ],
+   "prestacion_4_descripcion": {
+    "campo": "Prestaciones y caras involucradasRow4"
+   },
+   "prestacion_4_cantidad": {
+    "campo": "CantidadRow4"
+   },
+   "prestacion_4_fecha": {
+    "campo": "Fecha atención Día Mes AñoRow4"
+   },
+   "prestacion_4_valor": [
+    {
+     "campo": "Valor UnitarioRow4"
+    },
+    {
+     "campo": "TotalRow4"
+    }
+   ],
+   "prestacion_5_descripcion": {
+    "campo": "Prestaciones y caras involucradasRow5"
+   },
+   "prestacion_5_cantidad": {
+    "campo": "CantidadRow5"
+   },
+   "prestacion_5_fecha": {
+    "campo": "Fecha atención Día Mes AñoRow5"
+   },
+   "prestacion_5_valor": [
+    {
+     "campo": "Valor UnitarioRow5"
+    },
+    {
+     "campo": "TotalRow5"
+    }
+   ],
+   "prestacion_6_descripcion": {
+    "campo": "Prestaciones y caras involucradasRow6"
+   },
+   "prestacion_6_cantidad": {
+    "campo": "CantidadRow6"
+   },
+   "prestacion_6_fecha": {
+    "campo": "Fecha atención Día Mes AñoRow6"
+   },
+   "prestacion_6_valor": [
+    {
+     "campo": "Valor UnitarioRow6"
+    },
+    {
+     "campo": "TotalRow6"
+    }
+   ],
+   "prestacion_7_descripcion": {
+    "campo": "Prestaciones y caras involucradasRow7"
+   },
+   "prestacion_7_cantidad": {
+    "campo": "CantidadRow7"
+   },
+   "prestacion_7_fecha": {
+    "campo": "Fecha atención Día Mes AñoRow7"
+   },
+   "prestacion_7_valor": [
+    {
+     "campo": "Valor UnitarioRow7"
+    },
+    {
+     "campo": "TotalRow7"
+    }
+   ]
+  },
+  "max_prestaciones_por_form": 7
+ },
+ "mapfre": {
+  "nombre": "MAPFRE",
+  "activa": true,
+  "plantilla_pdf": "mapfre.pdf",
+  "tipo_plantilla": "acroform",
+  "mapeo_campos": {
+   "paciente_nombre_completo": [
+    {
+     "campo": "Nombre del pacienteasegurado que efectúa el gasto"
+    },
+    {
+     "campo": "Nombre de paciente"
+    }
+   ],
+   "paciente_fecha_nacimiento": {
+    "campo": "Fecha nacimiento ddmmaaaa"
+   },
+   "paciente_telefono": {
+    "campo": "Celular"
+   },
+   "fecha_atencion": [
+    {
+     "campo": "Gasto fecha de gasto ddmmaaaa"
+    },
+    {
+     "campo": "Fecha de consulta o inicio tratamiento"
+    }
+   ],
+   "fecha_emision": {
+    "campo": "Fecha presentación del gasto a la Cía ddmmaaaa"
+   },
+   "doctor_nombre": {
+    "campo": "Nombre odontólogo"
+   },
+   "doctor_rut": {
+    "campo": "RUT odontólogo"
+   },
+   "clinica_dir_tel": {
+    "campo": "Dirección y teléfono"
+   },
+   "total": [
+    {
+     "campo": "Monto del gasto a cobrar a la Cía"
+    },
+    {
+     "campo": "Total"
+    }
+   ],
+   "orto_tipo_aparatos": {
+    "campo": "Tipo de aparatos"
+   },
+   "orto_fecha_instalacion": {
+    "campo": "Fecha de instalación aparatos"
+   },
+   "orto_fecha_primer_control": {
+    "campo": "Fecha primer control"
+   },
+   "orto_duracion": {
+    "campo": "Duración total aproximada tratamiento"
+   },
+   "orto_valor_aparatos": {
+    "campo": "Costo total instalación"
+   },
+   "orto_valor_controles": {
+    "campo": "Valor controles mensuales"
+   },
+   "prestacion_1_descripcion": {
+    "campo": "Detalle de prestaciónRow1"
+   },
+   "prestacion_1_fecha": {
+    "campo": "Fecha de atenciónRow1"
+   },
+   "prestacion_1_valor": [
+    {
+     "campo": "Valor unitarioRow1"
+    },
+    {
+     "campo": "Monto totalRow1"
+    },
+    {
+     "campo": "TotalRow1"
+    }
+   ],
+   "prestacion_2_descripcion": {
+    "campo": "Detalle de prestaciónRow2"
+   },
+   "prestacion_2_fecha": {
+    "campo": "Fecha de atenciónRow2"
+   },
+   "prestacion_2_valor": [
+    {
+     "campo": "Valor unitarioRow2"
+    },
+    {
+     "campo": "Monto totalRow2"
+    },
+    {
+     "campo": "TotalRow2"
+    }
+   ],
+   "prestacion_3_descripcion": {
+    "campo": "Detalle de prestaciónRow3"
+   },
+   "prestacion_3_fecha": {
+    "campo": "Fecha de atenciónRow3"
+   },
+   "prestacion_3_valor": [
+    {
+     "campo": "Valor unitarioRow3"
+    },
+    {
+     "campo": "Monto totalRow3"
+    },
+    {
+     "campo": "TotalRow3"
+    }
+   ],
+   "prestacion_4_descripcion": {
+    "campo": "Detalle de prestaciónRow4"
+   },
+   "prestacion_4_fecha": {
+    "campo": "Fecha de atenciónRow4"
+   },
+   "prestacion_4_valor": [
+    {
+     "campo": "Valor unitarioRow4"
+    },
+    {
+     "campo": "Monto totalRow4"
+    },
+    {
+     "campo": "TotalRow4"
+    }
+   ],
+   "prestacion_5_descripcion": {
+    "campo": "Detalle de prestaciónRow5"
+   },
+   "prestacion_5_fecha": {
+    "campo": "Fecha de atenciónRow5"
+   },
+   "prestacion_5_valor": [
+    {
+     "campo": "Valor unitarioRow5"
+    },
+    {
+     "campo": "Monto totalRow5"
+    },
+    {
+     "campo": "TotalRow5"
+    }
+   ],
+   "firma_doctor": {
+    "pagina": 1,
+    "x": 458.2099914550781,
+    "y": 306.50372314453125,
+    "ancho": 120,
+    "alto": 38
+   }
+  },
+  "max_prestaciones_por_form": 5
+ },
+ "chubb": {
+  "nombre": "CHUBB",
+  "activa": true,
+  "plantilla_pdf": "chubb.pdf",
+  "tipo_plantilla": "acroform",
+  "mapeo_campos": {
+   "paciente_nombre_completo": [
+    {
+     "campo": "ciudad 15"
+    },
+    {
+     "campo": "direccion 18"
+    }
+   ],
+   "paciente_rut_fmt": {
+    "campo": "ciudad 26"
+   },
+   "fecha_atencion": {
+    "campo": "ciudad 7"
+   },
+   "doctor_nombre": {
+    "campo": "direccion 20"
+   },
+   "doctor_rut": {
+    "campo": "ciudad 30"
+   },
+   "clinica_direccion": {
+    "campo": "direccion 25"
+   },
+   "clinica_ciudad": {
+    "campo": "ciudad 31"
+   },
+   "clinica_telefono": {
+    "campo": "ciudad 32"
+   },
+   "paciente_fecha_nacimiento": {
+    "campo": "ciudad 28"
+   },
+   "prestacion_1_descripcion": {
+    "campo": "ciudad 83"
+   },
+   "prestacion_1_cantidad": {
+    "campo": "ciudad 118"
+   },
+   "prestacion_1_fecha": {
+    "campo": "ciudad 84"
+   },
+   "prestacion_1_valor": [
+    {
+     "campo": "ciudad 126"
+    },
+    {
+     "campo": "ciudad 85"
+    }
+   ],
+   "prestacion_2_descripcion": {
+    "campo": "ciudad 87"
+   },
+   "prestacion_2_cantidad": {
+    "campo": "ciudad 119"
+   },
+   "prestacion_2_fecha": {
+    "campo": "ciudad 91"
+   },
+   "prestacion_2_valor": [
+    {
+     "campo": "ciudad 127"
+    },
+    {
+     "campo": "ciudad 92"
+    }
+   ],
+   "prestacion_3_descripcion": {
+    "campo": "ciudad 95"
+   },
+   "prestacion_3_cantidad": {
+    "campo": "ciudad 1023"
+   },
+   "prestacion_3_fecha": {
+    "campo": "ciudad 117"
+   },
+   "prestacion_3_valor": [
+    {
+     "campo": "ciudad 1045"
+    },
+    {
+     "campo": "ciudad 134"
+    }
+   ],
+   "prestacion_4_descripcion": {
+    "campo": "ciudad 120"
+   },
+   "prestacion_4_cantidad": {
+    "campo": "ciudad 1030"
+   },
+   "prestacion_4_fecha": {
+    "campo": "ciudad 121"
+   },
+   "prestacion_4_valor": [
+    {
+     "campo": "ciudad 1046"
+    },
+    {
+     "campo": "ciudad 135"
+    }
+   ],
+   "prestacion_5_descripcion": {
+    "campo": "ciudad 122"
+   },
+   "prestacion_5_cantidad": {
+    "campo": "ciudad 1037"
+   },
+   "prestacion_5_fecha": {
+    "campo": "ciudad 123"
+   },
+   "prestacion_5_valor": [
+    {
+     "campo": "ciudad 1047"
+    },
+    {
+     "campo": "ciudad 136"
+    }
+   ],
+   "prestacion_6_descripcion": {
+    "campo": "ciudad 124"
+   },
+   "prestacion_6_cantidad": {
+    "campo": "ciudad 1040"
+   },
+   "prestacion_6_fecha": {
+    "campo": "ciudad 125"
+   },
+   "prestacion_6_valor": [
+    {
+     "campo": "ciudad 1048"
+    },
+    {
+     "campo": "ciudad 137"
+    }
+   ],
+   "prestacion_7_descripcion": {
+    "campo": "ciudad 128"
+   },
+   "prestacion_7_cantidad": {
+    "campo": "ciudad 1049"
+   },
+   "prestacion_7_fecha": {
+    "campo": "ciudad 129"
+   },
+   "prestacion_7_valor": [
+    {
+     "campo": "ciudad 1061"
+    },
+    {
+     "campo": "ciudad 138"
+    }
+   ],
+   "prestacion_8_cantidad": {
+    "campo": "ciudad 1053"
+   },
+   "prestacion_8_fecha": {
+    "campo": "ciudad 131"
+   },
+   "prestacion_8_valor": [
+    {
+     "campo": "ciudad 1062"
+    },
+    {
+     "campo": "ciudad 139"
+    }
+   ],
+   "total": {
+    "campo": "ciudad 140"
+   },
+   "orto_tipo_aparatos": {
+    "campo": "direccion 26"
+   },
+   "orto_fecha_instalacion": {
+    "campo": "ciudad 33"
+   },
+   "orto_fecha_primer_control": {
+    "campo": "ciudad 35"
+   },
+   "orto_duracion": {
+    "campo": "direccion 27"
+   },
+   "orto_valor_aparatos": {
+    "campo": "ciudad 34"
+   },
+   "orto_valor_controles": {
+    "campo": "ciudad 36"
+   },
+   "firma_doctor": {
+    "pagina": 2,
+    "x": 406.8009948730469,
+    "y": 704.323974609375,
+    "ancho": 120,
+    "alto": 22.677001953125
+   }
+  },
+  "max_prestaciones_por_form": 8
  }
 }
