@@ -779,6 +779,20 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                                           filename=str(ruta), keep_proportion=True)
                     except Exception:
                         pass
+        # TAPAR: rectangulos blancos que ocultan texto impreso de la plantilla
+        # (ej. la etiqueta "Costo Laboratorio" de MetLife, para reusar esa fila
+        # como una 8a prestacion). Coordenadas fitz (origen ARRIBA-izquierda, igual
+        # que los rect de los widgets). Se dibujan ANTES del texto para que quede
+        # encima. Config: aseg['tapar'] = [{'pagina','x0','y0','x1','y1'}].
+        for cov in (aseg.get('tapar') or []):
+            pnum = cov.get('pagina', 1)
+            if 0 <= pnum - 1 < len(doc):
+                try:
+                    doc[pnum - 1].draw_rect(
+                        fitz.Rect(cov['x0'], cov['y0'], cov['x1'], cov['y1']),
+                        color=None, fill=(1, 1, 1), fill_opacity=1)
+                except Exception:
+                    pass
         for pnum, txts in textos.items():
             if 0 <= pnum - 1 < len(doc):
                 page = doc[pnum - 1]; H = page.rect.height
@@ -1001,6 +1015,13 @@ def armar_valores(datos, filas):
     nombre = _limpiar_nombre((datos.get('nombre') or '').strip())
     apellido = _limpiar_nombre((datos.get('apellido') or '').strip())
     nombre_completo = _limpiar_nombre(f"{datos.get('nombre','')} {datos.get('apellido','')}")
+    # Fecha de atención (de la boleta / cita). El FORMULARIO se fecha con la MISMA
+    # fecha de la atención (la boleta), no con "hoy": el reembolso corresponde a esa
+    # atención. Si no viene fecha de atención, cae a hoy.
+    _fa = _fecha_ddmmyyyy(datos.get('fecha_atencion', ''))
+    _fa_p = _partes_fecha(_fa) if _fa else ('', '', '')
+    _ff = _fa or ahora_chile().strftime('%d-%m-%Y')     # fecha del formulario
+    _ff_p = _partes_fecha(_ff)
     valores = {
         'paciente_nombre': nombre,
         'paciente_apellido': apellido,
@@ -1019,15 +1040,16 @@ def armar_valores(datos, filas):
         'paciente_fecha_nacimiento': _fecha_ddmmyyyy(extra.get('fecha_nacimiento', '')),
         'paciente_edad': _calcular_edad(extra.get('fecha_nacimiento', '')),
         'paciente_direccion': extra.get('direccion', ''),
-        'fecha_emision': ahora_chile().strftime('%d-%m-%Y'),
-        'fecha_emision_dia': ahora_chile().strftime('%d'),
-        'fecha_emision_mes': ahora_chile().strftime('%m'),
-        'fecha_emision_anio': ahora_chile().strftime('%Y'),
-        'fecha_atencion': _fecha_ddmmyyyy(datos.get('fecha_atencion', '')),
+        # Fecha del formulario = fecha de la atención/boleta (no "hoy").
+        'fecha_emision': _ff,
+        'fecha_emision_dia': _ff_p[0],
+        'fecha_emision_mes': _ff_p[1],
+        'fecha_emision_anio': _ff_p[2],
+        'fecha_atencion': _fa,
         # Partes de la fecha de atención (formularios con casillas dd/mm/aa)
-        'fecha_atencion_dia': _partes_fecha(_fecha_ddmmyyyy(datos.get('fecha_atencion', '')))[0],
-        'fecha_atencion_mes': _partes_fecha(_fecha_ddmmyyyy(datos.get('fecha_atencion', '')))[1],
-        'fecha_atencion_aa': _partes_fecha(_fecha_ddmmyyyy(datos.get('fecha_atencion', '')))[2][-2:],
+        'fecha_atencion_dia': _fa_p[0],
+        'fecha_atencion_mes': _fa_p[1],
+        'fecha_atencion_aa': _fa_p[2][-2:],
         'doctor_nombre': datos.get('doctor_nombre', ''),
         # Naturaleza de la atencion (Zurich pide "lesion" / naturaleza)
         'lesion': 'Tratamiento de ortodoncia',

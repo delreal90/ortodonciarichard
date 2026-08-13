@@ -4175,7 +4175,7 @@ def seguro_admin_aseguradoras():
         return jsonify({'ok': False, 'error': 'Falta la key de la aseguradora'}), 400
     campos = {k: v for k, v in data.items()
               if k in ('nombre', 'activa', 'tipo_plantilla', 'mapeo_campos',
-                       'max_prestaciones_por_form')}
+                       'max_prestaciones_por_form', 'tapar')}
     seguros.guardar_aseguradora(key, campos)
     return jsonify({'ok': True, 'key': key})
 

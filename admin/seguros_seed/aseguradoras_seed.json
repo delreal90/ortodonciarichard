@@ -555,9 +555,38 @@
         "y": 234.64190673828125,
         "ancho": 120,
         "alto": 40
-      }
+      },
+      "prestacion_8_descripcion": {
+        "pagina": 1,
+        "x": 50,
+        "y": 377,
+        "fontsize": 6.5
+      },
+      "prestacion_8_cantidad": {
+        "campo": "CantidadCosto Laboratorio"
+      },
+      "prestacion_8_fecha": {
+        "campo": "Fecha de Atención Día  Mes  AñoCosto Laboratorio"
+      },
+      "prestacion_8_valor": [
+        {
+          "campo": "Valor UnitarioCosto Laboratorio"
+        },
+        {
+          "campo": "TotalCosto Laboratorio"
+        }
+      ]
     },
-    "max_prestaciones_por_form": 7
+    "max_prestaciones_por_form": 8,
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 48,
+        "y0": 406,
+        "x1": 151,
+        "y1": 418
+      }
+    ]
   },
   "bupa": {
     "nombre": "BUPA",
