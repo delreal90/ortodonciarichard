@@ -548,10 +548,10 @@
       ],
       "firma_doctor": {
         "pagina": 1,
-        "x": 458,
+        "x": 439,
         "y": 235,
-        "ancho": 66,
-        "alto": 45
+        "ancho": 104,
+        "alto": 46
       },
       "prestacion_8_descripcion": {
         "pagina": 1,
