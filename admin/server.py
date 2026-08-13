@@ -3953,8 +3953,10 @@ def seguro_enviar():
 @app.route('/api/seguro/preparar-desde-boleta', methods=['POST'])
 @rate_limit('30 per minute')
 def seguro_preparar_desde_boleta():
-    """Body: {rut, glosa, monto, folio?, fecha?}. Devuelve la aseguradora del
-    paciente, las filas traducidas y el resumen para confirmar en el F2."""
+    """Body: {rut, items?:[{descripcion,valor}], glosa?, monto?, folio?, fecha?}.
+    Modelo nuevo: si viene `items` (leídos del presupuesto por el F2), se copia CADA
+    ítem tal cual (el estudio llega desglosado). Si solo viene glosa+monto del DTE,
+    fallback a un único ítem. Devuelve la aseguradora del paciente + las filas."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     data = request.json or {}
@@ -3969,14 +3971,13 @@ def seguro_preparar_desde_boleta():
                         'error': 'El paciente no tiene aseguradora asignada. Usa "Elegir aseguradora" primero.'}), 409
     aseg = seguros.obtener_aseguradora(aseg_key) or {}
 
-    filas, no_reconocido = seguros.filas_desde_boleta(
-        data.get('glosa', ''), data.get('monto'), aseg_key,
-        fecha=(data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y')))
-    if no_reconocido:
-        return jsonify({'ok': False,
-                        'error': 'No reconocí ninguna prestación en la glosa de la boleta. '
-                                 'Revisa los alias de glosa en el panel (pestaña Seguros) o usa la página para armarlo a mano.',
-                        'glosa': data.get('glosa', '')}), 422
+    fecha = (data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y'))
+    items = data.get('items')
+    if items:
+        filas = seguros.filas_desde_items(items, aseg_key, fecha=fecha)
+    else:
+        filas, _ = seguros.filas_desde_boleta(
+            data.get('glosa', ''), data.get('monto'), aseg_key, fecha=fecha)
 
     total = sum(int(f.get('valor') or 0) for f in filas)
     return jsonify({'ok': True, 'aseguradora': aseg_key,
@@ -4100,10 +4101,13 @@ def seguro_auto_desde_boleta():
     if not aseg_key:
         return _pendiente('sin_aseguradora')
 
-    filas, no_reconocido = seguros.filas_desde_boleta(
-        glosa, data.get('monto'), aseg_key,
-        fecha=(data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y')))
-    if no_reconocido:
+    fecha = (data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y'))
+    items = data.get('items')
+    if items:
+        filas = seguros.filas_desde_items(items, aseg_key, fecha=fecha)
+    else:
+        filas, _ = seguros.filas_desde_boleta(glosa, data.get('monto'), aseg_key, fecha=fecha)
+    if not filas:
         return _pendiente('glosa')
 
     email_dest = (rec.get('email') or '').strip()

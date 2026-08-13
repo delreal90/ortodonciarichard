@@ -24,6 +24,7 @@ Reutiliza pacientes.py para prellenar nombre/email/telefono por RUT.
 
 import os
 import io
+import re
 import json
 import uuid
 import threading
@@ -304,55 +305,89 @@ def interpretar_glosa(glosa):
     return out
 
 
-def filas_desde_boleta(glosa, monto_total, aseguradora_key, fecha=''):
-    """Convierte la glosa + monto de una boleta en filas de prestaciones para
-    el formulario, traducidas a la aseguradora. Reparto de valores: cada
-    prestacion parte con su precio_arancel interno; si UNA de las detectadas
-    tiene absorbe_saldo, su valor = monto_total - suma de las demas (>= 0).
-    Devuelve (filas, no_reconocido:bool)."""
-    detectadas = interpretar_glosa(glosa)
-    if not detectadas:
-        return [], True
-    mapeo = mapeo_prestaciones()
+def _norm_glosa(s):
+    """Clave normalizada para comparar glosas: sin tildes, MAYÚSCULAS, espacios
+    colapsados y sin el sufijo ' PIEZA XXX' que a veces trae la glosa del DTE."""
+    t = _normalizar_texto(s)
+    t = re.sub(r'\s+', ' ', t).strip()
+    t = re.sub(r'\s*PIEZA\s+\S+\s*$', '', t).strip()
+    return t
+
+
+def prestacion_por_glosa(glosa):
+    """Prestación que corresponde a una glosa. (1) por PATRÓN (glosas_boleta —
+    agrupa variantes tipo 'CONTROL MENSUAL … AGOSTO/JULIO'); (2) por glosa_original
+    exacta (normalizada). Devuelve la prestación o None."""
+    key = _norm_glosa(glosa)
+    if not key:
+        return None
+    prestaciones = listar_prestaciones()
+    for p in prestaciones:                       # (1) patrón
+        for pat in (p.get('glosas_boleta') or []):
+            k = _norm_glosa(pat)
+            if k and k in key:
+                return p
+    for p in prestaciones:                       # (2) glosa_original exacta
+        if _norm_glosa(p.get('glosa_original', '')) == key:
+            return p
+    return None
+
+
+def obtener_o_crear_prestacion_glosa(glosa):
+    """Devuelve la prestación de esta glosa; si no existe, la CREA
+    (auto-descubrimiento): guarda glosa_original y nombre = la glosa tal cual, SIN
+    precio (el precio lo pone la boleta). Así aparece sola en el panel."""
+    p = prestacion_por_glosa(glosa)
+    if p:
+        return p
+    limpia = re.sub(r'\s+', ' ', (glosa or '').strip())
+    pid = guardar_prestacion(None, {'nombre': limpia, 'glosa_original': limpia,
+                                    'origen': 'boleta'})
+    return {'id': pid, 'nombre': limpia, 'glosa_original': limpia}
+
+
+def _monto_int(v):
     try:
-        monto_total = int(monto_total or 0)
+        return int(str(v if v is not None else 0)
+                   .replace('.', '').replace('$', '').replace(' ', '') or 0)
     except (TypeError, ValueError):
-        monto_total = 0
+        return 0
 
-    # valores base
-    base = []
-    for p in detectadas:
-        try:
-            v = int(p.get('precio_arancel') or 0)
-        except (TypeError, ValueError):
-            v = 0
-        base.append({'p': p, 'valor': v})
 
-    absorbentes = [b for b in base if b['p'].get('absorbe_saldo')]
-    if monto_total > 0 and len(absorbentes) == 1:
-        resto = sum(b['valor'] for b in base if not b['p'].get('absorbe_saldo'))
-        if monto_total - resto > 0:
-            absorbentes[0]['valor'] = monto_total - resto
-    elif monto_total > 0 and len(base) == 1:
-        # una sola prestacion: vale el total de la boleta
-        base[0]['valor'] = monto_total
-
+def filas_desde_items(items, aseguradora_key, fecha=''):
+    """Modelo nuevo: convierte los ÍTEMS de la boleta/presupuesto en filas del
+    formulario. items = [{'descripcion','valor'}, ...]. Por cada ítem: encuentra-o-
+    crea la prestación (por glosa), usa el NOMBRE por aseguradora si hay override
+    (mapeo_prestaciones), y el VALOR del ítem tal cual. NUNCA falla: copia lo que
+    venga (el estudio llega desglosado en sus ítems, el control como uno solo)."""
+    mapeo = mapeo_prestaciones()
     filas = []
-    for b in base:
-        p = b['p']
-        items = (mapeo.get(p['id']) or {}).get(aseguradora_key) or []
-        if not items:
-            items = [{'codigo': '', 'descripcion': p.get('nombre', '')}]
-        # si una prestacion mapea a varios items de la aseguradora, el valor va
-        # en el primero (la secretaria puede ajustar en la pagina si hace falta)
-        for j, it in enumerate(items):
-            filas.append({
-                'id': p['id'],
-                'codigo': it.get('codigo', ''),
-                'descripcion': it.get('descripcion', p.get('nombre', '')),
-                'valor': b['valor'] if j == 0 else 0,
-                'fecha': fecha,
-            })
+    for it in (items or []):
+        glosa = (it.get('descripcion') or '').strip()
+        if not glosa:
+            continue
+        valor = _monto_int(it.get('valor'))
+        p = obtener_o_crear_prestacion_glosa(glosa)
+        overrides = (mapeo.get(p['id']) or {}).get(aseguradora_key) or []
+        if overrides:
+            # renombre/código por aseguradora; si mapea a varios, el valor va en el 1º
+            for j, ov in enumerate(overrides):
+                filas.append({'id': p['id'], 'codigo': ov.get('codigo', ''),
+                              'descripcion': ov.get('descripcion') or p.get('nombre') or glosa,
+                              'valor': valor if j == 0 else 0, 'fecha': fecha})
+        else:
+            filas.append({'id': p['id'], 'codigo': '',
+                          'descripcion': p.get('nombre') or glosa,
+                          'valor': valor, 'fecha': fecha})
+    return filas
+
+
+def filas_desde_boleta(glosa, monto_total, aseguradora_key, fecha=''):
+    """Compat (fallback): cuando SOLO se tiene la glosa + total del DTE (sin el
+    detalle del presupuesto), se trata como un ÚNICO ítem. Devuelve
+    (filas, no_reconocido=False): con el modelo nuevo NUNCA es 'no reconocido'."""
+    filas = filas_desde_items([{'descripcion': glosa, 'valor': monto_total}],
+                              aseguradora_key, fecha=fecha)
     return filas, False
 
 
