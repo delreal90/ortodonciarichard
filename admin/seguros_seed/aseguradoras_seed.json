@@ -394,9 +394,6 @@
       "fecha_emision": {
         "campo": "Fecha ddmmaaaa"
       },
-      "doctor_nombre": {
-        "campo": "Apellidos"
-      },
       "doctor_rut": {
         "campo": "RUT_2"
       },
@@ -551,10 +548,10 @@
       ],
       "firma_doctor": {
         "pagina": 1,
-        "x": 446.2593994140625,
-        "y": 234.64190673828125,
-        "ancho": 120,
-        "alto": 40
+        "x": 458,
+        "y": 235,
+        "ancho": 66,
+        "alto": 45
       },
       "prestacion_8_descripcion": {
         "pagina": 1,
@@ -575,7 +572,13 @@
         {
           "campo": "TotalCosto Laboratorio"
         }
-      ]
+      ],
+      "doctor_apellidos": {
+        "campo": "Apellidos"
+      },
+      "doctor_nombres": {
+        "campo": "Nombres"
+      }
     },
     "max_prestaciones_por_form": 8,
     "tapar": [

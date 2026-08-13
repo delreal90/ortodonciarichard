@@ -3874,6 +3874,8 @@ def seguro_previsualizar():
     valores['doctor_especialidad'] = especialidad
     if doc_datos.get('nombre_visible'):
         valores['doctor_nombre'] = doc_datos['nombre_visible']
+        valores['doctor_nombres'], valores['doctor_apellidos'] = \
+            seguros.partir_nombre_doctor(doc_datos['nombre_visible'])
 
     try:
         pdf_path = seguros.rellenar_pdf(aseg_key, valores, firma_doctor_key=doctor_key)
@@ -4036,6 +4038,8 @@ def seguro_enviar_desde_boleta():
                                       or ((doc_cfg or {}).get('especialidad', '') or '').title())
     if doc_datos.get('nombre_visible'):
         valores['doctor_nombre'] = doc_datos['nombre_visible']
+        valores['doctor_nombres'], valores['doctor_apellidos'] = \
+            seguros.partir_nombre_doctor(doc_datos['nombre_visible'])
 
     try:
         pdf_path = seguros.rellenar_pdf(aseg_key, valores, firma_doctor_key=doctor_key)
@@ -4126,6 +4130,8 @@ def seguro_auto_desde_boleta():
                                           or ((doc_cfg or {}).get('especialidad', '') or '').title())
         if doc_datos.get('nombre_visible'):
             valores['doctor_nombre'] = doc_datos['nombre_visible']
+            valores['doctor_nombres'], valores['doctor_apellidos'] = \
+                seguros.partir_nombre_doctor(doc_datos['nombre_visible'])
 
     try:
         pdf_path = seguros.rellenar_pdf(aseg_key, valores, firma_doctor_key=doctor_key or None)

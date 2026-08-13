@@ -1004,6 +1004,24 @@ def completar_datos_extra(rut, extra=None):
     return out
 
 
+def partir_nombre_doctor(nombre):
+    """Divide el nombre del doctor en (nombres, apellidos) para formularios que los
+    piden en campos SEPARADOS (ej. MetLife: 'Apellidos' y 'Nombres'). Quita el
+    titulo (Dr./Dra./Prof.) y toma la PRIMERA palabra como nombre de pila; el resto
+    son apellidos. Los doctores de la clinica tienen un solo nombre de pila, asi que
+    basta. Devuelve (nombres, apellidos)."""
+    s = (nombre or '').strip()
+    bajo = s.lower()
+    for tit in ('dr. ', 'dra. ', 'prof. ', 'dr ', 'dra ', 'prof '):
+        if bajo.startswith(tit):
+            s = s[len(tit):].strip()
+            break
+    partes = s.split()
+    if len(partes) <= 1:
+        return (s, '')
+    return (partes[0], ' '.join(partes[1:]))
+
+
 def armar_valores(datos, filas):
     """Aplana el payload del frontend al dict de campos logicos que consume
     rellenar_pdf(). datos: rut,nombre,apellido,email,telefono,fecha_atencion,
@@ -1051,6 +1069,11 @@ def armar_valores(datos, filas):
         'fecha_atencion_mes': _fa_p[1],
         'fecha_atencion_aa': _fa_p[2][-2:],
         'doctor_nombre': datos.get('doctor_nombre', ''),
+        # Nombre partido para formularios que piden apellidos/nombres por separado
+        # (ej. MetLife). Si un endpoint sobreescribe doctor_nombre con nombre_visible,
+        # debe recalcular estos dos (lo hace server.py tras el override).
+        'doctor_nombres': partir_nombre_doctor(datos.get('doctor_nombre', ''))[0],
+        'doctor_apellidos': partir_nombre_doctor(datos.get('doctor_nombre', ''))[1],
         # Naturaleza de la atencion (Zurich pide "lesion" / naturaleza)
         'lesion': 'Tratamiento de ortodoncia',
         # Datos de ortodoncia por paciente (guardados en datos_extra por RUT)
