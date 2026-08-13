@@ -59,10 +59,14 @@ FOTOS_DIR = Path(os.environ.get('COMPRAS_FOTOS_DIR', _BASE_DIR / 'compras_fotos'
 #   solicitar    — crear solicitudes de compra y ver pendientes.
 #   registrar    — ingresar compras/productos/proveedores/movimientos/códigos.
 #   admin        — usuarios, categorías, borrar compras.
-ROLES = ('admin', 'registro', 'solicitante', 'lectura', 'escaner')
+#   solo_operacion — RESTRICCIÓN (no permiso): este rol solo ve gastos de operación
+#                    (insumos, materiales, reparaciones). Nunca ve sueldos, honorarios,
+#                    impuestos ni seguros. Se aplica filtrando por categorias.ambito.
+ROLES = ('admin', 'registro', 'inventario', 'solicitante', 'lectura', 'escaner')
 CAPS = {
     'admin':       {'escanear', 'stock', 'compras_ver', 'reportes', 'solicitar', 'registrar', 'admin'},
     'registro':    {'escanear', 'stock', 'compras_ver', 'reportes', 'solicitar', 'registrar'},
+    'inventario':  {'escanear', 'stock', 'compras_ver', 'solicitar', 'registrar', 'solo_operacion'},
     'solicitante': {'escanear', 'stock', 'compras_ver', 'solicitar'},
     'lectura':     {'stock', 'compras_ver', 'reportes'},
     'escaner':     {'escanear'},
@@ -71,9 +75,28 @@ CAPS = {
 ROLES_LABEL = {
     'admin': 'Administrador (todo)',
     'registro': 'Registro (ingresa compras y stock)',
+    'inventario': 'Inventario (stock e insumos; sin sueldos ni reportes)',
     'solicitante': 'Solicitante (ve, escanea, pide compras)',
     'lectura': 'Lectura (solo ver)',
     'escaner': 'Escáner (solo escanear salidas)',
+}
+
+# Ámbito de cada categoría de gasto. Separa lo OPERATIVO de la clínica (insumos,
+# materiales, reparaciones — lo que le interesa a inventario) de lo ADMINISTRATIVO
+# (sueldos, honorarios, impuestos, seguros — información sensible de la empresa).
+AMBITOS = ('operacion', 'administracion')
+AMBITO_POR_DEFECTO = {
+    'INSUMOS GENERALES': 'operacion',
+    'INSUMOS - ORTODONCIA': 'operacion',
+    'INSUMOS - ALINEADORES Y DIGITAL': 'operacion',
+    'REPARACIONES': 'operacion',
+    'SERVICIOS': 'operacion',
+    'SUELDOS Y LEYES SOCIALES': 'administracion',
+    'IMPUESTOS Y TESORERÍA': 'administracion',
+    'IMPUESTOS Y TESORERIA': 'administracion',
+    'SEGUROS': 'administracion',
+    'GASTOS COMUNES': 'administracion',
+    'OTROS': 'administracion',
 }
 
 
@@ -307,6 +330,15 @@ def _migrar(con):
         con.execute('UPDATE compras SET total_clp=total WHERE total_clp=0')
     if 'suscripcion_id' not in ccol:
         con.execute('ALTER TABLE compras ADD COLUMN suscripcion_id INTEGER REFERENCES suscripciones(id)')
+    # Ámbito de la categoría (operacion | administracion) para separar los gastos de
+    # insumos/materiales de los de sueldos/impuestos, y poder ocultarle estos últimos
+    # al rol 'inventario'. Backfill por nombre conocido; el resto queda 'operacion'.
+    if 'ambito' not in _cols('categorias'):
+        con.execute("ALTER TABLE categorias ADD COLUMN ambito TEXT NOT NULL DEFAULT 'operacion'")
+        for r in con.execute('SELECT id, nombre FROM categorias').fetchall():
+            amb = AMBITO_POR_DEFECTO.get(' '.join((r['nombre'] or '').strip().upper().split()))
+            if amb:
+                con.execute('UPDATE categorias SET ambito=? WHERE id=?', (amb, r['id']))
 
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
@@ -343,10 +375,15 @@ def contar_usuarios():
 
 
 def crear_usuario(email, nombre, password, rol='registro'):
-    email = _norm(email).lower()
+    """'email' es en realidad el NOMBRE DE USUARIO para entrar: puede ser un correo o
+    un identificador simple ('maria', 'recepcion2'). La columna se sigue llamando
+    'email' por compatibilidad con las bases ya creadas."""
+    usuario = _norm(email).lower()
     nombre = _norm(nombre)
-    if not email or '@' not in email:
-        raise ValueError('Email inválido')
+    if not usuario or len(usuario) < 3:
+        raise ValueError('El nombre de usuario debe tener al menos 3 caracteres')
+    if ' ' in usuario:
+        raise ValueError('El nombre de usuario no puede tener espacios')
     if not nombre:
         raise ValueError('Falta el nombre')
     if not password or len(password) < 6:
@@ -359,11 +396,41 @@ def crear_usuario(email, nombre, password, rol='registro'):
         cur = con.execute(
             'INSERT INTO usuarios(email,nombre,rol,password_hash,salt,activo,creado) '
             'VALUES(?,?,?,?,?,1,?)',
-            (email, nombre, rol, ph, salt, ahora_cl().isoformat(timespec='seconds')))
+            (usuario, nombre, rol, ph, salt, ahora_cl().isoformat(timespec='seconds')))
         con.commit()
         return cur.lastrowid
     except sqlite3.IntegrityError:
-        raise ValueError('Ya existe un usuario con ese email')
+        raise ValueError('Ya existe un usuario con ese nombre de usuario')
+    finally:
+        con.close()
+
+
+def eliminar_usuario(usuario_id, actor_id=None):
+    """Borra un usuario. El historial que creó (compras, movimientos, solicitudes) se
+    conserva, solo se desvincula (usuario_id=NULL) — si no, la FK impediría el borrado
+    y se perdería trazabilidad. No permite borrarse a sí mismo ni dejar el sistema sin
+    ningún administrador activo."""
+    usuario_id = int(usuario_id)
+    if actor_id is not None and int(actor_id) == usuario_id:
+        raise ValueError('No puedes eliminar tu propio usuario')
+    con = _conn()
+    try:
+        u = con.execute('SELECT rol FROM usuarios WHERE id=?', (usuario_id,)).fetchone()
+        if not u:
+            raise ValueError('Usuario no encontrado')
+        if u['rol'] == 'admin':
+            otros = con.execute("SELECT COUNT(*) AS n FROM usuarios "
+                                "WHERE rol='admin' AND activo=1 AND id!=?",
+                                (usuario_id,)).fetchone()['n']
+            if otros == 0:
+                raise ValueError('Es el único administrador activo: crea otro antes de eliminarlo')
+        con.execute('UPDATE compras SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
+        con.execute('UPDATE movimientos_stock SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
+        con.execute('UPDATE pendientes_compra SET solicitado_por=NULL WHERE solicitado_por=?', (usuario_id,))
+        con.execute('UPDATE suscripciones SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
+        con.execute('DELETE FROM sesiones WHERE usuario_id=?', (usuario_id,))
+        con.execute('DELETE FROM usuarios WHERE id=?', (usuario_id,))
+        con.commit()
     finally:
         con.close()
 
@@ -439,10 +506,19 @@ def listar_usuarios():
         con.close()
 
 
-def actualizar_usuario(usuario_id, nombre=None, rol=None, activo=None, password=None):
+def actualizar_usuario(usuario_id, nombre=None, rol=None, activo=None, password=None,
+                       email=None):
+    """Editar un usuario. 'password' sirve de RESTABLECER CLAVE (lo usa el admin cuando
+    alguien la olvida): además de cambiarla, cierra las sesiones abiertas de ese usuario.
+    'email' es el nombre de usuario para entrar."""
     sets, vals = [], []
     if nombre is not None:
         sets.append('nombre=?'); vals.append(_norm(nombre))
+    if email is not None:
+        usuario = _norm(email).lower()
+        if len(usuario) < 3 or ' ' in usuario:
+            raise ValueError('Nombre de usuario inválido (mínimo 3 caracteres, sin espacios)')
+        sets.append('email=?'); vals.append(usuario)
     if rol is not None:
         if rol not in ROLES:
             raise ValueError('Rol inválido')
@@ -460,7 +536,12 @@ def actualizar_usuario(usuario_id, nombre=None, rol=None, activo=None, password=
     con = _conn()
     try:
         con.execute(f'UPDATE usuarios SET {",".join(sets)} WHERE id=?', vals)
+        # Clave cambiada o cuenta desactivada → invalidar sus sesiones abiertas.
+        if password is not None or activo is False:
+            con.execute('DELETE FROM sesiones WHERE usuario_id=?', (usuario_id,))
         con.commit()
+    except sqlite3.IntegrityError:
+        raise ValueError('Ya existe un usuario con ese nombre de usuario')
     finally:
         con.close()
 
@@ -469,39 +550,67 @@ def actualizar_usuario(usuario_id, nombre=None, rol=None, activo=None, password=
 # CATEGORÍAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def crear_categoria(nombre):
+def crear_categoria(nombre, ambito='operacion'):
     nombre = _norm(nombre)
     if not nombre:
         raise ValueError('Falta el nombre de la categoría')
+    if ambito not in AMBITOS:
+        ambito = 'operacion'
     con = _conn()
     try:
-        cur = con.execute('INSERT INTO categorias(nombre,archivada,creado) VALUES(?,0,?)',
-                          (nombre, _hoy_cl()))
+        cur = con.execute('INSERT INTO categorias(nombre,ambito,archivada,creado) '
+                          'VALUES(?,?,0,?)', (nombre, ambito, _hoy_cl()))
         con.commit()
         return cur.lastrowid
     finally:
         con.close()
 
 
-def listar_categorias(incluir_archivadas=False):
+def listar_categorias(incluir_archivadas=False, solo_ambito=None):
+    """solo_ambito='operacion' devuelve únicamente las categorías operativas (lo que
+    puede ver el rol inventario)."""
     con = _conn()
     try:
         q = 'SELECT * FROM categorias'
+        cond, vals = [], []
         if not incluir_archivadas:
-            q += ' WHERE archivada=0'
-        q += ' ORDER BY nombre'
-        return _rows(con.execute(q))
+            cond.append('archivada=0')
+        if solo_ambito in AMBITOS:
+            cond.append('ambito=?'); vals.append(solo_ambito)
+        if cond:
+            q += ' WHERE ' + ' AND '.join(cond)
+        q += ' ORDER BY ambito, nombre'
+        return _rows(con.execute(q, vals))
     finally:
         con.close()
 
 
-def renombrar_categoria(cat_id, nombre):
-    nombre = _norm(nombre)
-    if not nombre:
-        raise ValueError('Falta el nombre')
+def ids_categorias_ambito(ambito):
+    """IDs de las categorías de un ámbito (para filtrar compras)."""
     con = _conn()
     try:
-        con.execute('UPDATE categorias SET nombre=? WHERE id=?', (nombre, cat_id))
+        return [r['id'] for r in con.execute('SELECT id FROM categorias WHERE ambito=?', (ambito,))]
+    finally:
+        con.close()
+
+
+def renombrar_categoria(cat_id, nombre=None, ambito=None):
+    sets, vals = [], []
+    if nombre is not None:
+        nombre = _norm(nombre)
+        if not nombre:
+            raise ValueError('Falta el nombre')
+        sets.append('nombre=?'); vals.append(nombre)
+    if ambito is not None:
+        if ambito not in AMBITOS:
+            raise ValueError('Ámbito inválido')
+        sets.append('ambito=?'); vals.append(ambito)
+    if not sets:
+        return
+    vals.append(cat_id)
+    con = _conn()
+    try:
+        con.execute(f'UPDATE categorias SET {",".join(sets)} WHERE id=?', vals)
         con.commit()
     finally:
         con.close()
@@ -1114,7 +1223,9 @@ def actualizar_compra(compra_id, campos):
 
 
 def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
-                   tipo_gasto=None, limite=200):
+                   tipo_gasto=None, limite=200, solo_ambito=None):
+    """solo_ambito='operacion' oculta las compras de categorías administrativas
+    (sueldos, honorarios, impuestos, seguros) — lo usa el rol 'inventario'."""
     con = _conn()
     try:
         q = ('SELECT c.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre '
@@ -1131,6 +1242,10 @@ def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
             cond.append('c.categoria_id=?'); vals.append(categoria_id)
         if tipo_gasto in TIPOS_GASTO:
             cond.append('c.tipo_gasto=?'); vals.append(tipo_gasto)
+        if solo_ambito in AMBITOS:
+            # Sin categoría asignada = se considera operativo (no filtra info sensible
+            # por accidente: lo administrativo SIEMPRE lleva su categoría).
+            cond.append('(cat.ambito=? OR c.categoria_id IS NULL)'); vals.append(solo_ambito)
         if cond:
             q += ' WHERE ' + ' AND '.join(cond)
         q += ' ORDER BY c.fecha DESC, c.id DESC LIMIT ?'
@@ -1140,19 +1255,25 @@ def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
         con.close()
 
 
-def obtener_compra(compra_id):
+def obtener_compra(compra_id, solo_ambito=None):
+    """Devuelve None si la compra está fuera del ámbito permitido (evita que el rol
+    inventario vea un sueldo entrando por la URL del detalle)."""
     con = _conn()
     try:
         c = _row(con.execute(
-            'SELECT c.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre '
+            'SELECT c.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre, '
+            'cat.ambito AS categoria_ambito '
             'FROM compras c LEFT JOIN proveedores pr ON pr.id=c.proveedor_id '
             'LEFT JOIN categorias cat ON cat.id=c.categoria_id WHERE c.id=?',
             (compra_id,)).fetchone())
-        if c:
-            c['items'] = _rows(con.execute(
-                'SELECT i.*, p.nombre AS producto_nombre, p.unidad '
-                'FROM compra_items i LEFT JOIN productos p ON p.id=i.producto_id '
-                'WHERE i.compra_id=?', (compra_id,)))
+        if not c:
+            return None
+        if solo_ambito in AMBITOS and c.get('categoria_ambito') not in (None, solo_ambito):
+            return None
+        c['items'] = _rows(con.execute(
+            'SELECT i.*, p.nombre AS producto_nombre, p.unidad '
+            'FROM compra_items i LEFT JOIN productos p ON p.id=i.producto_id '
+            'WHERE i.compra_id=?', (compra_id,)))
         return c
     finally:
         con.close()
@@ -1482,9 +1603,11 @@ def marcar_impresion(job_id, estado='impreso'):
 # REPORTES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def resumen_gastos(desde=None, hasta=None):
-    """Agrega el gasto por mes, categoría, proveedor y tipo. TODO en CLP (usa total_clp)
-    para que las compras en dólares e importaciones sumen correcto en un solo reporte."""
+def resumen_gastos(desde=None, hasta=None, ambito=None):
+    """Agrega el gasto por mes, categoría, proveedor, tipo y ÁMBITO. TODO en CLP (usa
+    total_clp) para que las compras en dólares e importaciones sumen correcto.
+    ambito='operacion'|'administracion' acota el informe a ese grupo de gastos
+    (insumos/materiales vs sueldos/impuestos)."""
     con = _conn()
     try:
         cond, vals = [], []
@@ -1492,9 +1615,15 @@ def resumen_gastos(desde=None, hasta=None):
             cond.append('c.fecha>=?'); vals.append(desde)
         if hasta:
             cond.append('c.fecha<=?'); vals.append(hasta)
+        if ambito in AMBITOS:
+            cond.append('(SELECT ambito FROM categorias WHERE id=c.categoria_id) = ?')
+            vals.append(ambito)
         where = (' WHERE ' + ' AND '.join(cond)) if cond else ''
         # total_clp puede ser 0 en filas viejas antes de la migración → cae a total.
         M = 'CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END'
+        # Etiqueta de ámbito: sin categoría se muestra aparte para no mezclarlo.
+        A = ("COALESCE((SELECT ambito FROM categorias WHERE id=c.categoria_id),"
+             "'sin_categoria')")
 
         total = con.execute(f'SELECT COALESCE(SUM({M}),0) AS t, COUNT(*) AS n '
                             f'FROM compras c{where}', vals).fetchone()
@@ -1505,7 +1634,8 @@ def resumen_gastos(desde=None, hasta=None):
 
         por_cat = _rows(con.execute(
             f"SELECT COALESCE(cat.nombre,'(sin categoría)') AS label, SUM({M}) AS total, "
-            f"COUNT(*) AS n FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id"
+            f"COUNT(*) AS n, COALESCE(cat.ambito,'sin_categoria') AS ambito "
+            f"FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id"
             f"{where} GROUP BY label ORDER BY total DESC", vals))
 
         por_prov = _rows(con.execute(
@@ -1517,6 +1647,10 @@ def resumen_gastos(desde=None, hasta=None):
             f"SELECT c.tipo_gasto AS label, SUM({M}) AS total, COUNT(*) AS n "
             f"FROM compras c{where} GROUP BY c.tipo_gasto", vals))
 
+        por_ambito = _rows(con.execute(
+            f"SELECT {A} AS label, SUM({M}) AS total, COUNT(*) AS n "
+            f"FROM compras c{where} GROUP BY label ORDER BY total DESC", vals))
+
         return {
             'total': round(total['t'], 2),
             'n_compras': total['n'],
@@ -1524,6 +1658,7 @@ def resumen_gastos(desde=None, hasta=None):
             'por_categoria': por_cat,
             'por_proveedor': por_prov,
             'por_tipo': por_tipo,
+            'por_ambito': por_ambito,
         }
     finally:
         con.close()

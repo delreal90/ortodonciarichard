@@ -5217,13 +5217,19 @@ def compras_setup():
         return jsonify({'ok': False, 'error': str(e)}), 400
     token = _compras.crear_sesion(uid)
     return jsonify({'ok': True, 'token': token, 'usuario': _con_caps(
-        {'email': d.get('email'), 'nombre': d.get('nombre'), 'rol': 'admin'})})
+        {'id': uid, 'email': d.get('email'), 'nombre': d.get('nombre'), 'rol': 'admin'})})
 
 def _con_caps(u):
     """Adjunta al usuario sus capacidades (para que el frontend sepa qué mostrar) +
     el contador de pendientes por comprar (badge de solicitudes)."""
     return {**u, 'caps': sorted(_compras.CAPS.get(u['rol'], set())),
             'pendientes': _compras.contar_pendientes()}
+
+
+def _ambito_de(u):
+    """'operacion' si el rol solo puede ver gastos operativos (inventario), o None
+    si puede verlo todo. Se aplica en el SERVIDOR, no solo escondiendo botones."""
+    return 'operacion' if (u and _compras.tiene_cap(u['rol'], 'solo_operacion')) else None
 
 @app.route('/api/compras/login', methods=['POST'])
 @rate_limit("30 per hour")
@@ -5272,13 +5278,29 @@ def compras_usuarios_crear():
 
 @app.route('/api/compras/usuarios/actualizar', methods=['POST'])
 def compras_usuarios_actualizar():
+    """Editar usuario. Mandar 'password' = RESTABLECER la clave (para cuando alguien
+    la olvida): la cambia y cierra las sesiones abiertas de esa persona."""
     _, err = _require_compras('admin')
     if err:
         return err
     d = request.json or {}
     try:
         _compras.actualizar_usuario(d.get('id'), nombre=d.get('nombre'), rol=d.get('rol'),
-                                    activo=d.get('activo'), password=d.get('password') or None)
+                                    activo=d.get('activo'), password=d.get('password') or None,
+                                    email=d.get('email') or None)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+@app.route('/api/compras/usuarios/eliminar', methods=['POST'])
+def compras_usuarios_eliminar():
+    """Borra un usuario (no a sí mismo, ni al último admin activo). El historial que
+    creó se conserva, solo se desvincula."""
+    u, err = _require_compras('admin')
+    if err:
+        return err
+    try:
+        _compras.eliminar_usuario((request.json or {}).get('id'), actor_id=u['id'])
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True})
@@ -5288,19 +5310,21 @@ def compras_usuarios_actualizar():
 
 @app.route('/api/compras/categorias', methods=['GET'])
 def compras_categorias():
-    _, err = _require_compras('stock')
+    u, err = _require_compras('stock')
     if err:
         return err
     return jsonify({'ok': True, 'categorias': _compras.listar_categorias(
-        incluir_archivadas=request.args.get('todas') == '1')})
+        incluir_archivadas=request.args.get('todas') == '1',
+        solo_ambito=_ambito_de(u))})
 
 @app.route('/api/compras/categorias', methods=['POST'])
 def compras_categorias_crear():
     _, err = _require_compras('admin')
     if err:
         return err
+    d = request.json or {}
     try:
-        cid = _compras.crear_categoria((request.json or {}).get('nombre', ''))
+        cid = _compras.crear_categoria(d.get('nombre', ''), d.get('ambito', 'operacion'))
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, 'id': cid})
@@ -5311,8 +5335,12 @@ def compras_categorias_actualizar():
     if err:
         return err
     d = request.json or {}
-    if 'nombre' in d and d.get('nombre'):
-        _compras.renombrar_categoria(d.get('id'), d['nombre'])
+    try:
+        if d.get('nombre') or d.get('ambito'):
+            _compras.renombrar_categoria(d.get('id'), d.get('nombre') or None,
+                                         d.get('ambito') or None)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
     if 'archivada' in d:
         _compras.archivar_categoria(d.get('id'), bool(d['archivada']))
     return jsonify({'ok': True})
@@ -5518,21 +5546,21 @@ def compras_alertas():
 
 @app.route('/api/compras/compras', methods=['GET'])
 def compras_listar():
-    _, err = _require_compras('compras_ver')
+    u, err = _require_compras('compras_ver')
     if err:
         return err
     a = request.args
     return jsonify({'ok': True, 'compras': _compras.listar_compras(
         desde=a.get('desde') or None, hasta=a.get('hasta') or None,
         proveedor_id=a.get('proveedor_id') or None, categoria_id=a.get('categoria_id') or None,
-        tipo_gasto=a.get('tipo_gasto') or None)})
+        tipo_gasto=a.get('tipo_gasto') or None, solo_ambito=_ambito_de(u))})
 
 @app.route('/api/compras/compras/<int:cid>', methods=['GET'])
 def compras_obtener(cid):
-    _, err = _require_compras('compras_ver')
+    u, err = _require_compras('compras_ver')
     if err:
         return err
-    c = _compras.obtener_compra(cid)
+    c = _compras.obtener_compra(cid, solo_ambito=_ambito_de(u))
     if not c:
         return jsonify({'ok': False, 'error': 'Compra no encontrada'}), 404
     return jsonify({'ok': True, 'compra': c})
@@ -5604,12 +5632,15 @@ def compras_foto_ver(nombre):
 
 @app.route('/api/compras/reportes', methods=['GET'])
 def compras_reportes():
-    _, err = _require_compras('reportes')
+    u, err = _require_compras('reportes')
     if err:
         return err
     a = request.args
+    # ?ambito=operacion|administracion acota el informe a insumos/materiales o a
+    # sueldos/impuestos. Un rol con solo_operacion queda forzado a 'operacion'.
+    ambito = _ambito_de(u) or (a.get('ambito') if a.get('ambito') in _compras.AMBITOS else None)
     return jsonify({'ok': True, 'reporte': _compras.resumen_gastos(
-        desde=a.get('desde') or None, hasta=a.get('hasta') or None)})
+        desde=a.get('desde') or None, hasta=a.get('hasta') or None, ambito=ambito)})
 
 @app.route('/api/compras/export.xlsx', methods=['GET'])
 def compras_export():
@@ -5681,6 +5712,29 @@ def compras_impresion_encolar():
     jid = _compras.encolar_impresion(d.get('producto_id'), d.get('codigo', ''),
                                      int(d.get('cantidad', 1)))
     return jsonify({'ok': True, 'id': jid})
+
+
+# ── Importación histórica (one-shot: catálogo + compras 2023-2026 de los Excel) ─
+
+@app.route('/api/compras/importar-historico', methods=['POST'])
+def compras_importar_historico():
+    """Carga masiva del seed.json generado desde los Excel históricos. Multipart
+    'file' (patrón /api/pacientes/importar). Idempotente: reemplaza lo previamente
+    importado (marcador '[hist]' en notas) sin tocar compras hechas a mano ni stock.
+    Protegido por sesión admin de compras."""
+    u, err = _require_compras('admin')
+    if err:
+        return err
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'Falta el archivo seed.json (multipart "file")'}), 400
+    import importar_historico
+    try:
+        seed = json.loads(f.read().decode('utf-8'))
+        resumen = importar_historico.importar(seed, u['id'])
+    except (ValueError, KeyError) as e:
+        return jsonify({'ok': False, 'error': f'Seed inválido: {e}'}), 400
+    return jsonify({'ok': True, **resumen})
 
 
 # ── Solicitudes de compra (pendientes + sugerencias por consumo) ───────────────

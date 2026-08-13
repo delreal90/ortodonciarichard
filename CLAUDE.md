@@ -1306,6 +1306,40 @@ El backend protege cada endpoint con `_require_compras(cap)`; el frontend muestr
 pestañas según `ME.caps` (mapa `TAB_CAP`). Login por usuario → token de sesión (30 días)
 en header `X-Compras-Token`. Contraseñas con PBKDF2-HMAC-SHA256 (200k iter, salt).
 
+### Separación operación / administración + rol Inventario + gestión de usuarios (2026-08-13)
+
+**Ámbito de las categorías (`categorias.ambito`: `operacion` | `administracion`).** Separa
+lo OPERATIVO de la clínica (insumos, materiales, reparaciones, servicios) de lo
+ADMINISTRATIVO (sueldos, honorarios, impuestos, seguros, gastos comunes) — antes estaban
+todos mezclados en la misma lista. Migración idempotente en `_migrar()` con backfill por
+nombre (`AMBITO_POR_DEFECTO`); lo desconocido queda en `operacion`.
+- **Reportes** muestran tiles separados (🧰 Operación / 🏦 Administración), las barras por
+  categoría van en dos bloques con subtotal, y hay un filtro `?ambito=` para ver solo uno.
+- El **selector de categoría** al ingresar una compra usa `<optgroup>` por ámbito.
+- En **Administración → Categorías** se ven agrupadas, con **⇄** para mover una categoría
+  de un ámbito al otro y **✕** para archivar.
+
+**Rol `inventario`** (`CAPS`): `escanear, stock, compras_ver, solicitar, registrar` +
+la RESTRICCIÓN **`solo_operacion`**. Ve stock, productos, escaneo, solicitudes y compras
+de insumos, pero **NUNCA sueldos, honorarios, impuestos ni reportes** (no ve esas pestañas).
+El filtro se aplica **en el servidor** (`_ambito_de(u)` → `listar_compras(solo_ambito=)`,
+`obtener_compra(solo_ambito=)`, `listar_categorias(solo_ambito=)`), no solo escondiendo
+botones: pedir el detalle de un sueldo por URL directa devuelve 404.
+Verificado con los datos reales: de 952 compras que ve un admin, el rol inventario ve 812
+— se le ocultan las 140 administrativas (la mayor parte del gasto), con 0 fugas.
+
+**Usuarios (2026-08-13):**
+- **Sin email obligatorio**: la columna `usuarios.email` es en realidad el NOMBRE DE
+  USUARIO para entrar (se mantiene el nombre de columna por compatibilidad). Acepta
+  `maria` igual que un correo; valida mínimo 3 caracteres y sin espacios.
+- **Restablecer contraseña** (botón 🔑 en la tabla): `actualizar_usuario(password=...)`
+  cambia la clave **y cierra las sesiones abiertas** de esa persona. También se cierran
+  al desactivar la cuenta.
+- **Eliminar usuario** (botón 🗑️, `eliminar_usuario`/`POST /api/compras/usuarios/eliminar`):
+  bloquea borrarse a sí mismo y borrar al último admin activo. El historial que creó
+  (compras, movimientos, solicitudes, suscripciones) se **conserva y solo se desvincula**
+  (`usuario_id=NULL`) — si no, la FK impediría el borrado y se perdería trazabilidad.
+
 ### Solicitudes de compra (pendientes + sugerencias por consumo, 2026-07-09)
 Pestaña **🛒 Solicitudes** (rol `solicitar`: solicitante/registro/admin). Tabla
 `pendientes_compra` (una fila por producto pendiente; upsert si ya existía uno activo).
@@ -1453,6 +1487,52 @@ agrega un índice sobre una columna nueva, va en ese segundo bloque.
   pendientes del producto tienen `ON DELETE CASCADE`, se limpian solos.
 - **Admin**: categorías (crear/archivar), proveedores (CRUD), usuarios (crear/editar rol/
   estado/password).
+
+### Importación del histórico desde los Excel viejos (2026-08-13)
+
+Se pre-rellenó el sistema con los 2 Excel que llevaba el usuario a mano:
+`INVENTARIO 2.0.xlsx` (plantilla indzara: hoja Products + Orders_and_Inventory) y
+`2025 COCRL Registro de Compras y Ventas.xlsx` (hoja Expenses, alimentada por un
+Google Forms). **Cargado y verificado en local; falta ejecutarlo en producción.**
+
+**Módulo `admin/importar_historico.py`** + endpoint `POST /api/compras/importar-historico`
+(multipart `file` con el seed.json, `_require_compras('admin')`, patrón de
+`/api/pacientes/importar`). Claves de diseño:
+- **NO toca el stock**: inserta `compras` + `compra_items` por SQL directo, SIN
+  `movimientos_stock` (a diferencia de `compras.crear_compra`). Verificado: 0
+  movimientos nuevos, stock quedó en 0 para todo lo importado.
+- **Idempotente por reemplazo**: toda compra importada lleva el prefijo `[hist]` en
+  `notas`; al re-importar se borran solo esas y se reinsertan. Nunca toca compras
+  hechas a mano por los usuarios.
+- **Catálogo por fusión**: productos/proveedores/categorías se dedupean por nombre
+  (case-insensitive) y solo completan campos vacíos — no pisan lo que el usuario editó.
+
+**Resultado cargado en local:** 866 productos (con marca, categoría y unidad),
+157 proveedores, 9 categorías de gasto y **950 compras entre 2022 y 2026**, con el
+historial de precios por producto operativo (ej. Guantes Nitrilo M quedó con 22 compras
+de distintos proveedores). Las cifras de gasto NO se documentan acá: este repo es público.
+
+**⚠️ Bug de datos encontrado y corregido — fechas día↔mes invertidas.** El Excel de
+inventario se llenaba escribiendo `DD-MM-YYYY`, pero Excel (locale US) interpretaba
+`MM/DD/YYYY` cuando el día era ≤ 12, **invirtiendo día y mes** (aparecían compras con
+fecha futura, ej. dic-2026). Las filas con día > 12 quedaron como TEXTO porque Excel
+no pudo convertirlas — esas son las fechas confiables ("anclas"). La corrección elige,
+para cada fecha ambigua, entre la fecha tal cual y la invertida según cuál encaja entre
+las anclas vecinas (el archivo está ordenado cronológicamente). **318 fechas corregidas**;
+bajó las violaciones de orden de 94→64 y las fechas futuras imposibles de 23→2.
+El archivo de Google Forms NO tiene este problema (usa date picker; solo 4/667 anomalías).
+Si se vuelve a importar algo de ese Excel, hay que reaplicar esta corrección.
+
+**Doble conteo 2025-2026 (decisión del usuario 2026-08-13):** ambos Excel se llevaban EN
+PARALELO esos años y ninguno registra todo. Se optó por **máximo detalle**: se importa
+todo, omitiendo las filas del Forms cuyo total por (proveedor, mes) coincide ±15% con lo
+que ya viene detallado por producto desde Orders (**63 filas omitidas**). Queda un
+posible doble conteo residual de ~1-2% en las categorías de insumos.
+
+Scripts del pipeline (scratchpad, no versionados): `extraer.py` (Excel→JSON crudo con
+corrección de fechas), `fusionar.py` (aplica la clasificación de los subagentes → `seed.json`
++ `revision_inventario.xlsx`), `verificar_import.py`. La clasificación de 753 productos,
+291 proveedores y 483 ítems de texto libre la hicieron 5 subagentes Sonnet en paralelo.
 
 ### Agente de impresión de etiquetas (`print_agent.py`)
 Corre en el **PC siempre-encendido de la clínica** (el del bridge de WhatsApp), con la

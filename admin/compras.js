@@ -24,13 +24,27 @@ const puede = cap => (ME?.caps || []).includes(cap);
 const ROLES_LABEL = {
   admin: 'Administrador (todo)',
   registro: 'Registro (ingresa compras y stock)',
+  inventario: 'Inventario (stock e insumos; sin sueldos ni reportes)',
   solicitante: 'Solicitante (ve, escanea, pide compras)',
   lectura: 'Lectura (solo ver)',
   escaner: 'Escáner (solo escanear salidas)',
 };
-const ROLES_ORDEN = ['registro', 'solicitante', 'escaner', 'lectura', 'admin'];
+const AMBITO_LABEL = {
+  operacion: '🧰 Operación (insumos, materiales, reparaciones)',
+  administracion: '🏦 Administración (sueldos, honorarios, impuestos, seguros)',
+  sin_categoria: '(sin categoría)',
+};
+const ROLES_ORDEN = ['registro', 'inventario', 'solicitante', 'escaner', 'lectura', 'admin'];
 const optsRoles = sel => ROLES_ORDEN.map(r =>
   `<option value="${r}" ${sel === r ? 'selected' : ''}>${ROLES_LABEL[r]}</option>`).join('');
+// <optgroup> por ámbito: al elegir categoría se ve de inmediato si el gasto es
+// operativo (insumos) o administrativo (sueldos, impuestos).
+const optsCategorias = (sel) => ['operacion', 'administracion'].map(amb => {
+  const cats = (CACHE.categorias || []).filter(c => (c.ambito || 'operacion') === amb);
+  if (!cats.length) return '';
+  return `<optgroup label="${AMBITO_LABEL[amb]}">` + cats.map(c =>
+    `<option value="${c.id}" ${String(sel) === String(c.id) ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('') + '</optgroup>';
+}).join('');
 
 // ── API ────────────────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
@@ -292,9 +306,8 @@ RENDER.compras = () => {
   });
   $('#cProvSlot').appendChild(provBus.wrap);
 
-  // categorías
-  $('#cCategoria').innerHTML = '<option value="">(sin categoría)</option>' +
-    CACHE.categorias.map(c => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  // categorías, agrupadas por ámbito (operación vs administración)
+  $('#cCategoria').innerHTML = '<option value="">(sin categoría)</option>' + optsCategorias();
 
   // agregar producto
   const prodBus = buscador({
@@ -1044,6 +1057,11 @@ RENDER.reportes = async () => {
   s.innerHTML = `
     <div class="card">
       <div class="flex wrap" style="margin-bottom:6px"><h2>Reportes de gasto</h2><div class="spacer"></div>
+        <select id="rAmbito" style="max-width:230px">
+          <option value="">Todo el gasto</option>
+          <option value="operacion">Solo operación (insumos)</option>
+          <option value="administracion">Solo administración (sueldos, impuestos)</option>
+        </select>
         <input type="date" id="rDesde" style="max-width:160px"><input type="date" id="rHasta" style="max-width:160px">
         <button class="btn ghost sm" id="rFiltrar">Filtrar</button>
         <button class="btn gold sm" id="rExport">⬇ Excel</button></div>
@@ -1053,22 +1071,31 @@ RENDER.reportes = async () => {
     const q = new URLSearchParams();
     if ($('#rDesde').value) q.set('desde', $('#rDesde').value);
     if ($('#rHasta').value) q.set('hasta', $('#rHasta').value);
+    if ($('#rAmbito').value) q.set('ambito', $('#rAmbito').value);
     try {
       const j = await api('/api/compras/reportes?' + q); const r = j.reporte;
       const porTipo = t => (r.por_tipo.find(x => x.label === t) || {}).total || 0;
+      const porAmb = a => (r.por_ambito || []).find(x => x.label === a) || { total: 0, n: 0 };
+      const oper = porAmb('operacion'), admin = porAmb('administracion'), sinCat = porAmb('sin_categoria');
       $('#rBody').innerHTML = `
         <div class="tiles">
           <div class="tile"><div class="n">${clp(r.total)}</div><div class="l">Gasto total</div></div>
           <div class="tile"><div class="n">${r.n_compras}</div><div class="l">Compras</div></div>
+          <div class="tile" style="border-left:4px solid var(--gold)"><div class="n">${clp(oper.total)}</div><div class="l">🧰 Operación (insumos)</div></div>
+          <div class="tile" style="border-left:4px solid var(--navy)"><div class="n">${clp(admin.total)}</div><div class="l">🏦 Administración</div></div>
+          ${sinCat.total ? `<div class="tile"><div class="n">${clp(sinCat.total)}</div><div class="l">Sin categoría</div></div>` : ''}
+        </div>
+        <div class="tiles">
           <div class="tile"><div class="n">${clp(porTipo('fijo'))}</div><div class="l">Gastos fijos</div></div>
           <div class="tile"><div class="n">${clp(porTipo('variable'))}</div><div class="l">Gastos variables</div></div>
           <div class="tile"><div class="n">${clp(porTipo('recurrente'))}</div><div class="l">Recurrentes (mensual)</div></div>
         </div>
         ${barras('Por mes', r.por_mes, 'mes')}
-        ${barras('Por categoría', r.por_categoria, 'label')}
+        ${barrasCategoria(r.por_categoria)}
         ${barras('Por proveedor', r.por_proveedor.slice(0, 12), 'label')}`;
     } catch (e) { toast(e.message, 'err'); }
   };
+  $('#rAmbito').onchange = cargar;
   $('#rFiltrar').onclick = cargar;
   $('#rExport').onclick = () => {
     const q = new URLSearchParams();
@@ -1086,6 +1113,23 @@ function barras(titulo, data, key) {
       <div class="track"><div class="fill" style="width:${Math.round(d.total / max * 100)}%"></div></div>
       <div class="val">${clp(d.total)}</div></div>`).join('')}</div>`;
 }
+// Categorías separadas en dos bloques: operación vs administración (el gasto de
+// insumos no se mezcla con sueldos/impuestos en el mismo listado).
+function barrasCategoria(data) {
+  if (!data || !data.length) return '';
+  const max = Math.max(1, ...data.map(d => d.total));
+  const bloque = (amb) => {
+    const items = data.filter(d => (d.ambito || 'sin_categoria') === amb);
+    if (!items.length) return '';
+    const sub = items.reduce((a, d) => a + d.total, 0);
+    return `<div class="field"><label>${AMBITO_LABEL[amb]} — ${clp(sub)}</label>${items.map(d => `
+      <div class="bar"><div class="lab">${esc(d.label)}</div>
+        <div class="track"><div class="fill" style="width:${Math.round(d.total / max * 100)}%;
+          ${amb === 'administracion' ? 'background:var(--navy-light)' : ''}"></div></div>
+        <div class="val">${clp(d.total)}</div></div>`).join('')}</div>`;
+  };
+  return bloque('operacion') + bloque('administracion') + bloque('sin_categoria');
+}
 async function descargarXlsx(path) {
   try {
     const r = await fetch(API + path, { headers: { 'X-Compras-Token': TOKEN } });
@@ -1100,9 +1144,11 @@ RENDER.admin = async () => {
   const s = $('#tab-admin');
   if (!puede('admin')) { s.innerHTML = soloLectura(); return; }
   s.innerHTML = `
-    <div class="card"><div class="flex"><h2>Categorías de gasto</h2><div class="spacer"></div>
-      <input id="adCatNueva" placeholder="Nueva categoría" style="max-width:220px">
+    <div class="card"><div class="flex wrap"><h2>Categorías de gasto</h2><div class="spacer"></div>
+      <input id="adCatNueva" placeholder="Nueva categoría" style="max-width:190px">
+      <select id="adCatAmbito" style="max-width:150px"><option value="operacion">Operación</option><option value="administracion">Administración</option></select>
       <button class="btn gold sm" id="adCatAdd">Agregar</button></div>
+      <div class="sub">Las de <b>Administración</b> (sueldos, honorarios, impuestos, seguros) quedan ocultas para el rol Inventario.</div>
       <div id="adCats" style="margin-top:12px"></div></div>
     <div class="card"><div class="flex"><h2>Proveedores</h2><div class="spacer"></div>
       <input id="adProvNuevo" placeholder="Nuevo proveedor" style="max-width:220px">
@@ -1112,18 +1158,31 @@ RENDER.admin = async () => {
       <button class="btn gold sm" id="adUserAdd">➕ Usuario</button></div>
       <div class="tablewrap" style="margin-top:12px"><table id="adUsers"></table></div></div>`;
 
-  // categorías
+  // categorías (agrupadas por ámbito, con selector para moverlas de grupo)
   const pintarCats = () => {
-    $('#adCats').innerHTML = CACHE.categorias.map(c => `<span class="pill" style="background:var(--light-bg);margin:0 6px 6px 0;display:inline-flex;gap:6px;align-items:center">
-      ${esc(c.nombre)} <a href="#" data-arch="${c.id}" title="Archivar" style="text-decoration:none">✕</a></span>`).join('') || '<span class="muted">Sin categorías.</span>';
+    const grupos = { operacion: [], administracion: [] };
+    CACHE.categorias.forEach(c => (grupos[c.ambito] || grupos.operacion).push(c));
+    $('#adCats').innerHTML = ['operacion', 'administracion'].map(amb => `
+      <div class="field"><label>${AMBITO_LABEL[amb]}</label>
+        ${grupos[amb].length ? grupos[amb].map(c => `
+          <span class="pill" style="background:var(--light-bg);margin:0 6px 6px 0;display:inline-flex;gap:6px;align-items:center">
+            ${esc(c.nombre)}
+            <a href="#" data-mover="${c.id}" data-a="${amb === 'operacion' ? 'administracion' : 'operacion'}"
+               title="Mover a ${amb === 'operacion' ? 'Administración' : 'Operación'}" style="text-decoration:none">⇄</a>
+            <a href="#" data-arch="${c.id}" title="Archivar" style="text-decoration:none">✕</a></span>`).join('')
+          : '<span class="muted">Ninguna.</span>'}</div>`).join('');
     $$('#adCats [data-arch]').forEach(a => a.onclick = async e => { e.preventDefault();
       try { await api('/api/compras/categorias/actualizar', { method: 'POST', body: { id: +a.dataset.arch, archivada: true } });
         await recargarCaches(); pintarCats(); } catch (er) { toast(er.message, 'err'); } });
+    $$('#adCats [data-mover]').forEach(a => a.onclick = async e => { e.preventDefault();
+      try { await api('/api/compras/categorias/actualizar', { method: 'POST', body: { id: +a.dataset.mover, ambito: a.dataset.a } });
+        toast('Categoría movida ✓', 'ok'); await recargarCaches(); pintarCats(); } catch (er) { toast(er.message, 'err'); } });
   };
   pintarCats();
   $('#adCatAdd').onclick = async () => {
     const n = $('#adCatNueva').value.trim(); if (!n) return;
-    try { await api('/api/compras/categorias', { method: 'POST', body: { nombre: n } }); $('#adCatNueva').value = ''; await recargarCaches(); pintarCats(); }
+    try { await api('/api/compras/categorias', { method: 'POST', body: { nombre: n, ambito: $('#adCatAmbito').value } });
+      $('#adCatNueva').value = ''; await recargarCaches(); pintarCats(); }
     catch (e) { toast(e.message, 'err'); }
   };
 
@@ -1144,12 +1203,18 @@ RENDER.admin = async () => {
   // usuarios
   const pintarUsers = async () => {
     try { const j = await api('/api/compras/usuarios');
-      $('#adUsers').innerHTML = `<tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th></th></tr>` +
+      $('#adUsers').innerHTML = `<tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th><th></th></tr>` +
         j.usuarios.map(u => `<tr><td>${esc(u.nombre)}</td><td>${esc(u.email)}</td>
           <td><span class="rolechip">${u.rol}</span></td>
           <td>${u.activo ? '<span class="pill ok">activo</span>' : '<span class="pill low">inactivo</span>'}</td>
-          <td class="right"><button class="btn ghost sm" data-eu="${u.id}" data-n="${esc(u.nombre)}" data-r="${u.rol}" data-a="${u.activo}">Editar</button></td></tr>`).join('');
+          <td class="right">
+            <button class="btn ghost sm" data-eu="${u.id}" data-n="${esc(u.nombre)}" data-e="${esc(u.email)}" data-r="${u.rol}" data-a="${u.activo}">Editar</button>
+            <button class="btn ghost sm" data-clave="${u.id}" data-n="${esc(u.nombre)}" title="Restablecer contraseña">🔑</button>
+            ${u.id === ME.id ? '' : `<button class="btn danger sm" data-del="${u.id}" data-n="${esc(u.nombre)}" title="Eliminar usuario">🗑️</button>`}
+          </td></tr>`).join('');
       $$('#adUsers [data-eu]').forEach(b => b.onclick = () => editarUsuario(b.dataset));
+      $$('#adUsers [data-clave]').forEach(b => b.onclick = () => resetClave(b.dataset, pintarUsers));
+      $$('#adUsers [data-del]').forEach(b => b.onclick = () => borrarUsuario(b.dataset, pintarUsers));
     } catch (e) { toast(e.message, 'err'); }
   };
   pintarUsers();
@@ -1174,9 +1239,10 @@ function editarProveedor(p) {
 
 function nuevoUsuario(despues) {
   const m = modal(`<h3>Nuevo usuario</h3>
-    <div class="field"><label>Nombre</label><input id="nuN"></div>
-    <div class="field"><label>Email</label><input id="nuE" type="email"></div>
-    <div class="field"><label>Contraseña</label><input id="nuP" type="password"></div>
+    <div class="field"><label>Nombre de la persona</label><input id="nuN" placeholder="Ej: María Pérez"></div>
+    <div class="field"><label>Usuario para entrar</label><input id="nuE" type="text" placeholder="Ej: maria (no necesita ser un correo)">
+      <p class="muted" style="font-size:12px;margin-top:4px">Mínimo 3 caracteres, sin espacios. Puede ser un correo si prefieres.</p></div>
+    <div class="field"><label>Contraseña</label><input id="nuP" type="password" placeholder="Mínimo 6 caracteres"></div>
     <div class="field"><label>Rol</label><select id="nuR">${optsRoles('registro')}</select></div>
     <div class="flex" style="margin-top:6px"><div class="spacer"></div>
       <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
@@ -1187,9 +1253,40 @@ function nuevoUsuario(despues) {
     } catch (e) { toast(e.message, 'err'); }
   };
 }
+
+function resetClave(ds, despues) {
+  const m = modal(`<h3>Restablecer contraseña</h3>
+    <p class="muted" style="margin-bottom:14px">Define una contraseña nueva para <b>${esc(ds.n)}</b>. Se cerrarán sus sesiones abiertas y deberá entrar con la clave nueva.</p>
+    <div class="field"><label>Contraseña nueva</label><input id="rcP" type="password" placeholder="Mínimo 6 caracteres"></div>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="rcOk">Restablecer</button></div>`);
+  m.querySelector('#rcP').focus();
+  m.querySelector('#rcOk').onclick = async () => {
+    const pw = m.querySelector('#rcP').value;
+    if (pw.length < 6) return toast('La contraseña debe tener al menos 6 caracteres', 'err');
+    try { await api('/api/compras/usuarios/actualizar', { method: 'POST', body: { id: +ds.clave, password: pw } });
+      closeModal(); toast('Contraseña restablecida ✓ — avísale la nueva clave', 'ok'); despues();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+function borrarUsuario(ds, despues) {
+  const m = modal(`<h3>Eliminar usuario</h3>
+    <p class="muted" style="margin-bottom:14px">Se eliminará el acceso de <b>${esc(ds.n)}</b>. Lo que haya registrado (compras, movimientos de stock, solicitudes) se conserva en el historial.</p>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn danger" id="buOk">Eliminar</button></div>`);
+  m.querySelector('#buOk').onclick = async () => {
+    try { await api('/api/compras/usuarios/eliminar', { method: 'POST', body: { id: +ds.del } });
+      closeModal(); toast('Usuario eliminado ✓', 'ok'); despues();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
 function editarUsuario(ds) {
   const m = modal(`<h3>Editar usuario</h3>
-    <div class="field"><label>Nombre</label><input id="euN" value="${esc(ds.n)}"></div>
+    <div class="field"><label>Nombre de la persona</label><input id="euN" value="${esc(ds.n)}"></div>
+    <div class="field"><label>Usuario para entrar</label><input id="euE" value="${esc(ds.e || '')}"></div>
     <div class="field"><label>Rol</label><select id="euR">${optsRoles(ds.r)}</select></div>
     <div class="field"><label>Estado</label><select id="euA"><option value="1" ${ds.a == 'true' || ds.a == '1' ? 'selected' : ''}>Activo</option><option value="0" ${ds.a == 'false' || ds.a == '0' ? 'selected' : ''}>Inactivo</option></select></div>
     <div class="field"><label>Nueva contraseña (opcional)</label><input id="euP" type="password" placeholder="Dejar vacío para no cambiar"></div>
@@ -1198,6 +1295,7 @@ function editarUsuario(ds) {
       <button class="btn gold" id="euOk">Guardar</button></div>`);
   m.querySelector('#euOk').onclick = async () => {
     try { const body = { id: +ds.eu, nombre: m.querySelector('#euN').value, rol: m.querySelector('#euR').value, activo: m.querySelector('#euA').value === '1' };
+      const usr = m.querySelector('#euE').value.trim(); if (usr && usr !== ds.e) body.email = usr;
       const pw = m.querySelector('#euP').value; if (pw) body.password = pw;
       await api('/api/compras/usuarios/actualizar', { method: 'POST', body });
       closeModal(); toast('Usuario actualizado ✓', 'ok'); RENDER.admin();

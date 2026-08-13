@@ -71,7 +71,10 @@ admin/seguros_generados/
 admin/compras.db
 admin/compras.db-wal
 admin/compras.db-shm
+admin/compras.db.backup*
 admin/compras_fotos/
+# Seed de la importacion historica: contiene proveedores/montos reales de la clinica
+admin/seed*.json
 
 # Cumpleaños: fechas de nacimiento del EQUIPO (datos personales de 30 personas)
 # — NUNCA subir a git. ⚠️ Este repo es PÚBLICO (sirve el sitio por GitHub Pages),
