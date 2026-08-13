@@ -3861,6 +3861,8 @@ def seguro_previsualizar():
         'telefono': data.get('telefono', ''),
         'datos_extra': data.get('datos_extra') or {},
         'doctor_nombre': doctor_nombre,
+        # Fecha de la atención/boleta: el formulario se fecha con ella (no "hoy").
+        'fecha_atencion': data.get('fecha_atencion', ''),
     }, filas)
     # RUT y especialidad del profesional (los piden varios formularios) viven
     # en el indice de firmas de seguros; especialidad cae al scheduling_config.
