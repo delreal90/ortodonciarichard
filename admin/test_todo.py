@@ -38,6 +38,7 @@ SUITES = [
     ('reagenda_diag', 'test_reagenda_diagnostico.py', 'el link de reagendar: motivo/doctor y por que falla'),
     ('reagenda_pend', 'test_reagenda_pendientes.py', 'el aviso a recepcion espera y no sale si ya agendo'),
     ('seguros',     'test_seguros.py',     'el prellenado nuevo: copia la glosa / agrupa por patron / renombre por aseguradora'),
+    ('link_aseguradora', 'test_link_aseguradora.py', 'link para que el paciente actualice su aseguradora'),
 ]
 
 AQUI = Path(__file__).parent

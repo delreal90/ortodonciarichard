@@ -1,4 +1,9 @@
 {
+  "euroamerica": {
+    "nombre": "Euroamérica",
+    "activa": true,
+    "mapeo_campos": {}
+  },
   "zurich": {
     "nombre": "Zurich",
     "activa": true,

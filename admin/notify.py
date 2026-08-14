@@ -902,10 +902,22 @@ def enviar_copia_consentimiento(paciente, pdf_path, tipo_label='consentimiento i
         return {'ok': False, 'error': str(e)}
 
 
-def _html_formulario_seguro(nombre, aseguradora_nombre):
+def _html_formulario_seguro(nombre, aseguradora_nombre, link_cambio=''):
+    # Bloque opcional al pie: si el paciente cambió de compañía, actualiza su
+    # aseguradora por un link con token y el sistema le reenvía el formulario
+    # correcto. Estilos en LÍNEA y <table> (regla 6): Gmail/Outlook lo rompen si no.
+    bloque_cambio = ''
+    if link_cambio:
+        bloque_cambio = f"""
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 0;">
+        <tr><td style="border-top:1px solid #E2E8F0;padding-top:16px;">
+          <p style="margin:0 0 10px;color:#4A5568;font-size:14px;">¿Cambió su compañía de seguro complementario? Indíquenos la nueva y le enviaremos el formulario correcto.</p>
+          <a href="{link_cambio}" style="display:inline-block;background:#1A2E4A;color:#ffffff;text-decoration:none;font-size:14px;padding:10px 18px;border-radius:6px;">Actualizar mi aseguradora</a>
+        </td></tr>
+      </table>"""
     cuerpo = f"""      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Hola <strong>{nombre}</strong>,</p>
       <p style="margin:0 0 8px;color:#4A5568;font-size:15px;">Adjuntamos el formulario de reembolso de <strong>{aseguradora_nombre}</strong> con el detalle de tus prestaciones, listo para que lo presentes a tu seguro complementario.</p>
-      <p style="margin:20px 0 0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="{CLINICA_TEL_LINK}" style="color:#1A2E4A;">{CLINICA_TELEFONO}</a> &nbsp;|&nbsp; 💬 <a href="{CLINICA_WHATSAPP}" style="color:#1A2E4A;">WhatsApp</a></p>"""
+      <p style="margin:20px 0 0;color:#718096;font-size:13px;">Si tienes dudas, contáctanos: 📞 <a href="{CLINICA_TEL_LINK}" style="color:#1A2E4A;">{CLINICA_TELEFONO}</a> &nbsp;|&nbsp; 💬 <a href="{CLINICA_WHATSAPP}" style="color:#1A2E4A;">WhatsApp</a></p>{bloque_cambio}"""
     return _email_layout('Formulario de tu seguro complementario', cuerpo, pie=PIE_SOLO_DIRECCION)
 
 
@@ -915,6 +927,10 @@ def avisar_recepcion_seguro_no_enviado(motivo, rut, glosa, folio='', paciente=''
     razones = {
         'sin_aseguradora': 'El paciente no tiene una aseguradora asignada.',
         'glosa': 'No se reconoció ninguna prestación en la glosa de la boleta.',
+        'glosa_nueva': ('La boleta trae una prestación nueva que aún no está '
+                        'configurada. Ya quedó agregada en el panel de Seguros → '
+                        'Prestaciones; revísala y, si corresponde, envía el '
+                        'formulario a mano desde el F2.'),
         'sin_email': 'El paciente no tiene un email registrado.',
         'error_pdf': 'Hubo un error al generar el PDF del formulario.',
         'error_envio': 'Hubo un error al enviar el correo.',
@@ -928,10 +944,11 @@ def avisar_recepcion_seguro_no_enviado(motivo, rut, glosa, folio='', paciente=''
         f'Seguro complementario pendiente — {paciente or rut}', html)
 
 
-def enviar_formulario_seguro(paciente, pdf_path, aseguradora_nombre):
+def enviar_formulario_seguro(paciente, pdf_path, aseguradora_nombre, link_cambio=''):
     """Envía al paciente el formulario de reembolso del seguro complementario
     (PDF adjunto, Cc a recepción). Mismo patrón que enviar_copia_consentimiento.
-    paciente: dict con nombres, apellidos, email. Devuelve {ok, canal|error}."""
+    paciente: dict con nombres, apellidos, email. `link_cambio` (opcional) agrega al
+    pie el enlace "Actualizar mi aseguradora". Devuelve {ok, canal|error}."""
     smtp_user = os.getenv('SMTP_USER', '').strip()
     smtp_pass = os.getenv('SMTP_PASS', '').strip()
     dest = (paciente.get('email') or '').strip()
@@ -947,7 +964,7 @@ def enviar_formulario_seguro(paciente, pdf_path, aseguradora_nombre):
         msg['Cc'] = cc_recepcion
     msg['Subject'] = f'Formulario seguro complementario {aseguradora_nombre} — Ortodoncia Richard'
     msg['Reply-To'] = smtp_user
-    msg.attach(MIMEText(_html_formulario_seguro(nombre, aseguradora_nombre), 'html', 'utf-8'))
+    msg.attach(MIMEText(_html_formulario_seguro(nombre, aseguradora_nombre, link_cambio), 'html', 'utf-8'))
 
     try:
         pdf_bytes = Path(pdf_path).read_bytes()

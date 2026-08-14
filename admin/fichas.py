@@ -81,6 +81,44 @@ def _norm(s):
     return ' '.join(s.lower().split())
 
 
+def _norm_letras(s):
+    """Normaliza a solo-letras minusculas (sin tildes/espacios/guiones/simbolos).
+    Se usa para mapear la opcion elegida en el desplegable de aseguradora contra
+    las keys del catalogo de seguros.py, que ya vienen en ese mismo formato
+    (ej. 'BICE VIDA' -> 'bicevida', 'VIDA CAMARA' -> 'vidacamara')."""
+    s = unicodedata.normalize('NFKD', (s or '').strip())
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    return ''.join(c for c in s.lower() if c.isalpha())
+
+
+# Titulo de la columna de seguro: NO va en _CAMPOS/_indices porque su
+# puntuacion exacta ("¿Tiene Seguro Complementario? ¿Cuál?") es incierta y el
+# usuario va a rediseñar el formulario -- se busca por SUBSTRING sobre el
+# titulo normalizado, no por match exacto.
+_TITULO_SEGURO = 'seguro complementario'
+
+
+def _indice_seguro(headers):
+    """Indices de columna cuyo titulo normalizado CONTIENE 'seguro complementario'."""
+    return [i for i, h in enumerate(headers) if _TITULO_SEGURO in _norm(h)]
+
+
+def _mapear_aseguradora(texto):
+    """Texto de la opcion elegida en el desplegable -> key de seguros.py.
+    '-- No tengo --' -> seguros.SIN_SEGURO; '-- OTRA --' o vacio -> ''
+    (no se asigna); una opcion que calce (normalizada a solo-letras) con una
+    key del catalogo -> esa key; si no calza con nada -> ''."""
+    import seguros
+    norm = _norm_letras(texto)
+    if not norm or norm == 'otra':
+        return ''
+    if norm == 'notengo':
+        return seguros.SIN_SEGURO
+    claves = {_norm_letras(a['key']): a['key']
+              for a in seguros.listar_aseguradoras(solo_activas=False)}
+    return claves.get(norm, '')
+
+
 def _mapa(headers):
     """titulo-normalizado -> lista de indices de columna (en orden)."""
     m = {}
@@ -157,6 +195,10 @@ def interpretar(headers, filas):
     (no hace falta parsear la marca temporal)."""
     mapa = _mapa(headers)
     idx = {c: _indices(mapa, c) for c in _CAMPOS}
+    idx_seguro = _indice_seguro(headers)
+    if not idx_seguro:
+        print('[fichas] columna de seguro complementario no encontrada en el Sheet; '
+              'seguro_key quedara vacio en todas las fichas')
     import pacientes
 
     por_rut = {}
@@ -184,6 +226,10 @@ def interpretar(headers, filas):
             'direccion':         _valor(row, idx['direccion']),
             # "Comuna, Ciudad" puede venir junto -> nos quedamos con la comuna.
             'comuna':            _valor(row, idx['comuna']).split(',')[0].strip(),
+            # NO whitelisteado por pacientes.merge_fichas (solo lee _CAMPOS_FICHA
+            # + rut/email) -- lo consume aparte seguros.asignar_si_vacio() en
+            # fichas.sincronizar(). Ver seguros.py.
+            'seguro_key':        _mapear_aseguradora(_valor(row, idx_seguro)),
         }
         # Clave por RUT limpio; las respuestas mas nuevas pisan a las viejas.
         por_rut[pacientes._limpiar_rut(rut_txt)] = ficha
@@ -202,7 +248,26 @@ def sincronizar(sheet_id=None):
         headers, filas = leer_filas(sheet_id)
         fichas, _ = interpretar(headers, filas)
         res = pacientes.merge_fichas(fichas)
+
+        # Asignacion de aseguradora: best-effort, aparte del merge de pacientes
+        # (que es lo importante) -- un fallo aca nunca debe tumbar la sincronizacion.
+        seguros_asignados = 0
+        try:
+            import seguros
+            for f in fichas:
+                seguro_key = f.get('seguro_key')
+                if not seguro_key:
+                    continue
+                rut = pacientes._limpiar_rut(f.get('rut', ''))
+                if not rut:
+                    continue
+                if seguros.asignar_si_vacio(rut, seguro_key):
+                    seguros_asignados += 1
+        except Exception as e:
+            print(f'[fichas] fallo asignando aseguradoras (no afecta el merge de pacientes): {e!r}')
+
         resumen = {'ok': True, 'respuestas': len(filas), 'fichas': len(fichas), **res,
+                   'seguros_asignados': seguros_asignados,
                    'cuando': fechas.ahora_chile().isoformat(timespec='seconds')}
     except Exception as e:
         resumen = {'ok': False, 'error': str(e),

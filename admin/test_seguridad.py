@@ -189,6 +189,8 @@ class TestCoberturaDeAuth(unittest.TestCase):
         # Auth propia, no ADMIN_TOKEN.
         '/api/consentimiento/datos':            'token firmado itsdangerous en la URL',
         '/api/seguro/pdf':                      'token firmado propio (el iframe no manda headers)',
+        '/api/seguro/link-info':                'token opaco del link "cambié mi aseguradora" (rate limit 10/min)',
+        '/api/seguro/actualizar-aseguradora':   'el paciente actualiza su aseguradora con el token del correo (rate limit 10/min)',
         '/api/whatsapp/webhook':                'firma HMAC de Meta, fail-closed',
         '/api/compras/login':                   'la puerta de entrada de Compras',
         '/api/compras/logout':                  'cierra la sesion de Compras',

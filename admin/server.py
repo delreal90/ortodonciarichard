@@ -3748,11 +3748,28 @@ def consentimiento_limpiar_huerfanos():
 # con token firmado propio (un <iframe> no puede mandar headers).
 
 import seguros
+import link_aseguradora
+
+
+def _link_cambio_aseguradora(rut):
+    """URL con token para que el paciente actualice su aseguradora (va al pie del
+    correo del formulario). Best-effort: si falla, el correo sale igual sin el pie."""
+    try:
+        return link_aseguradora.crear(rut, request.url_root.rstrip('/'))['url']
+    except Exception as e:
+        app.logger.warning('seguro: no se pudo crear link de aseguradora: %s', e)
+        return ''
 
 
 @app.route('/seguro')
 def seguro_page():
     return send_from_directory('.', 'seguros_secretaria.html')
+
+
+@app.route('/actualizar-seguro')
+def actualizar_seguro_page():
+    """Página pública donde el paciente actualiza su aseguradora (token en la URL)."""
+    return send_from_directory('.', 'actualizar_seguro.html')
 
 
 @app.route('/api/seguro/init', methods=['GET'])
@@ -3937,7 +3954,8 @@ def seguro_enviar():
     paciente = {'nombres': rec.get('nombres', ''), 'apellidos': rec.get('apellidos', ''),
                 'email': email_dest}
     resultado = notify.enviar_formulario_seguro(
-        paciente, item['pdf_path'], aseg.get('nombre', item.get('aseguradora', '')))
+        paciente, item['pdf_path'], aseg.get('nombre', item.get('aseguradora', '')),
+        link_cambio=_link_cambio_aseguradora(item.get('rut', '')))
     if not resultado.get('ok'):
         return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar el correo'}), 502
     seguros.marcar_enviado(form_id, canal='email')
@@ -4050,7 +4068,8 @@ def seguro_enviar_desde_boleta():
     aseg = seguros.obtener_aseguradora(aseg_key) or {}
     paciente = {'nombres': nombre, 'apellidos': apellido, 'email': email_dest}
     resultado = notify.enviar_formulario_seguro(paciente, pdf_path,
-                                                aseg.get('nombre', aseg_key))
+                                                aseg.get('nombre', aseg_key),
+                                                link_cambio=_link_cambio_aseguradora(rut))
     if not resultado.get('ok'):
         return jsonify({'ok': False, 'error': resultado.get('error') or 'No se pudo enviar el correo'}), 502
 
@@ -4095,17 +4114,34 @@ def seguro_auto_desde_boleta():
         notify.avisar_recepcion_seguro_no_enviado(motivo, rut, glosa, folio, nombre_pac)
         return jsonify({'ok': False, 'pendiente': True, 'motivo': motivo}), http
 
+    # Estado de la aseguradora del paciente. Ni "sin asignar" ni "no tiene seguro"
+    # avisan a recepción: el primero es simplemente que nadie eligió su aseguradora
+    # todavía (todos los pacientes viejos arrancan así), y el segundo es un opt-out
+    # explícito. Solo se avisa cuando el paciente SÍ tiene aseguradora pero algo falla.
+    estado = seguros.estado_aseguradora(rut)
+    if estado == 'sin_asignar':
+        return jsonify({'ok': True, 'sin_asignar': True}), 200
+    if estado == 'sin_seguro':
+        return jsonify({'ok': True, 'sin_seguro': True}), 200
+
     pref = seguros.paciente_seguro(rut) or {}
     aseg_key = pref.get('ultima_aseguradora')
-    if not aseg_key:
-        return _pendiente('sin_aseguradora')
+    aseg = seguros.obtener_aseguradora(aseg_key) or {}
 
     fecha = (data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y'))
     items = data.get('items')
-    if items:
-        filas = seguros.filas_desde_items(items, aseg_key, fecha=fecha)
-    else:
-        filas, _ = seguros.filas_desde_boleta(glosa, data.get('monto'), aseg_key, fecha=fecha)
+    if not items:
+        items = [{'descripcion': glosa, 'valor': data.get('monto')}] if glosa else []
+
+    # Regla nueva del auto-envío: solo manda solo si TODOS los ítems ya se conocían.
+    # Si aparece una glosa nueva, la deja creada en el panel (para configurarla) pero
+    # NO envía — avisa a recepción para que lo revise a mano desde el F2.
+    clasif = seguros.clasificar_items(items)
+    if clasif['nuevos']:
+        seguros.registrar_glosas(items)
+        return _pendiente('glosa_nueva')
+
+    filas = seguros.filas_desde_items(items, aseg_key, fecha=fecha)
     if not filas:
         return _pendiente('glosa')
 
@@ -4142,11 +4178,11 @@ def seguro_auto_desde_boleta():
         app.logger.error('seguro auto: error PDF: %s', e)
         return _pendiente('error_pdf')
 
-    aseg = seguros.obtener_aseguradora(aseg_key) or {}
     paciente = {'nombres': rec.get('nombres', ''), 'apellidos': rec.get('apellidos', ''),
                 'email': email_dest}
     resultado = notify.enviar_formulario_seguro(paciente, pdf_path,
-                                                aseg.get('nombre', aseg_key))
+                                                aseg.get('nombre', aseg_key),
+                                                link_cambio=_link_cambio_aseguradora(rut))
     if not resultado.get('ok'):
         return _pendiente('error_envio')
 
@@ -4170,6 +4206,134 @@ def seguro_auto_config():
         seguros.set_auto_config(activo=data.get('activo'),
                                 doctor_default=data.get('doctor_default'))
     return jsonify({'ok': True, **seguros.get_auto_config()})
+
+
+# ── El paciente actualiza su aseguradora (link público del correo) ───────────
+# Dos endpoints PÚBLICOS (token opaco en la URL, sin ADMIN_TOKEN): uno de lectura
+# para prellenar la página, otro de escritura que guarda la nueva aseguradora y,
+# si el paciente tiene una boleta reciente, le REENVÍA el formulario corregido.
+
+def _seguro_reenviar_ultimo(rut, aseg_key):
+    """Regenera y reenvía el formulario del ÚLTIMO registro del paciente con la
+    aseguradora `aseg_key` nueva (reusa sus prestaciones/doctor/fecha). Devuelve
+    {'reenviado': bool, 'email_enmascarado'?}. No lanza: si no hay boleta reciente
+    o el email no sirve, simplemente no reenvía."""
+    regs = [r for r in seguros.listar_registros(rut=rut) if r.get('prestaciones')]
+    if not regs:
+        return {'reenviado': False}
+    reg = regs[0]
+    filas = reg.get('prestaciones') or []
+    doctor_key = reg.get('doctor') or ''
+
+    import pacientes as _pac
+    rec = _pac.lookup(rut) or {}
+    email_dest = (rec.get('email') or reg.get('email') or '').strip()
+    if '@' not in email_dest:
+        return {'reenviado': False}
+
+    cfg = scheduling.load_config()
+    doc_cfg = (cfg.get('doctores') or {}).get(doctor_key) if doctor_key else None
+    doctor_nombre = (f"Dr. {doc_cfg['professional_name']}"
+                     if isinstance(doc_cfg, dict) and doc_cfg.get('professional_name')
+                     else '')
+    valores = seguros.armar_valores({
+        'rut': rut, 'nombre': rec.get('nombres', ''), 'apellido': rec.get('apellidos', ''),
+        'email': email_dest, 'telefono': rec.get('telefono', ''),
+        'datos_extra': (seguros.paciente_seguro(rut) or {}).get('datos_extra', {}),
+        'doctor_nombre': doctor_nombre,
+        'fecha_atencion': reg.get('fecha_atencion', ''),
+    }, filas)
+    if doctor_key:
+        doc_datos = seguros.datos_doctor(doctor_key)
+        valores['doctor_rut'] = doc_datos.get('rut', '')
+        valores['doctor_especialidad'] = (doc_datos.get('especialidad')
+                                          or ((doc_cfg or {}).get('especialidad', '') or '').title())
+        if doc_datos.get('nombre_visible'):
+            valores['doctor_nombre'] = doc_datos['nombre_visible']
+            valores['doctor_nombres'], valores['doctor_apellidos'] = \
+                seguros.partir_nombre_doctor(doc_datos['nombre_visible'])
+
+    try:
+        pdf_path = seguros.rellenar_pdf(aseg_key, valores, firma_doctor_key=doctor_key or None)
+    except Exception as e:
+        app.logger.error('seguro reenvio: error PDF: %s', e)
+        return {'reenviado': False}
+
+    aseg = seguros.obtener_aseguradora(aseg_key) or {}
+    paciente = {'nombres': rec.get('nombres', ''), 'apellidos': rec.get('apellidos', ''),
+                'email': email_dest}
+    resultado = notify.enviar_formulario_seguro(
+        paciente, pdf_path, aseg.get('nombre', aseg_key),
+        link_cambio=_link_cambio_aseguradora(rut))
+    if not resultado.get('ok'):
+        return {'reenviado': False}
+    form_id = seguros.crear_registro({
+        'rut': rut, 'aseguradora': aseg_key, 'doctor': doctor_key,
+        'prestaciones': filas, 'fecha_atencion': reg.get('fecha_atencion', ''),
+        'origen': 'cambio_paciente', 'pdf_path': pdf_path, 'email': email_dest,
+    })
+    seguros.marcar_enviado(form_id, canal='email')
+    return {'reenviado': True, 'email_enmascarado': _enmascarar_email(email_dest)}
+
+
+@app.route('/api/seguro/link-info', methods=['GET'])
+@rate_limit('10 per minute')
+def seguro_link_info():
+    """PÚBLICO: prellenado de la página 'Actualizar mi aseguradora'. Solo devuelve
+    el primer nombre (para que el paciente sepa que es su ficha) + la aseguradora
+    actual y el catálogo de opciones. Nunca RUT/email/teléfono."""
+    res = link_aseguradora.resolver(request.args.get('token', ''))
+    if not res.get('ok'):
+        return jsonify({'ok': False, 'motivo': res.get('motivo', 'no_existe')}), 200
+    import pacientes as _pac
+    rut = res['rut']
+    rec = _pac.lookup(rut) or {}
+    estado = seguros.estado_aseguradora(rut)
+    actual = (seguros.paciente_seguro(rut) or {}).get('ultima_aseguradora')
+    opciones = [{'key': a['key'], 'nombre': a.get('nombre', a['key'])}
+                for a in seguros.listar_aseguradoras()]
+    return jsonify({
+        'ok': True,
+        'nombre': _pac.display(rec).get('nombres', ''),
+        'estado': estado,
+        'aseguradora_actual': actual if estado == 'asignada' else '',
+        'opciones': opciones,
+        'sin_seguro_valor': seguros.SIN_SEGURO,
+    })
+
+
+@app.route('/api/seguro/actualizar-aseguradora', methods=['POST'])
+@rate_limit('10 per minute')
+def seguro_actualizar_aseguradora():
+    """PÚBLICO: el paciente guarda su nueva aseguradora. Valida el token, guarda,
+    lo sella como usado y —si tiene una boleta reciente— reenvía el formulario
+    corregido. Body: {token, aseguradora}. `aseguradora` = key válida o SIN_SEGURO."""
+    data = request.json or {}
+    res = link_aseguradora.resolver((data.get('token') or '').strip())
+    if not res.get('ok'):
+        return jsonify({'ok': False, 'motivo': res.get('motivo', 'no_existe')}), 200
+    rut = res['rut']
+    aseg_key = (data.get('aseguradora') or '').strip()
+
+    validas = {a['key'] for a in seguros.listar_aseguradoras(solo_activas=False)}
+    validas.add(seguros.SIN_SEGURO)
+    if aseg_key not in validas:
+        return jsonify({'ok': False, 'error': 'Elige una compañía de la lista'}), 400
+
+    seguros.guardar_paciente_seguro(rut, aseguradora=aseg_key)
+
+    salida = {'ok': True, 'reenviado': False}
+    if aseg_key != seguros.SIN_SEGURO:
+        try:
+            salida.update(_seguro_reenviar_ultimo(rut, aseg_key))
+        except Exception as e:
+            app.logger.error('seguro actualizar: reenvio falló: %s', e)
+    # Solo se sella el link cuando se reenvió el formulario (ese correo ya trae un
+    # link fresco). Si no se reenvió (declaró "sin seguro" o no hay boleta reciente),
+    # el link queda utilizable hasta vencer para que el paciente pueda corregirse.
+    if salida.get('reenviado'):
+        link_aseguradora.marcar_usado((data.get('token') or '').strip())
+    return jsonify(salida)
 
 
 # ── Administración (pestaña "Seguros" del panel) ─────────────────────────────

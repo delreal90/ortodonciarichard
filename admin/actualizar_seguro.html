@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Actualizar Seguro Complementario — Ortodoncia Richard</title>
+<style>
+  :root {
+    --navy: #1A2E4A; --navy-light: #243C5E; --gold: #C9A84C; --gold-light: #D4B870;
+    --white: #fff; --bg: #F0F5FB; --text-dark: #1A2535; --text-mid: #4A5568;
+    --red: #e53e3e; --green: #38a169;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text-dark); min-height: 100vh; padding-bottom: 40px; }
+
+  header { background: var(--navy); color: white; padding: 20px 24px; text-align: center; }
+  header .clinica { color: var(--gold); font-size: .75rem; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  header h1 { font-size: 1.15rem; font-weight: 700; }
+
+  main { max-width: 480px; margin: 0 auto; padding: 0 16px; }
+
+  .card { background: white; border-radius: 12px; padding: 24px; margin-top: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h2 { font-size: 1.05rem; color: var(--navy); margin-bottom: 6px; }
+  .card p.sub { font-size: .88rem; color: var(--text-mid); line-height: 1.5; margin-bottom: 18px; }
+
+  label { display: block; font-size: .78rem; font-weight: 600; color: var(--text-mid); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .3px; }
+  select {
+    width: 100%; padding: 12px 14px; border: 1px solid #cbd5e0; border-radius: 8px;
+    font-size: .95rem; font-family: inherit; background: #fff; color: var(--text-dark);
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234A5568' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; background-size: 18px;
+    padding-right: 40px;
+  }
+  select:focus { outline: none; border-color: var(--gold); }
+
+  .btn { padding: 13px 22px; border: none; border-radius: 8px; font-size: .95rem; font-weight: 600; cursor: pointer; transition: opacity .15s, transform .05s; width: 100%; margin-top: 20px; }
+  .btn:active { transform: scale(.98); }
+  .btn-gold { background: var(--gold); color: white; }
+  .btn:hover { opacity: .88; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  #banner-msg { display: none; font-size: .85rem; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; line-height: 1.4; }
+  #banner-msg.error { display: block; background: #fdecea; border: 1px solid #f0b0b0; color: var(--red); }
+  #banner-msg.info { display: block; background: var(--bg); border: 1px solid #cbd5e0; color: var(--text-mid); }
+
+  #loading { text-align: center; color: var(--text-mid); font-size: .9rem; padding: 60px 16px; }
+
+  #pantalla-ok, #pantalla-error { display: none; max-width: 480px; margin: 80px auto 0; text-align: center; padding: 0 16px; }
+  #pantalla-ok .icono { width: 68px; height: 68px; border-radius: 50%; background: var(--green); color: white; font-size: 1.9rem; display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; }
+  #pantalla-error .icono { width: 68px; height: 68px; border-radius: 50%; background: var(--red); color: white; font-size: 1.9rem; display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; }
+  #pantalla-ok h2, #pantalla-error h2 { color: var(--navy); margin-bottom: 10px; font-size: 1.1rem; }
+  #pantalla-ok p, #pantalla-error p { color: var(--text-mid); font-size: .9rem; line-height: 1.5; }
+
+  .saludo { font-size: 1.05rem; color: var(--navy); font-weight: 700; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="clinica">Clínica de Ortodoncia C. Richard</div>
+  <h1>Actualizar Seguro Complementario</h1>
+</header>
+
+<main>
+
+  <div id="loading">Cargando tu información...</div>
+
+  <form class="card" id="card-form" style="display:none;" onsubmit="return false;">
+    <div id="banner-msg"></div>
+    <div class="saludo" id="saludo">Hola</div>
+    <p class="sub">Confirma o actualiza tu aseguradora de seguro complementario para que tu próximo formulario de reembolso salga con los datos correctos.</p>
+
+    <label for="select-aseguradora">Aseguradora</label>
+    <select id="select-aseguradora"></select>
+
+    <button class="btn btn-gold" id="btn-guardar" onclick="guardar()">Guardar</button>
+  </form>
+
+  <div id="pantalla-ok">
+    <div class="icono">&#10003;</div>
+    <h2>&iexcl;Listo!</h2>
+    <p id="pantalla-ok-msg">Guardamos tu aseguradora.</p>
+  </div>
+
+  <div id="pantalla-error">
+    <div class="icono">!</div>
+    <h2>No se pudo abrir el enlace</h2>
+    <p id="pantalla-error-msg">Este enlace ya no es válido. Si necesitas actualizar tu seguro, escríbenos.</p>
+  </div>
+
+</main>
+
+<script>
+// El backend siempre sirve esta página en el mismo origen (Flask la expone en
+// /actualizar-seguro, tanto local como en Render) — usar location.origin evita que
+// el celular del paciente intente conectarse a su propio "localhost". La única
+// excepción es cuando se abre suelta desde un servidor estático de preview
+// (puertos 3000/3050 en este proyecto), donde sí apunta al Flask local.
+const API_BASE = window.SEGURO_API_BASE
+  || (['3000', '3050'].includes(location.port) ? 'http://localhost:5001' : location.origin);
+
+const params = new URLSearchParams(location.search);
+const token = params.get('token') || '';
+
+let infoLink = null; // { nombre, estado, aseguradora_actual, opciones, sin_seguro_valor }
+
+function mostrarErrorFinal(msg) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('card-form').style.display = 'none';
+  document.getElementById('pantalla-error-msg').textContent = msg;
+  document.getElementById('pantalla-error').style.display = 'block';
+}
+
+function mostrarBanner(msg, tipo) {
+  const b = document.getElementById('banner-msg');
+  b.textContent = msg;
+  b.className = tipo || 'error';
+}
+function ocultarBanner() {
+  const b = document.getElementById('banner-msg');
+  b.style.display = 'none';
+  b.className = '';
+}
+
+function poblarSelect() {
+  const sel = document.getElementById('select-aseguradora');
+  sel.innerHTML = '';
+
+  const optSinSeguro = document.createElement('option');
+  optSinSeguro.value = infoLink.sin_seguro_valor;
+  optSinSeguro.textContent = '-- No tengo seguro --';
+  sel.appendChild(optSinSeguro);
+
+  (infoLink.opciones || []).forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.key;
+    opt.textContent = o.nombre;
+    sel.appendChild(opt);
+  });
+
+  if (infoLink.estado === 'asignada' && infoLink.aseguradora_actual) {
+    sel.value = infoLink.aseguradora_actual;
+  } else if (infoLink.estado === 'sin_seguro') {
+    sel.value = infoLink.sin_seguro_valor;
+  }
+}
+
+async function iniciar() {
+  if (!token) {
+    mostrarErrorFinal('Falta el enlace de actualización. Revisa el mensaje que te enviamos por correo.');
+    return;
+  }
+
+  try {
+    const r = await fetch(`${API_BASE}/api/seguro/link-info?token=${encodeURIComponent(token)}`);
+    const j = await r.json();
+
+    if (!j.ok) {
+      const mensajes = {
+        no_existe: 'Este enlace no es válido. Si necesitas actualizar tu seguro, escríbenos.',
+        expirado: 'Este enlace ya venció. Si necesitas actualizar tu seguro, escríbenos.',
+        usado: 'Este enlace ya fue usado. Si necesitas actualizar tu seguro nuevamente, escríbenos.',
+      };
+      mostrarErrorFinal(mensajes[j.motivo] || 'Este enlace ya no es válido. Si necesitas actualizar tu seguro, escríbenos.');
+      return;
+    }
+
+    infoLink = j;
+    document.getElementById('saludo').textContent = `Hola ${j.nombre || ''}`.trim();
+    poblarSelect();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('card-form').style.display = 'block';
+  } catch (e) {
+    mostrarErrorFinal('No se pudo cargar tu información. Revisa tu conexión e intenta de nuevo.');
+  }
+}
+
+async function guardar() {
+  ocultarBanner();
+  const aseguradora = document.getElementById('select-aseguradora').value;
+  const btn = document.getElementById('btn-guardar');
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Guardando...';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/seguro/actualizar-aseguradora`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, aseguradora }),
+    });
+    const j = await r.json();
+
+    if (!j.ok) {
+      mostrarBanner(j.error || j.motivo || 'No se pudo guardar tu aseguradora. Intenta de nuevo.', 'error');
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+      return;
+    }
+
+    document.getElementById('card-form').style.display = 'none';
+    const msg = j.reenviado
+      ? `¡Listo! Guardamos tu aseguradora y te reenviamos el formulario corregido a tu correo (${j.email_enmascarado || ''}).`
+      : '¡Listo! Guardamos tu aseguradora. Tu próximo formulario ya saldrá con la compañía correcta.';
+    document.getElementById('pantalla-ok-msg').textContent = msg;
+    document.getElementById('pantalla-ok').style.display = 'block';
+  } catch (e) {
+    mostrarBanner('Error de conexión. Intenta de nuevo.', 'error');
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+
+iniciar();
+</script>
+</body>
+</html>

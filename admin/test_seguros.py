@@ -237,5 +237,169 @@ class TestFilasDesdeBoleta(_AislamientoCatalogo):
         self.assertEqual(len(self.creadas), 1)   # catalogo vacio -> se auto-crea
 
 
+# ── 6. estado_aseguradora / asignar_si_vacio ─────────────────────────────────
+# Usan seguros_pacientes.json real (aislado por SEGUROS_PACIENTES_PATH, un
+# tempfile propio de este proceso de test). Se limpia el store en cada setUp
+# para que las pruebas no se vean entre si.
+
+RUT_A = '11.111.111-1'
+RUT_B = '22.222.222-2'
+
+
+class TestEstadoYAsignarSiVacio(unittest.TestCase):
+
+    def setUp(self):
+        seguros._save(seguros.PACIENTES_PATH, {})
+
+    def test_sin_registro_es_sin_asignar(self):
+        self.assertEqual(seguros.estado_aseguradora(RUT_A), 'sin_asignar')
+
+    def test_sin_seguro_declarado_es_sin_seguro(self):
+        seguros.guardar_paciente_seguro(RUT_A, aseguradora=seguros.SIN_SEGURO)
+        self.assertEqual(seguros.estado_aseguradora(RUT_A), 'sin_seguro')
+
+    def test_aseguradora_real_es_asignada(self):
+        seguros.guardar_paciente_seguro(RUT_A, aseguradora='zurich')
+        self.assertEqual(seguros.estado_aseguradora(RUT_A), 'asignada')
+
+    def test_asignar_si_vacio_a_rut_nuevo_devuelve_true_y_asigna(self):
+        ok = seguros.asignar_si_vacio(RUT_B, 'metlife')
+        self.assertTrue(ok)
+        self.assertEqual(seguros.estado_aseguradora(RUT_B), 'asignada')
+        self.assertEqual(seguros.paciente_seguro(RUT_B)['ultima_aseguradora'], 'metlife')
+
+    def test_asignar_si_vacio_no_pisa_una_aseguradora_ya_puesta(self):
+        seguros.asignar_si_vacio(RUT_B, 'metlife')
+        ok = seguros.asignar_si_vacio(RUT_B, 'zurich')
+        self.assertFalse(ok)
+        self.assertEqual(seguros.paciente_seguro(RUT_B)['ultima_aseguradora'], 'metlife')
+
+    def test_asignar_si_vacio_no_pisa_sin_seguro(self):
+        seguros.guardar_paciente_seguro(RUT_A, aseguradora=seguros.SIN_SEGURO)
+        ok = seguros.asignar_si_vacio(RUT_A, 'zurich')
+        self.assertFalse(ok)
+        self.assertEqual(seguros.estado_aseguradora(RUT_A), 'sin_seguro')
+
+    def test_asignar_si_vacio_sin_aseguradora_no_hace_nada(self):
+        self.assertFalse(seguros.asignar_si_vacio(RUT_A, ''))
+        self.assertFalse(seguros.asignar_si_vacio(RUT_A, None))
+        self.assertEqual(seguros.estado_aseguradora(RUT_A), 'sin_asignar')
+
+
+# ── 7. clasificar_items / registrar_glosas ───────────────────────────────────
+
+class TestClasificarItems(_AislamientoCatalogo):
+
+    def test_glosa_conocida_por_patron_cae_en_conocidos(self):
+        self.catalogo = [{
+            'id': 'p_control', 'nombre': 'Control Mensual de Ortodoncia',
+            'glosas_boleta': ['CONTROL MENSUAL DE ORTODONCIA'],
+        }]
+        items = [
+            {'descripcion': 'CONTROL MENSUAL DE ORTODONCIA AGOSTO pieza Boca', 'valor': 30000},
+            {'descripcion': 'Cone Beam 3D pieza Boca', 'valor': 45000},
+        ]
+        resultado = seguros.clasificar_items(items)
+        self.assertEqual(resultado['conocidos'],
+                         ['CONTROL MENSUAL DE ORTODONCIA AGOSTO pieza Boca'])
+        self.assertEqual(resultado['nuevos'], ['Cone Beam 3D pieza Boca'])
+        self.assertEqual(self.creadas, [])   # consulta pura, no crea nada
+
+    def test_glosa_conocida_por_glosa_original_exacta(self):
+        # sembrado via guardar_prestacion (glosa_original), no glosas_boleta
+        seguros.guardar_prestacion(None, {'nombre': 'Ajuste de Arco',
+                                          'glosa_original': 'Ajuste de Arco'})
+        items = [{'descripcion': 'Ajuste de Arco', 'valor': 5000}]
+        resultado = seguros.clasificar_items(items)
+        self.assertEqual(resultado['conocidos'], ['Ajuste de Arco'])
+        self.assertEqual(resultado['nuevos'], [])
+
+    def test_items_vacios_o_sin_descripcion_se_ignoran(self):
+        resultado = seguros.clasificar_items([{'descripcion': '', 'valor': 1000}])
+        self.assertEqual(resultado, {'conocidos': [], 'nuevos': []})
+        self.assertEqual(seguros.clasificar_items([]), {'conocidos': [], 'nuevos': []})
+        self.assertEqual(seguros.clasificar_items(None), {'conocidos': [], 'nuevos': []})
+
+
+class TestRegistrarGlosas(_AislamientoCatalogo):
+
+    def test_registra_las_glosas_nuevas_en_el_catalogo(self):
+        items = [
+            {'descripcion': 'Cone Beam 3D pieza Boca', 'valor': 45000},
+            {'descripcion': 'Ajuste de Arco', 'valor': 5000},
+        ]
+        seguros.registrar_glosas(items)
+        self.assertEqual(len(self.creadas), 2)
+
+    def test_tras_registrar_glosas_clasificar_items_las_da_conocidas(self):
+        items = [{'descripcion': 'Cone Beam 3D pieza Boca', 'valor': 45000}]
+        # antes de registrar: nueva
+        self.assertEqual(seguros.clasificar_items(items)['nuevos'],
+                         ['Cone Beam 3D pieza Boca'])
+        seguros.registrar_glosas(items)
+        # despues de registrar: conocida, y no crea una segunda vez
+        resultado = seguros.clasificar_items(items)
+        self.assertEqual(resultado['conocidos'], ['Cone Beam 3D pieza Boca'])
+        self.assertEqual(resultado['nuevos'], [])
+        self.assertEqual(len(self.creadas), 1)
+
+    def test_glosa_ya_conocida_no_duplica_al_registrar(self):
+        self.catalogo = [{
+            'id': 'p_control', 'nombre': 'Control Mensual de Ortodoncia',
+            'glosas_boleta': ['CONTROL MENSUAL DE ORTODONCIA'],
+        }]
+        items = [{'descripcion': 'CONTROL MENSUAL DE ORTODONCIA AGOSTO pieza Boca',
+                  'valor': 30000}]
+        seguros.registrar_glosas(items)
+        self.assertEqual(self.creadas, [])   # ya calzaba por patron, no crea
+
+    def test_lista_vacia_o_none_no_falla(self):
+        seguros.registrar_glosas([])
+        seguros.registrar_glosas(None)
+        self.assertEqual(self.creadas, [])
+
+
+# ── 8. Informe generico conserva la PIEZA (aseguradora SIN plantilla) ────────
+
+class TestInformeGenericoConservaPieza(_AislamientoCatalogo):
+
+    def setUp(self):
+        super().setUp()
+        self._orig_obtener_aseguradora = seguros.obtener_aseguradora
+        # euroamerica: SIN plantilla_pdf -> informe generico (usa glosa cruda).
+        # zurich: CON plantilla_pdf -> usa el nombre agrupado de la prestacion.
+        aseguradoras = {
+            'euroamerica': {'nombre': 'Euroamerica'},
+            'zurich': {'nombre': 'Zurich', 'plantilla_pdf': 'zurich.pdf'},
+        }
+        seguros.obtener_aseguradora = lambda key: aseguradoras.get(key)
+
+    def tearDown(self):
+        seguros.obtener_aseguradora = self._orig_obtener_aseguradora
+        super().tearDown()
+
+    def test_euroamerica_usa_la_glosa_cruda_con_la_pieza(self):
+        self.catalogo = [{
+            'id': 'p_recementacion', 'nombre': 'Recementación de Bracket',
+            'glosas_boleta': ['RECEMENTACION BRACKET'],
+        }]
+        items = [{'descripcion': 'Recementacion Bracket pieza 22', 'valor': 15000}]
+        filas = seguros.filas_desde_items(items, 'euroamerica')
+
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['descripcion'], 'Recementacion Bracket pieza 22')
+
+    def test_zurich_usa_el_nombre_agrupado_sin_la_pieza(self):
+        self.catalogo = [{
+            'id': 'p_recementacion', 'nombre': 'Recementación de Bracket',
+            'glosas_boleta': ['RECEMENTACION BRACKET'],
+        }]
+        items = [{'descripcion': 'Recementacion Bracket pieza 22', 'valor': 15000}]
+        filas = seguros.filas_desde_items(items, 'zurich')
+
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['descripcion'], 'Recementación de Bracket')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

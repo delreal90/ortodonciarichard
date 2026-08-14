@@ -305,13 +305,26 @@ def _monto_int(v):
         return 0
 
 
+def _aseguradora_sin_formulario(aseguradora_key):
+    """True si la aseguradora NO tiene formulario oficial mapeado → el PDF será el
+    'informe genérico' (generar_pdf_generico). Ej.: EUROAMERICA, que no tiene
+    formulario y pide un informe timbrado con la prestación valorizada y la PIEZA."""
+    aseg = obtener_aseguradora(aseguradora_key) or {}
+    return not aseg.get('plantilla_pdf')
+
+
 def filas_desde_items(items, aseguradora_key, fecha=''):
     """Modelo nuevo: convierte los ÍTEMS de la boleta/presupuesto en filas del
     formulario. items = [{'descripcion','valor'}, ...]. Por cada ítem: encuentra-o-
     crea la prestación (por glosa), usa el NOMBRE por aseguradora si hay override
     (mapeo_prestaciones), y el VALOR del ítem tal cual. NUNCA falla: copia lo que
-    venga (el estudio llega desglosado en sus ítems, el control como uno solo)."""
+    venga (el estudio llega desglosado en sus ítems, el control como uno solo).
+
+    Para aseguradoras SIN formulario (informe genérico, ej. EUROAMERICA) se usa la
+    glosa CRUDA de la boleta como descripción — así conserva la PIEZA tratada, que
+    esas aseguradoras exigen y que el nombre agrupado de la prestación puede perder."""
     mapeo = mapeo_prestaciones()
+    es_informe = _aseguradora_sin_formulario(aseguradora_key)
     filas = []
     for it in (items or []):
         glosa = (it.get('descripcion') or '').strip()
@@ -327,10 +340,35 @@ def filas_desde_items(items, aseguradora_key, fecha=''):
                               'descripcion': ov.get('descripcion') or p.get('nombre') or glosa,
                               'valor': valor if j == 0 else 0, 'fecha': fecha})
         else:
+            desc = glosa if es_informe else (p.get('nombre') or glosa)
             filas.append({'id': p['id'], 'codigo': '',
-                          'descripcion': p.get('nombre') or glosa,
+                          'descripcion': desc,
                           'valor': valor, 'fecha': fecha})
     return filas
+
+
+def clasificar_items(items):
+    """Separa las glosas de la boleta en CONOCIDAS (ya resuelven a una prestación
+    existente) y NUEVAS (ninguna prestación las cubre todavía). NO crea nada — es
+    consulta pura, para que el auto-envío decida si mandar el formulario solo.
+    Devuelve {'conocidos': [glosa,...], 'nuevos': [glosa,...]}."""
+    conocidos, nuevos = [], []
+    for it in (items or []):
+        glosa = (it.get('descripcion') or '').strip()
+        if not glosa:
+            continue
+        (conocidos if prestacion_por_glosa(glosa) else nuevos).append(glosa)
+    return {'conocidos': conocidos, 'nuevos': nuevos}
+
+
+def registrar_glosas(items):
+    """Crea en el catálogo (para que aparezcan en el panel) las prestaciones de las
+    glosas que aún no existan, SIN precio. Se usa cuando el auto-envío detecta glosas
+    nuevas: no manda el formulario pero deja las prestaciones listas para configurar."""
+    for it in (items or []):
+        glosa = (it.get('descripcion') or '').strip()
+        if glosa:
+            obtener_o_crear_prestacion_glosa(glosa)
 
 
 def filas_desde_boleta(glosa, monto_total, aseguradora_key, fecha=''):
@@ -370,9 +408,30 @@ def prestaciones_para_aseguradora(aseguradora_key):
 # ── Preferencia y datos extra por paciente (RUT) ─────────────────────────────
 # {rut_limpio: {ultima_aseguradora, datos_extra:{fecha_nacimiento,direccion,...},
 #               actualizado}}
+#
+# ultima_aseguradora puede ser:
+#   - una key real ('zurich', 'metlife', …)  → estado 'asignada'
+#   - SIN_SEGURO ('sin_seguro')              → el paciente declaró NO tener seguro
+#   - ausente/'' (sin registro)              → 'sin_asignar' (nadie la definió aún)
+# Ni 'sin_seguro' ni 'sin_asignar' disparan avisos a recepción en el auto-envío:
+# el paciente sin seguro no genera formulario, y "sin asignar" es simplemente que
+# todavía nadie eligió su aseguradora (todos los pacientes viejos arrancan así).
+
+SIN_SEGURO = 'sin_seguro'
+
 
 def paciente_seguro(rut):
     return _load(PACIENTES_PATH).get(_limpiar_rut(rut))
+
+
+def estado_aseguradora(rut):
+    """'asignada' | 'sin_seguro' | 'sin_asignar' para el RUT dado."""
+    aseg = (paciente_seguro(rut) or {}).get('ultima_aseguradora')
+    if not aseg:
+        return 'sin_asignar'
+    if aseg == SIN_SEGURO:
+        return 'sin_seguro'
+    return 'asignada'
 
 
 def guardar_paciente_seguro(rut, aseguradora=None, datos_extra=None):
@@ -391,6 +450,17 @@ def guardar_paciente_seguro(rut, aseguradora=None, datos_extra=None):
         rec['actualizado'] = ahora_chile().isoformat(timespec='seconds')
         idx[rut] = rec
         _save(PACIENTES_PATH, idx)
+
+
+def asignar_si_vacio(rut, aseguradora):
+    """Asigna la aseguradora SOLO si el paciente hoy está 'sin_asignar' (regla de
+    oro, igual que pacientes.merge_fichas): nunca pisa una aseguradora ya elegida a
+    mano ni un 'sin_seguro'. Lo usa la sincronización del formulario de primera
+    consulta. Devuelve True si escribió, False si no tocó nada."""
+    if not aseguradora or estado_aseguradora(rut) != 'sin_asignar':
+        return False
+    guardar_paciente_seguro(rut, aseguradora=aseguradora)
+    return True
 
 
 # ── Firmas + timbre de doctores ──────────────────────────────────────────────
