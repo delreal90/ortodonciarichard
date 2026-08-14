@@ -401,5 +401,40 @@ class TestInformeGenericoConservaPieza(_AislamientoCatalogo):
         self.assertEqual(filas[0]['descripcion'], 'Recementación de Bracket')
 
 
+class TestSacaPiezaBoca(_AislamientoCatalogo):
+    """'pieza Boca' (lo agrega DentiDesk cuando no se asignó un diente) no debe
+    aparecer en el formulario; un diente real ('pieza 11') sí se conserva."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig = seguros.obtener_aseguradora
+        seguros.obtener_aseguradora = lambda key: {'euroamerica': {'nombre': 'Euroamerica'}}.get(key)
+
+    def tearDown(self):
+        seguros.obtener_aseguradora = self._orig
+        super().tearDown()
+
+    def test_helper_saca_solo_boca(self):
+        self.assertEqual(seguros._sin_pieza_boca('PLANO DE ALIVIO OCLUSAL pieza Boca'),
+                         'PLANO DE ALIVIO OCLUSAL')
+        self.assertEqual(seguros._sin_pieza_boca('EXAMEN pieza BOCA'), 'EXAMEN')
+        self.assertEqual(seguros._sin_pieza_boca('RECEMENTACION pieza 11'),
+                         'RECEMENTACION pieza 11')
+        self.assertEqual(seguros._sin_pieza_boca('CONTROL'), 'CONTROL')
+
+    def test_filas_sin_pieza_boca_pero_conserva_diente_real(self):
+        self.catalogo = []
+        filas = seguros.filas_desde_items(
+            [{'descripcion': 'PLANO DE ALIVIO OCLUSAL pieza Boca', 'valor': 95000},
+             {'descripcion': 'Recementacion pieza 11', 'valor': 15000}], 'euroamerica')
+        self.assertEqual([f['descripcion'] for f in filas],
+                         ['PLANO DE ALIVIO OCLUSAL', 'Recementacion pieza 11'])
+
+    def test_prestacion_auto_creada_queda_sin_pieza_boca(self):
+        self.catalogo = []
+        p = seguros.obtener_o_crear_prestacion_glosa('CONTROL DE CONTENCION pieza Boca')
+        self.assertEqual(p['nombre'], 'CONTROL DE CONTENCION')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

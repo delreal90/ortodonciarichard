@@ -279,6 +279,14 @@ def _norm_glosa(s):
     return t
 
 
+def _sin_pieza_boca(s):
+    """Quita el sufijo ' pieza Boca' que DentiDesk agrega a la glosa cuando NO se
+    asignó un diente específico (normal en ortodoncia: el tratamiento es de toda la
+    boca). Es ruido en el formulario del seguro. NO toca un diente real como
+    'pieza 11' — solo el marcador genérico 'Boca'."""
+    return re.sub(r'(?i)\s*pieza\s+boca\s*$', '', s or '').strip()
+
+
 def prestacion_por_glosa(glosa):
     """Prestación que corresponde a una glosa. (1) por PATRÓN (glosas_boleta —
     agrupa variantes tipo 'CONTROL MENSUAL … AGOSTO/JULIO'); (2) por glosa_original
@@ -305,7 +313,7 @@ def obtener_o_crear_prestacion_glosa(glosa):
     p = prestacion_por_glosa(glosa)
     if p:
         return p
-    limpia = re.sub(r'\s+', ' ', (glosa or '').strip())
+    limpia = _sin_pieza_boca(re.sub(r'\s+', ' ', (glosa or '').strip()))
     pid = guardar_prestacion(None, {'nombre': limpia, 'glosa_original': limpia,
                                     'origen': 'boleta'})
     return {'id': pid, 'nombre': limpia, 'glosa_original': limpia}
@@ -351,10 +359,10 @@ def filas_desde_items(items, aseguradora_key, fecha=''):
             # renombre/código por aseguradora; si mapea a varios, el valor va en el 1º
             for j, ov in enumerate(overrides):
                 filas.append({'id': p['id'], 'codigo': ov.get('codigo', ''),
-                              'descripcion': ov.get('descripcion') or p.get('nombre') or glosa,
+                              'descripcion': _sin_pieza_boca(ov.get('descripcion') or p.get('nombre') or glosa),
                               'valor': valor if j == 0 else 0, 'fecha': fecha})
         else:
-            desc = glosa if es_informe else (p.get('nombre') or glosa)
+            desc = _sin_pieza_boca(glosa if es_informe else (p.get('nombre') or glosa))
             filas.append({'id': p['id'], 'codigo': '',
                           'descripcion': desc,
                           'valor': valor, 'fecha': fecha})
