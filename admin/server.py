@@ -4151,6 +4151,13 @@ def seguro_auto_desde_boleta():
 
     cfg = scheduling.load_config()
     doctor_key = seguros.get_auto_config().get('doctor_default', '')
+    # Un formulario de reembolso SIN el odontólogo tratante (nombre, RUT y firma+
+    # timbre) es inválido para la aseguradora. El auto-envío no tiene la ficha abierta
+    # para saber el doctor, así que usa el "doctor por defecto" configurado en el panel.
+    # Si no hay doctor configurado o ese doctor no tiene firma cargada, NO se manda un
+    # formulario incompleto: se avisa a recepción para que lo emita a mano desde el F2.
+    if not doctor_key or not seguros.firma_de_doctor(doctor_key):
+        return _pendiente('sin_doctor')
     doc_cfg = (cfg.get('doctores') or {}).get(doctor_key) if doctor_key else None
     doctor_nombre = (f"Dr. {doc_cfg['professional_name']}"
                      if isinstance(doc_cfg, dict) and doc_cfg.get('professional_name')

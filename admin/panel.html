@@ -592,6 +592,23 @@
         <input type="file" id="seg-firma-file" accept="image/png,image/jpeg" style="margin-bottom:14px">
         <button class="btn btn-primary" onclick="subirFirma()">Subir firma</button>
       </div>
+
+      <!-- 5. Auto-envío -->
+      <div class="card" style="margin-top:18px">
+        <h3 style="margin-bottom:10px">🤖 Auto-envío</h3>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">El auto-envío (al emitir una boleta) no tiene la ficha abierta, así que usa este doctor por defecto para poner nombre, RUT y firma en el formulario.</p>
+        <div class="row">
+          <div style="min-width:220px">
+            <label>Doctor por defecto (nombre, RUT y firma que van en el formulario)</label>
+            <select id="seg-auto-doctor">
+              <option value="">— Ninguno —</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="guardarSegAuto()" id="seg-auto-guardar">Guardar</button>
+        </div>
+        <div id="seg-auto-estado" style="margin-top:8px;font-size:.85rem"></div>
+        <p style="font-size:.78rem;color:#718096;margin-top:10px">Si no hay doctor con firma configurado, el auto-envío NO manda el formulario y avisa a recepción (para que lo emitas a mano desde el F2).</p>
+      </div>
     </div>
 
     <!-- ── CONTROL DENTAL ─────────────────────────────────────── -->
@@ -2964,6 +2981,43 @@ function initSeguros() {
   remotoInit('seg-url', 'seg-token', loadSeguros);
 }
 
+// ── 5. Auto-envío: doctor por defecto para el vigilante de boletas ──
+async function cargarSegAuto() {
+  const sel = document.getElementById('seg-auto-doctor');
+  const estado = document.getElementById('seg-auto-estado');
+  try {
+    const [dInit, dCfg] = await Promise.all([
+      _segFetch('/api/seguro/init'),
+      _segFetch('/api/seguro/auto-config'),
+    ]);
+    const doctores = (dInit && dInit.ok) ? (dInit.doctores || []) : [];
+    sel.innerHTML = '<option value="">— Ninguno —</option>' +
+      doctores.map(d => `<option value="${_esc(d.key)}">${_esc(d.nombre)}</option>`).join('');
+    if (dCfg && dCfg.ok) {
+      sel.value = dCfg.doctor_default || '';
+    }
+    estado.innerHTML = '';
+  } catch (e) {
+    estado.innerHTML = '❌ No se pudo cargar el doctor por defecto';
+  }
+}
+
+async function guardarSegAuto() {
+  const estado = document.getElementById('seg-auto-estado');
+  const valor = document.getElementById('seg-auto-doctor').value;
+  estado.innerHTML = 'Guardando…';
+  try {
+    const d = await _segFetch('/api/seguro/auto-config', 'POST', { doctor_default: valor });
+    if (d && d.ok) {
+      estado.innerHTML = '✅ Guardado';
+    } else {
+      estado.innerHTML = '❌ ' + _esc((d && d.error) || 'Error');
+    }
+  } catch (e) {
+    estado.innerHTML = '❌ No se pudo conectar';
+  }
+}
+
 // _segUrl/_segToken/_segHeaders/_segFetch: delegados de una línea a
 // remotoUrl/remotoToken/remotoHeaders/remotoFetch (bloque "REMOTO", antes de
 // Estadísticas). _segFetch conserva su firma propia (devuelve el JSON ya
@@ -3011,6 +3065,7 @@ async function loadSeguros() {
   renderSegPrestaciones();
   renderSegFirmas();
   renderSegHistorial();
+  cargarSegAuto();
 }
 
 // ── 1. Historial ─────────────────────────────────────

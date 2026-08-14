@@ -104,6 +104,20 @@ def _aplicar_seed():
                 idx[key] = sv                      # no existe → sembrar completa
                 cambiado = True
                 continue
+            # ACTUALIZACIÓN VERSIONADA: cuando el seed sube su 'seed_rev', se
+            # RE-APLICAN los campos de mapeo aunque ya existan en disco. El self-heal
+            # de abajo solo rellena lo VACÍO, así que una corrección visual de
+            # coordenadas (ej. Bice Vida/Consorcio) nunca llegaría a producción, donde
+            # la aseguradora ya existe con el mapeo viejo. Esto solo afecta a las
+            # aseguradoras cuyo seed_rev subió; no toca nombre/activa ni a las demás.
+            if sv.get('seed_rev', 0) > cur.get('seed_rev', 0):
+                for campo in ('mapeo_campos', 'tipo_plantilla', 'plantilla_pdf',
+                              'max_prestaciones_por_form', 'tapar'):
+                    if campo in sv:
+                        cur[campo] = sv[campo]
+                cur['seed_rev'] = sv['seed_rev']
+                cambiado = True
+                continue
             # existe → rellenar SOLO lo que falta (self-heal), sin tocar nombre/activa
             if not (cur.get('mapeo_campos') or {}) and (sv.get('mapeo_campos') or {}):
                 cur['mapeo_campos'] = sv['mapeo_campos']; cambiado = True

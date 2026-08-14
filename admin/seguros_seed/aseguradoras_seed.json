@@ -827,8 +827,8 @@
       },
       "total": {
         "pagina": 1,
-        "x": 418,
-        "y": 223,
+        "x": 440,
+        "y": 226,
         "fontsize": 9
       },
       "firma_doctor": {
@@ -841,130 +841,130 @@
       "prestacion_1_descripcion": {
         "pagina": 1,
         "x": 48,
-        "y": 299,
+        "y": 320,
         "fontsize": 7
       },
       "prestacion_1_fecha": {
         "pagina": 1,
         "x": 346,
-        "y": 299,
+        "y": 320,
         "fontsize": 7
       },
       "prestacion_1_valor": [
         {
           "pagina": 1,
           "x": 440,
-          "y": 299,
+          "y": 320,
           "fontsize": 7
         },
         {
           "pagina": 1,
           "x": 518,
-          "y": 299,
+          "y": 320,
           "fontsize": 7
         }
       ],
       "prestacion_2_descripcion": {
         "pagina": 1,
         "x": 48,
-        "y": 286,
+        "y": 304,
         "fontsize": 7
       },
       "prestacion_2_fecha": {
         "pagina": 1,
         "x": 346,
-        "y": 286,
+        "y": 304,
         "fontsize": 7
       },
       "prestacion_2_valor": [
         {
           "pagina": 1,
           "x": 440,
-          "y": 286,
+          "y": 304,
           "fontsize": 7
         },
         {
           "pagina": 1,
           "x": 518,
-          "y": 286,
+          "y": 304,
           "fontsize": 7
         }
       ],
       "prestacion_3_descripcion": {
         "pagina": 1,
         "x": 48,
-        "y": 273,
+        "y": 288,
         "fontsize": 7
       },
       "prestacion_3_fecha": {
         "pagina": 1,
         "x": 346,
-        "y": 273,
+        "y": 288,
         "fontsize": 7
       },
       "prestacion_3_valor": [
         {
           "pagina": 1,
           "x": 440,
-          "y": 273,
+          "y": 288,
           "fontsize": 7
         },
         {
           "pagina": 1,
           "x": 518,
-          "y": 273,
+          "y": 288,
           "fontsize": 7
         }
       ],
       "prestacion_4_descripcion": {
         "pagina": 1,
         "x": 48,
-        "y": 260,
+        "y": 273,
         "fontsize": 7
       },
       "prestacion_4_fecha": {
         "pagina": 1,
         "x": 346,
-        "y": 260,
+        "y": 273,
         "fontsize": 7
       },
       "prestacion_4_valor": [
         {
           "pagina": 1,
           "x": 440,
-          "y": 260,
+          "y": 273,
           "fontsize": 7
         },
         {
           "pagina": 1,
           "x": 518,
-          "y": 260,
+          "y": 273,
           "fontsize": 7
         }
       ],
       "prestacion_5_descripcion": {
         "pagina": 1,
         "x": 48,
-        "y": 247,
+        "y": 258,
         "fontsize": 7
       },
       "prestacion_5_fecha": {
         "pagina": 1,
         "x": 346,
-        "y": 247,
+        "y": 258,
         "fontsize": 7
       },
       "prestacion_5_valor": [
         {
           "pagina": 1,
           "x": 440,
-          "y": 247,
+          "y": 258,
           "fontsize": 7
         },
         {
           "pagina": 1,
           "x": 518,
-          "y": 247,
+          "y": 258,
           "fontsize": 7
         }
       ],
@@ -1011,7 +1011,8 @@
         "fontsize": 7
       }
     },
-    "max_prestaciones_por_form": 5
+    "max_prestaciones_por_form": 5,
+    "seed_rev": 1
   },
   "consorcio": {
     "nombre": "Consorcio",
@@ -1070,167 +1071,167 @@
       "firma_doctor": {
         "pagina": 2,
         "x": 408,
-        "y": 432,
+        "y": 448,
         "ancho": 110,
-        "alto": 30
+        "alto": 28
       },
       "prestacion_1_fecha": {
         "pagina": 1,
         "x": 130,
-        "y": 412,
+        "y": 407,
         "fontsize": 8
       },
       "prestacion_1_cantidad": {
         "pagina": 1,
         "x": 208,
-        "y": 412,
+        "y": 407,
         "fontsize": 8
       },
       "prestacion_1_descripcion": {
         "pagina": 1,
         "x": 240,
-        "y": 412,
+        "y": 407,
         "fontsize": 8
       },
       "prestacion_1_valor": [
         {
           "pagina": 1,
           "x": 499,
-          "y": 412,
+          "y": 407,
           "fontsize": 8
         },
         {
           "pagina": 1,
           "x": 545,
-          "y": 412,
+          "y": 407,
           "fontsize": 8
         }
       ],
       "prestacion_2_fecha": {
         "pagina": 1,
         "x": 130,
-        "y": 400,
+        "y": 395,
         "fontsize": 8
       },
       "prestacion_2_cantidad": {
         "pagina": 1,
         "x": 208,
-        "y": 400,
+        "y": 395,
         "fontsize": 8
       },
       "prestacion_2_descripcion": {
         "pagina": 1,
         "x": 240,
-        "y": 400,
+        "y": 395,
         "fontsize": 8
       },
       "prestacion_2_valor": [
         {
           "pagina": 1,
           "x": 499,
-          "y": 400,
+          "y": 395,
           "fontsize": 8
         },
         {
           "pagina": 1,
           "x": 545,
-          "y": 400,
+          "y": 395,
           "fontsize": 8
         }
       ],
       "prestacion_3_fecha": {
         "pagina": 1,
         "x": 130,
-        "y": 388,
+        "y": 382,
         "fontsize": 8
       },
       "prestacion_3_cantidad": {
         "pagina": 1,
         "x": 208,
-        "y": 388,
+        "y": 382,
         "fontsize": 8
       },
       "prestacion_3_descripcion": {
         "pagina": 1,
         "x": 240,
-        "y": 388,
+        "y": 382,
         "fontsize": 8
       },
       "prestacion_3_valor": [
         {
           "pagina": 1,
           "x": 499,
-          "y": 388,
+          "y": 382,
           "fontsize": 8
         },
         {
           "pagina": 1,
           "x": 545,
-          "y": 388,
+          "y": 382,
           "fontsize": 8
         }
       ],
       "prestacion_4_fecha": {
         "pagina": 1,
         "x": 130,
-        "y": 376,
+        "y": 370,
         "fontsize": 8
       },
       "prestacion_4_cantidad": {
         "pagina": 1,
         "x": 208,
-        "y": 376,
+        "y": 370,
         "fontsize": 8
       },
       "prestacion_4_descripcion": {
         "pagina": 1,
         "x": 240,
-        "y": 376,
+        "y": 370,
         "fontsize": 8
       },
       "prestacion_4_valor": [
         {
           "pagina": 1,
           "x": 499,
-          "y": 376,
+          "y": 370,
           "fontsize": 8
         },
         {
           "pagina": 1,
           "x": 545,
-          "y": 376,
+          "y": 370,
           "fontsize": 8
         }
       ],
       "prestacion_5_fecha": {
         "pagina": 1,
         "x": 130,
-        "y": 364,
+        "y": 358,
         "fontsize": 8
       },
       "prestacion_5_cantidad": {
         "pagina": 1,
         "x": 208,
-        "y": 364,
+        "y": 358,
         "fontsize": 8
       },
       "prestacion_5_descripcion": {
         "pagina": 1,
         "x": 240,
-        "y": 364,
+        "y": 358,
         "fontsize": 8
       },
       "prestacion_5_valor": [
         {
           "pagina": 1,
           "x": 499,
-          "y": 364,
+          "y": 358,
           "fontsize": 8
         },
         {
           "pagina": 1,
           "x": 545,
-          "y": 364,
+          "y": 358,
           "fontsize": 8
         }
       ],
@@ -1265,7 +1266,8 @@
         "fontsize": 8
       }
     },
-    "max_prestaciones_por_form": 5
+    "max_prestaciones_por_form": 5,
+    "seed_rev": 1
   },
   "vidacamara": {
     "nombre": "Vida Cámara",

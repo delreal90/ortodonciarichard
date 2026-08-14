@@ -932,6 +932,10 @@ def avisar_recepcion_seguro_no_enviado(motivo, rut, glosa, folio='', paciente=''
                         'Prestaciones; revísala y, si corresponde, envía el '
                         'formulario a mano desde el F2.'),
         'sin_email': 'El paciente no tiene un email registrado.',
+        'sin_doctor': ('No hay un "doctor por defecto" con firma configurado para el '
+                       'auto-envío, así que el formulario habría salido sin el '
+                       'odontólogo ni la firma. Configúralo en el panel (pestaña '
+                       'Seguros) y emite este formulario a mano desde el F2.'),
         'error_pdf': 'Hubo un error al generar el PDF del formulario.',
         'error_envio': 'Hubo un error al enviar el correo.',
     }
