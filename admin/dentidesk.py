@@ -495,6 +495,49 @@ def doc_key_por_nombre(cfg, professional_name):
     return ''
 
 
+def doctor_de_paciente(rut, fecha_iso, cfg=None, dias_atras=30):
+    """doctor_key del profesional que ATENDIÓ al paciente en `fecha_iso`; si ese día
+    no tuvo cita, el del ÚLTIMO día con cita hacia atrás (hasta `dias_atras`). '' si
+    no se encuentra o DentiDesk está deshabilitado.
+
+    Lo usa el auto-envío de seguros: la boleta no dice el doctor, así que el
+    formulario debe llevar al que atendió al paciente (o al último que lo vio si la
+    boleta se emitió un día sin atención). Barre la agenda día por día DESDE la fecha
+    hacia atrás y corta en el primer día con una cita del RUT — en el caso normal
+    (boleta el mismo día de la atención) resuelve con UNA sola llamada."""
+    cfg = cfg or load_config()
+    if not cfg['dentidesk']['enabled']:
+        return ''
+    objetivo = limpiar_rut(rut)
+    if not objetivo:
+        return ''
+    try:
+        base = date.fromisoformat((fecha_iso or '')[:10])
+    except ValueError:
+        base = date.today()
+    for k in range(0, dias_atras + 1):
+        d = base - timedelta(days=k)
+        if d.weekday() >= 5:                       # sáb/dom: la clínica no atiende
+            continue
+        try:
+            citas = _get_agenda_day(cfg, d)
+        except Exception as e:
+            log.warning('doctor_de_paciente: fallo agenda del %s: %r', d, e)
+            continue
+        delp = [c for c in citas
+                if limpiar_rut(str(c.get('PatientDocument', ''))) == objetivo]
+        if not delp:
+            continue
+        # varias citas ese día → la más tardía (última atención del día)
+        delp.sort(key=lambda c: (c.get('time') or ''), reverse=True)
+        for c in delp:
+            key = doc_key_por_nombre(cfg, c.get('ProfessionalName'))
+            if key:
+                return key
+        # había cita(s) pero no se pudo resolver el doctor → seguir hacia atrás
+    return ''
+
+
 def _norm_motivo(texto):
     """Normaliza un nombre de motivo para comparar: minusculas, sin tildes,
     espacios colapsados."""

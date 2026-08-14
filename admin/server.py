@@ -4150,12 +4150,16 @@ def seguro_auto_desde_boleta():
         return _pendiente('sin_email')
 
     cfg = scheduling.load_config()
-    doctor_key = seguros.get_auto_config().get('doctor_default', '')
+    # El doctor del formulario debe ser QUIEN ATENDIÓ al paciente el día de la boleta
+    # (o el último que lo vio si la boleta se emitió un día sin atención). La boleta no
+    # trae el doctor, así que se resuelve por la agenda de DentiDesk; el "doctor por
+    # defecto" del panel queda SOLO como último recurso.
+    doctor_key = (dentidesk.doctor_de_paciente(rut, data.get('fecha', ''), cfg)
+                  or seguros.get_auto_config().get('doctor_default', ''))
     # Un formulario de reembolso SIN el odontólogo tratante (nombre, RUT y firma+
-    # timbre) es inválido para la aseguradora. El auto-envío no tiene la ficha abierta
-    # para saber el doctor, así que usa el "doctor por defecto" configurado en el panel.
-    # Si no hay doctor configurado o ese doctor no tiene firma cargada, NO se manda un
-    # formulario incompleto: se avisa a recepción para que lo emita a mano desde el F2.
+    # timbre) es inválido para la aseguradora. Si no se pudo resolver un doctor con
+    # firma cargada, NO se manda un formulario incompleto: se avisa a recepción para
+    # que lo emita a mano desde el F2.
     if not doctor_key or not seguros.firma_de_doctor(doctor_key):
         return _pendiente('sin_doctor')
     doc_cfg = (cfg.get('doctores') or {}).get(doctor_key) if doctor_key else None
