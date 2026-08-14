@@ -53,8 +53,6 @@ PRESTACIONES_PATH = Path(os.environ.get('SEGUROS_PRESTACIONES_PATH',
                                         _BASE_DIR / 'seguros_prestaciones.json'))
 MAPEO_PREST_PATH = Path(os.environ.get('SEGUROS_MAPEO_PREST_PATH',
                                        _BASE_DIR / 'seguros_mapeo_prestaciones.json'))
-MAPEO_MOTIVOS_PATH = Path(os.environ.get('SEGUROS_MAPEO_MOTIVOS_PATH',
-                                         _BASE_DIR / 'seguros_mapeo_motivos.json'))
 PACIENTES_PATH = Path(os.environ.get('SEGUROS_PACIENTES_PATH',
                                      _BASE_DIR / 'seguros_pacientes.json'))
 FIRMAS_INDEX_PATH = Path(os.environ.get('SEGUROS_FIRMAS_INDEX_PATH',
@@ -219,8 +217,9 @@ def guardar_aseguradora(key, datos):
     return idx[key]
 
 
-# ── Catalogo de prestaciones internas (arancel propio) ──────────────────────
-# {prest_id: {nombre, precio_arancel, activa, origen, motivo_scheduling_key}}
+# ── Catálogo de prestaciones (auto-descubiertas desde la glosa de la boleta) ─
+# {prest_id: {nombre, glosa_original, glosas_boleta:[patrones opcionales],
+#             activa, origen}}  — SIN precio (lo pone la boleta).
 
 def listar_prestaciones(solo_activas=True):
     idx = _load(PRESTACIONES_PATH)
@@ -244,65 +243,17 @@ def guardar_prestacion(prest_id, datos):
     return prest_id
 
 
-def seed_desde_motivos(cfg):
-    """Siembra el catalogo desde los motivos del agendamiento online
-    (scheduling_config.json -> 'motivos'). Idempotente: no duplica los que ya
-    tienen ese motivo_scheduling_key. Los ~186 motivos internos completos
-    (motivos_id_reason_extra) NO se siembran automaticamente — serian ruido;
-    se agregan a mano los que de verdad se cobran a seguros."""
-    creados = 0
-    with _LOCK:
-        idx = _load(PRESTACIONES_PATH)
-        existentes = {v.get('motivo_scheduling_key') for v in idx.values()}
-        for key, m in (cfg.get('motivos') or {}).items():
-            if not isinstance(m, dict):
-                continue  # entradas tipo "_comment"
-            if key in existentes or m.get('oculto'):
-                continue
-            idx['prest_' + uuid.uuid4().hex[:8]] = {
-                'nombre': m.get('label', key),
-                'precio_arancel': 0,
-                'activa': True,
-                'origen': 'motivo_scheduling',
-                'motivo_scheduling_key': key,
-            }
-            creados += 1
-        _save(PRESTACIONES_PATH, idx)
-    return creados
-
-
-# ── Interpretacion de la glosa de boleta ────────────────────────────────────
-# Cada prestacion puede definir 'glosas_boleta': lista de alias (substrings) con
-# que la clinica la escribe en la glosa del DTE (ej. "CONTROL MENSUAL",
-# "RECEMENTACION"). 'absorbe_saldo': True marca la prestacion (tipicamente el
-# control/mensualidad) cuyo valor se calcula como monto_boleta - suma del resto,
-# segun el modelo de cobro de la clinica (precio de lista fijo por sesion que se
-# desglosa entre el control y los extras sin cambiar el total).
+# ── Interpretación de la glosa de boleta ────────────────────────────────────
+# Modelo NUEVO: la glosa de la boleta se COPIA tal cual como prestación (el valor
+# lo pone la boleta). 'glosas_boleta' quedó como PATRONES OPCIONALES para agrupar
+# variantes (ej. un patrón "CONTROL MENSUAL DE ORTODONCIA" captura "…AGOSTO",
+# "…JULIO"). Ver prestacion_por_glosa / filas_desde_items más abajo.
 
 def _normalizar_texto(s):
     import unicodedata
     s = unicodedata.normalize('NFD', s or '')
     s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
     return s.upper()
-
-
-def interpretar_glosa(glosa):
-    """Detecta prestaciones internas presentes en la glosa de una boleta.
-    Devuelve lista de prestaciones (dicts del catalogo) sin duplicados, en el
-    orden del catalogo. Matching por substring de cada alias, sin tildes y
-    case-insensitive."""
-    texto = _normalizar_texto(glosa)
-    if not texto.strip():
-        return []
-    out = []
-    for p in listar_prestaciones():
-        aliases = p.get('glosas_boleta') or []
-        for a in aliases:
-            a_norm = _normalizar_texto(a).strip()
-            if a_norm and a_norm in texto:
-                out.append(p)
-                break
-    return out
 
 
 def _norm_glosa(s):
@@ -414,45 +365,6 @@ def prestaciones_para_aseguradora(aseguradora_key):
         items = (mapeo.get(p['id']) or {}).get(aseguradora_key) or []
         out.append({**p, 'items': items})
     return out
-
-
-# ── Mapeo motivo de consulta -> prestaciones sugeridas ──────────────────────
-# {motivo_key_o_label: [prest_id, ...]}. Se busca por key del scheduling y
-# tambien por label textual (el F2 manda el label del select de DentiDesk).
-
-def mapeo_motivos():
-    return _load(MAPEO_MOTIVOS_PATH)
-
-
-def guardar_mapeo_motivo(motivo, prest_ids):
-    with _LOCK:
-        idx = _load(MAPEO_MOTIVOS_PATH)
-        idx[motivo] = prest_ids
-        _save(MAPEO_MOTIVOS_PATH, idx)
-
-
-def sugerencias_por_motivo(motivo_label, cfg=None):
-    """prest_ids sugeridos para un motivo (label textual del F2 o key).
-    Fallback: si no hay mapeo explicito, sugiere la prestacion cuyo
-    motivo_scheduling_key tenga ese label en scheduling_config."""
-    if not motivo_label:
-        return []
-    idx = mapeo_motivos()
-    if motivo_label in idx:
-        return idx[motivo_label]
-    # match case-insensitive por label
-    for k, v in idx.items():
-        if k.strip().lower() == motivo_label.strip().lower():
-            return v
-    # fallback: motivo del scheduling con ese label -> prestacion sembrada
-    if cfg:
-        for key, m in (cfg.get('motivos') or {}).items():
-            if not isinstance(m, dict):
-                continue
-            if (m.get('label') or '').strip().lower() == motivo_label.strip().lower():
-                return [p['id'] for p in listar_prestaciones()
-                        if p.get('motivo_scheduling_key') == key]
-    return []
 
 
 # ── Preferencia y datos extra por paciente (RUT) ─────────────────────────────

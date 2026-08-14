@@ -65,6 +65,7 @@ admin/nps_registro.json
 admin/seguros_*.json
 admin/seguros_firmas/
 admin/seguros_generados/
+admin/seguros_plantillas/
 
 # Compras/gastos/stock: base SQLite + fotos de facturas (datos privados de la clínica)
 # — NUNCA subir a git. En Render viven en el disco persistente.

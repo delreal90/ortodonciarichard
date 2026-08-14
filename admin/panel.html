@@ -486,7 +486,7 @@
     <!-- ── SEGUROS ─────────────────────────────────────── -->
     <div class="section" id="sec-seguros">
       <h2>Seguros</h2>
-      <p class="desc">Historial de formularios de reembolso, aseguradoras, arancel interno de prestaciones, sugerencias por motivo y firmas de los doctores.</p>
+      <p class="desc">Historial de formularios de reembolso, aseguradoras, catálogo de prestaciones (renombrables por aseguradora) y firmas de los doctores.</p>
 
       <div class="card" id="seguros-config" style="margin-bottom:18px">
         <h3 style="margin-bottom:12px">Conexión</h3>
@@ -539,10 +539,7 @@
 
       <!-- 3. Prestaciones -->
       <div class="card" style="margin-bottom:18px">
-        <h3 style="margin-bottom:10px">💳 Prestaciones (arancel interno)</h3>
-        <div class="row" style="margin-bottom:14px">
-          <button class="btn btn-gold btn-sm" onclick="seedPrestaciones()">Sembrar desde motivos</button>
-        </div>
+        <h3 style="margin-bottom:10px">💳 Prestaciones</h3>
         <p style="font-size:.78rem;color:#718096;margin-bottom:10px">Haz clic en una prestación para ver/editar su mapeo de códigos por aseguradora.</p>
         <div id="seg-prestaciones">Carga la conexión para ver las prestaciones.</div>
         <hr>
@@ -552,37 +549,17 @@
             <label>Nombre</label>
             <input type="text" id="seg-prest-nombre">
           </div>
-          <div style="flex:1;min-width:120px">
-            <label>Precio arancel</label>
-            <input type="text" id="seg-prest-precio" placeholder="0">
-          </div>
         </div>
         <div class="row" style="margin-top:10px">
           <div style="flex:2;min-width:220px">
-            <label title="Textos con que esta prestación aparece en la glosa de las boletas DTE (para el envío 1-clic desde el F2). Separa alternativas con coma; no distingue mayúsculas ni tildes">Alias en glosa de boleta</label>
-            <input type="text" id="seg-prest-glosas" placeholder="ej: CONTROL MENSUAL, CONTROL DE ORTODONCIA" title="Textos con que esta prestación aparece en la glosa de las boletas DTE (para el envío 1-clic desde el F2). Separa alternativas con coma; no distingue mayúsculas ni tildes">
-          </div>
-          <div style="display:flex;align-items:flex-end;padding-bottom:8px">
-            <label style="font-weight:400" title="El valor de esta prestación se calcula como el total de la boleta menos las demás prestaciones detectadas (úsalo SOLO en los controles/mensualidades)"><input type="checkbox" id="seg-prest-absorbe"> Absorbe saldo</label>
+            <label title="Por defecto la glosa de la boleta se copia tal cual. Estos patrones son OPCIONALES: agrupan variantes (ej. un patrón 'CONTROL MENSUAL DE ORTODONCIA' captura '…AGOSTO', '…JULIO'). Separá con coma; ignora tildes y mayúsculas.">Patrones de glosa (opcional)</label>
+            <input type="text" class="seg-prest-glosas" id="seg-prest-glosas" placeholder="ej: CONTROL MENSUAL, CONTROL DE ORTODONCIA" title="Por defecto la glosa de la boleta se copia tal cual. Estos patrones son OPCIONALES: agrupan variantes (ej. un patrón 'CONTROL MENSUAL DE ORTODONCIA' captura '…AGOSTO', '…JULIO'). Separá con coma; ignora tildes y mayúsculas.">
           </div>
           <button class="btn btn-primary" onclick="crearPrestacion()">+ Agregar</button>
         </div>
       </div>
 
-      <!-- 4. Sugerencias por motivo -->
-      <div class="card" style="margin-bottom:18px">
-        <h3 style="margin-bottom:10px">🔗 Sugerencias por motivo</h3>
-        <div id="seg-motivos">Carga la conexión para ver las sugerencias.</div>
-        <hr>
-        <h4 style="font-size:.85rem;margin-bottom:10px">Agregar / editar sugerencia</h4>
-        <label>Motivo (label exacto de DentiDesk)</label>
-        <input type="text" id="seg-mot-motivo" placeholder="ej: Control de ortodoncia">
-        <label>Prestaciones sugeridas <span style="font-weight:400;color:#718096">(ctrl/cmd + clic para elegir varias)</span></label>
-        <select id="seg-mot-prestaciones" multiple size="6" style="width:100%;padding:6px;border:1px solid #cbd5e0;border-radius:8px;margin-bottom:14px"></select>
-        <button class="btn btn-primary" onclick="guardarMapeoMotivo()">Guardar sugerencia</button>
-      </div>
-
-      <!-- 5. Firmas -->
+      <!-- 4. Firmas -->
       <div class="card">
         <h3 style="margin-bottom:10px">✍️ Firmas de doctores</h3>
         <div id="seg-firmas">Carga la conexión para ver las firmas.</div>
@@ -2979,7 +2956,7 @@ async function publicar() {
 // ══════════════════════════════════════════════════════
 // SEGUROS — historial, aseguradoras, prestaciones, sugerencias, firmas
 // ══════════════════════════════════════════════════════
-let SEG_ASEGURADORAS = [], SEG_PRESTACIONES = [], SEG_MAPEO = {}, SEG_MAPEO_MOTIVOS = {},
+let SEG_ASEGURADORAS = [], SEG_PRESTACIONES = [], SEG_MAPEO = {},
     SEG_FIRMAS = [], SEG_HISTORIAL = [], SEG_HIST_FILTRO = '';
 
 function initSeguros() {
@@ -3004,28 +2981,26 @@ async function loadSeguros() {
   if (!token) { toast('Ingresa el admin token', false); return; }
   localStorage.setItem('stats_token', token);
   localStorage.setItem('stats_url', _segUrl());
-  ['seg-historial','seg-aseguradoras','seg-prestaciones','seg-motivos','seg-firmas'].forEach(id => {
+  ['seg-historial','seg-aseguradoras','seg-prestaciones','seg-firmas'].forEach(id => {
     document.getElementById(id).innerHTML = 'Cargando…';
   });
   try {
-    const [rAseg, rPrest, rMotivos, rFirma, rHist] = await Promise.all([
+    const [rAseg, rPrest, rFirma, rHist] = await Promise.all([
       fetch(_segUrl() + '/api/seguro/admin/aseguradoras', { headers: _segHeaders(false) }),
       fetch(_segUrl() + '/api/seguro/admin/prestaciones', { headers: _segHeaders(false) }),
-      fetch(_segUrl() + '/api/seguro/admin/mapeo-motivos', { headers: _segHeaders(false) }),
       fetch(_segUrl() + '/api/seguro/admin/firma', { headers: _segHeaders(false) }),
       fetch(_segUrl() + '/api/seguro/admin/historial', { headers: _segHeaders(false) }),
     ]);
-    if ([rAseg, rPrest, rMotivos, rFirma, rHist].some(r => r.status === 403)) {
+    if ([rAseg, rPrest, rFirma, rHist].some(r => r.status === 403)) {
       toast('Token incorrecto', false);
       return;
     }
-    const [dAseg, dPrest, dMotivos, dFirma, dHist] = await Promise.all(
-      [rAseg, rPrest, rMotivos, rFirma, rHist].map(r => r.json())
+    const [dAseg, dPrest, dFirma, dHist] = await Promise.all(
+      [rAseg, rPrest, rFirma, rHist].map(r => r.json())
     );
     SEG_ASEGURADORAS  = dAseg.ok    ? (dAseg.aseguradoras || [])    : [];
     SEG_PRESTACIONES  = dPrest.ok   ? (dPrest.prestaciones || [])   : [];
     SEG_MAPEO         = dPrest.ok   ? (dPrest.mapeo || {})          : {};
-    SEG_MAPEO_MOTIVOS = dMotivos.ok ? (dMotivos.mapeo || {})        : {};
     SEG_FIRMAS        = dFirma.ok   ? (dFirma.firmas || [])         : [];
     SEG_HISTORIAL     = dHist.ok    ? (dHist.items || [])           : [];
   } catch (e) {
@@ -3034,7 +3009,6 @@ async function loadSeguros() {
   }
   renderSegAseguradoras();
   renderSegPrestaciones();
-  renderSegMotivos();
   renderSegFirmas();
   renderSegHistorial();
 }
@@ -3189,7 +3163,6 @@ async function loadSegPrestaciones() {
       SEG_PRESTACIONES = d.prestaciones || [];
       SEG_MAPEO = d.mapeo || {};
       renderSegPrestaciones();
-      renderSegMotivos();
     }
   } catch (e) {}
 }
@@ -3205,7 +3178,7 @@ function _segItemRow(item) {
 function renderSegPrestaciones() {
   const cont = document.getElementById('seg-prestaciones');
   if (!SEG_PRESTACIONES.length) {
-    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin prestaciones aún. Usa "Sembrar desde motivos" o agrega una nueva abajo.</p>';
+    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin prestaciones aún. Agrega una nueva abajo.</p>';
     return;
   }
   cont.innerHTML = SEG_PRESTACIONES.map(p => {
@@ -3228,18 +3201,14 @@ function renderSegPrestaciones() {
       <details style="margin-bottom:10px;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px" data-prestid="${p.id}">
         <summary style="cursor:pointer;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <input type="text" class="seg-prest-nombre" value="${_esc(p.nombre)}" style="flex:2;min-width:160px;padding:5px 8px;border:1px solid #cbd5e0;border-radius:6px" onclick="event.stopPropagation()">
-          <input type="text" class="seg-prest-precio" value="${p.precio_arancel ?? 0}" style="width:100px;padding:5px 8px;border:1px solid #cbd5e0;border-radius:6px" onclick="event.stopPropagation()">
           <label style="font-weight:400;font-size:.82rem" onclick="event.stopPropagation()"><input type="checkbox" class="seg-prest-activa" ${p.activa !== false ? 'checked' : ''}> activa</label>
           <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();guardarPrestacion(${p.id})">Guardar</button>
         </summary>
         <div style="margin-top:12px">
           <div class="row" style="margin-bottom:12px">
             <div style="flex:2;min-width:220px">
-              <label title="Textos con que esta prestación aparece en la glosa de las boletas DTE (para el envío 1-clic desde el F2). Separa alternativas con coma; no distingue mayúsculas ni tildes">Alias en glosa de boleta</label>
-              <input type="text" class="seg-prest-glosas" value="${_esc((p.glosas_boleta || []).join(', '))}" placeholder="ej: CONTROL MENSUAL, CONTROL DE ORTODONCIA" title="Textos con que esta prestación aparece en la glosa de las boletas DTE (para el envío 1-clic desde el F2). Separa alternativas con coma; no distingue mayúsculas ni tildes" style="width:100%;padding:5px 8px;border:1px solid #cbd5e0;border-radius:6px">
-            </div>
-            <div style="display:flex;align-items:flex-end;padding-bottom:8px">
-              <label style="font-weight:400" title="El valor de esta prestación se calcula como el total de la boleta menos las demás prestaciones detectadas (úsalo SOLO en los controles/mensualidades)"><input type="checkbox" class="seg-prest-absorbe" ${p.absorbe_saldo ? 'checked' : ''}> Absorbe saldo</label>
+              <label title="Por defecto la glosa de la boleta se copia tal cual. Estos patrones son OPCIONALES: agrupan variantes (ej. un patrón 'CONTROL MENSUAL DE ORTODONCIA' captura '…AGOSTO', '…JULIO'). Separá con coma; ignora tildes y mayúsculas.">Patrones de glosa (opcional)</label>
+              <input type="text" class="seg-prest-glosas" value="${_esc((p.glosas_boleta || []).join(', '))}" placeholder="ej: CONTROL MENSUAL, CONTROL DE ORTODONCIA" title="Por defecto la glosa de la boleta se copia tal cual. Estos patrones son OPCIONALES: agrupan variantes (ej. un patrón 'CONTROL MENSUAL DE ORTODONCIA' captura '…AGOSTO', '…JULIO'). Separá con coma; ignora tildes y mayúsculas." style="width:100%;padding:5px 8px;border:1px solid #cbd5e0;border-radius:6px">
             </div>
           </div>
           <h5 style="font-size:.8rem;color:#718096;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Mapeo de códigos por aseguradora</h5>
@@ -3249,29 +3218,19 @@ function renderSegPrestaciones() {
   }).join('');
 }
 
-async function seedPrestaciones() {
-  const r = await _segFetch('/api/seguro/admin/prestaciones/seed-desde-motivos', 'POST', {});
-  if (r.ok) { toast(`✅ ${r.creados || 0} prestaciones creadas`); loadSegPrestaciones(); }
-  else toast('❌ ' + (r.error || 'Error'), false);
-}
-
 function _segParseGlosas(str) {
   return (str || '').split(',').map(s => s.trim()).filter(Boolean);
 }
 
 async function crearPrestacion() {
   const nombre = document.getElementById('seg-prest-nombre').value.trim();
-  const precio = +document.getElementById('seg-prest-precio').value || 0;
   const glosas_boleta = _segParseGlosas(document.getElementById('seg-prest-glosas').value);
-  const absorbe_saldo = document.getElementById('seg-prest-absorbe').checked;
   if (!nombre) { toast('Ingresa el nombre', false); return; }
-  const r = await _segFetch('/api/seguro/admin/prestaciones', 'POST', { nombre, precio_arancel: precio, activa: true, glosas_boleta, absorbe_saldo });
+  const r = await _segFetch('/api/seguro/admin/prestaciones', 'POST', { nombre, activa: true, glosas_boleta });
   if (r.ok) {
     toast('✅ Prestación creada');
     document.getElementById('seg-prest-nombre').value = '';
-    document.getElementById('seg-prest-precio').value = '';
     document.getElementById('seg-prest-glosas').value = '';
-    document.getElementById('seg-prest-absorbe').checked = false;
     loadSegPrestaciones();
   } else toast('❌ ' + (r.error || 'Error'), false);
 }
@@ -3280,11 +3239,9 @@ async function guardarPrestacion(id) {
   const det = document.querySelector(`details[data-prestid="${id}"]`);
   if (!det) return;
   const nombre = det.querySelector('.seg-prest-nombre').value.trim();
-  const precio = +det.querySelector('.seg-prest-precio').value || 0;
   const activa = det.querySelector('.seg-prest-activa').checked;
   const glosas_boleta = _segParseGlosas(det.querySelector('.seg-prest-glosas').value);
-  const absorbe_saldo = det.querySelector('.seg-prest-absorbe').checked;
-  const r = await _segFetch('/api/seguro/admin/prestaciones', 'POST', { id, nombre, precio_arancel: precio, activa, glosas_boleta, absorbe_saldo });
+  const r = await _segFetch('/api/seguro/admin/prestaciones', 'POST', { id, nombre, activa, glosas_boleta });
   if (r.ok) { toast('✅ Prestación guardada'); loadSegPrestaciones(); }
   else toast('❌ ' + (r.error || 'Error'), false);
 }
@@ -3311,54 +3268,7 @@ async function segGuardarMapeo(prestId, asegKey) {
   } else toast('❌ ' + (r.error || 'Error'), false);
 }
 
-// ── 4. Sugerencias por motivo ─────────────────────────
-function _segPrestNombre(id) {
-  const p = SEG_PRESTACIONES.find(x => String(x.id) === String(id));
-  return p ? p.nombre : ('#' + id);
-}
-
-function renderSegMotivos() {
-  const cont = document.getElementById('seg-motivos');
-  const entries = Object.entries(SEG_MAPEO_MOTIVOS || {});
-  if (!entries.length) {
-    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin sugerencias configuradas aún.</p>';
-  } else {
-    cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
-      <thead><tr style="background:#f8fafc;text-align:left"><th style="padding:8px 10px">Motivo</th><th style="padding:8px 10px">Prestaciones sugeridas</th><th></th></tr></thead>
-      <tbody>${entries.map(([motivo, ids]) => `
-        <tr style="border-top:1px solid #e2e8f0">
-          <td style="padding:8px 10px">${_esc(motivo)}</td>
-          <td style="padding:8px 10px">${(ids || []).map(id => _esc(_segPrestNombre(id))).join(', ') || '—'}</td>
-          <td style="padding:8px 10px"><button class="btn btn-sm" style="background:#e2e8f0" onclick='editarMapeoMotivo(${JSON.stringify(motivo)})'>Editar</button></td>
-        </tr>`).join('')}</tbody>
-    </table></div>`;
-  }
-  const sel = document.getElementById('seg-mot-prestaciones');
-  if (sel) sel.innerHTML = SEG_PRESTACIONES.map(p => `<option value="${p.id}">${_esc(p.nombre)}</option>`).join('');
-}
-
-function editarMapeoMotivo(motivo) {
-  document.getElementById('seg-mot-motivo').value = motivo;
-  const ids = (SEG_MAPEO_MOTIVOS[motivo] || []).map(String);
-  const sel = document.getElementById('seg-mot-prestaciones');
-  [...sel.options].forEach(o => { o.selected = ids.includes(o.value); });
-  sel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-async function guardarMapeoMotivo() {
-  const motivo = document.getElementById('seg-mot-motivo').value.trim();
-  if (!motivo) { toast('Ingresa el motivo', false); return; }
-  const sel = document.getElementById('seg-mot-prestaciones');
-  const prestaciones = [...sel.selectedOptions].map(o => +o.value);
-  const r = await _segFetch('/api/seguro/admin/mapeo-motivos', 'POST', { motivo, prestaciones });
-  if (r.ok) {
-    toast('✅ Sugerencia guardada');
-    SEG_MAPEO_MOTIVOS[motivo] = prestaciones;
-    renderSegMotivos();
-  } else toast('❌ ' + (r.error || 'Error'), false);
-}
-
-// ── 5. Firmas de doctores ─────────────────────────────
+// ── 4. Firmas de doctores ─────────────────────────────
 async function loadSegFirmas() {
   try {
     const r = await fetch(_segUrl() + '/api/seguro/admin/firma', { headers: _segHeaders(false) });

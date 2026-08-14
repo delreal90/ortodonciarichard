@@ -180,7 +180,7 @@ _ESTADOS_NO_OCURRIO = ('cancel', 'no llega', 'no seguir', 'reagend', 're-agend')
 def _normalizar(texto):
     """Sin tildes, minusculas, espacios colapsados -- mismo truco que
     pacientes._normalizar_genero (NFKD + descartar los combining marks) y
-    mismo criterio que seguros.interpretar_glosa. NO se tocan otros signos
+    mismo criterio que seguros._norm_glosa. NO se tocan otros signos
     (., /, +) porque varios nombres de motivo los usan para distinguirse
     ('Retiro Total' vs 'Retiro Total + Inicio')."""
     if not texto:

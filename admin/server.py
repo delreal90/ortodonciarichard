@@ -3797,7 +3797,6 @@ def seguro_precarga():
         'ultima_aseguradora': pref.get('ultima_aseguradora'),
         'ultima_aseguradora_nombre': (aseg or {}).get('nombre'),
         'primera_vez': not bool(pref.get('ultima_aseguradora')),
-        'sugeridas': seguros.sugerencias_por_motivo(motivo, cfg),
     })
 
 
@@ -4231,20 +4230,12 @@ def seguro_admin_prestaciones():
                         'prestaciones': seguros.listar_prestaciones(solo_activas=False),
                         'mapeo': seguros.mapeo_prestaciones()})
     data = request.json or {}
+    # Modelo nuevo: la prestación NO lleva precio (lo pone la boleta) ni motivos.
+    # 'glosas_boleta' = patrones OPCIONALES para agrupar variantes de glosa.
     prest_id = seguros.guardar_prestacion(data.get('id'), {
         k: v for k, v in data.items()
-        if k in ('nombre', 'precio_arancel', 'activa', 'motivo_scheduling_key',
-                 'glosas_boleta', 'absorbe_saldo')})
+        if k in ('nombre', 'activa', 'glosas_boleta', 'glosa_original')})
     return jsonify({'ok': True, 'id': prest_id})
-
-
-@app.route('/api/seguro/admin/prestaciones/seed-desde-motivos', methods=['POST'])
-def seguro_admin_seed():
-    if not _check_admin_token():
-        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    cfg = scheduling.load_config()
-    creados = seguros.seed_desde_motivos(cfg)
-    return jsonify({'ok': True, 'creados': creados})
 
 
 @app.route('/api/seguro/admin/mapeo-prestaciones', methods=['POST'])
@@ -4257,19 +4248,6 @@ def seguro_admin_mapeo_prestaciones():
         return jsonify({'ok': False, 'error': 'Faltan prest_id o aseguradora'}), 400
     seguros.guardar_mapeo_prestacion(data['prest_id'], data['aseguradora'],
                                      data.get('items') or [])
-    return jsonify({'ok': True})
-
-
-@app.route('/api/seguro/admin/mapeo-motivos', methods=['GET', 'POST'])
-def seguro_admin_mapeo_motivos():
-    if not _check_admin_token():
-        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    if request.method == 'GET':
-        return jsonify({'ok': True, 'mapeo': seguros.mapeo_motivos()})
-    data = request.json or {}
-    if not data.get('motivo'):
-        return jsonify({'ok': False, 'error': 'Falta el motivo'}), 400
-    seguros.guardar_mapeo_motivo(data['motivo'], data.get('prestaciones') or [])
     return jsonify({'ok': True})
 
 
