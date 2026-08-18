@@ -126,6 +126,16 @@ def _aplicar_seed():
                 cur['tipo_plantilla'] = sv['tipo_plantilla']; cambiado = True
             if not cur.get('plantilla_pdf') and sv.get('plantilla_pdf'):
                 cur['plantilla_pdf'] = sv['plantilla_pdf']; cambiado = True
+            # La tabla dinámica también se auto-repara: sin ella el formulario
+            # vuelve a mostrar solo las filas del PDF y PIERDE prestaciones. No
+            # basta con el bloque de seed_rev de arriba: si una aseguradora ya
+            # quedó grabada con el mismo rev por un deploy anterior (le pasó a
+            # Zurich), esa comparación no vuelve a dispararse nunca.
+            if not cur.get('tabla_prestaciones') and sv.get('tabla_prestaciones'):
+                cur['tabla_prestaciones'] = sv['tabla_prestaciones']
+                if sv.get('max_prestaciones_por_form'):
+                    cur['max_prestaciones_por_form'] = sv['max_prestaciones_por_form']
+                cambiado = True
         if cambiado:
             ASEGURADORAS_PATH.parent.mkdir(parents=True, exist_ok=True)
             _save(ASEGURADORAS_PATH, idx)

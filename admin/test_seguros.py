@@ -639,6 +639,23 @@ class TestSeedReAplicaLaTabla(unittest.TestCase):
                         'el formulario seguiria perdiendo prestaciones')
         self.assertEqual(seguros.capacidad_formulario('consorcio'), 8)
 
+    def test_se_repara_aunque_el_seed_rev_ya_este_grabado(self):
+        # El caso REAL de Josefina Salas (Zurich, 7 prestaciones -> salieron 5):
+        # produccion ya tenia zurich grabada con el MISMO seed_rev del seed, asi que
+        # la comparacion de arriba nunca se vuelve a disparar. Sin este self-heal la
+        # tabla no llega jamas y el formulario sigue perdiendo prestaciones.
+        aseg = seguros.obtener_aseguradora('zurich')
+        rev = aseg.get('seed_rev')
+        roto = dict(aseg); roto.pop('tabla_prestaciones', None)
+        roto['max_prestaciones_por_form'] = 5      # como quedo en produccion
+        seguros.guardar_aseguradora('zurich', roto)
+        seguros._aplicar_seed()
+        cur = seguros.obtener_aseguradora('zurich')
+        self.assertEqual(cur.get('seed_rev'), rev, 'el seed_rev no debia cambiar')
+        self.assertTrue(cur.get('tabla_prestaciones'),
+                        'con el seed_rev ya grabado, la tabla nunca llegaria')
+        self.assertEqual(seguros.capacidad_formulario('zurich'), 8)
+
     def test_la_lista_de_campos_reaplicados_incluye_la_tabla(self):
         fuente = Path(seguros.__file__).read_text(encoding='utf-8')
         bloque = fuente.split("if sv.get('seed_rev', 0) > cur.get('seed_rev', 0):")[1][:400]
