@@ -436,5 +436,36 @@ class TestSacaPiezaBoca(_AislamientoCatalogo):
         self.assertEqual(p['nombre'], 'CONTROL DE CONTENCION')
 
 
+class TestItemsDeBoleta(unittest.TestCase):
+    """El detalle del presupuesto trae TODO el plan del paciente; items_de_boleta
+    debe usarlo SOLO si suma el total de la boleta, si no cae a 1 línea (glosa+total)."""
+
+    def test_detalle_cuadra_con_el_monto_usa_el_detalle(self):
+        items = [{'descripcion': 'A', 'valor': 95000}, {'descripcion': 'B', 'valor': 191000},
+                 {'descripcion': 'C', 'valor': 54000}]
+        r = seguros.items_de_boleta(items, 'glosa', 340000)
+        self.assertEqual(len(r), 3)
+
+    def test_detalle_no_cuadra_cae_a_una_linea(self):
+        # presupuesto con TODO el plan (2.307.000) pero la boleta cobró 146.000
+        items = [{'descripcion': 'Control Pasivo', 'valor': 41000},
+                 {'descripcion': 'RADIOGRAFIA', 'valor': 25000},
+                 {'descripcion': 'Otros', 'valor': 2241000}]
+        r = seguros.items_de_boleta(items, 'CONTROL MENSUAL DE ORTODONCIA', 146000)
+        self.assertEqual(r, [{'descripcion': 'CONTROL MENSUAL DE ORTODONCIA', 'valor': 146000}])
+
+    def test_sin_monto_confia_en_el_detalle(self):
+        items = [{'descripcion': 'A', 'valor': 10}, {'descripcion': 'B', 'valor': 20}]
+        self.assertEqual(len(seguros.items_de_boleta(items, 'g', None)), 2)
+
+    def test_sin_items_una_linea_con_la_glosa(self):
+        self.assertEqual(seguros.items_de_boleta([], 'CONTROL pieza Boca', 146000),
+                         [{'descripcion': 'CONTROL pieza Boca', 'valor': 146000}])
+
+    def test_monto_como_texto_con_puntos_igual_cuadra(self):
+        items = [{'descripcion': 'A', 'valor': '95.000'}, {'descripcion': 'B', 'valor': '51.000'}]
+        self.assertEqual(len(seguros.items_de_boleta(items, 'g', '146.000')), 2)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

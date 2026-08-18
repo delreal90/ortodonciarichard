@@ -402,6 +402,25 @@ def filas_desde_boleta(glosa, monto_total, aseguradora_key, fecha=''):
     return filas, False
 
 
+def items_de_boleta(items, glosa, monto):
+    """Devuelve los ítems que corresponden a ESTA boleta, garantizando que cuadren
+    con ella. El detalle que lee la extensión viene de `presupuesto_edit.php`, que
+    trae TODO el plan de tratamiento del paciente — NO solo lo cobrado en la boleta.
+    Por eso se valida contra el MONTO del DTE: si el detalle suma el total de la
+    boleta, se usa desglosado (ej. el estudio, o una boleta que cobra todo el
+    presupuesto); si NO cuadra (el presupuesto trae más prestaciones que las
+    cobradas), se cae a UNA sola línea = glosa + total del DTE. Así la cantidad y el
+    monto del formulario SIEMPRE coinciden con la boleta.
+
+    Si no viene MONTO no se puede validar → se confía en el detalle (mejor esfuerzo)."""
+    monto_i = _monto_int(monto)
+    if items:
+        suma = sum(_monto_int(it.get('valor')) for it in items)
+        if not monto_i or suma == monto_i:
+            return list(items)
+    return [{'descripcion': glosa, 'valor': monto}] if glosa else []
+
+
 # ── Mapeo prestacion interna -> items de cada aseguradora ────────────────────
 # {prest_id: {aseguradora_key: [{codigo, descripcion}, ...]}}
 

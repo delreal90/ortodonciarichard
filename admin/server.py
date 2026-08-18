@@ -4083,12 +4083,10 @@ def seguro_preparar_desde_boleta():
     aseg = seguros.obtener_aseguradora(aseg_key) or {}
 
     fecha = (data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y'))
-    items = data.get('items')
-    if items:
-        filas = seguros.filas_desde_items(items, aseg_key, fecha=fecha)
-    else:
-        filas, _ = seguros.filas_desde_boleta(
-            data.get('glosa', ''), data.get('monto'), aseg_key, fecha=fecha)
+    # El detalle del presupuesto trae TODO el plan del paciente; se usa solo si suma
+    # el total de la boleta, si no cae a 1 línea = glosa + total (ver items_de_boleta).
+    items = seguros.items_de_boleta(data.get('items'), data.get('glosa', ''), data.get('monto'))
+    filas = seguros.filas_desde_items(items, aseg_key, fecha=fecha)
 
     total = sum(int(f.get('valor') or 0) for f in filas)
     return jsonify({'ok': True, 'aseguradora': aseg_key,
@@ -4223,13 +4221,14 @@ def seguro_auto_desde_boleta():
     aseg = seguros.obtener_aseguradora(aseg_key) or {}
 
     fecha = (data.get('fecha') or seguros.ahora_chile().strftime('%d-%m-%Y'))
-    items = data.get('items')
-    if not items:
-        items = [{'descripcion': glosa, 'valor': data.get('monto')}] if glosa else []
+    # Solo los ítems que cuadran con la boleta: el detalle del presupuesto trae todo
+    # el plan del paciente, así que se usa desglosado solo si suma el total del DTE;
+    # si no, 1 línea = glosa + total (ver seguros.items_de_boleta).
+    items = seguros.items_de_boleta(data.get('items'), glosa, data.get('monto'))
 
-    # Regla nueva del auto-envío: solo manda solo si TODOS los ítems ya se conocían.
-    # Si aparece una glosa nueva, la deja creada en el panel (para configurarla) pero
-    # NO envía — avisa a recepción para que lo revise a mano desde el F2.
+    # Regla del auto-envío: solo manda solo si TODAS las glosas de la boleta ya se
+    # conocían. Si aparece una nueva, la deja creada en el panel (para configurarla)
+    # pero NO envía — avisa a recepción para que lo revise a mano desde el F2.
     clasif = seguros.clasificar_items(items)
     if clasif['nuevos']:
         seguros.registrar_glosas(items)

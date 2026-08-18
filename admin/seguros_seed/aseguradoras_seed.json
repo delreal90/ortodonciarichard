@@ -3206,102 +3206,103 @@
       "total": {
         "pagina": 1,
         "x": 492,
-        "y": 262,
+        "y": 272,
         "fontsize": 10
       },
       "prestacion_1_descripcion": {
         "pagina": 1,
         "x": 20,
-        "y": 337,
+        "y": 333,
         "fontsize": 8
       },
       "prestacion_1_codigo": {
         "pagina": 1,
         "x": 200,
-        "y": 337,
+        "y": 333,
         "fontsize": 8
       },
       "prestacion_1_fecha": {
         "pagina": 1,
         "x": 300,
-        "y": 337,
+        "y": 333,
         "fontsize": 8
       },
       "prestacion_1_valor": {
         "pagina": 1,
         "x": 375,
-        "y": 337,
+        "y": 333,
         "fontsize": 8
       },
       "prestacion_1_valor_total": {
         "pagina": 1,
         "x": 490,
-        "y": 337,
+        "y": 333,
         "fontsize": 8
       },
       "prestacion_2_descripcion": {
         "pagina": 1,
         "x": 20,
-        "y": 314,
+        "y": 310,
         "fontsize": 8
       },
       "prestacion_2_codigo": {
         "pagina": 1,
         "x": 200,
-        "y": 314,
+        "y": 310,
         "fontsize": 8
       },
       "prestacion_2_fecha": {
         "pagina": 1,
         "x": 300,
-        "y": 314,
+        "y": 310,
         "fontsize": 8
       },
       "prestacion_2_valor": {
         "pagina": 1,
         "x": 375,
-        "y": 314,
+        "y": 310,
         "fontsize": 8
       },
       "prestacion_2_valor_total": {
         "pagina": 1,
         "x": 490,
-        "y": 314,
+        "y": 310,
         "fontsize": 8
       },
       "prestacion_3_descripcion": {
         "pagina": 1,
         "x": 20,
-        "y": 291,
+        "y": 286,
         "fontsize": 8
       },
       "prestacion_3_codigo": {
         "pagina": 1,
         "x": 200,
-        "y": 291,
+        "y": 286,
         "fontsize": 8
       },
       "prestacion_3_fecha": {
         "pagina": 1,
         "x": 300,
-        "y": 291,
+        "y": 286,
         "fontsize": 8
       },
       "prestacion_3_valor": {
         "pagina": 1,
         "x": 375,
-        "y": 291,
+        "y": 286,
         "fontsize": 8
       },
       "prestacion_3_valor_total": {
         "pagina": 1,
         "x": 490,
-        "y": 291,
+        "y": 286,
         "fontsize": 8
       }
     },
     "max_prestaciones_por_form": 3,
-    "activa": true
+    "activa": true,
+    "seed_rev": 1
   },
   "magallanes": {
     "nombre": "MAGALLANES",
