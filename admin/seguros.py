@@ -857,10 +857,16 @@ def _dibujar_tabla_prestaciones(page, spec, filas):
              min(float(spec.get('fontsize_max', 9.0)), alto * 0.68))
     x_ini = min(c['x0'] for c in cols)
     x_fin = max(c['x1'] for c in cols)
+    # Cruz Blanca y Vida Security tienen el Total en una celda ALTA que ocupa toda la
+    # tabla por el costado derecho. Esa columna no se subdivide en filas (si no, las
+    # rayas viejas quedan asomando al cambiar el nº de filas), pero SÍ hay que
+    # limpiarla: 'x_tapar_fin' extiende el blanco hasta el borde real de la tabla.
+    # El valor del total se escribe DESPUÉS (ver rellenar_pdf), así que no se borra.
+    x_tapar = float(spec.get('x_tapar_fin') or x_fin)
     gris = (0.45, 0.45, 0.45)
 
-    page.draw_rect(fitz.Rect(x_ini, y0, x_fin, y1), color=None, fill=(1, 1, 1),
-                   fill_opacity=1)
+    page.draw_rect(fitz.Rect(x_ini, y0, max(x_fin, x_tapar), y1), color=None,
+                   fill=(1, 1, 1), fill_opacity=1)
     for i in range(1, n):                                   # separadores de fila
         yy = y0 + alto * i
         page.draw_line(fitz.Point(x_ini, yy), fitz.Point(x_fin, yy),
@@ -868,7 +874,10 @@ def _dibujar_tabla_prestaciones(page, spec, filas):
     for c in cols[1:]:                                      # separadores de columna
         page.draw_line(fitz.Point(c['x0'], y0), fitz.Point(c['x0'], y1),
                        color=gris, width=0.4)
-    page.draw_rect(fitz.Rect(x_ini, y0, x_fin, y1), color=gris, width=0.5)
+    page.draw_rect(fitz.Rect(x_ini, y0, max(x_fin, x_tapar), y1), color=gris, width=0.5)
+    if x_tapar > x_fin:                     # borde de la celda alta del Total
+        page.draw_line(fitz.Point(x_fin, y0), fitz.Point(x_fin, y1),
+                       color=gris, width=0.4)
 
     # Por cada columna se busca la letra MÁS GRANDE con la que el texto más largo
     # entra COMPLETO, partiéndolo en las líneas que quepan en la fila (una fila alta
@@ -1117,14 +1126,6 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                         color=None, fill=(1, 1, 1), fill_opacity=1)
                 except Exception:
                     pass
-        for pnum, txts in textos.items():
-            if 0 <= pnum - 1 < len(doc):
-                page = doc[pnum - 1]; H = page.rect.height
-                for (x, y, texto, fs) in txts:
-                    try:
-                        page.insert_text((x, H - y), texto, fontsize=fs or 9)
-                    except Exception:
-                        pass
         # TABLA DINÁMICA de prestaciones (más filas que las que trae el formulario).
         if tabla_spec:
             pnum = int(tabla_spec.get('pagina', 1))
@@ -1133,6 +1134,14 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                     _dibujar_tabla_prestaciones(doc[pnum - 1], tabla_spec, filas_tabla)
                 except Exception as e:
                     print(f'[seguros] fallo la tabla dinamica de {aseguradora_key}: {e!r}')
+        for pnum, txts in textos.items():
+            if 0 <= pnum - 1 < len(doc):
+                page = doc[pnum - 1]; H = page.rect.height
+                for (x, y, texto, fs) in txts:
+                    try:
+                        page.insert_text((x, H - y), texto, fontsize=fs or 9)
+                    except Exception:
+                        pass
         doc.save(str(ruta_out), garbage=3, deflate=True)
         doc.close()
         if filas_resumidas:

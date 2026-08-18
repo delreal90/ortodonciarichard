@@ -3875,8 +3875,13 @@ def seguro_init():
     doctores = [{'key': k, 'nombre': f"Dr. {v.get('professional_name', k.title())}"}
                 for k, v in (cfg.get('doctores') or {}).items()
                 if isinstance(v, dict)]
+    # 'capacidad' = cuantas lineas de prestacion entran en SU formulario oficial
+    # (0 = sin limite, ej. EUROAMERICA que usa el informe propio). La pagina avisa
+    # antes de enviar si el paciente trae mas: las que sobran se resumen en la
+    # ultima fila y el detalle completo se adjunta en una hoja anexa.
     aseguradoras = [{'key': a['key'], 'nombre': a.get('nombre', a['key']),
-                     'tiene_plantilla': bool(a.get('plantilla_pdf'))}
+                     'tiene_plantilla': bool(a.get('plantilla_pdf')),
+                     'capacidad': seguros.capacidad_formulario(a['key'])}
                     for a in seguros.listar_aseguradoras()]
     return jsonify({'ok': True, 'aseguradoras': aseguradoras, 'doctores': doctores})
 

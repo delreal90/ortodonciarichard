@@ -26,6 +26,7 @@ Que prueba y por que:
      devolviendo (filas, False): con el modelo nuevo nunca es "no reconocido".
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -562,6 +563,59 @@ class TestItemsDeBoleta(unittest.TestCase):
     def test_monto_como_texto_con_puntos_igual_cuadra(self):
         items = [{'descripcion': 'A', 'valor': '95.000'}, {'descripcion': 'B', 'valor': '51.000'}]
         self.assertEqual(len(seguros.items_de_boleta(items, 'g', '146.000')), 2)
+
+
+class TestGeometriaTablas(unittest.TestCase):
+    """La semilla declara la tabla de prestaciones de las 16 aseguradoras con
+    plantilla. Estas pruebas fijan lo que se verifico A OJO formulario por formulario
+    (render a 2 y a 8 prestaciones): si alguien mueve una coordenada sin volver a
+    mirar el PDF, esto falla antes del deploy."""
+
+    @classmethod
+    def setUpClass(cls):
+        ruta = Path(__file__).parent / 'seguros_seed' / 'aseguradoras_seed.json'
+        cls.seed = json.loads(ruta.read_text(encoding='utf-8'))
+
+    def test_todas_las_que_tienen_plantilla_llegan_a_8_filas(self):
+        for key, aseg in self.seed.items():
+            if not aseg.get('plantilla'):
+                continue        # EUROAMERICA usa el informe propio: sin limite
+            with self.subTest(aseguradora=key):
+                self.assertTrue(aseg.get('tabla_prestaciones'),
+                                f'{key} sin tabla_prestaciones')
+                self.assertEqual(aseg.get('max_prestaciones_por_form'), 8)
+
+    def test_la_geometria_de_cada_tabla_es_coherente(self):
+        for key, aseg in self.seed.items():
+            spec = aseg.get('tabla_prestaciones')
+            if not spec:
+                continue
+            with self.subTest(aseguradora=key):
+                cols = spec.get('columnas') or []
+                self.assertTrue(cols, f'{key} sin columnas')
+                self.assertGreater(float(spec['y1']), float(spec['y0']))
+                # columnas ordenadas, sin solaparse ni dejar huecos
+                # ordenadas y sin solaparse. En los AcroForm los limites salen del
+                # rect de cada widget, que deja microhuecos de 1-3 pt: eso es normal,
+                # un solape en cambio hace que el texto invada la columna vecina.
+                for a, b in zip(cols, cols[1:]):
+                    self.assertLess(a['x0'], a['x1'])
+                    self.assertGreaterEqual(b['x0'], a['x1'] - 0.1,
+                                            f'{key}: columnas solapadas')
+                    self.assertLess(b['x0'] - a['x1'], 4.0,
+                                    f'{key}: hueco grande entre columnas')
+                # la letra no puede caer bajo lo legible con 8 filas
+                alto = (float(spec['y1']) - float(spec['y0'])) / 8
+                self.assertGreaterEqual(round(alto, 1), 7.5,
+                                        f'{key}: {alto:.1f} pt por fila con 8 filas')
+                # descripcion y valor son obligatorias: sin ellas el formulario no dice nada
+                campos = {c.get('campo') for c in cols}
+                self.assertIn('descripcion', campos)
+                self.assertTrue({'valor', 'valor_total'} & campos)
+                x_tap = spec.get('x_tapar_fin')
+                if x_tap is not None:       # Cruz Blanca / Vida Security: celda alta del Total
+                    self.assertGreater(float(x_tap), max(c['x1'] for c in cols))
+
 
 
 if __name__ == '__main__':
