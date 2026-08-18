@@ -436,6 +436,79 @@ class TestSacaPiezaBoca(_AislamientoCatalogo):
         self.assertEqual(p['nombre'], 'CONTROL DE CONTENCION')
 
 
+class TestCapacidadFormulario(unittest.TestCase):
+    """El formulario oficial tiene un número fijo de filas. Antes, las prestaciones
+    que sobraban se descartaban EN SILENCIO mientras el total sí las sumaba (caso
+    real Zurich: 7 prestaciones, se imprimieron 5 y el total decía la suma de las 7).
+    preparar_filas_para_formulario garantiza que la suma NUNCA cambie."""
+
+    def _filas(self, n):
+        return [{'descripcion': f'Prestación {i}', 'valor': str(1000 * i),
+                 'fecha': '18-08-2026'} for i in range(1, n + 1)]
+
+    def test_si_caben_no_toca_nada(self):
+        filas = self._filas(3)
+        visibles, resto = seguros.preparar_filas_para_formulario(filas, 8)
+        self.assertEqual(visibles, filas)
+        self.assertEqual(resto, [])
+
+    def test_justo_en_el_limite_no_resume(self):
+        filas = self._filas(8)
+        visibles, resto = seguros.preparar_filas_para_formulario(filas, 8)
+        self.assertEqual(len(visibles), 8)
+        self.assertEqual(resto, [])
+
+    def test_si_sobran_resume_y_la_suma_no_cambia(self):
+        filas = self._filas(12)
+        total_original = sum(seguros._monto_int(f['valor']) for f in filas)
+        visibles, resto = seguros.preparar_filas_para_formulario(filas, 8)
+
+        self.assertEqual(len(visibles), 8)          # ni una fila de más
+        self.assertEqual(len(resto), 5)             # 12 - (8-1) = 5 al resumen
+        self.assertIn('Otras prestaciones', visibles[-1]['descripcion'])
+        # LO CRÍTICO: lo que se ve suma exactamente lo que dice el total.
+        self.assertEqual(sum(seguros._monto_int(f['valor']) for f in visibles),
+                         total_original)
+        # y la columna "Total" de esa fila también va rellena
+        self.assertEqual(visibles[-1]['valor'], visibles[-1]['valor_total'])
+
+    def test_capacidad_0_no_recorta(self):
+        filas = self._filas(20)
+        visibles, resto = seguros.preparar_filas_para_formulario(filas, 0)
+        self.assertEqual(len(visibles), 20)
+        self.assertEqual(resto, [])
+
+    def test_capacidad_por_aseguradora(self):
+        orig = seguros.obtener_aseguradora
+        seguros.obtener_aseguradora = lambda k: {
+            'con_tabla':  {'plantilla_pdf': 'x.pdf', 'max_prestaciones_por_form': 5,
+                           'tabla_prestaciones': {'capacidad': 8}},
+            'sin_tabla':  {'plantilla_pdf': 'x.pdf', 'max_prestaciones_por_form': 5},
+            'sin_form':   {'nombre': 'Euroamerica'},
+        }.get(k)
+        try:
+            self.assertEqual(seguros.capacidad_formulario('con_tabla'), 8)
+            self.assertEqual(seguros.capacidad_formulario('sin_tabla'), 5)
+            self.assertEqual(seguros.capacidad_formulario('sin_form'), 0)  # informe: sin límite
+        finally:
+            seguros.obtener_aseguradora = orig
+
+    def test_aplicar_capacidad_reescribe_los_valores_y_limpia_las_sobrantes(self):
+        valores = {}
+        for i in range(1, 11):
+            valores[f'prestacion_{i}_descripcion'] = f'Prestación {i}'
+            valores[f'prestacion_{i}_valor'] = str(1000 * i)
+            valores[f'prestacion_{i}_fecha'] = '18-08-2026'
+        visibles, resto = seguros._aplicar_capacidad(valores, 8)
+
+        self.assertEqual(len(visibles), 8)
+        self.assertEqual(len(resto), 3)
+        self.assertIn('Otras prestaciones', valores['prestacion_8_descripcion'])
+        # las filas 9 y 10 ya no deben imprimirse
+        self.assertNotIn('prestacion_9_descripcion', valores)
+        self.assertNotIn('prestacion_10_descripcion', valores)
+
+
 class TestMontoInt(unittest.TestCase):
     """DentiDesk manda montos en DOS formatos: '124.000' (punto = miles, como en
     pantalla) y '124000.000' (punto = decimal, en el detalle del abono). Quitar el

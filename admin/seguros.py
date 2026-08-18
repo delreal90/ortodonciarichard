@@ -747,6 +747,188 @@ def _stampar_campo(doc, page, w, value, fixed_fs):
         pass
 
 
+# ── Capacidad del formulario y red de seguridad ──────────────────────────────
+# El formulario oficial de cada aseguradora trae POCAS filas de prestación (3 en
+# BCI, 5 en la mayoría). Hasta el 2026-08-18 las filas que sobraban se descartaban
+# EN SILENCIO — pero el total sí las sumaba, así que el formulario salía
+# descuadrado (caso real Zurich: 7 prestaciones, se imprimieron 5 y el total decía
+# la suma de las 7). Estas funciones garantizan que eso no vuelva a pasar.
+
+def capacidad_formulario(aseguradora_key):
+    """Cuántas prestaciones puede mostrar el formulario de esa aseguradora.
+    0 = sin límite (las que no tienen plantilla usan el informe propio)."""
+    aseg = obtener_aseguradora(aseguradora_key) or {}
+    tabla = aseg.get('tabla_prestaciones') or {}
+    if tabla.get('capacidad'):
+        return int(tabla['capacidad'])
+    if aseg.get('plantilla_pdf'):
+        return int(aseg.get('max_prestaciones_por_form') or 6)
+    return 0
+
+
+def preparar_filas_para_formulario(filas, capacidad):
+    """Recorta las filas a lo que el formulario puede mostrar SIN perder plata: las
+    primeras `capacidad-1` van tal cual y la última resume el sobrante ("Otras
+    prestaciones — ver detalle adjunto") con su suma. Así el total impreso siempre
+    cuadra con lo que se ve. Devuelve (visibles, resumidas); `resumidas` son las que
+    se fueron al resumen, para listarlas en la hoja anexa."""
+    filas = list(filas or [])
+    if capacidad < 1 or len(filas) <= capacidad:
+        return filas, []
+    visibles = filas[:capacidad - 1]
+    resto = filas[capacidad - 1:]
+    total = sum(_monto_int(f.get('valor')) for f in resto)
+    fmt = f'{total:,}'.replace(',', '.') if total else ''
+    visibles.append({
+        'codigo': '',
+        'descripcion': f'Otras prestaciones ({len(resto)}) — ver detalle adjunto',
+        'fecha': resto[0].get('fecha', ''),
+        'valor': fmt, 'valor_total': fmt, 'cantidad': '1',
+    })
+    return visibles, resto
+
+
+def _filas_desde_valores(valores):
+    """Reconstruye la lista de filas desde los prestacion_N_* que armó
+    armar_valores(). Se hace acá (y no cambiando la firma de rellenar_pdf) para no
+    tocar los 4 puntos del server que ya lo llaman."""
+    filas = []
+    n = 1
+    while f'prestacion_{n}_descripcion' in valores:
+        filas.append({
+            'codigo':      valores.get(f'prestacion_{n}_codigo', ''),
+            'descripcion': valores.get(f'prestacion_{n}_descripcion', ''),
+            'fecha':       valores.get(f'prestacion_{n}_fecha', ''),
+            'valor':       valores.get(f'prestacion_{n}_valor', ''),
+            'valor_total': valores.get(f'prestacion_{n}_valor_total', ''),
+            'cantidad':    valores.get(f'prestacion_{n}_cantidad', ''),
+        })
+        n += 1
+    return filas
+
+
+_SUFIJOS_PRESTACION = ('codigo', 'descripcion', 'fecha', 'valor', 'valor_total',
+                       'cantidad', 'fecha_dia', 'fecha_mes', 'fecha_anio', 'fecha_aa')
+
+
+def _aplicar_capacidad(valores, capacidad):
+    """Aplica preparar_filas_para_formulario y REESCRIBE los prestacion_N_* de
+    `valores` (así los formularios de filas fijas, los que aún no tienen tabla
+    dinámica, también quedan cuadrados). Devuelve (visibles, resumidas)."""
+    filas = _filas_desde_valores(valores)
+    if not filas:
+        return [], []
+    visibles, resto = preparar_filas_para_formulario(filas, capacidad)
+    if not resto:
+        return visibles, []
+    for i, f in enumerate(visibles, start=1):
+        for suf in ('codigo', 'descripcion', 'fecha'):
+            valores[f'prestacion_{i}_{suf}'] = f.get(suf, '')
+        valores[f'prestacion_{i}_valor'] = f.get('valor', '')
+        valores[f'prestacion_{i}_valor_total'] = f.get('valor', '')
+    n = len(visibles) + 1                      # limpiar las que ya no se imprimen
+    while f'prestacion_{n}_descripcion' in valores:
+        for suf in _SUFIJOS_PRESTACION:
+            valores.pop(f'prestacion_{n}_{suf}', None)
+        n += 1
+    return visibles, resto
+
+
+def _dibujar_tabla_prestaciones(page, spec, filas):
+    """Redibuja la tabla de prestaciones con TANTAS filas como haga falta.
+
+    Tapa el cuerpo de la tabla original (mismo mecanismo que 'tapar') y dibuja una
+    grilla nueva de n filas más delgadas, ajustando el tamaño de letra. El
+    encabezado, la fila del Total y el resto de la hoja quedan INTACTOS.
+
+    spec: {pagina, y0, y1, columnas:[{campo,x0,x1,align}], filas_min, fontsize_max,
+    fontsize_min}. Coordenadas fitz (origen ARRIBA-izquierda), igual que 'tapar'.
+    Si el rango incluye una banda que se quiere absorber (ej. "Detalle y Costo
+    Laboratorio" en MAPFRE/BUPA/Cruz Blanca), el tapado borra sus etiquetas y esas
+    filas quedan disponibles para prestaciones."""
+    import fitz
+    y0, y1 = float(spec['y0']), float(spec['y1'])
+    cols = spec.get('columnas') or []
+    if not cols or y1 <= y0:
+        return 0
+    n = max(len(filas), int(spec.get('filas_min') or 1))
+    alto = (y1 - y0) / n
+    fs = max(float(spec.get('fontsize_min', 6.0)),
+             min(float(spec.get('fontsize_max', 9.0)), alto * 0.68))
+    x_ini = min(c['x0'] for c in cols)
+    x_fin = max(c['x1'] for c in cols)
+    gris = (0.45, 0.45, 0.45)
+
+    page.draw_rect(fitz.Rect(x_ini, y0, x_fin, y1), color=None, fill=(1, 1, 1),
+                   fill_opacity=1)
+    for i in range(1, n):                                   # separadores de fila
+        yy = y0 + alto * i
+        page.draw_line(fitz.Point(x_ini, yy), fitz.Point(x_fin, yy),
+                       color=gris, width=0.4)
+    for c in cols[1:]:                                      # separadores de columna
+        page.draw_line(fitz.Point(c['x0'], y0), fitz.Point(c['x0'], y1),
+                       color=gris, width=0.4)
+    page.draw_rect(fitz.Rect(x_ini, y0, x_fin, y1), color=gris, width=0.5)
+
+    # Tamaño de letra UNIFORME por columna: se busca el que hace caber al texto más
+    # largo de esa columna. Si se ajustara celda por celda, una descripción larga
+    # saldría más chica que su vecina y el formulario se vería descuidado.
+    fs_col = {}
+    for ci, c in enumerate(cols):
+        campo = c.get('campo')
+        if not campo:
+            continue
+        ancho = c['x1'] - c['x0'] - 4
+        f = fs
+        for fila in filas[:n]:
+            txt = str(fila.get(campo) or '').strip()
+            while f > 4.5 and txt and fitz.get_text_length(txt, fontsize=f) > ancho:
+                f -= 0.25
+        fs_col[ci] = f
+
+    for i, fila in enumerate(filas[:n]):
+        base = y0 + alto * i + alto * 0.72
+        for ci, c in enumerate(cols):
+            campo = c.get('campo')
+            if not campo:
+                continue                    # columna de la aseguradora (ej. U.C.O.)
+            txt = str(fila.get(campo) or '').strip()
+            if not txt:
+                continue
+            f = fs_col[ci]
+            ancho = c['x1'] - c['x0'] - 4
+            while len(txt) > 1 and fitz.get_text_length(txt, fontsize=f) > ancho:
+                txt = txt[:-1]              # último recurso: recortar, nunca invadir
+            w = fitz.get_text_length(txt, fontsize=f)
+            align = c.get('align', 'left')
+            if align == 'right':
+                x = c['x1'] - 2 - w
+            elif align == 'center':
+                x = (c['x0'] + c['x1']) / 2 - w / 2
+            else:
+                x = c['x0'] + 2
+            page.insert_text(fitz.Point(x, base), txt, fontsize=f)
+    return n
+
+
+def _anexar_detalle(ruta_pdf, aseguradora_key, valores_completos, firma_doctor_key):
+    """Pega al final del formulario una hoja con el detalle COMPLETO (todas las
+    prestaciones), reusando el informe propio. Se usa cuando hubo que resumir."""
+    import fitz
+    try:
+        anexo = generar_pdf_generico(aseguradora_key, valores_completos,
+                                     firma_doctor_key)
+        doc = fitz.open(str(ruta_pdf))
+        doc.insert_pdf(fitz.open(str(anexo)))
+        tmp = Path(str(ruta_pdf) + '.tmp')
+        doc.save(str(tmp), garbage=3, deflate=True)
+        doc.close()
+        os.replace(str(tmp), str(ruta_pdf))
+    except Exception as e:
+        print(f'[seguros] no se pudo anexar el detalle: {e!r}')
+    return ruta_pdf
+
+
 def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     """Rellena el PDF oficial de la aseguradora con `valores`
     ({campo_logico: texto}). Devuelve la ruta del PDF generado.
@@ -762,6 +944,15 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     mapeo = aseg.get('mapeo_campos') or {}
     tipo = aseg.get('tipo_plantilla', 'overlay')
 
+    # Capacidad: nunca se descarta una prestación en silencio. Si sobran, la última
+    # fila las resume y al final se anexa el detalle completo.
+    valores_completos = dict(valores)          # copia SIN recortar, para el anexo
+    filas_tabla, filas_resumidas = _aplicar_capacidad(
+        valores, capacidad_formulario(aseguradora_key))
+    # Tabla dinámica: si la aseguradora la declara, se redibuja con más filas y sus
+    # mapeos prestacion_N_* quedan sin efecto (los reemplaza el motor).
+    tabla_spec = aseg.get('tabla_prestaciones') or None
+
     # 1) Separar: campos AcroForm vs posiciones overlay vs imagen de firma.
     # Las coordenadas (x, y) del overlay/firma van en el sistema del PDF (origen
     # ABAJO-izquierda), igual que reportlab.
@@ -769,7 +960,16 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     campos_acro_fs = {}  # nombre_campo_pdf -> fontsize fijo (si el spec lo pide)
     textos = {}          # pagina(1-based) -> [(x, y, texto, fontsize)]
     imagenes = {}        # pagina(1-based) -> [(x, y, w, h, ruta)]
+    campos_tabla = set()  # widgets de las filas viejas, a borrar si hay tabla dinámica
     for campo_logico, spec in mapeo.items():
+        # Con tabla dinámica, las filas las dibuja el motor: los mapeos de fila
+        # quedan sin efecto (y sus widgets AcroForm se eliminan, para que no queden
+        # cajas editables flotando sobre la tabla nueva).
+        if tabla_spec and campo_logico.startswith('prestacion_'):
+            for s in (spec if isinstance(spec, list) else [spec]):
+                if isinstance(s, dict) and 'campo' in s:
+                    campos_tabla.add(s['campo'])
+            continue
         # Un campo logico puede ir a VARIOS lugares del PDF (ej. "Nombre del
         # paciente" aparece en la seccion medica Y en la declaracion) — el
         # mapeo acepta un spec suelto o una lista de specs.
@@ -811,15 +1011,21 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
 
     GENERADOS_DIR.mkdir(parents=True, exist_ok=True)
     rut = _limpiar_rut(valores.get('paciente_rut', '')) or 'sinrut'
+    # El sufijo aleatorio evita que dos PDF generados en el MISMO segundo para el
+    # mismo paciente+aseguradora se pisen entre sí (el registro guarda la ruta).
     ruta_out = GENERADOS_DIR / (
-        f"{rut}_{aseguradora_key}_{ahora_chile().strftime('%Y%m%d-%H%M%S')}.pdf")
+        f"{rut}_{aseguradora_key}_{ahora_chile().strftime('%Y%m%d-%H%M%S')}"
+        f"-{uuid.uuid4().hex[:4]}.pdf")
 
     # 2) Formularios AcroForm (campos rellenables): PyMuPDF. Setea cada campo con
     # tamaño de fuente AUTO (0) para que el texto largo se encoja y quepa en la
     # casilla, y HORNEA la apariencia en el PDF (no depende del visor del
     # paciente, a diferencia de NeedAppearances). La firma y cualquier texto por
     # coordenadas se dibujan encima (convertimos y: PDF abajo-izq -> fitz arriba-izq).
-    if tipo == 'acroform' or campos_acro:
+    # Una aseguradora con tabla dinámica se renderiza SIEMPRE por acá (fitz dibuja
+    # texto e imagen igual que el overlay, y las specs de coordenadas son las
+    # mismas porque esta rama ya convierte y = H - y).
+    if tipo == 'acroform' or campos_acro or tabla_spec:
         import fitz
         doc = fitz.open(str(plantilla))
         # APLANADO SELECTIVO: los campos que LLENAMOS se dibujan como texto estatico
@@ -832,7 +1038,7 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                                    campos_acro_fs.get(w.field_name))
         for page in doc:
             for w in list(page.widgets() or []):
-                if w.field_name in campos_acro:
+                if w.field_name in campos_acro or w.field_name in campos_tabla:
                     try:
                         page.delete_widget(w)
                     except Exception:
@@ -868,14 +1074,27 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
                         page.insert_text((x, H - y), texto, fontsize=fs or 9)
                     except Exception:
                         pass
+        # TABLA DINÁMICA de prestaciones (más filas que las que trae el formulario).
+        if tabla_spec:
+            pnum = int(tabla_spec.get('pagina', 1))
+            if 0 <= pnum - 1 < len(doc):
+                try:
+                    _dibujar_tabla_prestaciones(doc[pnum - 1], tabla_spec, filas_tabla)
+                except Exception as e:
+                    print(f'[seguros] fallo la tabla dinamica de {aseguradora_key}: {e!r}')
         doc.save(str(ruta_out), garbage=3, deflate=True)
         doc.close()
+        if filas_resumidas:
+            _anexar_detalle(ruta_out, aseguradora_key, valores_completos,
+                            firma_doctor_key)
         return ruta_out
 
     # 3) Formularios PLANOS (sin campos): overlay reportlab + pypdf (Colmena, etc.)
     writer_final = _overlay_pdf(plantilla, textos, imagenes)
     with open(ruta_out, 'wb') as f:
         writer_final.write(f)
+    if filas_resumidas:
+        _anexar_detalle(ruta_out, aseguradora_key, valores_completos, firma_doctor_key)
     return ruta_out
 
 
@@ -899,7 +1118,8 @@ def generar_pdf_generico(aseguradora_key, valores, firma_doctor_key=None):
     GENERADOS_DIR.mkdir(parents=True, exist_ok=True)
     rut = _limpiar_rut(valores.get('paciente_rut', '')) or 'sinrut'
     ruta = GENERADOS_DIR / (
-        f"{rut}_{aseguradora_key or 'generico'}_{ahora_chile().strftime('%Y%m%d-%H%M%S')}.pdf")
+        f"{rut}_{aseguradora_key or 'generico'}_{ahora_chile().strftime('%Y%m%d-%H%M%S')}"
+        f"-{uuid.uuid4().hex[:4]}.pdf")
 
     styles = getSampleStyleSheet()
     titulo = ParagraphStyle('t', parent=styles['Title'], fontSize=14, textColor=NAVY)

@@ -136,9 +136,53 @@
         "campo": "Fecha DiagnósticoRow1"
       }
     },
-    "max_prestaciones_por_form": 5,
+    "max_prestaciones_por_form": 8,
     "plantilla_pdf": "zurich.pdf",
-    "tipo_plantilla": "acroform"
+    "tipo_plantilla": "acroform",
+    "tabla_prestaciones": {
+      "pagina": 1,
+      "y0": 343.4,
+      "y1": 419.7,
+      "columnas": [
+        {
+          "campo": "descripcion",
+          "x0": 40.4,
+          "x1": 198.1,
+          "align": "left"
+        },
+        {
+          "x0": 199.2,
+          "x1": 243.5
+        },
+        {
+          "campo": "fecha",
+          "x0": 244.6,
+          "x1": 325.7,
+          "align": "center"
+        },
+        {
+          "campo": "valor",
+          "x0": 326.8,
+          "x1": 407.9,
+          "align": "right"
+        },
+        {
+          "campo": "valor_total",
+          "x0": 409.0,
+          "x1": 490.1,
+          "align": "right"
+        },
+        {
+          "x0": 491.2,
+          "x1": 581.4
+        }
+      ],
+      "capacidad": 8,
+      "filas_min": 5,
+      "fontsize_max": 9,
+      "fontsize_min": 6.5
+    },
+    "seed_rev": 1
   },
   "colmena": {
     "nombre": "Colmena",
