@@ -618,5 +618,37 @@ class TestGeometriaTablas(unittest.TestCase):
 
 
 
+class TestSeedReAplicaLaTabla(unittest.TestCase):
+    """El seed versionado (`seed_rev`) es lo UNICO que lleva las coordenadas a
+    produccion, donde la aseguradora ya existe en disco. Si `tabla_prestaciones` no
+    esta en la lista de campos que re-aplica, el deploy no cambia NADA y el
+    formulario sigue perdiendo prestaciones en silencio: paso de verdad."""
+
+    def test_una_aseguradora_ya_en_disco_recibe_la_tabla_nueva(self):
+        # Simula produccion: CONSORCIO ya existe en disco, con el mapeo viejo y sin
+        # tabla. Al correr el seed (lo que pasa en cada arranque) debe llegarle.
+        aseg = seguros.obtener_aseguradora('consorcio')
+        self.assertTrue(aseg, 'el seed no dejo consorcio en el store')
+        viejo = dict(aseg); viejo.pop('tabla_prestaciones', None)
+        viejo['seed_rev'] = 0; viejo['max_prestaciones_por_form'] = 5
+        seguros.guardar_aseguradora('consorcio', viejo)
+        seguros._aplicar_seed()
+        cur = seguros.obtener_aseguradora('consorcio')
+        self.assertTrue(cur.get('tabla_prestaciones'),
+                        'el seed_rev no re-aplico tabla_prestaciones: en produccion '
+                        'el formulario seguiria perdiendo prestaciones')
+        self.assertEqual(seguros.capacidad_formulario('consorcio'), 8)
+
+    def test_la_lista_de_campos_reaplicados_incluye_la_tabla(self):
+        fuente = Path(seguros.__file__).read_text(encoding='utf-8')
+        bloque = fuente.split("if sv.get('seed_rev', 0) > cur.get('seed_rev', 0):")[1][:400]
+        for campo in ('mapeo_campos', 'tapar', 'tabla_prestaciones',
+                      'max_prestaciones_por_form'):
+            self.assertIn(f"'{campo}'", bloque,
+                          f'{campo} no se re-aplica al subir seed_rev: '
+                          'el cambio nunca llegaria a produccion')
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

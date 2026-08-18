@@ -112,7 +112,8 @@ def _aplicar_seed():
             # aseguradoras cuyo seed_rev subió; no toca nombre/activa ni a las demás.
             if sv.get('seed_rev', 0) > cur.get('seed_rev', 0):
                 for campo in ('mapeo_campos', 'tipo_plantilla', 'plantilla_pdf',
-                              'max_prestaciones_por_form', 'tapar'):
+                              'max_prestaciones_por_form', 'tapar',
+                              'tabla_prestaciones'):
                     if campo in sv:
                         cur[campo] = sv[campo]
                 cur['seed_rev'] = sv['seed_rev']
@@ -1004,6 +1005,13 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
     mapeo = aseg.get('mapeo_campos') or {}
     tipo = aseg.get('tipo_plantilla', 'overlay')
 
+    # RUT del doctor partido en CASILLAS (SURA pide un dígito por casilla, igual que
+    # con el del paciente). Se deriva ACÁ y no en armar_valores porque 'doctor_rut'
+    # lo agrega server.py DESPUÉS, al resolver la firma del doctor.
+    _drut = _limpiar_rut(valores.get('doctor_rut', '') or '')
+    valores.setdefault('doctor_rut_cuerpo', _drut[:-1])
+    valores.setdefault('doctor_rut_dv', _drut[-1:])
+
     # Capacidad: nunca se descarta una prestación en silencio. Si sobran, la última
     # fila las resume y al final se anexa el detalle completo.
     valores_completos = dict(valores)          # copia SIN recortar, para el anexo
@@ -1119,13 +1127,28 @@ def rellenar_pdf(aseguradora_key, valores, firma_doctor_key=None):
         # encima. Config: aseg['tapar'] = [{'pagina','x0','y0','x1','y1'}].
         for cov in (aseg.get('tapar') or []):
             pnum = cov.get('pagina', 1)
-            if 0 <= pnum - 1 < len(doc):
-                try:
-                    doc[pnum - 1].draw_rect(
-                        fitz.Rect(cov['x0'], cov['y0'], cov['x1'], cov['y1']),
-                        color=None, fill=(1, 1, 1), fill_opacity=1)
-                except Exception:
-                    pass
+            if not (0 <= pnum - 1 < len(doc)):
+                continue
+            page = doc[pnum - 1]
+            rect = fitz.Rect(cov['x0'], cov['y0'], cov['x1'], cov['y1'])
+            # Varias plantillas traen los datos de la CLINICA escritos como
+            # ANOTACIONES FreeText (alguien las pegó con un lector de PDF antes de
+            # guardarlas) justo donde el formulario pide los del odontólogo. Una
+            # anotación se pinta ENCIMA del contenido, así que el rectángulo blanco
+            # no la tapa: hay que eliminarla. Por eso también se veían en azul.
+            try:
+                for an in list(page.annots() or []):
+                    if an.type[0] == fitz.PDF_ANNOT_WIDGET:
+                        continue                # los campos rellenables NO se tocan
+                    r = an.rect
+                    if rect.x0 - 2 <= r.x0 and r.x1 <= rect.x1 + 6 and                        rect.y0 - 3 <= r.y0 and r.y1 <= rect.y1 + 3:
+                        page.delete_annot(an)
+            except Exception:
+                pass
+            try:
+                page.draw_rect(rect, color=None, fill=(1, 1, 1), fill_opacity=1)
+            except Exception:
+                pass
         # TABLA DINÁMICA de prestaciones (más filas que las que trae el formulario).
         if tabla_spec:
             pnum = int(tabla_spec.get('pagina', 1))

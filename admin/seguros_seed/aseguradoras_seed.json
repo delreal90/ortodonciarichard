@@ -239,7 +239,7 @@
       },
       "clinica_email": {
         "pagina": 1,
-        "x": 78,
+        "x": 118,
         "y": 136,
         "fontsize": 10
       },
@@ -464,7 +464,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 1
+    "seed_rev": 2
   },
   "metlife": {
     "nombre": "MetLife",
@@ -1486,11 +1486,11 @@
       }
     },
     "max_prestaciones_por_form": 8,
-    "seed_rev": 2,
+    "seed_rev": 3,
     "tabla_prestaciones": {
       "pagina": 1,
       "y0": 504.2,
-      "y1": 566.4,
+      "y1": 603.1,
       "filas_min": 5,
       "columnas": [
         {
@@ -1576,7 +1576,7 @@
       "total": {
         "pagina": 2,
         "x": 510,
-        "y": 375,
+        "y": 384,
         "fontsize": 9
       },
       "firma_doctor": {
@@ -1855,7 +1855,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 1
+    "seed_rev": 2
   },
   "help": {
     "nombre": "HELP",
@@ -2308,9 +2308,6 @@
       "fecha_atencion": {
         "campo": "ciudad 7"
       },
-      "doctor_nombre": {
-        "campo": "direccion 20"
-      },
       "doctor_rut": {
         "campo": "ciudad 30"
       },
@@ -2486,6 +2483,12 @@
         "y": 704.323974609375,
         "ancho": 120,
         "alto": 22.677001953125
+      },
+      "doctor_apellidos": {
+        "campo": "direccion 20"
+      },
+      "doctor_nombres": {
+        "campo": "ciudad 29"
       }
     },
     "max_prestaciones_por_form": 8,
@@ -2534,7 +2537,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 1
+    "seed_rev": 2
   },
   "sura": {
     "nombre": "SURA",
@@ -2823,6 +2826,42 @@
         "x": 505,
         "y": 335,
         "fontsize": 8
+      },
+      "doctor_apellidos": {
+        "pagina": 1,
+        "x": 58,
+        "y": 284,
+        "fontsize": 9.5
+      },
+      "doctor_nombres": {
+        "pagina": 1,
+        "x": 377,
+        "y": 284,
+        "fontsize": 9.5
+      },
+      "doctor_rut_cuerpo": {
+        "pagina": 1,
+        "casillas": [
+          72.6,
+          84.3,
+          101.8,
+          116.4,
+          131.0,
+          148.5,
+          163.1,
+          177.7
+        ],
+        "y": 265,
+        "fontsize": 10,
+        "align": "right"
+      },
+      "doctor_rut_dv": {
+        "pagina": 1,
+        "casillas": [
+          201.0
+        ],
+        "y": 265,
+        "fontsize": 10
       }
     },
     "max_prestaciones_por_form": 8,
@@ -2866,7 +2905,23 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 1
+    "seed_rev": 2,
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 54.0,
+        "y0": 492.0,
+        "x1": 345.0,
+        "y1": 509.0
+      },
+      {
+        "pagina": 1,
+        "x0": 64.0,
+        "y0": 511.0,
+        "x1": 209.0,
+        "y1": 529.0
+      }
+    ]
   },
   "sermecoop": {
     "nombre": "SERMECOOP",
@@ -3110,6 +3165,24 @@
         "x": 437,
         "y": 400.0,
         "fontsize": 8
+      },
+      "doctor_rut": {
+        "pagina": 1,
+        "x": 66,
+        "y": 548,
+        "fontsize": 9
+      },
+      "doctor_nombres": {
+        "pagina": 1,
+        "x": 163,
+        "y": 548,
+        "fontsize": 9
+      },
+      "doctor_apellidos": {
+        "pagina": 1,
+        "x": 297,
+        "y": 548,
+        "fontsize": 9
       }
     },
     "max_prestaciones_por_form": 8,
@@ -3149,7 +3222,23 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 1
+    "seed_rev": 2,
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 61.0,
+        "y0": 230.0,
+        "x1": 139.5,
+        "y1": 249.0
+      },
+      {
+        "pagina": 1,
+        "x0": 158.0,
+        "y0": 228.0,
+        "x1": 452.0,
+        "y1": 247.0
+      }
+    ]
   },
   "vidasecurity": {
     "nombre": "VIDA SECURITY",
@@ -3402,6 +3491,18 @@
         "x": 443,
         "y": 396,
         "fontsize": 8
+      },
+      "doctor_rut": {
+        "pagina": 1,
+        "x": 42,
+        "y": 505,
+        "fontsize": 8.5
+      },
+      "doctor_nombre": {
+        "pagina": 1,
+        "x": 141,
+        "y": 505,
+        "fontsize": 8.5
       }
     },
     "max_prestaciones_por_form": 8,
@@ -3448,7 +3549,23 @@
       "fontsize_min": 6.5,
       "x_tapar_fin": 582.9
     },
-    "seed_rev": 1
+    "seed_rev": 2,
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 40.0,
+        "y0": 489.0,
+        "x1": 112.0,
+        "y1": 507.0
+      },
+      {
+        "pagina": 1,
+        "x0": 139.0,
+        "y0": 488.0,
+        "x1": 359.0,
+        "y1": 506.0
+      }
+    ]
   },
   "cruzblanca": {
     "nombre": "CRUZ BLANCA",
@@ -3701,14 +3818,26 @@
         "x": 421,
         "y": 187,
         "fontsize": 7
+      },
+      "doctor_nombre": {
+        "pagina": 1,
+        "x": 58,
+        "y": 302,
+        "fontsize": 8.5
+      },
+      "doctor_rut": {
+        "pagina": 1,
+        "x": 238,
+        "y": 302,
+        "fontsize": 8.5
       }
     },
     "max_prestaciones_por_form": 8,
     "activa": true,
     "tabla_prestaciones": {
       "pagina": 1,
-      "y0": 563.3,
-      "y1": 631.8,
+      "y0": 554.6,
+      "y1": 623.7,
       "filas_min": 5,
       "columnas": [
         {
@@ -3745,7 +3874,23 @@
       "fontsize_min": 6.5,
       "x_tapar_fin": 565.0
     },
-    "seed_rev": 1
+    "seed_rev": 2,
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 56.0,
+        "y0": 474.0,
+        "x1": 231.0,
+        "y1": 492.0
+      },
+      {
+        "pagina": 1,
+        "x0": 233.0,
+        "y0": 475.0,
+        "x1": 311.0,
+        "y1": 493.0
+      }
+    ]
   },
   "bci": {
     "nombre": "BCI",
@@ -3898,11 +4043,23 @@
         "x": 490,
         "y": 286,
         "fontsize": 8
+      },
+      "doctor_nombre": {
+        "pagina": 1,
+        "x": 22,
+        "y": 462,
+        "fontsize": 9
+      },
+      "doctor_rut": {
+        "pagina": 1,
+        "x": 235,
+        "y": 462,
+        "fontsize": 9
       }
     },
     "max_prestaciones_por_form": 8,
     "activa": true,
-    "seed_rev": 2,
+    "seed_rev": 3,
     "tabla_prestaciones": {
       "pagina": 1,
       "y0": 442.2,
@@ -3937,7 +4094,23 @@
       "capacidad": 8,
       "fontsize_max": 9,
       "fontsize_min": 6.5
-    }
+    },
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 20.0,
+        "y0": 314.0,
+        "x1": 207.0,
+        "y1": 332.0
+      },
+      {
+        "pagina": 1,
+        "x0": 230.0,
+        "y0": 314.0,
+        "x1": 319.0,
+        "y1": 332.0
+      }
+    ]
   },
   "magallanes": {
     "nombre": "MAGALLANES",
@@ -3999,7 +4172,7 @@
         },
         {
           "pagina": 2,
-          "x": 272,
+          "x": 286,
           "y": 533,
           "fontsize": 9
         }
@@ -4213,6 +4386,18 @@
         "x": 479,
         "y": 592,
         "fontsize": 7
+      },
+      "doctor_nombre": {
+        "pagina": 1,
+        "x": 62,
+        "y": 187,
+        "fontsize": 8.5
+      },
+      "doctor_rut": {
+        "pagina": 1,
+        "x": 429,
+        "y": 187,
+        "fontsize": 8.5
       }
     },
     "max_prestaciones_por_form": 8,
@@ -4262,6 +4447,22 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 1
+    "seed_rev": 2,
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 59.0,
+        "y0": 578.0,
+        "x1": 280.0,
+        "y1": 597.0
+      },
+      {
+        "pagina": 1,
+        "x0": 426.0,
+        "y0": 578.0,
+        "x1": 499.0,
+        "y1": 596.0
+      }
+    ]
   }
 }
