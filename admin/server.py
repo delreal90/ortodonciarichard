@@ -4194,6 +4194,14 @@ def seguro_auto_desde_boleta():
     if not rut:
         return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
 
+    # INTERRUPTOR CENTRAL del auto-envío (panel → Seguros → Auto-envío). Vive en el
+    # servidor a propósito: antes el toggle estaba en el ⚙ de CADA F2 (chrome.storage,
+    # por navegador), así que apagarlo en un PC no apagaba los demás y no había forma
+    # de cortar todo de una. Ahora la extensión siempre vigila y el servidor decide.
+    # Silencioso: apagado no es un error, no avisa a recepción.
+    if not seguros.get_auto_config().get('activo'):
+        return jsonify({'ok': True, 'auto_apagado': True})
+
     # Anti-duplicado: si esta boleta ya generó un envío, no repetir.
     if folio and seguros.folio_ya_enviado(folio):
         return jsonify({'ok': True, 'ya_enviado': True})

@@ -596,10 +596,15 @@
       <!-- 5. Auto-envío -->
       <div class="card" style="margin-top:18px">
         <h3 style="margin-bottom:10px">🤖 Auto-envío</h3>
-        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">El auto-envío (al emitir una boleta) no tiene la ficha abierta, así que usa este doctor por defecto para poner nombre, RUT y firma en el formulario.</p>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:10px">Cuando se emite una boleta, el sistema manda solo el formulario del seguro. Este interruptor manda para TODA la clínica (todos los computadores).</p>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;margin-bottom:6px">
+          <input type="checkbox" id="seg-auto-activo" style="width:auto;margin:0">
+          <span id="seg-auto-activo-txt">Envío automático activado</span>
+        </label>
+        <p style="font-size:.78rem;color:#718096;margin-bottom:12px">Apagado: no se envía ningún formulario solo (la secretaria igual puede mandarlo a mano con el botón del F2).</p>
         <div class="row">
           <div style="min-width:220px">
-            <label>Doctor por defecto (nombre, RUT y firma que van en el formulario)</label>
+            <label>Doctor por defecto (respaldo, si no se puede determinar quién atendió)</label>
             <select id="seg-auto-doctor">
               <option value="">— Ninguno —</option>
             </select>
@@ -2982,6 +2987,13 @@ function initSeguros() {
 }
 
 // ── 5. Auto-envío: doctor por defecto para el vigilante de boletas ──
+function _pintarSegAutoActivo(activo) {
+  document.getElementById('seg-auto-activo').checked = !!activo;
+  const t = document.getElementById('seg-auto-activo-txt');
+  t.textContent = activo ? 'Envío automático ACTIVADO' : 'Envío automático APAGADO';
+  t.style.color = activo ? '#276749' : '#9b2c2c';
+}
+
 async function cargarSegAuto() {
   const sel = document.getElementById('seg-auto-doctor');
   const estado = document.getElementById('seg-auto-estado');
@@ -2995,6 +3007,7 @@ async function cargarSegAuto() {
       doctores.map(d => `<option value="${_esc(d.key)}">${_esc(d.nombre)}</option>`).join('');
     if (dCfg && dCfg.ok) {
       sel.value = dCfg.doctor_default || '';
+      _pintarSegAutoActivo(dCfg.activo);
     }
     estado.innerHTML = '';
   } catch (e) {
@@ -3005,11 +3018,16 @@ async function cargarSegAuto() {
 async function guardarSegAuto() {
   const estado = document.getElementById('seg-auto-estado');
   const valor = document.getElementById('seg-auto-doctor').value;
+  const activo = document.getElementById('seg-auto-activo').checked;
   estado.innerHTML = 'Guardando…';
   try {
-    const d = await _segFetch('/api/seguro/auto-config', 'POST', { doctor_default: valor });
+    const d = await _segFetch('/api/seguro/auto-config', 'POST',
+                              { doctor_default: valor, activo: activo });
     if (d && d.ok) {
-      estado.innerHTML = '✅ Guardado';
+      _pintarSegAutoActivo(d.activo);
+      estado.innerHTML = d.activo
+        ? '✅ Guardado — el envío automático está ACTIVADO para toda la clínica'
+        : '✅ Guardado — el envío automático está APAGADO en todos los computadores';
     } else {
       estado.innerHTML = '❌ ' + _esc((d && d.error) || 'Error');
     }
