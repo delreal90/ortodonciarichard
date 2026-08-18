@@ -870,24 +870,37 @@ def _dibujar_tabla_prestaciones(page, spec, filas):
                        color=gris, width=0.4)
     page.draw_rect(fitz.Rect(x_ini, y0, x_fin, y1), color=gris, width=0.5)
 
-    # Tamaño de letra UNIFORME por columna: se busca el que hace caber al texto más
-    # largo de esa columna. Si se ajustara celda por celda, una descripción larga
-    # saldría más chica que su vecina y el formulario se vería descuidado.
-    fs_col = {}
+    # Por cada columna se busca la letra MÁS GRANDE con la que el texto más largo
+    # entra COMPLETO, partiéndolo en las líneas que quepan en la fila (una fila alta
+    # como la de CHUBB admite 2-3 líneas). Recortar es el último recurso y es
+    # peligroso: "…ARCADA SUPERIOR" y "…ARCADA INFERIOR" cortadas quedarían como dos
+    # filas IDÉNTICAS en el formulario. El tamaño es uniforme dentro de la columna
+    # (ajustarlo celda a celda se ve descuidado).
+    # fontsize_min es el tamaño PREFERIDO mínimo; si con él el texto no entra, se
+    # baja hasta _FS_ABS_MIN antes de recortar (perder "ARCADA SUPERIOR/INFERIOR" es
+    # peor que un par de puntos menos de letra).
+    fs_min = float(spec.get('fontsize_min', 6.0))
+    _FS_ABS_MIN = 5.0
+    fs_col, lineas_col = {}, {}
     for ci, c in enumerate(cols):
         campo = c.get('campo')
         if not campo:
             continue
         ancho = c['x1'] - c['x0'] - 4
+        textos = [t for t in (str(f_.get(campo) or '').strip() for f_ in filas[:n]) if t]
         f = fs
-        for fila in filas[:n]:
-            txt = str(fila.get(campo) or '').strip()
-            while f > 4.5 and txt and fitz.get_text_length(txt, fontsize=f) > ancho:
-                f -= 0.25
-        fs_col[ci] = f
+        elegido = None
+        while f >= _FS_ABS_MIN - 0.01:
+            k = max(1, int(alto / (f * 1.15)))
+            if all(_lineas_necesarias(t, f, ancho) <= k for t in textos):
+                elegido = (f, k)
+                break
+            f -= 0.25
+        if elegido is None:                 # ni al mínimo entra: se recorta al dibujar
+            elegido = (_FS_ABS_MIN, max(1, int(alto / (_FS_ABS_MIN * 1.15))))
+        fs_col[ci], lineas_col[ci] = elegido
 
     for i, fila in enumerate(filas[:n]):
-        base = y0 + alto * i + alto * 0.72
         for ci, c in enumerate(cols):
             campo = c.get('campo')
             if not campo:
@@ -897,18 +910,56 @@ def _dibujar_tabla_prestaciones(page, spec, filas):
                 continue
             f = fs_col[ci]
             ancho = c['x1'] - c['x0'] - 4
-            while len(txt) > 1 and fitz.get_text_length(txt, fontsize=f) > ancho:
-                txt = txt[:-1]              # último recurso: recortar, nunca invadir
-            w = fitz.get_text_length(txt, fontsize=f)
+            lineas = _envolver_celda(txt, f, ancho, lineas_col[ci])
+            alto_bloque = f * 1.15 * len(lineas)
+            base0 = y0 + alto * i + (alto - alto_bloque) / 2 + f
             align = c.get('align', 'left')
-            if align == 'right':
-                x = c['x1'] - 2 - w
-            elif align == 'center':
-                x = (c['x0'] + c['x1']) / 2 - w / 2
-            else:
-                x = c['x0'] + 2
-            page.insert_text(fitz.Point(x, base), txt, fontsize=f)
+            for j, ln in enumerate(lineas):
+                while len(ln) > 1 and fitz.get_text_length(ln, fontsize=f) > ancho:
+                    ln = ln[:-1]            # último recurso: nunca invadir la vecina
+                w = fitz.get_text_length(ln, fontsize=f)
+                if align == 'right':
+                    x = c['x1'] - 2 - w
+                elif align == 'center':
+                    x = (c['x0'] + c['x1']) / 2 - w / 2
+                else:
+                    x = c['x0'] + 2
+                page.insert_text(fitz.Point(x, base0 + f * 1.15 * j), ln, fontsize=f)
     return n
+
+
+def _lineas_necesarias(txt, fs, ancho):
+    """Cuántas líneas ocupa `txt` a ese tamaño dentro de `ancho` (corte por palabra)."""
+    import fitz
+    lineas, actual = 1, ''
+    for p in txt.split():
+        cand = f'{actual} {p}'.strip()
+        if actual and fitz.get_text_length(cand, fontsize=fs) > ancho:
+            lineas += 1
+            actual = p
+        else:
+            actual = cand
+    return lineas
+
+
+def _envolver_celda(txt, fs, ancho, max_lineas):
+    """Parte el texto en hasta `max_lineas` que quepan en `ancho` (por palabras)."""
+    import fitz
+    if max_lineas <= 1 or fitz.get_text_length(txt, fontsize=fs) <= ancho:
+        return [txt]
+    lineas, actual = [], ''
+    for p in txt.split():
+        cand = f'{actual} {p}'.strip()
+        if actual and fitz.get_text_length(cand, fontsize=fs) > ancho:
+            lineas.append(actual)
+            actual = p
+            if len(lineas) >= max_lineas:
+                return lineas
+        else:
+            actual = cand
+    if actual:
+        lineas.append(actual)
+    return lineas[:max_lineas] or [txt]
 
 
 def _anexar_detalle(ruta_pdf, aseguradora_key, valores_completos, firma_doctor_key):
