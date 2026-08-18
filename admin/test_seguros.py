@@ -436,6 +436,30 @@ class TestSacaPiezaBoca(_AislamientoCatalogo):
         self.assertEqual(p['nombre'], 'CONTROL DE CONTENCION')
 
 
+class TestMontoInt(unittest.TestCase):
+    """DentiDesk manda montos en DOS formatos: '124.000' (punto = miles, como en
+    pantalla) y '124000.000' (punto = decimal, en el detalle del abono). Quitar el
+    punto a ciegas convertía 124.000 en 124 millones."""
+
+    def test_entero_pelado(self):
+        self.assertEqual(seguros._monto_int('124000'), 124000)
+        self.assertEqual(seguros._monto_int(146000), 146000)
+
+    def test_punto_como_separador_de_miles(self):
+        self.assertEqual(seguros._monto_int('124.000'), 124000)
+        self.assertEqual(seguros._monto_int('1.234.567'), 1234567)
+        self.assertEqual(seguros._monto_int('$146.000'), 146000)
+
+    def test_punto_como_decimal_del_detalle_del_abono(self):
+        self.assertEqual(seguros._monto_int('124000.000'), 124000)
+        self.assertEqual(seguros._monto_int('452000.000'), 452000)
+        self.assertEqual(seguros._monto_int('0.000'), 0)
+
+    def test_basura_y_vacio_dan_cero(self):
+        for v in ('', None, 'abc'):
+            self.assertEqual(seguros._monto_int(v), 0)
+
+
 class TestItemsDeBoleta(unittest.TestCase):
     """El detalle del presupuesto trae TODO el plan del paciente; items_de_boleta
     debe usarlo SOLO si suma el total de la boleta, si no cae a 1 línea (glosa+total)."""

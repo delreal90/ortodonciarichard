@@ -320,9 +320,18 @@ def obtener_o_crear_prestacion_glosa(glosa):
 
 
 def _monto_int(v):
+    """Monto a entero, tolerando los dos formatos que llegan de DentiDesk:
+    '124.000' (punto = separador de MILES, como se ve en pantalla) y '124000.000'
+    (punto = DECIMAL, como lo devuelve el detalle de prestaciones del abono).
+    Distinguirlos importa: quitar el punto a ciegas convertía 124.000 en 124 millones."""
+    s = str(v if v is not None else 0).replace('$', '').replace(' ', '').strip()
+    if not s:
+        return 0
+    # Miles solo si el patrón es 1-3 dígitos + grupos EXACTOS de 3 ('1.234.567').
+    if re.fullmatch(r'-?\d{1,3}(\.\d{3})+', s):
+        s = s.replace('.', '')
     try:
-        return int(str(v if v is not None else 0)
-                   .replace('.', '').replace('$', '').replace(' ', '') or 0)
+        return int(float(s))
     except (TypeError, ValueError):
         return 0
 
