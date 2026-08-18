@@ -3739,6 +3739,100 @@ def consentimiento_limpiar_huerfanos():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PSQ — Cuestionario de Sueño Pediátrico (screening, módulo psq.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# El paciente/apoderado responde en /psq, sin sesión (público, como /consentimiento).
+# El backend calcula el riesgo y le envía el resultado al doctor que atendió por
+# última vez al paciente en DentiDesk (o a recepción si no se puede determinar).
+# La resolución del doctor barre la agenda día por día hacia atrás (ver
+# dentidesk.doctor_de_paciente) — puede tardar, así que corre en un hilo aparte
+# para no bloquear la respuesta al paciente.
+
+import psq
+
+
+@app.route('/psq')
+def psq_page():
+    return send_from_directory('.', 'psq.html')
+
+
+def _procesar_psq(registro_id, rut, paciente_email_ctx):
+    """Corre en un hilo aparte: resuelve el doctor tratante y envía el correo.
+    No toca la respuesta ya devuelta al paciente."""
+    try:
+        cfg = scheduling.load_config()
+        destinatario, doc_key, motivo = psq.resolver_destinatario(rut, cfg)
+        doctor_label = psq.nombre_doctor(cfg, doc_key)
+        resultado = paciente_email_ctx['resultado']
+        r = notify.enviar_resultado_psq(destinatario, doctor_label, paciente_email_ctx,
+                                        resultado, motivo)
+        psq.actualizar_envio(registro_id, estado=('enviado' if r.get('ok') else 'error'),
+                             destinatario=destinatario, doctor_key=doc_key,
+                             motivo_envio=motivo, error=r.get('error', ''))
+    except Exception as e:
+        log.warning('psq: fallo al procesar el envio %s: %r', registro_id, e)
+        psq.actualizar_envio(registro_id, estado='error', error=str(e))
+
+
+@app.route('/api/psq/enviar', methods=['POST'])
+@rate_limit('10 per minute')
+def psq_enviar():
+    """Recibe el cuestionario respondido desde psq.html. Body:
+    {rut, nombre, apellido, respuestas: {p1..p22}}. Publica (el paciente la
+    abre sin sesion) -- ver razon en test_seguridad.py."""
+    data = request.json or {}
+    rut = (data.get('rut') or '').strip()
+    # Sin espacios de control (en particular \r\n): este texto va al Subject de un
+    # email -- sin sanear, un nombre con salto de linea podria inyectar cabeceras
+    # SMTP arbitrarias (header injection).
+    nombre = re.sub(r'[\x00-\x1f\x7f]+', ' ', (data.get('nombre') or '')).strip()[:120]
+    apellido = re.sub(r'[\x00-\x1f\x7f]+', ' ', (data.get('apellido') or '')).strip()[:120]
+    respuestas = data.get('respuestas') or {}
+
+    if not scheduling.rut_valido(rut):
+        return jsonify({'ok': False, 'error': 'RUT inválido'}), 400
+    if not nombre or not apellido:
+        return jsonify({'ok': False, 'error': 'Falta el nombre o apellido del paciente'}), 400
+    error_resp = psq.validar_respuestas(respuestas)
+    if error_resp:
+        return jsonify({'ok': False, 'error': error_resp}), 400
+
+    resultado = psq.calcular_riesgo(respuestas)
+    rut_limpio = scheduling.limpiar_rut(rut)
+    ahora = fechas.ahora_chile()
+    registro_id = f'{rut_limpio}-{ahora.strftime("%Y%m%dT%H%M%S")}'
+
+    psq.guardar_envio(registro_id, {
+        'id': registro_id, 'rut': rut_limpio, 'nombre': f'{nombre} {apellido}'.strip(),
+        'fecha_iso': ahora.isoformat(), 'respuestas': respuestas,
+        'puntaje': resultado['puntaje'], 'riesgo': resultado['riesgo'],
+        'estado': 'pendiente',
+    })
+
+    paciente_ctx = {
+        'nombre': f'{nombre} {apellido}'.strip(),
+        'rut_fmt': scheduling.formatear_rut(rut),
+        'fecha_legible': ahora.strftime('%d-%m-%Y %H:%M'),
+        'resultado': resultado,
+    }
+    import threading
+    threading.Thread(target=_procesar_psq, args=(registro_id, rut, paciente_ctx),
+                     daemon=True).start()
+
+    return jsonify({'ok': True})
+
+
+@app.route('/api/psq/historial', methods=['GET'])
+def psq_historial():
+    """Lista de envios recientes para el panel (nombre/rut/puntaje/riesgo/
+    a quien se envio) -- protegido por ADMIN_TOKEN."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'items': psq.listar_envios()})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SEGUROS COMPLEMENTARIOS  (formularios de reembolso — módulo seguros.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #

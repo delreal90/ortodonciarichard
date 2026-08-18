@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Cuestionario de Sueño Pediátrico (PSQ) — Ortodoncia Richard</title>
+<style>
+  :root {
+    --navy: #1A2E4A; --navy-light: #243C5E; --gold: #C9A84C; --gold-light: #D4B870;
+    --white: #fff; --bg: #F0F5FB; --text-dark: #1A2535; --text-mid: #4A5568;
+    --red: #e53e3e; --green: #38a169;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text-dark); padding-bottom: 40px; }
+
+  header { background: var(--navy); color: white; padding: 20px 24px; text-align: center; }
+  header img.logo { height: 46px; margin-bottom: 10px; }
+  header .clinica { color: var(--gold); font-size: .75rem; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  header h1 { font-size: 1.15rem; font-weight: 700; }
+  header p.sub { color: #c3d0e2; font-size: .82rem; margin-top: 6px; }
+
+  main { display: none; max-width: 720px; margin: 24px auto; padding: 0 16px; }
+
+  .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h2 { font-size: 1rem; color: var(--navy); margin-bottom: 10px; padding-bottom: 10px; border-bottom: 2px solid var(--bg); }
+  .card p.intro { font-size: .88rem; color: var(--text-mid); line-height: 1.55; margin-bottom: 10px; }
+
+  label.campo { display: block; font-size: .8rem; font-weight: 600; color: var(--text-mid); margin: 12px 0 5px; text-transform: uppercase; letter-spacing: .3px; }
+  input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: .95rem; font-family: inherit; }
+  input[type=text]:focus { outline: none; border-color: var(--gold); }
+  .fila-2 { display: flex; gap: 12px; }
+  .fila-2 > div { flex: 1; }
+  .error-inline { color: var(--red); font-size: .82rem; margin-top: 8px; display: none; }
+
+  .pregunta { padding: 14px 0; border-top: 1px solid #edf2f7; }
+  .pregunta:first-child { border-top: none; }
+  .pregunta p.texto { font-size: .92rem; color: var(--text-dark); margin-bottom: 10px; line-height: 1.4; }
+  .opciones { display: flex; gap: 8px; flex-wrap: wrap; }
+  .opciones label { flex: 1; min-width: 90px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1.5px solid #cbd5e0; border-radius: 8px; padding: 9px 8px; font-size: .82rem; font-weight: 500; color: var(--text-mid); cursor: pointer; text-align: center; }
+  .opciones input[type=radio] { accent-color: var(--gold); }
+  .opciones label.checked { border-color: var(--gold); background: var(--bg); color: var(--navy); font-weight: 700; }
+
+  .seccion-titulo { font-size: .72rem; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 2px; }
+  .seccion-desc { font-size: .8rem; color: var(--text-mid); margin-bottom: 10px; }
+
+  .btn { padding: 13px 22px; border: none; border-radius: 8px; font-size: .95rem; font-weight: 600; cursor: pointer; transition: opacity .15s, transform .05s; width: 100%; }
+  .btn:active { transform: scale(.99); }
+  .btn-gold { background: var(--gold); color: white; }
+  .btn:hover { opacity: .88; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  #enviar-sticky { position: sticky; bottom: 0; background: linear-gradient(to top, var(--bg) 60%, transparent); padding: 16px 0 8px; }
+
+  #pantalla-ok, #pantalla-error { display: none; max-width: 480px; margin: 80px auto; text-align: center; padding: 0 16px; }
+  #pantalla-ok .icono, #pantalla-error .icono { width: 72px; height: 72px; border-radius: 50%; color: white; font-size: 2rem; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
+  #pantalla-ok .icono { background: var(--green); }
+  #pantalla-error .icono { background: var(--red); }
+  #pantalla-ok h2, #pantalla-error h2 { color: var(--navy); margin-bottom: 8px; }
+  #pantalla-ok p, #pantalla-error p { color: var(--text-mid); font-size: .92rem; line-height: 1.5; }
+  #pantalla-error button { margin-top: 20px; }
+
+  .progreso { font-size: .78rem; color: var(--text-mid); text-align: right; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <img class="logo" src="https://delreal90.github.io/ortodonciarichard/images/logo-png.png" alt="Ortodoncia Richard">
+  <div class="clinica">Clínica de Ortodoncia C. Richard</div>
+  <h1>Cuestionario de Sueño Pediátrico (PSQ)</h1>
+  <p class="sub">Ayúdanos a evaluar la calidad del sueño de tu hijo/a. Toma unos 3 minutos.</p>
+</header>
+
+<main id="formulario">
+
+  <div class="card">
+    <h2>Datos del paciente</h2>
+    <p class="intro">Responde considerando el comportamiento de tu hijo/a durante el sueño y el despertar en los últimos meses. Si no estás seguro/a de alguna pregunta, siéntete libre de responder "No sé".</p>
+    <div class="fila-2">
+      <div>
+        <label class="campo">Nombre del paciente</label>
+        <input type="text" id="in-nombre" placeholder="Nombre">
+      </div>
+      <div>
+        <label class="campo">Apellido del paciente</label>
+        <input type="text" id="in-apellido" placeholder="Apellido">
+      </div>
+    </div>
+    <label class="campo">RUT del paciente</label>
+    <input type="text" id="in-rut" placeholder="Ej: 12345678-9" inputmode="text">
+    <p class="error-inline" id="err-datos"></p>
+  </div>
+
+  <div class="card">
+    <h2>Conducta durante la noche y mientras duerme</h2>
+    <p class="seccion-desc">Cuando duerme su hijo/a, ¿ronca más de la mitad del tiempo? Responda "Sí", "No" o "No sé" para cada pregunta.</p>
+    <div id="preguntas-noche"></div>
+  </div>
+
+  <div class="card">
+    <h2>Conducta durante el día y otros problemas posibles</h2>
+    <div id="preguntas-dia"></div>
+  </div>
+
+  <div class="card">
+    <h2>Conducta general</h2>
+    <p class="seccion-desc">Por favor indica con qué frecuencia aplica cada enunciado a tu hijo/a.</p>
+    <div id="preguntas-conducta"></div>
+  </div>
+
+  <p class="progreso" id="progreso">0 de 22 respondidas</p>
+  <p class="error-inline" id="err-envio"></p>
+  <div id="enviar-sticky">
+    <button class="btn btn-gold" id="btn-enviar" onclick="enviar()">Enviar cuestionario</button>
+  </div>
+</main>
+
+<div id="pantalla-ok">
+  <div class="icono">✓</div>
+  <h2>¡Gracias!</h2>
+  <p>Hemos recibido las respuestas. Un profesional de la clínica revisará el resultado y se pondrá en contacto si es necesario.</p>
+</div>
+
+<div id="pantalla-error">
+  <div class="icono">!</div>
+  <h2>No se pudo enviar</h2>
+  <p id="error-msg">Ocurrió un problema al enviar el cuestionario. Por favor intenta de nuevo.</p>
+  <button class="btn btn-gold" onclick="volverAFormulario()">Volver a intentar</button>
+</div>
+
+<script>
+const API_BASE = window.PSQ_API_BASE
+  || (['3000', '3050'].includes(location.port) ? 'http://localhost:5001' : location.origin);
+
+const OPCIONES_SI_NO = [['si', 'Sí'], ['no', 'No'], ['no_se', 'No sé']];
+const OPCIONES_FRECUENCIA = [['nunca', 'Nunca'], ['algunas_veces', 'Algunas veces'],
+                             ['muchas_veces', 'Muchas veces'], ['casi_siempre', 'Casi siempre']];
+
+// Debe calzar 1:1 con admin/psq.py (PREGUNTAS): mismo id, mismo orden, mismo texto.
+const PREGUNTAS = [
+  ['p1',  'noche',     'si_no',     '¿Ronca más de la mitad del tiempo?'],
+  ['p2',  'noche',     'si_no',     '¿Ronca siempre?'],
+  ['p3',  'noche',     'si_no',     '¿Ronca de forma ruidosa?'],
+  ['p4',  'noche',     'si_no',     '¿Tiene una respiración ruidosa o "pesada"?'],
+  ['p5',  'noche',     'si_no',     '¿Tiene problemas o dificultad para respirar?'],
+  ['p6',  'noche',     'si_no',     'Alguna vez, ¿ha visto a su hijo/a parar de respirar durante la noche?'],
+  ['p7',  'noche',     'si_no',     '¿Su hijo/a tiene tendencia a respirar por la boca durante el día?'],
+  ['p8',  'noche',     'si_no',     '¿Su hijo/a tiene la boca seca cuando se despierta por las mañanas?'],
+  ['p9',  'noche',     'si_no',     '¿Su hijo/a ocasionalmente se hace pipí (orina) en la cama?'],
+  ['p10', 'dia',       'si_no',     '¿Su hijo/a se despierta en la mañana sintiendo que no descansó?'],
+  ['p11', 'dia',       'si_no',     '¿Su hijo/a tiene problema de somnolencia (sueño excesivo) durante el día?'],
+  ['p12', 'dia',       'si_no',     '¿Su profesor o cualquier otro cuidador le ha comentado alguna vez que su hijo/a parece estar somnoliento (sueño excesivo) durante el día?'],
+  ['p13', 'dia',       'si_no',     '¿Le cuesta despertar a su hijo/a por las mañanas?'],
+  ['p14', 'dia',       'si_no',     '¿Su hijo/a se despierta con dolor de cabeza por las mañanas?'],
+  ['p15', 'dia',       'si_no',     '¿Su hijo/a ha parado de crecer a un ritmo normal (según control pediátrico) en algún momento desde que nació?'],
+  ['p16', 'dia',       'si_no',     '¿Su hijo/a tiene sobrepeso (según control pediátrico) o pesa más de lo normal para su edad?'],
+  ['p17', 'conducta',  'frecuencia', 'Su hijo/a menudo... no parece escuchar cuando se le habla directamente.'],
+  ['p18', 'conducta',  'frecuencia', 'Su hijo/a menudo... tiene dificultad para organizar tareas y actividades.'],
+  ['p19', 'conducta',  'frecuencia', 'Su hijo/a menudo... se distrae fácilmente con estímulos externos.'],
+  ['p20', 'conducta',  'frecuencia', 'Su hijo/a menudo... agita las manos, pies, o se mueve mientras está sentado.'],
+  ['p21', 'conducta',  'frecuencia', 'Su hijo/a menudo... está permanentemente en marcha o a menudo moviéndose como si tuviera un motor.'],
+  ['p22', 'conducta',  'frecuencia', 'Su hijo/a menudo... se entromete o interrumpe a otros (ej. intercepta conversaciones o juegos).'],
+];
+
+const respuestas = {};
+
+function renderPreguntas() {
+  const contenedores = { noche: document.getElementById('preguntas-noche'),
+                         dia: document.getElementById('preguntas-dia'),
+                         conducta: document.getElementById('preguntas-conducta') };
+  for (const [id, seccion, tipo, texto] of PREGUNTAS) {
+    const opciones = tipo === 'frecuencia' ? OPCIONES_FRECUENCIA : OPCIONES_SI_NO;
+    const div = document.createElement('div');
+    div.className = 'pregunta';
+    const opcionesHtml = opciones.map(([val, label]) => `
+      <label data-id="${id}" data-val="${val}">
+        <input type="radio" name="${id}" value="${val}" onchange="marcar('${id}','${val}')">
+        ${label}
+      </label>`).join('');
+    div.innerHTML = `<p class="texto">${texto}</p><div class="opciones">${opcionesHtml}</div>`;
+    contenedores[seccion].appendChild(div);
+  }
+}
+
+function marcar(id, val) {
+  respuestas[id] = val;
+  document.querySelectorAll(`label[data-id="${id}"]`).forEach(l => {
+    l.classList.toggle('checked', l.dataset.val === val);
+  });
+  actualizarProgreso();
+}
+
+function actualizarProgreso() {
+  const n = Object.keys(respuestas).length;
+  document.getElementById('progreso').textContent = `${n} de ${PREGUNTAS.length} respondidas`;
+}
+
+function limpiarRut(rut) {
+  return (rut || '').toUpperCase().replace(/[^0-9K]/g, '');
+}
+
+function rutValido(rut) {
+  const limpio = limpiarRut(rut);
+  if (limpio.length < 2) return false;
+  const cuerpo = limpio.slice(0, -1), dv = limpio.slice(-1);
+  if (!/^\d+$/.test(cuerpo)) return false;
+  let suma = 0, factor = 2;
+  for (let i = cuerpo.length - 1; i >= 0; i--) {
+    suma += parseInt(cuerpo[i], 10) * factor;
+    factor = factor === 7 ? 2 : factor + 1;
+  }
+  const resto = 11 - (suma % 11);
+  const dvEsperado = resto === 11 ? '0' : (resto === 10 ? 'K' : String(resto));
+  return dvEsperado === dv;
+}
+
+async function enviar() {
+  document.getElementById('err-datos').style.display = 'none';
+  document.getElementById('err-envio').style.display = 'none';
+
+  const nombre = document.getElementById('in-nombre').value.trim();
+  const apellido = document.getElementById('in-apellido').value.trim();
+  const rut = document.getElementById('in-rut').value.trim();
+
+  if (!nombre || !apellido) {
+    mostrarError('err-datos', 'Completa el nombre y apellido del paciente.');
+    return;
+  }
+  if (!rutValido(rut)) {
+    mostrarError('err-datos', 'El RUT ingresado no es válido.');
+    return;
+  }
+  const faltan = PREGUNTAS.length - Object.keys(respuestas).length;
+  if (faltan > 0) {
+    mostrarError('err-envio', `Faltan ${faltan} pregunta(s) por responder.`);
+    return;
+  }
+
+  const btn = document.getElementById('btn-enviar');
+  btn.disabled = true;
+  btn.textContent = 'Enviando…';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/psq/enviar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rut, nombre, apellido, respuestas }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) {
+      throw new Error(j.error || 'No se pudo enviar el cuestionario');
+    }
+    document.getElementById('formulario').style.display = 'none';
+    document.getElementById('pantalla-ok').style.display = 'block';
+  } catch (e) {
+    document.getElementById('error-msg').textContent = e.message || 'Ocurrió un problema al enviar el cuestionario.';
+    document.getElementById('formulario').style.display = 'none';
+    document.getElementById('pantalla-error').style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Enviar cuestionario';
+  }
+}
+
+function volverAFormulario() {
+  document.getElementById('pantalla-error').style.display = 'none';
+  document.getElementById('formulario').style.display = 'block';
+}
+
+function mostrarError(id, texto) {
+  const el = document.getElementById(id);
+  el.textContent = texto;
+  el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+renderPreguntas();
+document.getElementById('formulario').style.display = 'block';
+</script>
+
+</body>
+</html>

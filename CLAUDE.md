@@ -2085,6 +2085,75 @@ se desarrolla la extensión (ver memoria `asistente-f2-dentidesk`).
 
 ---
 
+## PSQ — Cuestionario de Sueño Pediátrico (2026-08-17)
+
+Página pública (`/psq`, sin sesión, mismo patrón que `/consentimiento`) donde el
+apoderado responde el **PSQ-CL**: la versión chilena validada del Pediatric Sleep
+Questionnaire — escala de Trastornos Respiratorios del Sueño (Bertrán K, Deck B,
+Vargas MP, et al. *Andes pediatr.* 2024;95(4):415-422, DOI
+10.32641/andespediatr.v95i4.5030). Al enviarlo, el backend calcula el puntaje y le
+manda el resultado por email al doctor que **atendió por última vez** al paciente.
+
+**El instrumento (22 ítems, 3 secciones, texto exacto en `admin/psq.py` → `PREGUNTAS`):**
+- **Noche + día** (9 + 7 = 16 ítems, respuesta Sí/No/No sé): ronquido, pausas
+  respiratorias, respiración bucal, somnolencia diurna, dolor de cabeza matutino,
+  crecimiento, sobrepeso.
+- **Conducta** (6 ítems, respuesta Nunca/Algunas veces/Muchas veces/Casi siempre):
+  ítems tipo hiperactividad/inatención (subescala C del PSQ original de Chervin).
+
+**Puntaje (`psq.calcular_riesgo`):** positivas / contestadas. `no_se` NO cuenta en el
+denominador (la sección de conducta no tiene esa opción, siempre cuenta). En la
+sección de conducta, "muchas veces" y "casi siempre" cuentan como POSITIVO (convención
+del PSQ original de Chervin et al. 2000 para la subescala de hiperactividad) — "nunca"
+y "algunas veces" no. **Corte: 0,227** — el que determinó el estudio chileno (PSQ-CL)
+por curva ROC (sensibilidad 73%, especificidad 78%), más sensible que el 0,33 del
+instrumento original en inglés. Un puntaje MAYOR al corte = riesgo alto.
+
+⚠️ **Es una herramienta de screening, no diagnóstica** — el email al doctor lo deja
+explícito. Al paciente NO se le muestra el puntaje (solo un "gracias, lo revisaremos");
+mostrarle un resultado clínico sin contexto a un apoderado invita a autodiagnóstico.
+
+**A quién le llega el resultado (`psq.resolver_destinatario`):** el doctor que atendió
+por última vez al paciente, vía `dentidesk.doctor_de_paciente(rut, hoy, cfg,
+dias_atras=120)` — la misma función que usa el auto-envío de seguros (ver
+"Seguros Complementarios"). Si no se puede determinar el doctor, o se determina pero no
+tiene email configurado, el correo cae a **recepcion@ortodonciarichard.cl** (decisión
+explícita del usuario: nunca se adivina un doctor). El email de cada doctor vive en una
+variable de entorno **`EMAIL_<DOC_KEY>`** (ej. `EMAIL_ALBERTO`) — nombre genérico
+A PROPÓSITO (no `PSQ_EMAIL_*`, decisión del usuario 2026-08-18): así otras funciones
+futuras que necesiten el email de un doctor reusan la misma variable en vez de
+duplicarla. Nunca en el repo (es público). ⏳ **Pendiente: setear estas env vars en
+Render** — mientras no estén, todo cae a recepción (que sigue siendo un resultado útil,
+no un fallo silencioso).
+
+**Por qué corre en un hilo aparte:** `doctor_de_paciente` barre `getAgendaDay` día por
+día HACIA ATRÁS hasta encontrar una cita del RUT (sin paralelizar, a diferencia de
+`citas_futuras_paciente`) — con `dias_atras=120` puede ser lento. El endpoint
+`/api/psq/enviar` guarda la respuesta al tiro (estado `pendiente`) y devuelve `200` al
+paciente de inmediato; un hilo en segundo plano (`server._procesar_psq`) resuelve el
+doctor y manda el correo, actualizando el registro a `enviado`/`error`. El paciente
+nunca espera ese barrido.
+
+**Archivos:**
+```
+admin/psq.py    ← preguntas, scoring, resolución doctor→email, registro (jsonstore)
+admin/psq.html  ← página pública del formulario (vanilla JS, sin dependencias)
+admin/server.py ← GET /psq (página), POST /api/psq/enviar (público, rate limit 10/min),
+                   GET /api/psq/historial (ADMIN_TOKEN)
+```
+Registro en `psq_registro.json` (gitignored, disco persistente vía `PATIENT_INDEX_PATH`
+— RUT + respuestas son datos clínicos de un menor, nunca a git).
+
+**Pruebas:** `admin/test_psq.py` (22, cero red: scoring, validación, corte 0,227,
+resolución del destinatario con `dentidesk.doctor_de_paciente` mockeado).
+
+**Pendiente:** setear `EMAIL_<DOCTOR>` en Render para los 4 doctores; no hay pestaña
+en el panel para ver el historial (solo el endpoint `/api/psq/historial`); decidir si se
+enlaza `/psq` desde algún flujo (F2, confirmación de cita) o queda como link que la
+clínica comparte a mano — hoy es standalone, igual que `/consentimiento` antes del F2.
+
+---
+
 ## WhatsApp MCP — Configuración
 
 El MCP de WhatsApp está **instalado y funcionando**. Permite a Claude leer y enviar mensajes de WhatsApp.

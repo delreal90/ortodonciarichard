@@ -30,6 +30,7 @@ from scheduling import generar_ics, load_config
 import wa_cloud
 import pacientes
 import nps
+import psq
 
 
 # ── Email (primario) ─────────────────────────────────────────────────────────
@@ -1221,3 +1222,113 @@ def enviar_confirmacion(cita, cfg=None, canal=None, reagenda=False, primera=Fals
         return {'ok': True, 'canal': 'whatsapp'}
 
     return {'ok': False, 'canal': None, 'error': 'No se pudo enviar confirmacion'}
+
+
+# ── PSQ (cuestionario de sueño pediátrico) — resultado al doctor ────────────
+
+_PSQ_MOTIVO_NOTA = {
+    'sin_doctor': ('No se pudo determinar qué doctor atendió a este paciente en '
+                   'DentiDesk, así que este correo se envió a recepción.'),
+    'sin_email':  ('Se identificó al doctor tratante, pero no tiene un email '
+                   'configurado para este aviso (EMAIL_&lt;doctor&gt;), así '
+                   'que este correo se envió a recepción.'),
+}
+
+
+def _html_resultado_psq(paciente, doctor_label, resultado, motivo_envio):
+    import html as _html
+    nombre = _html.escape(paciente.get('nombre') or 'Paciente')
+    rut_fmt = _html.escape(paciente.get('rut_fmt') or '')
+    fecha_legible = _html.escape(paciente.get('fecha_legible') or '')
+
+    alto = resultado['riesgo'] == 'alto'
+    color = '#e53e3e' if alto else '#38a169'
+    etiqueta = 'RIESGO ALTO de trastorno respiratorio del sueño' if alto else 'Riesgo bajo'
+    pct = round(resultado['puntaje'] * 100, 1)
+
+    saludo = f'Hola Dr(a). {_html.escape(doctor_label)},' if doctor_label else 'Hola,'
+    nota = ''
+    if motivo_envio in _PSQ_MOTIVO_NOTA:
+        nota = (f'<p style="margin:0 0 16px;padding:10px 14px;background:#fff8e1;'
+                f'border-radius:6px;color:#8a6d1f;font-size:13px;">'
+                f'⚠️ {_PSQ_MOTIVO_NOTA[motivo_envio]}</p>')
+
+    filas_paciente = (_fila('Paciente', nombre) + _fila('RUT', rut_fmt)
+                      + _fila('Fecha de respuesta', fecha_legible))
+
+    filas_detalle = ''
+    seccion_actual = None
+    for item in resultado['detalle']:
+        if item['seccion'] != seccion_actual:
+            seccion_actual = item['seccion']
+            titulo = _html.escape(psq.SECCIONES.get(seccion_actual, seccion_actual))
+            filas_detalle += (f'<tr><td colspan="2" style="padding:10px 14px 4px;'
+                              f'font-weight:700;color:#1A2E4A;font-size:12px;'
+                              f'text-transform:uppercase;letter-spacing:.4px;'
+                              f'border-top:1px solid #e2e8f0;">{titulo}</td></tr>')
+        etiqueta_resp = {
+            'si': 'Sí', 'no': 'No', 'no_se': 'No sé',
+            'nunca': 'Nunca', 'algunas_veces': 'Algunas veces',
+            'muchas_veces': 'Muchas veces', 'casi_siempre': 'Casi siempre',
+        }.get(item['respuesta'], item['respuesta'] or '—')
+        if item['positiva'] is True:
+            marca_color = '#e53e3e'
+        elif item['positiva'] is False:
+            marca_color = '#4A5568'
+        else:
+            marca_color = '#a0aec0'
+        filas_detalle += (
+            f'<tr><td style="padding:6px 14px;color:#1A2535;font-size:13px;">'
+            f'{_html.escape(item["texto"])}</td>'
+            f'<td style="padding:6px 14px;color:{marca_color};font-size:13px;'
+            f'font-weight:600;white-space:nowrap;text-align:right;">{etiqueta_resp}</td></tr>'
+        )
+
+    cuerpo = f"""      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">{saludo}</p>
+      <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Un paciente respondió el cuestionario de sueño pediátrico (PSQ) desde el sitio. Este es el resultado:</p>
+      {nota}
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:18px;">
+        <tbody>{filas_paciente}</tbody>
+      </table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{color};border-radius:8px;margin-bottom:18px;">
+        <tr><td style="padding:16px 20px;text-align:center;">
+          <p style="margin:0;color:#fff;font-size:15px;font-weight:700;">{etiqueta}</p>
+          <p style="margin:4px 0 0;color:#fff;font-size:13px;opacity:.9;">Puntaje {resultado['puntaje']:.3f} ({pct}%) · {resultado['positivas']}/{resultado['contestadas']} respuestas positivas · corte de referencia {resultado['corte']:.3f}</p>
+        </td></tr>
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+        <tbody>{filas_detalle}</tbody>
+      </table>
+      <p style="margin:16px 0 0;color:#a0aec0;font-size:12px;">Este cuestionario es una herramienta de screening (PSQ-CL, versión chilena validada, Andes Pediátrica 2024) y no reemplaza una evaluación clínica. Un puntaje sobre el corte sugiere evaluar derivación a especialista en sueño.</p>"""
+    return _email_layout('Resultado cuestionario de sueño (PSQ)', cuerpo, pie=PIE_SOLO_DIRECCION,
+                         title_tag='Resultado PSQ')
+
+
+def enviar_resultado_psq(destinatario_email, doctor_label, paciente, resultado, motivo_envio):
+    """Envía el resultado del PSQ a `destinatario_email` (doctor tratante o
+    recepción, ver psq.resolver_destinatario). `paciente`: {nombre, rut_fmt,
+    fecha_legible}. Devuelve {ok, error}."""
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    if not smtp_user or not smtp_pass or '@' not in (destinatario_email or ''):
+        return {'ok': False, 'error': 'sin SMTP o email de destino'}
+
+    msg = MIMEMultipart('alternative')
+    msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
+    msg['To'] = destinatario_email
+    nombre_paciente = paciente.get('nombre') or 'un paciente'
+    msg['Subject'] = f'Resultado PSQ (cuestionario de sueño) — {nombre_paciente}'
+    msg['Reply-To'] = smtp_user
+    msg.attach(MIMEText(_html_resultado_psq(paciente, doctor_label, resultado, motivo_envio),
+                        'html', 'utf-8'))
+
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destinatario_email], msg.as_bytes())
+        log.info('Resultado PSQ enviado a %s (paciente %s)', destinatario_email, nombre_paciente)
+        return {'ok': True}
+    except Exception as e:
+        log.error('SMTP resultado PSQ error: %s', e)
+        return {'ok': False, 'error': str(e)}

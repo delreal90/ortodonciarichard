@@ -192,6 +192,7 @@ class TestCoberturaDeAuth(unittest.TestCase):
         '/api/seguro/link-info':                'token opaco del link "cambié mi aseguradora" (rate limit 10/min)',
         '/api/seguro/actualizar-aseguradora':   'el paciente actualiza su aseguradora con el token del correo (rate limit 10/min)',
         '/api/whatsapp/webhook':                'firma HMAC de Meta, fail-closed',
+        '/api/psq/enviar':                      'cuestionario de sueño: el paciente lo envía sin sesión (rate limit 10/min)',
         '/api/compras/login':                   'la puerta de entrada de Compras',
         '/api/compras/logout':                  'cierra la sesion de Compras',
         '/api/compras/me':                      'lee el X-Compras-Token del header',

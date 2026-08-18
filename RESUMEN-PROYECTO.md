@@ -188,6 +188,12 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
   nacimiento y cumpleaños".
 - **Asistente F2** — extensión MV3: `content.js` lee el modal, `background.js` hace los
   fetch, `config.js` (apiBase + adminToken en texto plano → no subir a repo público). → "Asistente F2".
+- **PSQ (cuestionario de sueño pediátrico)** — página pública `/psq` (sin sesión, como
+  `/consentimiento`): el apoderado responde el PSQ-CL de 22 ítems (versión chilena
+  validada, Bertrán et al. 2024), el backend calcula el puntaje (corte 0,227) y envía el
+  resultado por email al doctor que atendió por última vez al paciente en DentiDesk
+  (`dentidesk.doctor_de_paciente`, hilo aparte para no bloquear la respuesta). Sin doctor
+  resuelto o sin email configurado (`EMAIL_<DOCTOR>`) → cae a recepción. → "PSQ".
 
 ## Memorias (contexto que no está en el código)
 En `C:\Users\ESTUDIO3D\.claude\projects\...\memory\`: índice en `MEMORY.md`. Relevantes:

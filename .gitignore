@@ -108,3 +108,8 @@ admin/links_agenda.json
 # se decide si avisar a recepción). Mismo criterio: datos de pacientes, disco
 # persistente en Render, nunca a git.
 admin/reagenda_pendientes.json
+
+# PSQ (cuestionario de sueño pediátrico): registro de respuestas por paciente
+# (RUT, nombre, respuestas clínicas) — NUNCA subir a git. En Render vive en el
+# disco persistente vía PATIENT_INDEX_PATH.
+admin/psq_registro.json
