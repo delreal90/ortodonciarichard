@@ -667,5 +667,42 @@ class TestSeedReAplicaLaTabla(unittest.TestCase):
 
 
 
+class TestApellidosYTitular(unittest.TestCase):
+    """Dos reglas que salieron de la revision formulario por formulario."""
+
+    def test_apellidos_se_parten_respetando_particulas(self):
+        self.assertEqual(seguros.partir_apellidos('Salas Claro'), ('Salas', 'Claro'))
+        # "Del Real S." NO puede quedar como paterno="Del": la particula va pegada
+        self.assertEqual(seguros.partir_apellidos('Del Real S.'), ('Del Real', 'S.'))
+        self.assertEqual(seguros.partir_apellidos('De la Fuente Rojas'),
+                         ('De la Fuente', 'Rojas'))
+        self.assertEqual(seguros.partir_apellidos('Perez'), ('Perez', ''))
+        self.assertEqual(seguros.partir_apellidos(''), ('', ''))
+        # ante la duda no inventa: nunca parte una sola palabra en dos
+        pat, mat = seguros.partir_apellidos('Gonzalez')
+        self.assertEqual(mat, '')
+
+    def test_ningun_formulario_escribe_al_asegurado_titular(self):
+        """El TITULAR es quien contrata la poliza (a menudo el padre o la madre) y
+        la clinica no lo conoce: esos campos van VACIOS. Ponerle los datos del
+        paciente puede hacer que la aseguradora rechace el reembolso. Le pasaba a
+        BCI y a Magallanes."""
+        ruta = Path(__file__).parent / 'seguros_seed' / 'aseguradoras_seed.json'
+        seed = json.loads(ruta.read_text(encoding='utf-8'))
+        # coordenadas de los campos del titular detectadas en la revision visual
+        PROHIBIDO = {
+            'bci': [('paciente_nombre_completo', 690), ('paciente_rut_fmt', 690)],
+            'magallanes': [('paciente_nombre_completo', 545), ('paciente_rut_fmt', 545)],
+        }
+        for key, casos in PROHIBIDO.items():
+            for campo, y_titular in casos:
+                spec = (seed[key].get('mapeo_campos') or {}).get(campo)
+                for s_ in (spec if isinstance(spec, list) else [spec] if spec else []):
+                    self.assertNotEqual(
+                        s_.get('y'), y_titular,
+                        f'{key}: {campo} volvio a caer en el ASEGURADO TITULAR')
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

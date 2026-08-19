@@ -1402,6 +1402,34 @@ def partir_nombre_doctor(nombre):
     return (partes[0], ' '.join(partes[1:]))
 
 
+# Particulas que forman parte del apellido y NO lo separan: "Del Real", "De la
+# Fuente", "San Martin", "Von Baer". Sin esto, partir por el primer espacio
+# convierte "Del Real S." en paterno="Del" / materno="Real S.", que es peor que no
+# separar nada.
+_PARTICULAS = ('de', 'del', 'la', 'las', 'los', 'san', 'santa', 'von', 'van',
+               'da', 'di', 'dos', 'mac', 'mc', "d'")
+
+
+def partir_apellidos(apellidos):
+    """Divide 'Salas Claro' en ('Salas', 'Claro') para los formularios que piden
+    APELLIDO PATERNO y APELLIDO MATERNO en columnas separadas (Sermecoop, SURA).
+
+    Respeta las particulas: 'Del Real S.' -> ('Del Real', 'S.'). Ante la duda NO
+    inventa: con una sola palabra devuelve ('Salas', '') en vez de repartirla, y
+    con mas de dos palabras sin particula el materno se lleva el resto."""
+    partes = (apellidos or '').split()
+    if not partes:
+        return ('', '')
+    if len(partes) == 1:
+        return (partes[0], '')
+    corte = 1
+    while corte < len(partes) and partes[corte - 1].lower().strip('.') in _PARTICULAS:
+        corte += 1
+    if corte >= len(partes):          # todo eran particulas: no separar
+        return (' '.join(partes), '')
+    return (' '.join(partes[:corte]), ' '.join(partes[corte:]))
+
+
 def armar_valores(datos, filas):
     """Aplana el payload del frontend al dict de campos logicos que consume
     rellenar_pdf(). datos: rut,nombre,apellido,email,telefono,fecha_atencion,
@@ -1423,6 +1451,8 @@ def armar_valores(datos, filas):
     valores = {
         'paciente_nombre': nombre,
         'paciente_apellido': apellido,
+        'paciente_apellido_paterno': partir_apellidos(apellido)[0],
+        'paciente_apellido_materno': partir_apellidos(apellido)[1],
         'paciente_nombre_completo': nombre_completo,
         'paciente_rut': datos.get('rut', ''),
         'paciente_rut_fmt': _formatear_rut(datos.get('rut', '')),
@@ -1436,6 +1466,9 @@ def armar_valores(datos, filas):
         # formularios chilenos la piden al reves. _fecha_ddmmyyyy deja igual lo
         # que no parsea, asi que lo tipeado a mano sigue funcionando.
         'paciente_fecha_nacimiento': _fecha_ddmmyyyy(extra.get('fecha_nacimiento', '')),
+        'paciente_fecha_nac_dia': _partes_fecha(_fecha_ddmmyyyy(extra.get('fecha_nacimiento', '')))[0],
+        'paciente_fecha_nac_mes': _partes_fecha(_fecha_ddmmyyyy(extra.get('fecha_nacimiento', '')))[1],
+        'paciente_fecha_nac_anio': _partes_fecha(_fecha_ddmmyyyy(extra.get('fecha_nacimiento', '')))[2],
         'paciente_edad': _calcular_edad(extra.get('fecha_nacimiento', '')),
         'paciente_direccion': extra.get('direccion', ''),
         # Fecha del formulario = fecha de la atención/boleta (no "hoy").
@@ -1448,12 +1481,17 @@ def armar_valores(datos, filas):
         'fecha_atencion_dia': _fa_p[0],
         'fecha_atencion_mes': _fa_p[1],
         'fecha_atencion_aa': _fa_p[2][-2:],
+        'fecha_atencion_anio': _fa_p[2],
         'doctor_nombre': datos.get('doctor_nombre', ''),
         # Nombre partido para formularios que piden apellidos/nombres por separado
         # (ej. MetLife). Si un endpoint sobreescribe doctor_nombre con nombre_visible,
         # debe recalcular estos dos (lo hace server.py tras el override).
         'doctor_nombres': partir_nombre_doctor(datos.get('doctor_nombre', ''))[0],
         'doctor_apellidos': partir_nombre_doctor(datos.get('doctor_nombre', ''))[1],
+        'doctor_apellido_paterno': partir_apellidos(
+            partir_nombre_doctor(datos.get('doctor_nombre', ''))[1])[0],
+        'doctor_apellido_materno': partir_apellidos(
+            partir_nombre_doctor(datos.get('doctor_nombre', ''))[1])[1],
         # Naturaleza de la atencion (Zurich pide "lesion" / naturaleza)
         'lesion': 'Tratamiento de ortodoncia',
         # Datos de ortodoncia por paciente (guardados en datos_extra por RUT)
@@ -1468,6 +1506,10 @@ def armar_valores(datos, filas):
         'clinica_telefono': '+56 2 2217 3499',
         'clinica_email': 'recepcion@ortodonciarichard.cl',
         'clinica_direccion': 'Paul Harris 10.349, of. 305, Las Condes',
+        # Solo calle+oficina, para los formularios que piden Comuna y Ciudad en
+        # campos aparte (SURA): con 'clinica_direccion' la comuna salia repetida.
+        'clinica_calle': 'Paul Harris 10.349, of. 305',
+        'clinica_comuna': 'Las Condes',
         'clinica_ciudad': 'Santiago',
         'clinica_dir_tel': 'Paul Harris 10.349, of. 305, Las Condes — Tel +56 2 2217 3499',
         'clinica_rut': '79.609.080-4',   # Clínica de Ortodoncia C. Richard Ltda.
@@ -1497,9 +1539,12 @@ def armar_valores(datos, filas):
         valores[f'prestacion_{i}_valor_total'] = _vfmt
         valores[f'prestacion_{i}_cantidad'] = '1'
     valores['total'] = f'{total:,}'.replace(',', '.') if total else ''
-    # "Tratamiento indicado" (formularios tipo Colmena): la primera prestacion
-    if filas:
-        valores['tratamiento_indicado'] = filas[0].get('descripcion', '')
+    # "Tratamiento indicado" (formularios tipo Colmena) es el tratamiento GENERAL,
+    # no una prestacion suelta. Antes se copiaba la descripcion de la primera fila:
+    # con 8 prestaciones de ortodoncia el formulario declaraba "PROFILAXIS, AMBAS
+    # ARCADAS", dando a entender que el paciente solo vino por una limpieza. El
+    # desglose ya va en la tabla; aca corresponde el mismo texto que 'lesion'.
+    valores['tratamiento_indicado'] = 'Tratamiento de ortodoncia'
     return valores
 
 

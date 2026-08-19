@@ -37,9 +37,14 @@
       "doctor_especialidad": {
         "campo": "EspecialidadRow1"
       },
-      "total": {
-        "campo": "Total Presupuesto"
-      },
+      "total": [
+        {
+          "campo": "Total Presupuesto"
+        },
+        {
+          "campo": "Monto ReclamadoRow1"
+        }
+      ],
       "orto_tipo_aparatos": {
         "campo": "Tipo AparatoRow1"
       },
@@ -134,6 +139,9 @@
       ],
       "fecha_atencion": {
         "campo": "Fecha DiagnósticoRow1"
+      },
+      "paciente_email": {
+        "campo": "Email de ContactoRow1"
       }
     },
     "max_prestaciones_por_form": 8,
@@ -182,7 +190,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 2
+    "seed_rev": 3
   },
   "colmena": {
     "nombre": "Colmena",
@@ -203,20 +211,14 @@
       },
       "paciente_email": {
         "pagina": 1,
-        "x": 118,
-        "y": 583,
-        "fontsize": 8
+        "x": 68,
+        "y": 562,
+        "fontsize": 9
       },
       "tratamiento_indicado": {
         "pagina": 1,
         "x": 72,
         "y": 284,
-        "fontsize": 10
-      },
-      "fecha_atencion": {
-        "pagina": 1,
-        "x": 210,
-        "y": 254,
         "fontsize": 10
       },
       "doctor_nombre": {
@@ -464,7 +466,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 3
+    "seed_rev": 6
   },
   "metlife": {
     "nombre": "MetLife",
@@ -1483,10 +1485,40 @@
         "x": 540,
         "y": 790,
         "fontsize": 8
+      },
+      "paciente_edad": {
+        "pagina": 1,
+        "x": 312,
+        "y": 755,
+        "fontsize": 9
+      },
+      "paciente_email": {
+        "pagina": 1,
+        "x": 332,
+        "y": 736,
+        "fontsize": 9
+      },
+      "fecha_emision_dia": {
+        "pagina": 1,
+        "x": 489,
+        "y": 825,
+        "fontsize": 9
+      },
+      "fecha_emision_mes": {
+        "pagina": 1,
+        "x": 520,
+        "y": 825,
+        "fontsize": 9
+      },
+      "fecha_emision_anio": {
+        "pagina": 1,
+        "x": 551,
+        "y": 825,
+        "fontsize": 9
       }
     },
     "max_prestaciones_por_form": 8,
-    "seed_rev": 4,
+    "seed_rev": 6,
     "tabla_prestaciones": {
       "pagina": 1,
       "y0": 504.2,
@@ -1546,31 +1578,31 @@
       "paciente_nombre_completo": {
         "pagina": 1,
         "x": 185,
-        "y": 254,
+        "y": 248.5,
         "fontsize": 8
       },
       "paciente_rut_fmt": {
         "pagina": 1,
         "x": 115,
-        "y": 238,
+        "y": 232.7,
         "fontsize": 8
       },
       "doctor_nombre": {
         "pagina": 1,
         "x": 205,
-        "y": 166,
+        "y": 160.2,
         "fontsize": 8
       },
       "doctor_rut": {
         "pagina": 1,
         "x": 132,
-        "y": 148,
+        "y": 142.7,
         "fontsize": 8
       },
       "clinica_nombre": {
         "pagina": 1,
         "x": 158,
-        "y": 133,
+        "y": 127.7,
         "fontsize": 8
       },
       "total": {
@@ -1815,7 +1847,7 @@
       "clinica_rut": {
         "pagina": 1,
         "x": 170,
-        "y": 106,
+        "y": 111.9,
         "fontsize": 8
       }
     },
@@ -1855,7 +1887,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 3
+    "seed_rev": 4
   },
   "help": {
     "nombre": "HELP",
@@ -2827,12 +2859,6 @@
         "y": 335,
         "fontsize": 8
       },
-      "doctor_apellidos": {
-        "pagina": 1,
-        "x": 58,
-        "y": 284,
-        "fontsize": 9.5
-      },
       "doctor_nombres": {
         "pagina": 1,
         "x": 377,
@@ -2869,7 +2895,31 @@
         "y": 260,
         "fontsize": 9.5
       },
-      "clinica_direccion": {
+      "doctor_apellido_paterno": {
+        "pagina": 1,
+        "x": 58,
+        "y": 284,
+        "fontsize": 9.5
+      },
+      "doctor_apellido_materno": {
+        "pagina": 1,
+        "x": 203,
+        "y": 284,
+        "fontsize": 9.5
+      },
+      "clinica_comuna": {
+        "pagina": 1,
+        "x": 389,
+        "y": 230,
+        "fontsize": 9.5
+      },
+      "clinica_ciudad": {
+        "pagina": 1,
+        "x": 496,
+        "y": 230,
+        "fontsize": 9.5
+      },
+      "clinica_calle": {
         "pagina": 1,
         "x": 42,
         "y": 230,
@@ -2917,7 +2967,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 4,
+    "seed_rev": 6,
     "tapar": [
       {
         "pagina": 1,
@@ -2973,26 +3023,14 @@
       "paciente_rut_dv": {
         "pagina": 1,
         "casillas": [
-          217.3
+          233.0
         ],
         "y": 623,
         "fontsize": 10
       },
-      "paciente_fecha_nacimiento": {
-        "pagina": 1,
-        "x": 248,
-        "y": 623,
-        "fontsize": 8
-      },
       "paciente_nombre": {
         "pagina": 1,
         "x": 64,
-        "y": 599,
-        "fontsize": 9
-      },
-      "paciente_apellido": {
-        "pagina": 1,
-        "x": 215,
         "y": 599,
         "fontsize": 9
       },
@@ -3204,11 +3242,47 @@
         "y": 548,
         "fontsize": 9
       },
-      "doctor_apellidos": {
+      "paciente_apellido_paterno": {
+        "pagina": 1,
+        "x": 215,
+        "y": 599,
+        "fontsize": 9
+      },
+      "paciente_apellido_materno": {
+        "pagina": 1,
+        "x": 376,
+        "y": 599,
+        "fontsize": 9
+      },
+      "doctor_apellido_paterno": {
         "pagina": 1,
         "x": 297,
         "y": 548,
         "fontsize": 9
+      },
+      "doctor_apellido_materno": {
+        "pagina": 1,
+        "x": 436,
+        "y": 548,
+        "fontsize": 9
+      },
+      "paciente_fecha_nac_dia": {
+        "pagina": 1,
+        "x": 259,
+        "y": 623,
+        "fontsize": 8
+      },
+      "paciente_fecha_nac_mes": {
+        "pagina": 1,
+        "x": 287,
+        "y": 623,
+        "fontsize": 8
+      },
+      "paciente_fecha_nac_anio": {
+        "pagina": 1,
+        "x": 312,
+        "y": 623,
+        "fontsize": 8
       }
     },
     "max_prestaciones_por_form": 8,
@@ -3248,7 +3322,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 4,
+    "seed_rev": 7,
     "tapar": [
       {
         "pagina": 1,
@@ -3285,32 +3359,12 @@
           "fontsize": 9
         }
       ],
-      "paciente_fecha_nacimiento": {
-        "pagina": 1,
-        "x": 505,
-        "y": 794,
-        "fontsize": 8
-      },
       "lesion": {
         "pagina": 1,
         "x": 250,
         "y": 769,
         "fontsize": 9
       },
-      "fecha_atencion": [
-        {
-          "pagina": 1,
-          "x": 70,
-          "y": 677,
-          "fontsize": 8
-        },
-        {
-          "pagina": 1,
-          "x": 498,
-          "y": 541,
-          "fontsize": 8
-        }
-      ],
       "total": [
         {
           "pagina": 1,
@@ -3535,7 +3589,67 @@
         "x": 487,
         "y": 502,
         "fontsize": 8.5
-      }
+      },
+      "paciente_fecha_nac_dia": {
+        "pagina": 1,
+        "x": 512,
+        "y": 799,
+        "fontsize": 8
+      },
+      "paciente_fecha_nac_mes": {
+        "pagina": 1,
+        "x": 540,
+        "y": 799,
+        "fontsize": 8
+      },
+      "paciente_fecha_nac_anio": {
+        "pagina": 1,
+        "x": 560,
+        "y": 799,
+        "fontsize": 8
+      },
+      "fecha_atencion_dia": [
+        {
+          "pagina": 1,
+          "x": 112,
+          "y": 683,
+          "fontsize": 8
+        },
+        {
+          "pagina": 1,
+          "x": 500,
+          "y": 545,
+          "fontsize": 8
+        }
+      ],
+      "fecha_atencion_mes": [
+        {
+          "pagina": 1,
+          "x": 139,
+          "y": 683,
+          "fontsize": 8
+        },
+        {
+          "pagina": 1,
+          "x": 525,
+          "y": 545,
+          "fontsize": 8
+        }
+      ],
+      "fecha_atencion_anio": [
+        {
+          "pagina": 1,
+          "x": 162,
+          "y": 683,
+          "fontsize": 8
+        },
+        {
+          "pagina": 1,
+          "x": 549,
+          "y": 545,
+          "fontsize": 8
+        }
+      ]
     },
     "max_prestaciones_por_form": 8,
     "activa": true,
@@ -3581,7 +3695,7 @@
       "fontsize_min": 6.5,
       "x_tapar_fin": 582.9
     },
-    "seed_rev": 4,
+    "seed_rev": 6,
     "tapar": [
       {
         "pagina": 1,
@@ -3875,6 +3989,12 @@
         "x": 65,
         "y": 264,
         "fontsize": 7.5
+      },
+      "fecha_emision": {
+        "pagina": 1,
+        "x": 215,
+        "y": 511,
+        "fontsize": 8
       }
     },
     "max_prestaciones_por_form": 8,
@@ -3919,7 +4039,7 @@
       "fontsize_min": 6.5,
       "x_tapar_fin": 565.0
     },
-    "seed_rev": 4,
+    "seed_rev": 5,
     "tapar": [
       {
         "pagina": 1,
@@ -4172,12 +4292,6 @@
         {
           "pagina": 1,
           "x": 56,
-          "y": 545,
-          "fontsize": 9
-        },
-        {
-          "pagina": 1,
-          "x": 56,
           "y": 514,
           "fontsize": 9
         },
@@ -4188,20 +4302,12 @@
           "fontsize": 9
         }
       ],
-      "paciente_rut_fmt": [
-        {
-          "pagina": 1,
-          "x": 339,
-          "y": 545,
-          "fontsize": 9
-        },
-        {
-          "pagina": 1,
-          "x": 398,
-          "y": 514,
-          "fontsize": 9
-        }
-      ],
+      "paciente_rut_fmt": {
+        "pagina": 1,
+        "x": 398,
+        "y": 514,
+        "fontsize": 9
+      },
       "lesion": {
         "pagina": 1,
         "x": 163,
@@ -4504,7 +4610,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 4,
+    "seed_rev": 5,
     "tapar": [
       {
         "pagina": 1,
