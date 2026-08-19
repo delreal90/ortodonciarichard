@@ -2862,6 +2862,18 @@
         ],
         "y": 265,
         "fontsize": 10
+      },
+      "clinica_telefono": {
+        "pagina": 1,
+        "x": 445,
+        "y": 260,
+        "fontsize": 9.5
+      },
+      "clinica_direccion": {
+        "pagina": 1,
+        "x": 42,
+        "y": 230,
+        "fontsize": 9.5
       }
     },
     "max_prestaciones_por_form": 8,
@@ -2905,7 +2917,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 3,
+    "seed_rev": 4,
     "tapar": [
       {
         "pagina": 1,
@@ -2920,6 +2932,20 @@
         "y0": 511.0,
         "x1": 209.0,
         "y1": 529.0
+      },
+      {
+        "pagina": 1,
+        "x0": 442.0,
+        "y0": 517.0,
+        "x1": 515.0,
+        "y1": 534.0
+      },
+      {
+        "pagina": 1,
+        "x0": 40.0,
+        "y0": 547.0,
+        "x1": 532.0,
+        "y1": 564.0
       }
     ]
   },
@@ -3222,7 +3248,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 3,
+    "seed_rev": 4,
     "tapar": [
       {
         "pagina": 1,
@@ -3503,6 +3529,12 @@
         "x": 141,
         "y": 505,
         "fontsize": 8.5
+      },
+      "clinica_telefono": {
+        "pagina": 1,
+        "x": 487,
+        "y": 502,
+        "fontsize": 8.5
       }
     },
     "max_prestaciones_por_form": 8,
@@ -3549,7 +3581,7 @@
       "fontsize_min": 6.5,
       "x_tapar_fin": 582.9
     },
-    "seed_rev": 3,
+    "seed_rev": 4,
     "tapar": [
       {
         "pagina": 1,
@@ -3564,6 +3596,13 @@
         "y0": 488.0,
         "x1": 359.0,
         "y1": 506.0
+      },
+      {
+        "pagina": 1,
+        "x0": 484.0,
+        "y0": 491.0,
+        "x1": 557.0,
+        "y1": 508.0
       }
     ]
   },
@@ -3830,6 +3869,12 @@
         "x": 238,
         "y": 302,
         "fontsize": 8.5
+      },
+      "clinica_dir_tel": {
+        "pagina": 1,
+        "x": 65,
+        "y": 264,
+        "fontsize": 7.5
       }
     },
     "max_prestaciones_por_form": 8,
@@ -3874,7 +3919,7 @@
       "fontsize_min": 6.5,
       "x_tapar_fin": 565.0
     },
-    "seed_rev": 3,
+    "seed_rev": 4,
     "tapar": [
       {
         "pagina": 1,
@@ -3889,6 +3934,13 @@
         "y0": 475.0,
         "x1": 311.0,
         "y1": 493.0
+      },
+      {
+        "pagina": 1,
+        "x0": 63.0,
+        "y0": 513.0,
+        "x1": 395.0,
+        "y1": 530.0
       }
     ]
   },
@@ -3897,24 +3949,10 @@
     "plantilla_pdf": "bci.pdf",
     "tipo_plantilla": "overlay",
     "mapeo_campos": {
-      "paciente_nombre_completo": [
-        {
-          "pagina": 1,
-          "x": 35,
-          "y": 690,
-          "fontsize": 10
-        },
-        {
-          "pagina": 1,
-          "x": 35,
-          "y": 658,
-          "fontsize": 10
-        }
-      ],
-      "paciente_rut_fmt": {
+      "paciente_nombre_completo": {
         "pagina": 1,
-        "x": 432,
-        "y": 690,
+        "x": 35,
+        "y": 658,
         "fontsize": 10
       },
       "lesion": {
@@ -3925,7 +3963,7 @@
       },
       "fecha_atencion": {
         "pagina": 1,
-        "x": 390,
+        "x": 424,
         "y": 658,
         "fontsize": 9
       },
@@ -4055,14 +4093,20 @@
         "x": 235,
         "y": 462,
         "fontsize": 9
+      },
+      "clinica_telefono": {
+        "pagina": 1,
+        "x": 358,
+        "y": 462,
+        "fontsize": 9
       }
     },
     "max_prestaciones_por_form": 8,
     "activa": true,
-    "seed_rev": 4,
+    "seed_rev": 5,
     "tabla_prestaciones": {
       "pagina": 1,
-      "y0": 442.2,
+      "y0": 424.4,
       "y1": 508.7,
       "filas_min": 3,
       "columnas": [
@@ -4109,6 +4153,13 @@
         "y0": 314.0,
         "x1": 319.0,
         "y1": 332.0
+      },
+      {
+        "pagina": 1,
+        "x0": 353.0,
+        "y0": 316.0,
+        "x1": 438.0,
+        "y1": 333.0
       }
     ]
   },
@@ -4398,6 +4449,12 @@
         "x": 429,
         "y": 187,
         "fontsize": 8.5
+      },
+      "clinica_telefono": {
+        "pagina": 1,
+        "x": 422,
+        "y": 150,
+        "fontsize": 8.5
       }
     },
     "max_prestaciones_por_form": 8,
@@ -4447,7 +4504,7 @@
       "fontsize_max": 9,
       "fontsize_min": 6.5
     },
-    "seed_rev": 3,
+    "seed_rev": 4,
     "tapar": [
       {
         "pagina": 1,
@@ -4462,6 +4519,13 @@
         "y0": 578.0,
         "x1": 499.0,
         "y1": 596.0
+      },
+      {
+        "pagina": 1,
+        "x0": 419.0,
+        "y0": 615.0,
+        "x1": 492.0,
+        "y1": 632.0
       }
     ]
   }
