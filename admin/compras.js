@@ -604,6 +604,7 @@ function editarCostosCompra(c) {
 }
 
 /* ══════════════════ TAB: STOCK ══════════════════ */
+let stockFiltro = '';   // se conserva al refrescar tras un ajuste (si no, hay que rebuscar)
 RENDER.stock = async () => {
   const s = $('#tab-stock');
   let alertas = [];
@@ -616,12 +617,13 @@ RENDER.stock = async () => {
     </div>` : ''}
     <div class="card">
       <div class="flex" style="margin-bottom:12px"><h2>Productos y stock</h2><div class="spacer"></div>
-        <input id="stBuscar" placeholder="Filtrar…" style="max-width:220px">
+        <input id="stBuscar" placeholder="Filtrar…" style="max-width:220px" value="${esc(stockFiltro)}">
         ${puede('registrar') ? `<button class="btn gold sm" id="stNuevo">➕ Producto</button>` : ''}</div>
       <div class="tablewrap"><table id="stTabla"></table></div>
     </div>`;
   const pintar = () => {
-    const q = ($('#stBuscar').value || '').toLowerCase();
+    stockFiltro = $('#stBuscar').value || '';
+    const q = stockFiltro.toLowerCase();
     const list = prods.filter(p => p.nombre.toLowerCase().includes(q) || (p.categoria_prod || '').toLowerCase().includes(q));
     $('#stTabla').innerHTML = `<tr><th>Producto</th><th>Categoría</th><th class="num">Stock</th><th>Última compra</th><th class="num">Últ. precio</th><th></th></tr>` +
       (list.length ? list.map(p => {
@@ -634,10 +636,12 @@ RENDER.stock = async () => {
           <td class="muted">${uc ? esc(uc.fecha) + ' · ' + esc(uc.proveedor || '—') + (uc.marca ? ' · ' + esc(uc.marca) : '') : '—'}</td>
           <td class="num">${uc ? clp(uc.precio_unitario) : '—'}</td>
           <td class="right"><button class="btn ghost sm" data-ver="${p.id}">Ver</button>
-            ${puede('escanear') ? `<button class="btn ghost sm" data-salida="${p.id}" title="Sacar del stock">➖</button>` : ''}</td></tr>`;
+            ${puede('registrar') ? `<button class="btn ghost sm" data-ajuste="${p.id}" title="Ajustar stock (agregar, quitar o fijar)">⚖️</button>`
+              : (puede('escanear') ? `<button class="btn ghost sm" data-salida="${p.id}" title="Sacar del stock">➖</button>` : '')}</td></tr>`;
       }).join('') : `<tr><td colspan="6" class="empty">Sin productos. Créalos al registrar una compra o con el botón «Producto».</td></tr>`);
     $$('#stTabla [data-ver]').forEach(b => b.onclick = () => verProducto(b.dataset.ver));
     $$('#stTabla [data-salida]').forEach(b => b.onclick = () => modalSalida(prods.find(p => p.id == b.dataset.salida)));
+    $$('#stTabla [data-ajuste]').forEach(b => b.onclick = () => modalAjuste(prods.find(p => p.id == b.dataset.ajuste)));
   };
   $('#stBuscar').oninput = pintar;
   if ($('#stNuevo')) $('#stNuevo').onclick = async () => { const p = await modalNuevoProducto(''); if (p) { await recargarCaches(); RENDER.stock(); } };
@@ -665,12 +669,19 @@ async function verProducto(id) {
           <div class="track"><div class="fill" style="width:${Math.round(h.precio_unitario / maxP * 100)}%"></div></div>
           <div class="val">${clp(h.precio_unitario)}</div></div>`).join('') : '<p class="muted">Sin compras registradas.</p>'}</div>
       <div class="field"><label>Movimientos recientes</label>
-        <div class="tablewrap"><table>${(p.movimientos || []).slice(0, 10).map(mv => `<tr>
+        <div class="tablewrap"><table>
+          <tr><th>Fecha</th><th>Tipo</th><th class="num">Cant.</th><th>Motivo</th><th>Quién</th></tr>
+          ${(p.movimientos || []).slice(0, 12).map(mv => `<tr>
           <td class="muted">${esc((mv.creado || '').slice(0, 16).replace('T', ' '))}</td>
-          <td><span class="pill ${mv.tipo === 'salida' ? 'low' : 'ok'}">${mv.tipo}</span></td>
-          <td class="num">${mv.cantidad}</td><td class="muted">${esc(mv.motivo || '')}</td></tr>`).join('') || '<tr><td class="muted">Sin movimientos.</td></tr>'}</table></div></div>
-      <div class="flex" style="margin-top:14px"><div class="spacer"></div>
+          <td><span class="pill ${mv.tipo === 'salida' ? 'low' : (mv.tipo === 'ajuste' ? 'fijo' : 'ok')}">${mv.tipo}</span></td>
+          <td class="num">${mv.cantidad}</td><td class="muted">${esc(mv.motivo || '')}</td>
+          <td class="muted">${esc(mv.usuario_nombre || '—')}</td></tr>`).join('')
+            || '<tr><td colspan="5" class="muted">Sin movimientos.</td></tr>'}</table></div></div>
+      <div class="flex" style="margin-top:14px">
+        ${puede('registrar') ? `<button class="btn gold sm" id="vpAjustar">⚖️ Ajustar stock</button>` : ''}
+        <div class="spacer"></div>
         <button class="btn ghost sm" onclick="document.getElementById('modalRoot').innerHTML=''">Cerrar</button></div>`);
+    if (puede('registrar')) m.querySelector('#vpAjustar').onclick = () => modalAjuste(p);
     if (puede('registrar')) {
       m.querySelector('#vpAddCod').onclick = async () => {
         const cod = m.querySelector('#vpCod').value.trim(); if (!cod) return;
@@ -749,6 +760,59 @@ function modalSalida(prod) {
   m.querySelector('#msOk').onclick = async () => {
     try { await api('/api/compras/salida', { method: 'POST', body: { producto_id: prod.id, cantidad: Number(m.querySelector('#msCant').value) || 0, motivo: m.querySelector('#msMotivo').value } });
       closeModal(); toast('Stock descontado ✓', 'ok'); await recargarCaches(); RENDER.stock();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+// Ajuste manual del stock en los 3 sentidos: agregar (entrada), quitar (salida) o
+// fijar la cantidad real contada (ajuste de inventario). Todo queda en el historial
+// del producto con el usuario que lo hizo.
+function modalAjuste(prod) {
+  const actual = Number(prod.stock_actual) || 0;
+  const m = modal(`
+    <h3>Ajustar stock</h3>
+    <p class="muted" style="margin-bottom:12px">${esc(prod.nombre)} — stock actual <b id="ajActual">${actual}</b> ${esc(prod.unidad)}</p>
+    <div class="field"><label>Qué quieres hacer</label>
+      <select id="ajModo">
+        <option value="entrada">➕ Agregar al stock (llegó más, devolución)</option>
+        <option value="salida">➖ Quitar del stock (consumo, pérdida, vencido)</option>
+        <option value="ajuste">🔢 Fijar la cantidad real (inventario contado)</option>
+      </select></div>
+    <div class="row c2">
+      <div class="field"><label id="ajLabelCant">Cantidad a agregar</label>
+        <input id="ajCant" type="number" value="1" step="any" min="0"></div>
+      <div class="field"><label>Motivo</label><input id="ajMotivo" placeholder="Ej: llegó pedido"></div>
+    </div>
+    <p class="muted" id="ajResumen" style="font-size:13px;margin-bottom:8px"></p>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="ajOk">Guardar ajuste</button></div>`);
+
+  const $$m = s => m.querySelector(s);
+  const MOTIVOS = { entrada: 'Ingreso manual', salida: 'Consumo', ajuste: 'Inventario físico' };
+  const LABELS = { entrada: 'Cantidad a agregar', salida: 'Cantidad a quitar', ajuste: 'Cantidad real contada' };
+  const refrescar = () => {
+    const modo = $$m('#ajModo').value, cant = Number($$m('#ajCant').value) || 0;
+    $$m('#ajLabelCant').textContent = LABELS[modo];
+    $$m('#ajMotivo').placeholder = MOTIVOS[modo];
+    const nuevo = modo === 'entrada' ? actual + cant : modo === 'salida' ? actual - cant : cant;
+    const signo = nuevo > actual ? '▲' : nuevo < actual ? '▼' : '=';
+    $$m('#ajResumen').innerHTML = `Stock quedará en <b>${nuevo}</b> ${esc(prod.unidad)} ${signo} (antes ${actual})` +
+      (nuevo < 0 ? ' <span style="color:var(--danger)">— quedaría negativo</span>' : '');
+  };
+  $$m('#ajModo').onchange = refrescar;
+  $$m('#ajCant').oninput = refrescar;
+  refrescar();
+
+  $$m('#ajOk').onclick = async () => {
+    const modo = $$m('#ajModo').value, cant = Number($$m('#ajCant').value);
+    if (!(cant >= 0) || (modo !== 'ajuste' && cant <= 0)) return toast('Ingresa una cantidad válida', 'err');
+    try {
+      const j = await api('/api/compras/movimiento', { method: 'POST', body: {
+        producto_id: prod.id, tipo: modo, cantidad: cant,
+        motivo: $$m('#ajMotivo').value.trim() || MOTIVOS[modo] } });
+      closeModal(); toast(`Stock actualizado: ${j.stock_actual} ${prod.unidad} ✓`, 'ok');
+      await recargarCaches(); RENDER.stock();
     } catch (e) { toast(e.message, 'err'); }
   };
 }

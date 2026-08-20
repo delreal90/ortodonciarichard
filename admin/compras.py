@@ -355,6 +355,15 @@ def _norm(s):
     return (s or '').strip()
 
 
+def _fmt_cant(n):
+    """Cantidad legible: 12 en vez de 12.0, pero conserva los decimales si los tiene."""
+    try:
+        f = float(n)
+    except (TypeError, ValueError):
+        return str(n)
+    return str(int(f)) if f == int(f) else f'{f:g}'
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # USUARIOS Y SESIONES
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1332,6 +1341,7 @@ def registrar_movimiento(prod_id, tipo, cantidad, motivo='', usuario_id=None):
         p = con.execute('SELECT stock_actual FROM productos WHERE id=?', (prod_id,)).fetchone()
         if not p:
             raise ValueError('Producto no encontrado')
+        motivo = _norm(motivo)
         if tipo == 'entrada':
             delta = cantidad
         elif tipo == 'salida':
@@ -1339,13 +1349,17 @@ def registrar_movimiento(prod_id, tipo, cantidad, motivo='', usuario_id=None):
         elif tipo == 'ajuste':
             # 'ajuste' deja el stock EXACTAMENTE en 'cantidad' (inventario físico).
             delta = cantidad - p['stock_actual']
+            # El historial guarda el valor FIJADO, no el delta: sin esta nota no se
+            # entendería si el ajuste subió o bajó el stock.
+            nota = f"de {_fmt_cant(p['stock_actual'])} a {_fmt_cant(cantidad)}"
+            motivo = f'{motivo} ({nota})' if motivo else f'Ajuste {nota}'
         else:
             raise ValueError('Tipo de movimiento inválido')
         con.execute(
             'INSERT INTO movimientos_stock(producto_id,tipo,cantidad,motivo,usuario_id,creado) '
             'VALUES(?,?,?,?,?,?)',
             (prod_id, tipo, abs(cantidad) if tipo != 'ajuste' else cantidad,
-             _norm(motivo), usuario_id, ahora))
+             motivo, usuario_id, ahora))
         con.execute('UPDATE productos SET stock_actual=stock_actual+? WHERE id=?',
                     (delta, prod_id))
         con.commit()

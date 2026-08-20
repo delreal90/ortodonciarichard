@@ -1306,6 +1306,30 @@ El backend protege cada endpoint con `_require_compras(cap)`; el frontend muestr
 pestañas según `ME.caps` (mapa `TAB_CAP`). Login por usuario → token de sesión (30 días)
 en header `X-Compras-Token`. Contraseñas con PBKDF2-HMAC-SHA256 (200k iter, salt).
 
+### Ajuste manual de stock en los 3 sentidos, con trazabilidad (2026-08-20)
+
+Antes, desde Stock solo se podía **bajar** el stock (botón ➖ → `/api/compras/salida`);
+para subirlo había que registrar una compra. Ahora el botón **⚖️ Ajustar** (rol
+`registrar`; también dentro del detalle del producto) abre un modal con 3 modos que
+pegan a `/api/compras/movimiento` (que ya existía y guarda `usuario_id`):
+- **➕ Agregar** (`entrada`) — llegó más, devolución.
+- **➖ Quitar** (`salida`) — consumo, pérdida, vencido.
+- **🔢 Fijar la cantidad real** (`ajuste`) — inventario contado: deja el stock EXACTO.
+El modal muestra en vivo *"Stock quedará en N ▲/▼ (antes M)"* y avisa si quedaría negativo.
+Quien solo tiene `escanear` (rol solicitante) conserva el ➖ simple de antes.
+
+**Trazabilidad:** el historial de movimientos del producto ahora muestra una columna
+**Quién** (`movimientos_producto` ya traía `usuario_nombre` por JOIN; faltaba pintarla).
+Además, como en un `ajuste` la tabla guarda el valor FIJADO y no el delta, el motivo se
+enriquece solo con el antes→después (`"Conteo físico (de 25 a 12)"`, o `"Ajuste de 12 a 7"`
+si no se escribió motivo) — si no, en el historial no se entendía si subió o bajó.
+El filtro de búsqueda de la pestaña Stock se conserva al refrescar tras un ajuste
+(`stockFiltro`); antes había que volver a escribirlo.
+
+⚠️ **Al probar en local:** si quedan VARIOS `python admin/server.py` escuchando el 5001
+(pasa al reiniciar sin matar el anterior), responde uno viejo con código antiguo y parece
+que los cambios no se aplicaron. Verificar con `netstat -ano | grep :5001` y dejar uno solo.
+
 ### Separación operación / administración + rol Inventario + gestión de usuarios (2026-08-13)
 
 **Ámbito de las categorías (`categorias.ambito`: `operacion` | `administracion`).** Separa
