@@ -1831,3 +1831,56 @@ h4 { font-size: 1rem; font-weight: 600; }
 }
 .agenda-vermas:hover { background: #e6eef7; }
 .agenda-vermas:disabled { opacity: .7; cursor: default; }
+
+/* ═══════════════════════════════════════════
+   Consentimiento del formulario de contacto
+═══════════════════════════════════════════ */
+.form-consent {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: .82rem;
+    color: var(--text-mid);
+    line-height: 1.5;
+    margin: 4px 0 16px;
+    cursor: pointer;
+}
+.form-consent input { margin-top: 3px; flex-shrink: 0; }
+.form-consent a { color: var(--navy); font-weight: 600; }
+
+/* ═══════════════════════════════════════════
+   Banner de cookies — pequeño, esquina inferior izquierda
+═══════════════════════════════════════════ */
+.cookie-banner {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: 1500;
+    max-width: 320px;
+    background: var(--white);
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.14);
+    padding: 12px 14px;
+    font-size: .8rem;
+    color: var(--text-mid);
+    line-height: 1.45;
+}
+.cookie-banner a { color: var(--navy); font-weight: 600; }
+.cookie-actions { display: flex; gap: 8px; margin-top: 10px; }
+.cookie-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: .8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+}
+.cookie-btn:hover { opacity: .85; }
+.cookie-accept { background: var(--navy); color: #fff; }
+.cookie-reject { background: var(--light-bg); color: var(--navy); }
+
+@media (max-width: 640px) {
+    .cookie-banner { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+}

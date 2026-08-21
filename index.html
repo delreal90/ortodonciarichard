@@ -963,6 +963,10 @@
 <label for="mensaje">Mensaje</label>
 <textarea id="mensaje" name="mensaje" placeholder="¿En qué podemos ayudarte?" required="" rows="4"></textarea>
 </div>
+<label class="form-consent">
+<input id="consentimiento" name="consentimiento" required="" type="checkbox"/>
+<span>Autorizo el tratamiento de mis datos personales para ser contactado por la clínica, según la <a href="privacidad.html" target="_blank">Política de Privacidad</a>.</span>
+</label>
 <button class="btn btn-primary btn-full" type="submit">
 <i class="fas fa-paper-plane"></i> Enviar mensaje
                     </button>
@@ -1090,5 +1094,23 @@
 <a aria-label="Contactar por WhatsApp" class="whatsapp-fab" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" target="_blank">
 <i class="fab fa-whatsapp"></i>
 </a>
+<!-- Banner de cookies (pequeño, esquina inferior izquierda) -->
+<div class="cookie-banner" id="cookieBanner" hidden="">
+<span>Usamos cookies para mejorar tu experiencia. <a href="privacidad.html">Más información</a>.</span>
+<div class="cookie-actions">
+<button class="cookie-btn cookie-accept" id="cookieAccept" type="button">Aceptar</button>
+<button class="cookie-btn cookie-reject" id="cookieReject" type="button">Rechazar</button>
+</div>
+</div>
+<script>
+(function(){
+  var KEY = 'cookie-consent-v1';
+  var b = document.getElementById('cookieBanner');
+  if (!localStorage.getItem(KEY)) { b.hidden = false; }
+  function close(v){ try{ localStorage.setItem(KEY, v); }catch(e){} b.hidden = true; }
+  document.getElementById('cookieAccept').addEventListener('click', function(){ close('accepted'); });
+  document.getElementById('cookieReject').addEventListener('click', function(){ close('rejected'); });
+})();
+</script>
 </body>
 </html>
