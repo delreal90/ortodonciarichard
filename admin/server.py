@@ -1635,6 +1635,7 @@ def agenda_reservar():
         'doctor_nombre': doctor_nombre, 'motivo_label': motivo_cfg['label'],
         'dur_min': motivo_cfg['duracion_min'],
         'id_agenda': res.get('id_cita'),
+        'rut': rut,
     }, cfg, canal=('ambos' if (es_reagenda or es_primera) else None),
        reagenda=es_reagenda, primera=es_primera)
 
@@ -1848,6 +1849,7 @@ def agenda_reservar_reagenda():
         'fecha_legible': _fecha_legible(fecha), 'hora': hora,
         'doctor_nombre': doctor_nombre, 'motivo_label': motivo_label,
         'dur_min': duracion_min,
+        'rut': rut,
     }, cfg, canal='ambos', reagenda=True)
 
     return jsonify({'ok': True, 'id_cita': res.get('id_cita'),
@@ -1999,6 +2001,7 @@ def agenda_reservar_estudio():
             'fecha': f, 'fecha_legible': _fecha_legible(f), 'hora': h,
             'doctor_nombre': doctor_nombre, 'motivo_label': mcfg['label'],
             'dur_min': mcfg['duracion_min'],
+            'rut': rut,
         }, cfg))
 
     # Aviso a recepcion (un solo correo con ambas citas).
@@ -2976,6 +2979,7 @@ def asistente_confirmar_cita():
         'motivo_label':  (cita_raw.get('Reason') or 'Cita').strip(),
         'dur_min':       int(cita_raw.get('duration') or 30),
         'id_agenda':     id_agenda,
+        'rut':           (cita_raw.get('PatientDocument') or '').strip(),
     }
 
     # canal=None -> automatico (email, con WhatsApp de respaldo); si la
@@ -3138,6 +3142,7 @@ def asistente_recordatorio_control():
         'fecha_legible': fecha_legible,
         'fecha': fecha.isoformat(),
         'id_agenda': id_agenda,
+        'rut': rut,
     }
     resultado = notify.enviar_recordatorio_control(cita_dict)
     if not resultado.get('ok'):
@@ -6289,6 +6294,7 @@ def _procesar_programados_vencidos(cfg_dd, hoy):
             'fecha_legible': recaptacion.fecha_legible_larga(fecha_cita),
             'fecha': fecha_cita.isoformat(),
             'id_agenda': id_agenda,
+            'rut': rut,
         }
         resultado = notify.enviar_recordatorio_control(cita_dict)
         if not resultado.get('ok'):
@@ -6777,6 +6783,7 @@ def _procesar_nps(cfg_nps, cfg_dd, ahora):
             'id_agenda': ida,
             'fecha': o.get('fecha_cita') or '',
             'cuando': cuando,
+            'rut': rut,
         }
         r = notify.enviar_nps(cita)
         if r.get('ok'):
@@ -6879,6 +6886,7 @@ def _procesar_nps(cfg_nps, cfg_dd, ahora):
                 # 'hoy' si la atencion es de hoy, 'ayer' si el envio cae al dia
                 # siguiente (atencion de la tarde pasada la ventana) -> {{2}}.
                 'cuando': 'hoy' if target == hoy else 'ayer',
+                'rut': rut,
             }
             r = notify.enviar_nps(cita)
             if r.get('ok'):

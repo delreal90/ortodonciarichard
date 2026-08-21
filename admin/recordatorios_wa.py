@@ -259,6 +259,7 @@ def enviar_inasistencias(cfg, hoy=None):
                 'nombre': nombres or 'paciente', 'telefono': telefono,
                 'fecha_legible': _fecha_legible(target), 'fecha': target.isoformat(),
                 'id_agenda': ida,
+                'rut': (c.get('PatientDocument') or '').strip(),
             })
             if r.get('ok'):
                 _marcar('inasistencia', ida)

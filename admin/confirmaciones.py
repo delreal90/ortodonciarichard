@@ -181,6 +181,7 @@ def barrer_y_confirmar(cfg=None, dias_adelante=90, max_workers=10):
                 'motivo_label': (c.get('Reason') or 'Cita').strip(),
                 'dur_min': int(c.get('duration') or 30),
                 'id_agenda': ida,
+                'rut': (c.get('PatientDocument') or '').strip(),
             }, cfg, canal=('ambos' if es_primera else None), primera=es_primera)
             if r.get('ok'):
                 nuevos[ida] = fechas.ahora_chile().isoformat(timespec='seconds')

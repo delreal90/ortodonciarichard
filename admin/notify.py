@@ -207,6 +207,13 @@ def _enviar_email_smtp(cita, ics, reagenda=False):
 
 # ── WhatsApp (fallback, Cloud API oficial) ───────────────────────────────────
 
+def _saludo_nombre(rut_o_rec, nombre):
+    """Lo que espera el {{1}} de las plantillas, que dicen "Estimad{{1}},":
+    el sufijo de genero PEGADO al nombre -- "a Maria" / "o Juan" / "o/a Sofia".
+    pacientes.saludo NUNCA adivina por el nombre: sin dato da 'o/a'."""
+    return f"{pacientes.saludo(rut_o_rec or '')} {nombre or 'paciente'}"
+
+
 def _enviar_whatsapp(cita, ics, reagenda=False, primera=False):
     """Fallback: WhatsApp Cloud API con la plantilla 'confirmacion_hora'
     (o 'reagenda_confirmada' si reagenda=True). Sin adjunto (las plantillas
@@ -226,7 +233,7 @@ def _enviar_whatsapp(cita, ics, reagenda=False, primera=False):
         try:
             fecha_iso = cita['fecha'].isoformat() if hasattr(cita.get('fecha'), 'isoformat') else ''
             resultado = wa_cloud.enviar_primera_consulta(
-                telefono=cita['telefono'], nombre=cita['nombre'],
+                telefono=cita['telefono'], nombre=_saludo_nombre(cita.get('rut'), cita['nombre']),
                 doctor_nombre=cita['doctor_nombre'],
                 fecha_legible=cita['fecha_legible'], hora=cita['hora'],
                 id_agenda=str(cita.get('id_agenda') or ''),
@@ -242,7 +249,7 @@ def _enviar_whatsapp(cita, ics, reagenda=False, primera=False):
     try:
         resultado = envio(
             telefono=cita['telefono'],
-            nombre=cita['nombre'],
+            nombre=_saludo_nombre(cita.get('rut'), cita['nombre']),
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'],
             hora=cita['hora'],
@@ -265,7 +272,7 @@ def enviar_recordatorio_semana(cita):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
         r = wa_cloud.enviar_recordatorio_semana(
-            telefono=cita['telefono'], nombre=cita['nombre'],
+            telefono=cita['telefono'], nombre=_saludo_nombre(cita.get('rut'), cita['nombre']),
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'], hora=cita['hora'],
             id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
@@ -282,12 +289,8 @@ def enviar_recordatorio_dia(cita):
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
-        # La plantilla dice "Estimad{{1}}," -> {{1}} lleva el sufijo de genero
-        # PEGADO al nombre: "a Maria" / "o Juan" / "o/a Sofia". pacientes.saludo
-        # NUNCA adivina por el nombre: si la ficha no trae genero da 'o/a'.
-        saludo_nombre = f"{pacientes.saludo(cita.get('rut') or '')} {cita['nombre']}"
         r = wa_cloud.enviar_recordatorio_dia(
-            telefono=cita['telefono'], nombre=saludo_nombre,
+            telefono=cita['telefono'], nombre=_saludo_nombre(cita.get('rut'), cita['nombre']),
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'], hora=cita['hora'],
             id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
@@ -313,7 +316,7 @@ def enviar_recordatorio_control(cita):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
         r = wa_cloud.enviar_recordatorio_control(
-            telefono=cita['telefono'], nombre=cita['nombre'],
+            telefono=cita['telefono'], nombre=_saludo_nombre(cita.get('rut'), cita['nombre']),
             doctor=cita['doctor_nombre'], fecha_legible=cita['fecha_legible'],
             id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
         )
@@ -323,7 +326,8 @@ def enviar_recordatorio_control(cita):
         try:
             motivo = (f"le corresponde su control con {cita['doctor_nombre']}. "
                       "Puede agendar hora directamente respondiendo por este medio.")
-            r2 = wa_cloud.enviar_conversacion_general(cita['telefono'], cita['nombre'], motivo)
+            r2 = wa_cloud.enviar_conversacion_general(
+                cita['telefono'], _saludo_nombre(cita.get('rut'), cita['nombre']), motivo)
             return {'ok': bool(r2.get('ok'))}
         except wa_cloud.WhatsAppCloudError as e2:
             log.error('WhatsApp Cloud API error (recordatorio_control, fallback): %s', e2)
@@ -345,7 +349,7 @@ def enviar_inasistencia(cita):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
         r = wa_cloud.enviar_inasistencia_reagendar(
-            telefono=cita['telefono'], nombre=cita['nombre'],
+            telefono=cita['telefono'], nombre=_saludo_nombre(cita.get('rut'), cita['nombre']),
             fecha_legible=cita['fecha_legible'], id_agenda=cita['id_agenda'],
             fecha_iso=cita.get('fecha', ''),
         )
@@ -579,7 +583,8 @@ def enviar_nps(cita):
             motivo = (f"gracias por su visita{con_doctor}. Nos encantaría saber "
                       "cómo estuvo su experiencia; puede contarnos respondiendo "
                       "por este medio.")
-            r2 = wa_cloud.enviar_conversacion_general(cita['telefono'], cita['nombre'], motivo)
+            r2 = wa_cloud.enviar_conversacion_general(
+                cita['telefono'], _saludo_nombre(cita.get('rut'), cita['nombre']), motivo)
             return {'ok': bool(r2.get('ok'))}
         except wa_cloud.WhatsAppCloudError as e2:
             log.error('WhatsApp Cloud API error (nps, fallback): %s', e2)
@@ -832,7 +837,7 @@ def _enviar_email_consentimiento(nombre, email, link, tipo_label):
         return False
 
 
-def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label):
+def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label, rut_o_rec=None):
     """Plantilla dedicada 'consentimiento_informado'. Mientras Meta la aprueba
     (o si por algun motivo falla), cae de vuelta a 'conversacion_general' con
     el link en el motivo — el mismo mensaje que se usaba antes de tener
@@ -840,13 +845,15 @@ def _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label):
     if not telefono:
         return False
     try:
-        resultado = wa_cloud.enviar_consentimiento(telefono, nombre, tipo_label, link)
+        resultado = wa_cloud.enviar_consentimiento(
+            telefono, _saludo_nombre(rut_o_rec, nombre), tipo_label, link)
         return bool(resultado.get('ok'))
     except wa_cloud.WhatsAppCloudError as e:
         log.warning('consentimiento_informado no disponible (%s); uso conversacion_general', e)
         try:
             motivo = f"necesita firmar su {tipo_label}. Puede hacerlo directamente desde su celular aquí: {link}"
-            resultado = wa_cloud.enviar_conversacion_general(telefono, nombre, motivo)
+            resultado = wa_cloud.enviar_conversacion_general(
+                telefono, _saludo_nombre(rut_o_rec, nombre), motivo)
             return bool(resultado.get('ok'))
         except wa_cloud.WhatsAppCloudError as e2:
             log.error('WhatsApp Cloud API error (consentimiento): %s', e2)
@@ -1160,7 +1167,7 @@ def enviar_link_consentimiento(paciente, link, canal, tipo_label='consentimiento
                     'error': 'El paciente no tiene un teléfono registrado en la base. '
                              'Si lo acabas de registrar, la ficha puede no haberse '
                              'sincronizado todavía (se actualiza 2 veces al día).'}
-        ok = _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label)
+        ok = _enviar_whatsapp_consentimiento(nombre, telefono, link, tipo_label, rut_o_rec=paciente)
         return {'ok': ok, 'canal': 'whatsapp',
                 'error': None if ok else 'WhatsApp no confirmó el envío (revisa el estado en el panel).'}
     return {'ok': False, 'error': f'Canal no soportado: {canal}'}
