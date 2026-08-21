@@ -156,10 +156,14 @@ def ultimo_envio(tipo):
 
 # ── Escaneo y envio ──────────────────────────────────────────────────────────
 
-def _procesar_dia(cfg, target_date, tipo, fn_envio, incluir_doctor):
+def _procesar_dia(cfg, target_date, tipo, fn_envio, incluir_doctor, fecha_legible=None):
     """Escanea las citas de un dia puntual y envia fn_envio() a las que
     correspondan (tienen telefono, no estan canceladas/atendidas, no se les
-    envio antes este mismo tipo de aviso)."""
+    envio antes este mismo tipo de aviso).
+
+    fecha_legible: con que texto se nombra el dia en el mensaje. Por defecto la
+    fecha pelada ('lunes 24 de agosto'); el recordatorio de 1 dia le antepone la
+    referencia temporal ('manana, ...' / 'el ...') -- ver enviar_recordatorios_dia."""
     try:
         citas = dentidesk._get_agenda_day(cfg, target_date)
     except Exception as e:
@@ -182,10 +186,12 @@ def _procesar_dia(cfg, target_date, tipo, fn_envio, incluir_doctor):
         cita = {
             'nombre': nombres or 'paciente',
             'telefono': telefono,
-            'fecha_legible': _fecha_legible(target_date),
+            'fecha_legible': fecha_legible or _fecha_legible(target_date),
             'fecha': target_date.isoformat(),
             'hora': (c.get('time') or '')[:5],
             'id_agenda': ida,
+            # Para el saludo por genero (Estimada/Estimado) -- ver notify.
+            'rut': (c.get('PatientDocument') or '').strip(),
         }
         if incluir_doctor:
             cita['doctor_nombre'] = (c.get('ProfessionalName') or '').strip()
@@ -213,7 +219,16 @@ def enviar_recordatorios_dia(cfg, hoy=None):
     if hoy.isoweekday() >= 6:
         return {'ok': True, 'enviadas': 0, 'citas': 0, 'omitido': 'fin de semana'}
     target = scheduling.siguiente_dia_habil(hoy + timedelta(days=1))
-    return _procesar_dia(cfg, target, 'dia', notify.enviar_recordatorio_dia, incluir_doctor=True)
+    # La plantilla ya NO dice "manana" en su texto fijo: era FALSO los VIERNES,
+    # que avisan las citas del LUNES (3 dias despues) -- bug detectado en vivo
+    # el 2026-08-21. La referencia temporal va ahora en la linea de la fecha, y
+    # solo dice "manana" cuando de verdad lo es.
+    if (target - hoy).days == 1:
+        legible = f'mañana, {_fecha_legible(target)}'
+    else:
+        legible = f'el {_fecha_legible(target)}'
+    return _procesar_dia(cfg, target, 'dia', notify.enviar_recordatorio_dia,
+                         incluir_doctor=True, fecha_legible=legible)
 
 
 def enviar_inasistencias(cfg, hoy=None):

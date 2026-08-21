@@ -277,12 +277,17 @@ def enviar_recordatorio_semana(cita):
 
 
 def enviar_recordatorio_dia(cita):
-    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda, fecha."""
+    """cita: nombre, telefono, doctor_nombre, fecha_legible, hora, id_agenda,
+    fecha, rut (opcional, para el saludo por genero)."""
     if not cita.get('telefono'):
         return {'ok': False, 'error': 'La cita no tiene teléfono registrado'}
     try:
+        # La plantilla dice "Estimad{{1}}," -> {{1}} lleva el sufijo de genero
+        # PEGADO al nombre: "a Maria" / "o Juan" / "o/a Sofia". pacientes.saludo
+        # NUNCA adivina por el nombre: si la ficha no trae genero da 'o/a'.
+        saludo_nombre = f"{pacientes.saludo(cita.get('rut') or '')} {cita['nombre']}"
         r = wa_cloud.enviar_recordatorio_dia(
-            telefono=cita['telefono'], nombre=cita['nombre'],
+            telefono=cita['telefono'], nombre=saludo_nombre,
             doctor_nombre=cita['doctor_nombre'],
             fecha_legible=cita['fecha_legible'], hora=cita['hora'],
             id_agenda=cita['id_agenda'], fecha_iso=cita.get('fecha', ''),
