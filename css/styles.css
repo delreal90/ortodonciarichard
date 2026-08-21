@@ -1377,10 +1377,12 @@ h4 { font-size: 1rem; font-weight: 600; }
         padding: 16px 24px 24px;
         box-shadow: var(--shadow-md);
         gap: 2px;
-        transform: translateY(-110%);
+        transform: translateY(calc(-100% - var(--nav-h)));
         transition: transform var(--transition);
         pointer-events: none;
+        visibility: hidden;
     }
+    .nav-links.open { visibility: visible; }
     .nav-links.open {
         transform: translateY(0);
         pointer-events: all;
