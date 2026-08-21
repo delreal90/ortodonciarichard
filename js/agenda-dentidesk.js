@@ -1160,6 +1160,11 @@ function pasoResumen() {
       <li><span>Celular</span><b>${_resumenTelefono()}</b></li>
     </ul>
     ${agenda.config.turnstile_sitekey ? '<div id="agenda-captcha" style="margin:14px 0;display:flex;justify-content:center"></div>' : ''}
+    <label class="agenda-consent">
+      <input type="checkbox" id="agendaConsent">
+      <span>Autorizo el tratamiento de mis datos personales y de salud para gestionar mi hora de atención, según la <a href="privacidad.html" target="_blank" rel="noopener">Política de Privacidad</a>.</span>
+    </label>
+    <p class="agenda-consent-msg" id="agendaConsentMsg"></p>
     <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReserva()"${agenda.config.turnstile_sitekey ? ' disabled' : ''}>
       <i class="fas fa-check"></i> Confirmar hora
     </button>
@@ -1199,6 +1204,15 @@ function montarCaptcha() {
 }
 
 async function confirmarReserva() {
+  // Ley 21.719: consentimiento obligatorio antes de tratar datos personales/salud.
+  const chk = document.getElementById('agendaConsent');
+  const msg = document.getElementById('agendaConsentMsg');
+  if (chk && !chk.checked) {
+    if (msg) msg.textContent = 'Debes autorizar el tratamiento de tus datos para agendar.';
+    if (chk) chk.focus();
+    return;
+  }
+  if (msg) msg.textContent = '';
   const btn = document.getElementById('agendaConfirmBtn');
   btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Agendando…';
   const s = agenda.sel;

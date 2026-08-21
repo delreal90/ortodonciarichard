@@ -1884,3 +1884,19 @@ h4 { font-size: 1rem; font-weight: 600; }
 @media (max-width: 640px) {
     .cookie-banner { left: 12px; right: 12px; bottom: 12px; max-width: none; }
 }
+
+/* Consentimiento del agendamiento online (Ley 21.719) */
+.agenda-consent {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: .8rem;
+    color: var(--text-mid);
+    line-height: 1.5;
+    margin: 14px 0 4px;
+    cursor: pointer;
+    text-align: left;
+}
+.agenda-consent input { margin-top: 3px; flex-shrink: 0; }
+.agenda-consent a { color: var(--navy); font-weight: 600; }
+.agenda-consent-msg { color: #e53e3e; font-size: .78rem; margin: 2px 0 8px; min-height: 1em; }
