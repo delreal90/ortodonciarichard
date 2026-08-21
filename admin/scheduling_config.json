@@ -438,7 +438,9 @@
           ]
         ]
       },
-      "professional_name": "Octavio Del Real"
+      "professional_name": "Octavio Del Real",
+      "registro_prestador": "312378",
+      "titulo_impreso": "Ortodoncista"
     },
     "rodrigo": {
       "professional_id": 8452,
@@ -503,7 +505,9 @@
           ]
         ]
       },
-      "professional_name": "Rodrigo Oyonarte"
+      "professional_name": "Rodrigo Oyonarte",
+      "registro_prestador": "48538",
+      "titulo_impreso": "Ortodoncista"
     },
     "alberto": {
       "professional_id": 639,
@@ -568,7 +572,9 @@
           ]
         ]
       },
-      "professional_name": "Alberto Del Real"
+      "professional_name": "Alberto Del Real",
+      "registro_prestador": "33401",
+      "titulo_impreso": "Ortodoncista"
     },
     "patricio": {
       "professional_id": 9308,
@@ -633,7 +639,9 @@
           ]
         ]
       },
-      "professional_name": "Patricio Vial"
+      "professional_name": "Patricio Vial",
+      "registro_prestador": "40662",
+      "titulo_impreso": "Rehabilitador Oral e Implantologo"
     }
   }
 }

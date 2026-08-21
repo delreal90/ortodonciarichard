@@ -113,3 +113,8 @@ admin/reagenda_pendientes.json
 # (RUT, nombre, respuestas clínicas) — NUNCA subir a git. En Render vive en el
 # disco persistente vía PATIENT_INDEX_PATH.
 admin/psq_registro.json
+
+# Informe de Primera Consulta: hallazgos clinicos, mediciones del escaneo,
+# tamizaje de sueno y ordenes de examenes, por RUT. Datos clinicos: nunca a git.
+# En Render vive en el disco persistente (junto a patient_index.json).
+admin/informe_pc_registro.json

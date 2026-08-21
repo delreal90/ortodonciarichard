@@ -3838,6 +3838,202 @@ def psq_historial():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# INFORME DE PRIMERA CONSULTA  (módulo informe_pc.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# El Dr. abre /informe-pc desde el F2 con la cita de Primera Consulta abierta
+# (query params con los datos del paciente), marca casillas y guarda. En
+# recepción, /informe-pc?modo=recepcion lista lo del día y se imprime desde el
+# navegador — no se usa print_agent.py, que está amarrado a la etiquetadora.
+#
+# Todas las rutas van con ADMIN_TOKEN salvo GET /informe-pc, que sirve la página
+# y pide la clave al cargar (mismo criterio que /seguro).
+
+import informe_pc
+import transversal
+
+
+def _firma_data_uri(doc_key):
+    """La firma del doctor como data URI, para que el documento impreso sea
+    autocontenido y no dependa de una ruta de imagen servida aparte."""
+    try:
+        ruta = seguros.firma_de_doctor(doc_key)
+        if not ruta:
+            return ''
+        import base64, mimetypes
+        mime = mimetypes.guess_type(str(ruta))[0] or 'image/png'
+        with open(ruta, 'rb') as fh:
+            return 'data:%s;base64,%s' % (mime, base64.b64encode(fh.read()).decode())
+    except Exception as e:
+        app.logger.warning('informe-pc: no se pudo cargar la firma de %s: %s', doc_key, e)
+        return ''
+
+
+def _doctor_informe(doctor_texto=''):
+    """Resuelve el doctor a partir del texto que trae el modal de DentiDesk.
+    Si no se puede resolver, se devuelve lo que haya sin inventar un nombre:
+    es mejor una firma en blanco que atribuirle el informe a otro profesional."""
+    cfg = scheduling.load_config()
+    key = ''
+    try:
+        key = dentidesk.doc_key_por_nombre(cfg, doctor_texto)
+    except Exception:
+        key = ''
+    d = (cfg.get('doctores') or {}).get(key) or {}
+    nombre = d.get('professional_name') or (doctor_texto or '').strip()
+    return {
+        'key': key,
+        'nombre': ('Dr. ' + nombre) if nombre and not nombre.lower().startswith('dr') else nombre,
+        'especialidad': d.get('titulo_impreso') or '',
+        'registro': d.get('registro_prestador') or '',
+        'firma_url': _firma_data_uri(key) if key else '',
+    }
+
+
+def _clinica_informe():
+    c = (scheduling.load_config().get('clinica') or {})
+    return {'nombre': c.get('nombre', ''), 'direccion': c.get('direccion', ''),
+            'telefono': c.get('telefono', ''), 'logo': '/informe-pc/logo.png'}
+
+
+@app.route('/informe-pc')
+def informe_pc_page():
+    return send_from_directory('.', 'informe_pc.html')
+
+
+@app.route('/informe-pc/logo.png')
+def informe_pc_logo():
+    """El logo de la cabecera de las hojas impresas.
+
+    Va como ARCHIVO y no como fondo CSS a proposito: Chrome no imprime los
+    background-image salvo que el usuario active "graficos de fondo" en el
+    dialogo, y el logo no puede depender de que alguien se acuerde de marcar
+    una casilla. Tampoco va como data URI para no repetir 40 KB en cada una de
+    las cuatro hojas. Es publico: es el mismo logo del sitio."""
+    return send_from_directory('.', 'logo_informe.png')
+
+
+@app.route('/api/informe-pc/catalogo', methods=['GET'])
+def informe_pc_catalogo():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'catalogo': informe_pc.catalogo()})
+
+
+@app.route('/api/informe-pc/precarga', methods=['GET'])
+@rate_limit('60 per minute')
+def informe_pc_precarga():
+    """Datos del paciente para prellenar el formulario del box: nombre, RUT,
+    edad y sexo (que son los que necesita el percentil) y el PSQ que el
+    apoderado ya haya respondido."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    rut = request.args.get('rut', '')
+    import pacientes as _pac
+    rec = _pac.lookup(rut) or {}
+    fnac = rec.get('fecha_nacimiento') or ''
+    edad = _pac.edad_a_fecha(fnac) if fnac else -1
+    nombre = ' '.join(x for x in [rec.get('nombres'), rec.get('apellidos')] if x).strip()
+    return jsonify({
+        'ok': True,
+        'nombre': nombre,
+        'rut_fmt': scheduling.formatear_rut(rut) if rut else '',
+        'fecha_nacimiento': fnac,
+        'edad': (edad if edad >= 0 else None),
+        'sexo': (rec.get('genero') or ''),
+        'psq': psq.ultimo_por_rut(rut),
+    })
+
+
+@app.route('/api/informe-pc/percentil', methods=['GET'])
+def informe_pc_percentil():
+    """Lectura en vivo mientras se escriben las mediciones. Devuelve el mismo
+    contrato de transversal.percentil (con 'ok' False cuando no hay
+    referencia para esa edad, que NO es lo mismo que estar en el promedio)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    a = request.args
+    r = transversal.percentil(a.get('medida', ''), a.get('arcada', ''),
+                              (a.get('sexo') or '').upper()[:1], a.get('edad'),
+                              a.get('mm'), a.get('tramo') or None)
+    if r.get('ok'):
+        r['lectura'] = transversal.etiqueta_percentil(r['percentil'])
+    return jsonify(r)
+
+
+@app.route('/api/informe-pc/tamizaje', methods=['POST'])
+def informe_pc_tamizaje():
+    """Puntúa el tamizaje en vivo mientras el Dr. llena el formulario, sin
+    guardar nada. Así el puntaje del FAIREST y el del STOP-BANG salen del mismo
+    código que imprime el papel, en vez de una copia de los umbrales en el JS."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.get_json(silent=True) or {}
+    return jsonify({'ok': True, 'tamizaje': informe_pc.puntuar_tamizaje(d)})
+
+
+@app.route('/api/informe-pc/guardar', methods=['POST'])
+def informe_pc_guardar():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.get_json(silent=True) or {}
+    if not (d.get('nombre') or '').strip():
+        return jsonify({'ok': False, 'error': 'Falta el nombre del paciente'}), 400
+    if not (d.get('rut') or '').strip():
+        return jsonify({'ok': False, 'error': 'Falta el RUT del paciente'}), 400
+    if not (d.get('conclusion') or '').strip():
+        return jsonify({'ok': False, 'error': 'Falta la impresion diagnostica'}), 400
+
+    d['rut'] = scheduling.limpiar_rut(d.get('rut'))
+    d['rut_fmt'] = scheduling.formatear_rut(d.get('rut_fmt') or d['rut'])
+    d.setdefault('fecha', fechas.hoy_chile().isoformat())
+    iid = informe_pc.guardar(d)
+    return jsonify({'ok': True, 'id': iid})
+
+
+@app.route('/api/informe-pc/pendientes', methods=['GET'])
+def informe_pc_pendientes():
+    """Lo que ve recepción: los informes del día, con las órdenes ya resueltas
+    a texto para saber qué presupuestar sin abrir cada uno."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    fecha = request.args.get('fecha') or fechas.hoy_chile().isoformat()
+    solo = request.args.get('solo_pendientes') == '1'
+    items = []
+    for i in informe_pc.listar(fecha=fecha, solo_pendientes=solo):
+        items.append({
+            'id': i.get('id'), 'nombre': i.get('nombre'), 'rut_fmt': i.get('rut_fmt'),
+            'creado': i.get('creado'), 'impreso': i.get('impreso'),
+            'ordenes_labels': [informe_pc.ORDENES[c]['etiqueta']
+                               for c in (i.get('ordenes') or []) if c in informe_pc.ORDENES],
+        })
+    return jsonify({'ok': True, 'fecha': fecha, 'informes': items})
+
+
+@app.route('/api/informe-pc/documento', methods=['GET'])
+def informe_pc_documento():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    iid = request.args.get('id', '')
+    item = informe_pc.obtener(iid)
+    if not item:
+        return jsonify({'ok': False, 'error': 'No se encontro ese informe'}), 404
+    doc = _doctor_informe(item.get('doctor_texto') or '')
+    return jsonify({'ok': True,
+                    'documento': informe_pc.armar_documento(item, doctor=doc,
+                                                            clinica=_clinica_informe())})
+
+
+@app.route('/api/informe-pc/marcar-impreso', methods=['POST'])
+def informe_pc_marcar_impreso():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.get_json(silent=True) or {}
+    ok = informe_pc.marcar_impreso(d.get('id', ''), d.get('quien', ''))
+    return jsonify({'ok': ok}), (200 if ok else 404)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SEGUROS COMPLEMENTARIOS  (formularios de reembolso — módulo seguros.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #

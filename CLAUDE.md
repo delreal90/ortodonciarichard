@@ -242,6 +242,39 @@ agendar hora online.
 
 ---
 
+## Cumplimiento Ley 21.719 / Protección de datos (sitio) — 2026-08-21
+
+Chile: la **Ley 21.719** (protección de datos personales) entra en plena vigencia el
+**1-dic-2026**. Aplica a cualquier sitio que recolecte datos (formularios, cookies, etc.).
+El sitio se preparó técnicamente para cumplir; **el texto legal conviene validarlo con un
+abogado** (esto NO es asesoría legal). Todo vive en el frontend estático.
+
+- **Banner de cookies** — pequeño, esquina inferior izquierda (`.cookie-banner` en
+  `index.html` + estilos en `css/styles.css` + script inline). Botones **Aceptar/Rechazar**;
+  la elección se guarda en `localStorage['cookie-consent-v1']` y no vuelve a aparecer. En
+  móvil ocupa el ancho abajo. Commit `914382e`.
+- **Casilla de consentimiento en el formulario de contacto** — `.form-consent` en
+  `index.html` (`#consentimiento`, `required`, desmarcada). Sin marcarla no se envía.
+- **Casilla de consentimiento en el AGENDAMIENTO ONLINE** (2026-08-21) — en `pasoResumen()`
+  de `js/agenda-dentidesk.js` (`#agendaConsent`, `.agenda-consent`, desmarcada). Es el paso
+  final ÚNICO tanto de la reserva normal como del reagenda, así que cubre ambos flujos.
+  `confirmarReserva()` retorna temprano (sin agendar, mostrando `#agendaConsentMsg`) si no
+  está marcada. Texto: autoriza tratar datos personales **y de salud** (el motivo de
+  consulta es dato sensible). Estilos `.agenda-consent*` en `css/styles.css`.
+  ⚠️ La tarea programada `consentimiento-agenda-online` que debía hacer esto se disparó pero
+  NO completó el trabajo (la app estaba cerrada / se interrumpió); se hizo a mano después.
+- **`privacidad.html` actualizada** — referencia a la Ley 21.719 (y 19.628), sección de
+  **datos sensibles/salud**, **derechos ARCOP** completos (acceso, rectificación,
+  cancelación, oposición, portabilidad) + mención a la Agencia de Protección de Datos,
+  sección de **cookies**, **tiempo de conservación** y lista de **proveedores** (DentiDesk,
+  Meta, Google, Web3Forms, GitHub/Cloudflare). Ya estaba enlazada en el footer.
+
+**Pendiente:** validación legal por un abogado; el otro sitio del usuario
+(`clinicaestoril.cl`, en Wix) se cubrió aparte con el banner de cookies nativo de Wix + una
+política de privacidad redactada para esa clínica (no vive en este repo).
+
+---
+
 ## Integraciones y servicios externos
 
 | Servicio | Uso | Estado |
@@ -2175,6 +2208,348 @@ resolución del destinatario con `dentidesk.doctor_de_paciente` mockeado).
 en el panel para ver el historial (solo el endpoint `/api/psq/historial`); decidir si se
 enlaza `/psq` desde algún flujo (F2, confirmación de cita) o queda como link que la
 clínica comparte a mano — hoy es standalone, igual que `/consentimiento` antes del F2.
+
+---
+
+## Informe de evaluación — el papel que el paciente se lleva (2026-08-20)
+
+El paciente pagaba $50.000 por su primera consulta y el único producto físico que se
+llevaba era el **presupuesto**. Todo el acto profesional —el examen, el análisis facial,
+el juicio del especialista— se entregaba hablando, y de lo hablado se retiene cerca de la
+mitad. La lectura que quedaba era *"me cobraron para decirme que hay que tomar más
+exámenes"*. Este sistema convierte esa conversación en **tres hojas impresas con la firma
+del doctor**, que recepción entrega junto con el presupuesto.
+
+El molde es el **After-Visit Summary** de la medicina general (estándar en atención
+primaria en EE.UU. desde *Meaningful Use*): mejora comprensión, recuerdo y satisfacción,
+con una condición dura — que sea **fiel a esa consulta y sin jerga**. Un formulario
+genérico se nota y resta. La otra palanca del mercado estadounidense (consulta gratis +
+cobro fuerte en registros) se descartó explícitamente; la tercera (simulación chairside
+tipo iTero) existe en el Medit i700w pero **no se imprime por ahora**.
+
+### Las tres hojas
+
+1. **Informe de evaluación** — motivo de consulta *en las palabras del paciente* ·
+   "Evaluación realizada" (el bloque que hace visible el trabajo invisible; cero clics) ·
+   mediciones del escaneo con percentil y **curva de crecimiento estilo OMS** · hallazgos
+   con su relevancia clínica · impresión diagnóstica inicial · plan de acción · qué aporta
+   el Estudio Integral (máximo 4 líneas, **sin montos**) · firma y timbre.
+2. **Tamizaje de vía aérea y sueño** — siempre, diga lo que diga el resultado.
+3. **Orden de exámenes complementarios** — solo imágenes y exámenes dentales.
+
+### Reglas de redacción que no se negocian
+
+- Nunca "diagnóstico" a secas para lo del día 1: es **impresión diagnóstica inicial**.
+- El bloque del Estudio va **siempre después** de los hallazgos. Si el documento se siente
+  comercial, fracasó completo.
+- **Al que se le dice "no requiere tratamiento" NO se le ofrece el Estudio**
+  (`que_aporta_estudio` viene vacío). Es el paciente que hoy se va peor —pagó por una buena
+  noticia y se fue con las manos vacías—; para él esta hoja es el producto completo.
+- ⚠️ **Los textos de `informe_pc.py` se imprimen con la firma del doctor.** No son copy:
+  cambiar una frase cambia lo que un profesional afirma por escrito ante un paciente.
+
+### Evaluación transversal — `admin/transversal.py`
+
+Normativa de **Bishara SE et al., *Am J Orthod Dentofacial Orthop.* 1997;111(4):401-9**
+(Tablas I y II), transcrita a `transversal_normas.json` (48 filas, verificadas una a una
+contra la planilla del usuario). Curva estilo OMS: **P3 y P97 rojas, P15 y P85 amarillas,
+P50 central**; percentil = Φ(z) asumiendo normalidad (decisión del usuario 2026-08-20).
+
+⚠️ **Tres cosas que hay que respetar si se toca:**
+
+1. **La curva es UNA sola y atraviesa el recambio.** Bishara mide sobre el diente que el
+   paciente *tiene* a cada edad: los molares de 3 y 5 años son los segundos temporales y
+   desde los 8 son los primeros permanentes; los caninos de 3, 5 y 8 son temporales y desde
+   los 13 permanentes. **Las figuras 4 y 5 del paper trazan una sola línea de 3 a 45 años**
+   atravesando ese cambio, y acá se hace igual.
+   > 🔧 **Corregido el 2026-08-20 (mismo día).** La primera versión partía la curva en dos
+   > tramos y dejaba al niño de 6-7 años **sin referencia de intermolar** — justo el paciente
+   > pediátrico más frecuente. Fue un error de lectura de la fuente: el salto de 43,5 a 51,0
+   > mm entre los 5 y los 8 **es parte de la curva publicada**, no una discontinuidad que
+   > haya que evitar. `transversal.en_recambio()` marca esas edades para poder decir al pie
+   > que ahí el ascenso refleja el recambio además del crecimiento, pero **no parte nada**.
+   > El campo `tramo` de la tabla quedó solo como registro de qué diente se midió: se sigue
+   > aceptando en las llamadas y **no afecta el cálculo**. Por lo mismo, el histórico del
+   > paciente **tampoco se filtra** por diente: su trayectoria tiene que cruzar el recambio
+   > igual que la referencia.
+2. **El punto que se mide en Medit tiene que ser el de Bishara** (cúspide MV). La lámina
+   del FAIREST usa la **mesiolingual**, que está ~15 mm más adentro. Medir uno e
+   interpretarlo con la escala del otro da un número que se ve razonable y está
+   completamente equivocado.
+3. **Interpolación monótona (PCHIP), no un spline cualquiera.** Un Catmull-Rom puede hacer
+   overshoot y dibujar un valle donde el ancho solo crece. En un gráfico que el paciente se
+   lleva a la casa, eso es un error que nadie nota y que igual está mal.
+
+Se declara en la hoja: la cita, el **n de la muestra** (15 hombres y 15 mujeres del Iowa
+Facial Growth Study, de 3 a 45 años), el supuesto de normalidad y que los valores entre
+edades medidas son interpolados. Los datos de preerupción (6 sem, 1 y 2 años) **se
+descartaron**: usan puntos del reborde alveolar, no dientes.
+
+⚠️ **Celda sospechosa:** intermolar mandibular femenino a los 3 años trae **DE = 6,2 mm**
+en la Tabla II, tres veces la de sus vecinas. Casi seguro es un error de imprenta del
+paper. Se transcribió fiel a la fuente y el módulo la marca (`sospechoso`), pero con esa DE
+la banda queda absurdamente ancha.
+
+> 💡 **Oportunidad anotada:** con el escáner y miles de pacientes, aplicando los criterios
+> de inclusión de Bishara (Clase I, sin tratamiento previo) se podría construir una
+> **normativa chilena propia con n de tres dígitos**. Hoy no existe. Se buscó un reemplazo
+> moderno y no lo hay: Riolo/Moyers (Michigan) son estándares *cefalométricos*, no anchos de
+> arcada, y lo demás son transversales por población con rango etario angosto. El chileno de
+> Contulmo (Harnisch et al., *J Oral Res* 2013, n=48, 6-8 años) coincide con Bishara
+> (51,9 ± 3,1 vs 51,0 ± 3,0 mm), lo que respalda usarlo acá.
+
+### Tamizaje de sueño — dónde está la línea
+
+La **AAO** (white paper actualizado en marzo de 2026) y *Progress in Orthodontics*
+recomiendan **STOP-BANG en adultos** y el **PSQ en niños** (el PSQ-CL chileno validado ya
+vivía en `admin/psq.py`, corte 0,227). El **FAIREST-6 / 6+4** (Oh JS et al., *Pediatr Dent*
+2021;43(4):262-272) aporta el examen clínico estructurado y **ya incorpora** la valoración
+amigdalina (ítem 3) y la posición lingual de Friedman (ítem 9): por eso **no se agregan
+Brodsky ni Mallampati como escalas sueltas** — sería medir lo mismo dos veces.
+
+⚠️ **Lo que NO se puede hacer, y está impedido en el código:**
+- **No existe un "STOP-BANG pediátrico".** El instrumento pediátrico es el PSQ.
+- **No se suma un puntaje único** de anchos + cuestionario. El white paper 2026 es
+  explícito: la imagen craneofacial no tiene valor de tamizaje confiable para trastornos
+  del sueño. Cada instrumento informa su propio puntaje.
+- **No se recomienda expansión palatina por apnea** (la AAO lo lista entre lo que el
+  ortodoncista no debe hacer, por evidencia insuficiente). `fairest.FRASES_PROHIBIDAS` +
+  `frases_prohibidas_en()` (comparación **sin tildes**) vigilan todo lo que se imprime, y
+  hay una prueba que recorre el documento completo.
+- Un ítem **sin registrar no es un ítem negativo**: se informa aparte. En STOP-BANG, un
+  puntaje incompleto es un **piso**, y la hoja lo dice.
+
+**El ítem 6 (paladar estrecho) se puntúa distinto a la lámina, a propósito:** positivo bajo
+el **percentil 15** de la evaluación transversal de Bishara, no con la guía mesiolingual del
+instrumento (decisión del usuario 2026-08-20). Es más reproducible que el ojo del
+examinador —el ítem impreso es un sí/no clínico y la tabla de milímetros es solo una ayuda
+sugerida—, pero es una **operacionalización propia**: las características operativas
+publicadas del FAIREST-6 se midieron con el criterio original. Por eso la hoja lo declara
+(`item6_criterio`). Precedencia: intermolar maxilar → intercanino maxilar (para el niño de
+6-7 años) → sin registrar.
+
+⚠️ **Dos umbrales que la lámina no imprime** y quedaron como constantes con nombre, con las
+convenciones de la literatura: `FTP_POSITIVO_DESDE = 3` (Friedman III-IV) y
+`ALETEO_POSITIVO_ES_BANDERA = True`. Confirmados por el usuario 2026-08-20.
+
+La banda de riesgo **siempre sale del FAIREST-6** (0-1 normal · 2-3 leve · 4-5 moderado ·
+6 severo). La lámina de adultos no publica bandas para el total de 10, así que los 4 ítems
+extra se informan como conteo y no se inventa una escala.
+
+### Formato carta y dónde corta cada hoja (2026-08-20)
+
+**Carta (21,59 × 27,94 cm), no A4** — `@page { size: letter }` y `.hoja` del mismo ancho.
+Área útil con márgenes de 1,3 × 1,5 cm: **25,3 cm de alto**.
+
+El documento son **cuatro hojas**, y el corte NO es arbitrario: se midió el alto real de cada
+bloque en el navegador. La sección de Mediciones sola ocupaba **25,5 cm** — una página carta
+completa —, así que dejarla dentro del informe partía el documento por la mitad de un
+gráfico. Va en su propia hoja, con encabezado propio (por si las hojas se separan) y **sin
+firma**, porque es el anexo del informe, que ya va firmado.
+
+| Hoja | Contenido | Ocupación (caso típico / peor caso) |
+|---|---|---|
+| 1 · Informe de evaluación | motivo, evaluación realizada, hallazgos, impresión diagnóstica, plan de acción, qué aporta el Estudio, firma | 94% / se extiende a 2 páginas con muchos hallazgos |
+| 2 · Mediciones | tabla clínica, reglas de oclusión, curvas de arcada | 105% → **95%** tras ajustar |
+| 3 · Tamizaje | cuestionario + FAIREST | 55% niño · 61% adulto |
+| 4 · Orden de exámenes | lo solicitado | 36% · 49% con las 9 órdenes |
+
+Para que la hoja de mediciones cupiera se bajó el alto de las curvas (`curva_svg(alto=198)`)
+y de las reglas (`regla_oclusion_svg(alto=84)`), y "Evaluación realizada" pasó a dos columnas.
+**Si se tocan esos altos, hay que volver a medir**: la hoja 2 iba al 105% antes del ajuste.
+
+⚠️ **La hoja 1 crece con los hallazgos.** Con los 24 marcados llega al 176% (dos páginas), y
+está bien: es un caso complejo y el informe es largo. Lo que no puede pasar es que corte por
+la mitad de algo, así que las reglas de impresión son: `.firma`, `.regla`, `figure`, `.hall` y
+los `li` **no se parten**, un `h2` **no queda solo al pie**, y la sección de hallazgos **sí**
+se puede partir (es una lista: corta limpio entre un hallazgo y otro).
+
+**El logo va en la cabecera de las cuatro hojas** (`admin/logo_informe.png`, 356×190 px,
+32 KB: el `images/logo.jpg` del sitio recortado y reducido). Reemplaza a la línea de texto
+con el nombre de la clínica, que era su sustituto.
+⚠️ Se sirve como **archivo** (`GET /informe-pc/logo.png`, público) y NO como fondo CSS ni
+como data URI. Como fondo, **Chrome no lo imprime** salvo que el usuario marque "gráficos de
+fondo" en el diálogo, y el logo no puede depender de que alguien se acuerde. Como data URI
+repetiría 40 KB en cada una de las cuatro hojas.
+
+**El pie de la hoja 1 ya no lleva la cita de Bishara ni la nota de la muestra** (decisión del
+usuario 2026-08-20). `transversal.CITA` y `NOTA_MUESTRA` siguen existiendo y viajando en el
+documento por si alguna versión las quiere, pero no se imprimen. Queda una sola mención de la
+fuente en el papel: la línea del ítem 6 en la hoja del tamizaje, que explica el criterio.
+
+### Impresión: sin agente, sin PDF
+
+Se imprime con el **navegador** (`window.print()` sobre HTML con `@media print`). NO se usa
+`print_agent.py`: esa cola está amarrada a productos y a la etiquetadora térmica, y meter un
+documento ahí agrega una pieza que puede fallar en la mañana con el paciente esperando.
+
+Flujo físico: el Dr. guarda en el box → aparece en `/informe-pc?modo=recepcion` como
+**pendiente de imprimir**, con las órdenes ya resueltas a texto → la secretaria imprime y
+entrega junto al presupuesto.
+
+⚠️ **"Imprimir" y "marcar como impreso" son dos botones distintos, a propósito.** El
+navegador no distingue "imprimió" de "canceló el diálogo" (`afterprint` dispara en ambos):
+marcar automáticamente dejaría a recepción creyendo que entregó un informe que nunca salió
+de la impresora. Lo marca una persona, igual que el "Ya lo subí" de consentimientos.
+
+Se guarda el **JSON estructurado**, no el HTML: el documento se re-renderiza cuando sea.
+
+### Archivos y endpoints
+
+```
+admin/transversal.py + transversal_normas.json  ← percentiles y curva (reutilizable)
+admin/fairest.py                                 ← FAIREST-6 y 6+4 + frases prohibidas
+admin/stopbang.py                                ← STOP-BANG adultos
+admin/informe_pc.py                              ← catálogos, registro y armado del documento
+admin/informe_pc.html                            ← captura (box) + ?modo=recepcion + impresión
+admin/logo_informe.png                           ← logo de la cabecera (recorte del logo del sitio)
+dentidesk-assistant/content.js                   ← botón "📄 Informe de primera consulta"
+```
+
+Endpoints (`server.py`, bloque "INFORME DE PRIMERA CONSULTA"), todos con `ADMIN_TOKEN`
+salvo `GET /informe-pc`, que sirve la página y pide la clave al cargar (criterio de
+`/seguro`): `/api/informe-pc/catalogo|precarga|percentil|guardar|pendientes|documento|
+marcar-impreso`.
+
+El botón del F2 **solo aparece cuando el motivo de la cita es Primera Consulta**, y abre la
+página con el paciente en la query string — **sin token en la URL** (quedan en el
+historial), mismo patrón que `abrirSeguro()`.
+
+`psq.ultimo_por_rut()` (nuevo) muestra el PSQ que el apoderado ya respondió en `/psq` en vez
+de repetir 22 preguntas en el box. Si nunca lo respondió, **la hoja lo dice** — no se asume
+"sin riesgo" a partir de un cuestionario en blanco.
+
+`scheduling_config.json` ganó `registro_prestador` y `titulo_impreso` por doctor (dato
+público del Registro Nacional de Prestadores, ya estaba en el schema de `index.html`).
+
+### Privacidad
+
+`informe_pc_registro.json` guarda hallazgos clínicos, mediciones, tamizaje y órdenes con
+RUT → disco persistente (`PATIENT_INDEX_PATH`), **gitignored**, nunca al log. La tabla
+normativa **sí** va versionada (datos publicados, con su cita).
+
+### Línea base antes de encender (medida el 2026-08-20)
+
+`ortodonciarichard-analytics/scripts/analisis_conversion_pc.py` sobre el parquet histórico:
+**39,2 % de las primeras consultas llegan al estudio dentro de 90 días** (535 de 1.365), y
+la métrica lleva **cinco años plana** (41,4 · 37,7 · 36,0 · 42,8 · 39,4 %). Mediana de
+**14 días** hasta el primer paso de avance; 109 de los 535 avanzaron el mismo día. Por
+doctor: Rodrigo 42,7 % · Alberto 41,6 % · Octavio 34,5 % · Vial 8,7 % (n=23).
+
+⚠️ **Es un piso, no un valor exacto:** el 17 % de las atenciones del archivo no tiene motivo
+registrado (techo 43,6 %), y 420 pacientes con "Explicación Plan Tratamiento" nunca tienen
+una fila de "Primera Consulta" — el denominador subcuenta puntos de entrada.
+
+⚠️ **Los motivos de la API de DentiDesk NO existen en el export histórico.** Usar la lista
+literal de `seguimiento_pc.py` daría 1,9 % en vez de 39,2 %. El script mapea los
+equivalentes reales y los imprime para auditoría.
+
+### Segunda vuelta de mejoras (mismo día, tras probarlo)
+
+- **Se genera en cualquier cita, no solo en la primera consulta.** El botón del F2 ya no
+  filtra por motivo. El documento pasó a llamarse **"Informe de evaluación"**: poner
+  "Primera Consulta" en el papel de un control sería falso. Los módulos siguen llamándose
+  `informe_pc` (renombrarlos costaba más de lo que aclaraba).
+- **Seguimiento en las curvas.** Desde el segundo informe, las mediciones anteriores del
+  paciente se dibujan como puntos huecos unidos por una **línea de 1 px** — más delgada que
+  los puntos a propósito, para que la vista siga las mediciones y no el trazo. La actual va
+  rellena y más grande. Lo resuelve `informe_pc.mediciones_previas()`.
+  **No se filtra por el diente medido** (ver la corrección del punto 1 más arriba): la
+  trayectoria atraviesa el recambio igual que la referencia. Sí descarta informes sin edad:
+  un punto sin eje X no se puede dibujar.
+- **El eje X ya no se adapta al punto:** siempre parte en 3. Pediátrico llega a 18, adulto a
+  45, y **un paciente que empezó de niño pero ya tiene un control pasados los 18 se grafica
+  3-45**, para que toda su historia entre en el mismo gráfico.
+- **Las mediciones transversales se ingresan como tabla** — filas Maxilar / Mandíbula,
+  columnas Caninos / Molares.
+- **La línea media ahora dice hacia qué lado** se desvía. Sin lado no se inventa uno.
+- **Relación molar y canina POR LADO, en la escala de cúspides de Angle.** Ver la sección
+  siguiente: es lo que más se rehízo.
+- **Los anchos transversales ya NO se repiten como números en la tabla impresa**: van solo
+  como gráfico. El punto sobre la banda dice más que el milímetro suelto, y tenerlo en los
+  dos lados hacía que compitieran por la atención.
+
+### Relación molar y canina: la escala de Angle (investigada 2026-08-20)
+
+La primera versión inventaba una escala de cinco valores. Se investigó cómo se registra de
+verdad y se rehízo. Lo que se encontró:
+
+- **La unidad es la CÚSPIDE**, y la desviación desde Clase I se indica en fracciones del
+  ancho de una corona de premolar. Los escalones: ¼ · ½ · ¾ · cúspide completa · más de
+  completa (esto último ya en mm).
+- **El escalón de media cúspide es el único con respaldo formal**, y aparece en los tres
+  índices: el **ABO Discrepancy Index** puntúa **por lado** (0 pts Clase I · 2 pts cúspide a
+  cúspide · 4 pts clase completa · +1 pt por cada mm que exceda), el **PAR** lo llama
+  *"half a unit (cusp to cusp)"* y el **ICON** usa el mismo corte.
+  ⚠️ **Los cuartos (¼ y ¾) son vocabulario clínico legítimo pero NO están en ningún índice
+  validado y no hay datos de reproducibilidad entre examinadores para ellos.** Por eso la
+  regla impresa **solo rotula** Clase I, cúspide a cúspide y clase completa: los cuartos se
+  ven como marca y no se nombran, para no aparentar una precisión que no existe.
+- **"Subdivisión" es la nomenclatura canónica de Angle** para un lado Clase I y el otro no,
+  y nombra el lado que NO es Clase I. Representa cerca de la mitad de las Clase II. Por eso
+  `frase_relacion()` la **deriva sola** del registro por lado: *"Clase II completa subdivisión
+  derecha"*. Que salga sola es la prueba de que guardar cada lado por separado es lo correcto
+  — la asimetría es clasificatoria, no un detalle.
+- **"No registrable" (pieza ausente o no erupcionada) es un valor distinto de Clase I.** Se
+  imprime como tal y no dibuja marca en la regla.
+- **No se ofrece "super Clase I"**: hay desacuerdo publicado sobre si es categoría propia o
+  Clase III leve, y la escala ya lo cubre como Clase III ¼.
+- **Un solo selector por sitio, no dos campos.** Separar clase y magnitud permite
+  combinaciones inválidas (Clase I + media cúspide) y duplica los clics: son 4 sitios.
+- **No hay estándar de software que imitar.** El único manual público que se pudo verificar
+  (Dentrix Ascend) demuestra que la industria **delega la escala en el usuario**: sus campos
+  de diagnóstico son plantillas que cada clínica arma. De Dolphin, Ortho2 Edge, OrthoTrac y
+  el formulario de ClinCheck no hay documentación pública accesible. La referencia
+  reconocible viene del ABO y del vocabulario de Angle, no de un software.
+
+Se guarda en **cuartos de cúspide como entero** (`RELACIONES`, −5 a +5; 0 = Clase I,
+±4 = clase completa), que es justo lo que la regla gráfica necesita y hace trivial derivar la
+frase canónica.
+
+**Fuentes:** [ABO Discrepancy Index (04/2016)](https://americanboardortho.com/media/ktwbnndr/discrepancy_index_scoring_system.pdf) ·
+[ABO Class II Molar Relationships](https://www.americanboardortho.com/orthodontists/become-certified/clinical-exam/mail-in-cre-submission-procedure/case-record-preparation/class-ii-molar-relationships/) ·
+[PAR, componente antero-posterior (Acta Medica 2006;49(4):203-207)](https://actamedica.lfhk.cuni.cz/media/pdf/18059694.2017.133.pdf) ·
+[Modified Angle's Classification for Primary Dentition (PMC5754984)](https://pmc.ncbi.nlm.nih.gov/articles/PMC5754984/) ·
+[Dentrix Ascend — Ortho Tab](https://learn.dentrixascend.com/ortho-tab/) El informe imprime **la frase y la regla**: la frase es la que el ortodoncista
+reconoce al instante, la regla es la que muestra la magnitud sin leer.
+
+### El tamizaje se llena como la lámina (2026-08-20)
+
+Los ítems del FAIREST estaban repartidos entre casillas sueltas y desplegables. Ahora es una
+**tabla numerada 1-6 (y 7-10 en adultos)** en el mismo orden de la lámina oficial, cada ítem
+con su control a la derecha, y el **ítem 6 se muestra calculado** (no se marca).
+
+⚠️ **Tres estados, no dos.** Cada ítem se responde *No* / *Sí* / **nada**, y "nada" significa
+no evaluado. Con casillas era imposible: una casilla sin marcar se guardaba como "No", así
+que el `sin_registrar` que los módulos distinguen con cuidado **nunca podía ocurrir desde el
+formulario** — el papel afirmaba que se evaluaron ítems que nadie miró. El botón
+**"Marcar los no evaluados como normales"** da la velocidad sin sacrificar eso, y no pisa lo
+que ya se respondió.
+
+El **puntaje se muestra en vivo** y lo calcula el backend
+(`POST /api/informe-pc/tamizaje` → `informe_pc.puntuar_tamizaje`), no el JavaScript: repetir
+los umbrales del FAIREST en el navegador es exactamente cómo el formulario y el papel firmado
+terminan mostrando números distintos.
+
+⚠️ **El formulario crece:** con los campos nuevos quedó en ~2 pantallas de alto. La regla
+original ("una pantalla sin scroll") no se cumple; se prefirió eso antes que esconder
+secciones detrás de desplegables, porque en un flujo de dos minutos un clic cuesta más que
+una rodada de scroll.
+
+### Pendientes
+
+- Revisión visual de la maqueta impresa con datos reales (no se pudo verificar a ojo).
+- Validar con el Dr. el catálogo de 24 hallazgos, las 5 impresiones diagnósticas y los 9
+  exámenes de la orden.
+- Confirmar qué columnas de STOP-BANG existen hoy en la Ficha de Primera Consulta del
+  Google Form (`fichas.py` excluye lo clínico a propósito; la precarga aún no está cableada).
+- Protocolo de escaneo con la asistente: qué se escanea y **qué puntos se miden en Medit**.
+- Copiar la extensión actualizada al PC del box y al de recepción (los cambios de
+  `content.js` **no viajan por Render**).
+- Fase 2: QR para agendar el Estudio (`link_agenda.crear`), fotos intraorales al registro,
+  reverso educativo fijo.
+- Fase 3: encuesta NPS para primeras consultas (`nps.clasificar_disparo()` hoy devuelve
+  `None` para ese motivo) y comparar contra la línea base a los 3 meses.
 
 ---
 

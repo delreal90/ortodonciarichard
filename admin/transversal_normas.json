@@ -1,0 +1,447 @@
+{
+  "_fuente": "Bishara SE, Jakobsen JR, Treder J, Nowak A. Arch width changes from 6 weeks to 45 years of age. Am J Orthod Dentofacial Orthop. 1997;111(4):401-9. Tablas I y II.",
+  "_muestra": "Iowa Facial Growth Study: 15 hombres y 15 mujeres seguidos de los 3 a los 45 anios. Criterios de inclusion estrictos: Clase I molar y canina, apinamiento anterior < 2 mm, sin ausencias congenitas, sin tratamiento de ortodoncia previo.",
+  "_puntos_de_medicion": {
+    "intercanino": "Distancia rectilinea maxima entre las PUNTAS DE CUSPIDE de los caninos.",
+    "molar_temporal": "Cuspides MESIALES de los segundos molares temporales (3 y 5 anios).",
+    "molar_permanente": "Cuspides MESIOVESTIBULARES de los primeros molares permanentes (desde los 8 anios)."
+  },
+  "_por_que_no_hay_preerupcion": "Bishara publica ademas 6 semanas, 1 anio y 2 anios, pero esos valores se miden sobre PUNTOS DEL REBORDE ALVEOLAR (landmarks de Sillman), no sobre dientes: no son comparables. Por decision del usuario (2026-08-20) la tabla parte a los 3 anios.",
+  "_supuesto_percentil": "El percentil se calcula como Phi(z) con z = (medido - media) / de, asumiendo distribucion normal. Decision del usuario. La fuente publica media y DE, no percentiles empiricos.",
+  "_advertencia_tramos": "La curva es UNA sola de los 3 a los 45 anios. El campo \"tramo\" dice sobre que diente esta medida cada fila (segundo molar temporal a los 3 y 5; primer molar permanente desde los 8; canino temporal hasta los 8 y permanente desde los 13), pero NO parte la curva: Bishara mide el diente que el paciente tiene a cada edad y sus figuras 4 y 5 trazan una linea continua atravesando el recambio. El ascenso entre los 5 y los 8 anios refleja el recambio ademas del crecimiento.",
+  "registros": [
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 3,
+      "media": 28.8,
+      "de": 2.5,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 5,
+      "media": 30.3,
+      "de": 2.6,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 8,
+      "media": 32.5,
+      "de": 3.2,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 13,
+      "media": 35.1,
+      "de": 2.7,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 26,
+      "media": 34.0,
+      "de": 2.3,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 45,
+      "media": 33.7,
+      "de": 2.3,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 3,
+      "media": 27.4,
+      "de": 1.8,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 5,
+      "media": 28.4,
+      "de": 1.7,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 8,
+      "media": 30.7,
+      "de": 2.0,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 13,
+      "media": 33.1,
+      "de": 1.6,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 26,
+      "media": 32.3,
+      "de": 1.8,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 45,
+      "media": 31.9,
+      "de": 2.0,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 3,
+      "media": 22.1,
+      "de": 1.7,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 5,
+      "media": 23.4,
+      "de": 1.8,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 8,
+      "media": 25.5,
+      "de": 2.1,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 13,
+      "media": 25.7,
+      "de": 1.6,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 26,
+      "media": 25.2,
+      "de": 1.8,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 45,
+      "media": 24.8,
+      "de": 1.7,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 3,
+      "media": 21.5,
+      "de": 1.3,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 5,
+      "media": 22.3,
+      "de": 1.3,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 8,
+      "media": 24.4,
+      "de": 1.4,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 13,
+      "media": 25.4,
+      "de": 1.8,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 26,
+      "media": 24.4,
+      "de": 1.4,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intercanino",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 45,
+      "media": 23.8,
+      "de": 1.4,
+      "tramo": "canino"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 3,
+      "media": 40.9,
+      "de": 2.3,
+      "tramo": "molar_temporal"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 5,
+      "media": 43.5,
+      "de": 3.2,
+      "tramo": "molar_temporal"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 8,
+      "media": 51.0,
+      "de": 3.0,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 13,
+      "media": 53.4,
+      "de": 2.9,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 26,
+      "media": 53.6,
+      "de": 2.9,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "M",
+      "edad": 45,
+      "media": 53.4,
+      "de": 2.7,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 3,
+      "media": 39.3,
+      "de": 2.2,
+      "tramo": "molar_temporal"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 5,
+      "media": 40.8,
+      "de": 1.9,
+      "tramo": "molar_temporal"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 8,
+      "media": 48.1,
+      "de": 2.2,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 13,
+      "media": 50.1,
+      "de": 2.6,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 26,
+      "media": 48.3,
+      "de": 1.6,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "maxilar",
+      "sexo": "F",
+      "edad": 45,
+      "media": 48.4,
+      "de": 1.6,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 3,
+      "media": 34.8,
+      "de": 2.0,
+      "tramo": "molar_temporal"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 5,
+      "media": 36.9,
+      "de": 2.3,
+      "tramo": "molar_temporal"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 8,
+      "media": 44.6,
+      "de": 2.7,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 13,
+      "media": 45.9,
+      "de": 2.6,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 26,
+      "media": 46.0,
+      "de": 3.0,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "M",
+      "edad": 45,
+      "media": 45.7,
+      "de": 3.2,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 3,
+      "media": 34.8,
+      "de": 6.2,
+      "tramo": "molar_temporal",
+      "sospechoso": "DE = 6,2 mm tal como la publica la Tabla II. Es tres veces la de sus vecinas (1,9 a 2,4) y hace la banda absurdamente ancha. Muy probablemente sea un error de imprenta del paper. Se transcribe fiel a la fuente; el modulo lo marca y la hoja avisa. NO decidir el item 6 del FAIREST con esta celda sin revisarla."
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 5,
+      "media": 34.4,
+      "de": 1.9,
+      "tramo": "molar_temporal"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 8,
+      "media": 42.1,
+      "de": 2.0,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 13,
+      "media": 43.0,
+      "de": 2.4,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 26,
+      "media": 41.5,
+      "de": 2.3,
+      "tramo": "molar_permanente"
+    },
+    {
+      "medida": "intermolar",
+      "arcada": "mandibular",
+      "sexo": "F",
+      "edad": 45,
+      "media": 41.5,
+      "de": 2.6,
+      "tramo": "molar_permanente"
+    }
+  ]
+}

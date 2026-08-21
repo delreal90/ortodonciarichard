@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Informe de evaluación — Ortodoncia Richard</title>
+<style>
+  :root {
+    --navy: #1A2E4A; --navy-light: #243C5E; --gold: #C9A84C;
+    --white: #fff; --bg: #F0F5FB; --text-dark: #1A2535; --text-mid: #4A5568;
+    --line: #d9e2ee; --red: #e53e3e; --green: #38a169; --amber: #b7791f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+         background: var(--bg); color: var(--text-dark); font-size: 14px; }
+
+  header { background: var(--navy); color: #fff; padding: 10px 18px; display: flex;
+           align-items: center; gap: 14px; position: sticky; top: 0; z-index: 20; }
+  header .marca { color: var(--gold); font-size: .68rem; letter-spacing: 2px;
+                  text-transform: uppercase; }
+  header h1 { font-size: 1rem; font-weight: 700; }
+  header .sp { flex: 1; }
+  header .pac { font-size: .85rem; opacity: .9; }
+
+  main { max-width: 1180px; margin: 14px auto 90px; padding: 0 14px; }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 8px;
+          padding: 12px 14px; margin-bottom: 12px; }
+  .card > h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: 1px;
+               color: var(--navy); margin-bottom: 10px; font-weight: 700; }
+  .card > h2 small { text-transform: none; letter-spacing: 0; font-weight: 400;
+                     color: var(--text-mid); margin-left: 8px; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+  label.f { display: block; font-size: .72rem; color: var(--text-mid); margin-bottom: 3px; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px;
+    font: inherit; font-size: .88rem; background: #fff; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--navy-light); border-color: transparent; }
+
+  table.medtab { width: 100%; border-collapse: collapse; }
+  table.medtab th { font-size: .72rem; color: var(--text-mid); font-weight: 600;
+                    text-align: left; padding: 3px 6px 3px 0; }
+  table.medtab thead th { text-align: center; }
+  table.medtab tbody th { width: 92px; }
+  table.medtab td { padding: 3px 3px 3px 0; }
+
+  .med { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+          border-radius: 20px; padding: 5px 11px; cursor: pointer; background: #fff;
+          font-size: .82rem; user-select: none; }
+  .chip input { margin: 0; }
+  .chip:hover { border-color: var(--navy-light); }
+  .chip.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+  #hallazgosBox { column-count: 2; column-gap: 22px; }
+  @media (max-width: 900px) { #hallazgosBox { column-count: 1; } }
+  .grupo { margin-bottom: 9px; break-inside: avoid; }
+  .grupo > h3 { font-size: .7rem; text-transform: uppercase; letter-spacing: .5px;
+                color: var(--text-mid); margin-bottom: 5px; }
+
+  /* El tamizaje se llena como la lámina del FAIREST: ítems numerados, uno por
+     fila, con su control a la derecha. */
+  table.fai { width: 100%; border-collapse: collapse; }
+  table.fai td { padding: 4px 2px; border-bottom: 1px solid #f0f4f9; vertical-align: middle; }
+  table.fai td.n { width: 20px; color: var(--text-mid); font-size: .78rem;
+                   font-weight: 700; text-align: right; padding-right: 7px; }
+  table.fai td.q { font-size: .84rem; }
+  table.fai td.q small { display: block; color: var(--text-mid); font-size: .72rem; }
+  table.fai td.c { width: 150px; text-align: right; }
+  table.fai tr.calc td.c { font-size: .78rem; color: var(--text-mid); }
+  table.fai tr.sep td { border-bottom: 0; padding-top: 10px; }
+  table.fai .subt { font-size: .7rem; text-transform: uppercase; letter-spacing: .5px;
+                    color: var(--navy); font-weight: 700; }
+
+  /* Tres estados: No, Sí, y ninguno = no evaluado. Un ítem que nadie miró no
+     es un ítem negativo, y el informe los distingue. */
+  .tri { display: inline-flex; border: 1px solid var(--line); border-radius: 6px;
+         overflow: hidden; }
+  .tri button { border: 0; background: #fff; font: inherit; font-size: .78rem;
+                padding: 4px 12px; cursor: pointer; color: var(--text-mid); }
+  .tri button + button { border-left: 1px solid var(--line); }
+  .tri button.on { background: var(--navy); color: #fff; font-weight: 600; }
+  .tri button.on.si { background: var(--red); }
+
+  .puntaje { margin-top: 10px; padding: 8px 11px; border-radius: 6px;
+             background: #f4f8fd; font-size: .84rem; }
+  .puntaje b { color: var(--navy); }
+  .puntaje .deriva { color: var(--amber); font-weight: 600; }
+
+  .radios { display: flex; flex-direction: column; gap: 5px; }
+  .radios label { display: flex; gap: 8px; align-items: flex-start; font-size: .86rem;
+                  cursor: pointer; }
+
+  table.plan { width: 100%; border-collapse: collapse; }
+  table.plan td { padding: 3px 4px 3px 0; }
+
+  .btn { background: var(--navy); color: #fff; border: 0; border-radius: 6px;
+         padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: var(--navy-light); }
+  .btn.sec { background: #fff; color: var(--navy); border: 1px solid var(--navy); }
+  .btn.sm { padding: 5px 11px; font-size: .8rem; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .barra { position: fixed; bottom: 0; left: 0; right: 0; background: #fff;
+           border-top: 1px solid var(--line); padding: 10px 18px; display: flex;
+           align-items: center; gap: 12px; z-index: 20; }
+  .barra .sp { flex: 1; }
+  .aviso { font-size: .82rem; }
+  .aviso.err { color: var(--red); } .aviso.ok { color: var(--green); }
+
+  .nota { font-size: .76rem; color: var(--text-mid); line-height: 1.45; }
+  .alerta { border-left: 3px solid var(--amber); background: #fffaf0; padding: 8px 11px;
+            font-size: .8rem; border-radius: 0 5px 5px 0; margin-top: 8px; }
+
+  table.lista { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  table.lista th { text-align: left; font-size: .7rem; text-transform: uppercase;
+                   color: var(--text-mid); border-bottom: 1px solid var(--line); padding: 6px 4px; }
+  table.lista td { padding: 8px 4px; border-bottom: 1px solid #eef3f9; }
+
+  /* ── Documento impreso ───────────────────────────────────────────── */
+  #doc { background: var(--bg); }
+  /* Carta (21,59 x 27,94 cm), no A4: es el formato que se usa en Chile.
+     min-height marca la hoja en pantalla; si el contenido crece, la hoja crece
+     y al imprimir sigue a la pagina siguiente en vez de recortarse. */
+  .hoja { background: #fff; width: 21.59cm; min-height: 27.94cm; margin: 14px auto;
+          padding: 1.3cm 1.5cm; box-shadow: 0 1px 6px rgba(0,0,0,.13); position: relative; }
+  .hoja h1 { font-size: 15pt; color: var(--navy); margin-bottom: 2px; }
+  .hoja .sub { font-size: 8.5pt; color: var(--text-mid); letter-spacing: 1px;
+               text-transform: uppercase; }
+  .hoja section { margin-top: 13px; }
+  .hoja section > h2 { font-size: 9pt; text-transform: uppercase; letter-spacing: 1px;
+                       color: var(--navy); border-bottom: 1px solid var(--line);
+                       padding-bottom: 3px; margin-bottom: 6px; }
+  .hoja p, .hoja li { font-size: 10pt; line-height: 1.45; }
+  .hoja ul { margin-left: 16px; }
+  .hoja ul.dos { column-count: 2; column-gap: 22px; }
+  .hoja ul.dos li { break-inside: avoid; }
+  .cab { display: flex; justify-content: space-between; align-items: flex-end;
+         border-bottom: 2px solid var(--navy); padding-bottom: 8px; }
+  .cab .der { text-align: right; font-size: 8.5pt; color: var(--text-mid); }
+  .cab .izq { display: flex; align-items: flex-end; gap: 12px; }
+  .cab .logo { height: 1.25cm; width: auto; }
+  .datos { display: flex; gap: 26px; flex-wrap: wrap; font-size: 10pt; margin-top: 9px; }
+  .datos b { color: var(--navy); }
+  table.med { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-bottom: 8px; }
+  table.med th { text-align: left; font-size: 8pt; text-transform: uppercase;
+                 color: var(--text-mid); border-bottom: 1px solid var(--line); padding: 4px 3px; }
+  table.med td { padding: 5px 3px; border-bottom: 1px solid #f0f4f9; }
+  .reglas { margin-top: 8px; }
+  .regla .rtxt { font-size: 9.5pt; padding: 2px 4px 0; }
+  .regla { border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px;
+           margin-bottom: 6px; break-inside: avoid; }
+
+  .curvas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px; }
+  .curvas figure { border: 1px solid var(--line); border-radius: 5px; padding: 4px;
+                   break-inside: avoid; }
+  .curvas figcaption { font-size: 8pt; color: var(--text-mid); margin-bottom: 2px; }
+  .hall { margin-bottom: 5px; }
+  .hall b { font-size: 10pt; color: var(--navy); }
+  .hall .why { font-size: 9pt; color: var(--text-mid); }
+  .caja { border: 1px solid var(--line); border-radius: 5px; padding: 8px 11px; }
+  .caja.destaca { border-left: 3px solid var(--gold); }
+  .pie { position: absolute; bottom: 1.1cm; left: 1.6cm; right: 1.6cm;
+         font-size: 7.5pt; color: var(--text-mid); line-height: 1.4;
+         border-top: 1px solid var(--line); padding-top: 6px; }
+  .firma { margin-top: 26px; text-align: right; }
+  .firma img { max-height: 70px; }
+  .firma .linea { border-top: 1px solid var(--navy); width: 220px; display: inline-block;
+                  margin-top: 4px; padding-top: 3px; font-size: 9pt; }
+  .items10 { column-count: 2; column-gap: 20px; font-size: 9.5pt; }
+  .items10 div { break-inside: avoid; padding: 2px 0; }
+  .flag { display: inline-block; width: 13px; }
+  .si { color: var(--red); font-weight: 700; } .no { color: var(--green); }
+  .nr { color: var(--text-mid); }
+  .ordfila { font-size: 10pt; padding: 3px 0; }
+
+  @media print {
+    body { background: #fff; }
+    header, .barra, .noprint { display: none !important; }
+    main { margin: 0; padding: 0; max-width: none; }
+    .hoja { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none;
+            page-break-after: always; }
+    .hoja:last-child { page-break-after: auto; }
+    .cab .logo { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    /* Un informe con muchos hallazgos ocupa mas de una pagina, y eso esta bien.
+       Lo que no puede pasar es que corte por la mitad de un grafico, de una
+       regla, de un hallazgo o de la firma. La seccion de hallazgos SI se puede
+       partir (es una lista): corta limpio entre uno y otro. */
+    .firma, .regla, .caja, .curvas figure, .hall, .hoja li { break-inside: avoid; }
+    .hoja section > h2 { break-after: avoid; }   /* un titulo no queda solo al pie */
+    /* En pantalla el pie va anclado abajo de la hoja simulada; al imprimir
+       vuelve al flujo normal. Con position:fixed se repetiria en las TRES
+       paginas, y los tres pies quedarian encimados. */
+    .pie { position: static; margin-top: 20px; }
+    @page { size: letter; margin: 1.3cm 1.5cm; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="marca">Ortodoncia Richard</div>
+    <h1 id="tituloVista">Informe de evaluación</h1>
+  </div>
+  <div class="sp"></div>
+  <div class="pac" id="cabPaciente"></div>
+</header>
+
+<main>
+  <!-- ── Puerta de acceso ─────────────────────────────────────────── -->
+  <div class="card" id="vLogin" style="display:none;max-width:440px;margin:40px auto">
+    <h2>Clave de acceso</h2>
+    <p class="nota" style="margin-bottom:10px">Se pide una sola vez por navegador.</p>
+    <input type="password" id="tok" placeholder="Clave admin">
+    <div style="margin-top:10px"><button class="btn" onclick="guardarToken()">Entrar</button>
+      <span class="aviso err" id="avLogin"></span></div>
+  </div>
+
+  <!-- ── Captura ──────────────────────────────────────────────────── -->
+  <div id="vCaptura" style="display:none">
+    <div class="grid2">
+    <div class="card">
+      <h2>Paciente</h2>
+      <div class="med">
+        <div><label class="f">Nombre</label><input type="text" id="pNombre"></div>
+        <div><label class="f">RUT</label><input type="text" id="pRut"></div>
+        <div><label class="f">Edad (años)</label><input type="number" id="pEdad" min="1" max="99" step="0.5"></div>
+        <div><label class="f">Sexo</label>
+          <select id="pSexo"><option value="">—</option><option value="M">Masculino</option>
+            <option value="F">Femenino</option></select></div>
+      </div>
+      <div class="alerta" id="avisoEdad" style="display:none"></div>
+    </div>
+
+    <div class="card">
+      <h2>Motivo de consulta <small>en las palabras del paciente</small></h2>
+      <input type="text" id="motivo" list="motivosFrec" maxlength="180"
+             placeholder="Ej.: me molestan los dientes de adelante">
+      <datalist id="motivosFrec">
+        <option value="Me molestan los dientes de adelante">
+        <option value="No me gusta mi sonrisa">
+        <option value="Me mandaron de mi dentista">
+        <option value="Tengo los dientes apiñados">
+        <option value="Me muerdo el labio / me molesta la mordida">
+        <option value="Quiero saber si necesito frenillos">
+        <option value="Vengo por control de mi hijo/a">
+      </datalist>
+    </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>Mediciones del escaneo <small>puntos de Bishara</small></h2>
+        <table class="medtab">
+          <thead><tr><th></th><th>Caninos (mm)</th><th>Molares (mm)</th></tr></thead>
+          <tbody>
+            <tr><th>Maxilar</th>
+              <td><input type="number" step="0.1" id="m_intercanino_maxilar"></td>
+              <td><input type="number" step="0.1" id="m_intermolar_maxilar"></td></tr>
+            <tr><th>Mandíbula</th>
+              <td><input type="number" step="0.1" id="m_intercanino_mandibular"></td>
+              <td><input type="number" step="0.1" id="m_intermolar_mandibular"></td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:8px"><label class="f">Molar medido</label>
+          <select id="m_tramo_intermolar">
+            <option value="molar_permanente">1er molar permanente (cúspide MV)</option>
+            <option value="molar_temporal">2º molar temporal (cúspide mesial)</option>
+          </select></div>
+        <div id="lectPercentiles" class="nota" style="margin-top:9px"></div>
+
+        <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+        <div class="med">
+          <div><label class="f">Resalte (mm)</label><input type="number" step="0.1" id="m_resalte"></div>
+          <div><label class="f">Sobremordida (mm)</label><input type="number" step="0.1" id="m_sobremordida"></div>
+          <div><label class="f">Línea media (mm)</label><input type="number" step="0.1" id="m_linea_media"></div>
+          <div><label class="f">Desviada hacia</label>
+            <select id="m_linea_media_lado"><option value="">—</option>
+              <option value="der">la derecha</option>
+              <option value="izq">la izquierda</option></select></div>
+          <div><label class="f">Relación molar derecha</label>
+            <select id="m_clase_molar_der" class="clase"></select></div>
+          <div><label class="f">Relación molar izquierda</label>
+            <select id="m_clase_molar_izq" class="clase"></select></div>
+          <div><label class="f">Relación canina derecha</label>
+            <select id="m_clase_canina_der" class="clase"></select></div>
+          <div><label class="f">Relación canina izquierda</label>
+            <select id="m_clase_canina_izq" class="clase"></select></div>
+          <div><label class="f">Mordida cruzada posterior</label>
+            <select id="m_mordida_cruzada"><option value="">No</option>
+              <option value="derecha">Derecha</option><option value="izquierda">Izquierda</option>
+              <option value="bilateral">Bilateral</option></select></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Tamizaje de vía aérea y sueño</h2>
+        <div id="cuestBox"></div>
+        <div id="fairestBox"></div>
+        <div id="tamPuntaje" class="puntaje"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Hallazgos</h2>
+      <label class="chip" style="margin-bottom:8px"><input type="checkbox" id="sinHallazgos">
+        Sin hallazgos relevantes</label>
+      <div id="hallazgosBox"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>Impresión diagnóstica inicial</h2>
+        <div class="radios" id="conclusionesBox"></div>
+        <div id="mesesBox" style="display:none;margin-top:8px;max-width:200px">
+          <label class="f">Control de evolución en (meses)</label>
+          <input type="number" id="mesesControl" value="6" min="1" max="36">
+        </div>
+      </div>
+      <div class="card">
+        <h2>Plan de acción</h2>
+        <table class="plan"><tbody id="planBox"></tbody></table>
+        <button class="btn sec sm" style="margin-top:6px" onclick="agregarPlan()">+ agregar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Orden de exámenes complementarios <small>solo imágenes y exámenes dentales</small></h2>
+      <div class="chips" id="ordenesBox"></div>
+    </div>
+  </div>
+
+  <!-- ── Recepción ────────────────────────────────────────────────── -->
+  <div id="vRecepcion" style="display:none">
+    <div class="card">
+      <h2>Informes de hoy <small id="fechaRec"></small></h2>
+      <table class="lista"><thead><tr><th>Hora</th><th>Paciente</th><th>Estado</th>
+        <th>Órdenes solicitadas</th><th></th></tr></thead>
+        <tbody id="listaRec"></tbody></table>
+      <p class="nota" id="vacioRec" style="margin-top:10px"></p>
+    </div>
+  </div>
+
+  <!-- ── Documento ────────────────────────────────────────────────── -->
+  <div id="doc" style="display:none"></div>
+</main>
+
+<div class="barra noprint" id="barra" style="display:none">
+  <span class="aviso" id="aviso"></span>
+  <div class="sp"></div>
+  <button class="btn sec" id="btnRec" onclick="irRecepcion()">Ver los de hoy</button>
+  <button class="btn sec" id="btnMarcar" style="display:none" onclick="marcarImpreso()">✔ Marcar como impreso</button>
+  <button class="btn" id="btnGuardar" onclick="guardar()">Guardar y ver el documento</button>
+</div>
+
+<script>
+const API = location.origin;
+const qs  = new URLSearchParams(location.search);
+let CAT = null, ID = qs.get('id') || '', MODO = qs.get('modo') || 'captura';
+let DOC = null;
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+/* ── Token ─────────────────────────────────────────────────────── */
+function getToken(){ return localStorage.getItem('stats_token') || ''; }
+function guardarToken(){
+  const v = $('#tok').value.trim();
+  if (!v) { $('#avLogin').textContent = 'Escribe la clave.'; return; }
+  localStorage.setItem('stats_token', v);
+  location.reload();
+}
+async function api(path, options){
+  const headers = Object.assign({'Content-Type':'application/json'}, (options||{}).headers||{});
+  const t = getToken(); if (t) headers['X-Admin-Token'] = t;
+  const r = await fetch(API + path, Object.assign({}, options||{}, {headers}));
+  if (r.status === 403) { pedirClave(); throw new Error('No autorizado'); }
+  return r.json();
+}
+function pedirClave(){
+  $('#vLogin').style.display = ''; $('#vCaptura').style.display = 'none';
+  $('#vRecepcion').style.display = 'none'; $('#barra').style.display = 'none';
+}
+
+/* ── Arranque ──────────────────────────────────────────────────── */
+async function iniciar(){
+  // 'imprimir' abre el diálogo al tiro (es lo que hace recepción con un clic);
+  // 'ver' solo muestra el documento, para revisarlo antes de gastar papel.
+  if (MODO === 'imprimir' && ID) return verDocumento(ID, true);
+  if (MODO === 'ver' && ID)      return verDocumento(ID, false);
+  if (MODO === 'recepcion')      return irRecepcion();
+
+  let r;
+  try { r = await api('/api/informe-pc/catalogo'); } catch(e){ return; }
+  CAT = r.catalogo;
+  pintarFormulario();
+  $('#vCaptura').style.display = ''; $('#barra').style.display = '';
+
+  const rut = qs.get('rut') || '';
+  $('#pRut').value = qs.get('rut_fmt') || rut;
+  $('#pNombre').value = ((qs.get('nombre')||'') + ' ' + (qs.get('apellido')||'')).trim();
+  if (rut) {
+    try {
+      const p = await api('/api/informe-pc/precarga?rut=' + encodeURIComponent(rut));
+      if (p.ok) precargar(p);
+    } catch(e){}
+  }
+  refrescarCabecera();
+}
+
+function precargar(p){
+  if (p.nombre)  $('#pNombre').value = p.nombre;
+  if (p.rut_fmt) $('#pRut').value    = p.rut_fmt;
+  if (p.edad != null) $('#pEdad').value = p.edad;
+  if (p.sexo)    $('#pSexo').value   = p.sexo;
+  if (p.psq)     window.PSQ_PREV = p.psq;
+  if (!p.edad && !p.fecha_nacimiento) {
+    $('#avisoEdad').style.display = '';
+    $('#avisoEdad').textContent = 'Este paciente no tiene fecha de nacimiento en la base. '
+      + 'Sin edad no se pueden calcular los percentiles: escríbela a mano.';
+  }
+  cambioEdad();
+}
+
+/* ── Formulario ────────────────────────────────────────────────── */
+function pintarFormulario(){
+  // hallazgos
+  $('#hallazgosBox').innerHTML = CAT.hallazgos.map(g =>
+    `<div class="grupo"><h3>${esc(g.label)}</h3><div class="chips">` +
+    g.items.map(i => `<label class="chip" title="${esc(i.texto)}">
+        <input type="checkbox" class="hz" value="${esc(i.clave)}"> ${esc(i.etiqueta)}</label>`).join('') +
+    `</div></div>`).join('');
+
+  // conclusiones
+  $('#conclusionesBox').innerHTML = CAT.conclusiones.map(c =>
+    `<label><input type="radio" name="conc" value="${esc(c.clave)}"> <span>${esc(c.etiqueta)}</span></label>`
+  ).join('');
+  $('#conclusionesBox').addEventListener('change', () => {
+    $('#mesesBox').style.display = (valConclusion() === 'control_evolucion') ? '' : 'none';
+  });
+
+  // ordenes
+  $('#ordenesBox').innerHTML = CAT.ordenes.map(o =>
+    `<label class="chip" title="${esc(o.detalle)}"><input type="checkbox" class="or"
+      value="${esc(o.clave)}"> ${esc(o.etiqueta)}</label>`).join('');
+
+  // Relación molar y canina en cuartos de cúspide. La escala viene del backend
+  // para no tener dos versiones de la misma tabla. '—' es un valor legítimo:
+  // no registrada, que no es lo mismo que Clase I.
+  document.querySelectorAll('select.clase').forEach(sel => {
+    sel.innerHTML = '<option value="">—</option>' +
+      (CAT.relaciones || []).map(r =>
+        `<option value="${esc(r.valor)}">${esc(r.etiqueta)}</option>`).join('');
+  });
+
+  // plan
+  agregarPlan(); agregarPlan();
+
+  // tamizaje
+  pintarTamizaje(false);
+
+  document.body.addEventListener('change', (e) => {
+    const l = e.target.closest('.chip');
+    if (l) l.classList.toggle('on', e.target.checked);
+  });
+  ['#pEdad','#pSexo'].forEach(s => $(s).addEventListener('change', cambioEdad));
+  ['#m_intercanino_maxilar','#m_intermolar_maxilar','#m_intercanino_mandibular',
+   '#m_intermolar_mandibular','#m_tramo_intermolar'].forEach(s =>
+    $(s).addEventListener('change', () => { lecturaPercentiles(); refrescarTamizaje(); }));
+  ['#pNombre','#pRut'].forEach(s => $(s).addEventListener('input', refrescarCabecera));
+}
+
+function esAdulto(){ const e = parseFloat($('#pEdad').value); return !isNaN(e) && e >= 18; }
+
+function cambioEdad(){
+  pintarTamizaje(esAdulto());
+  lecturaPercentiles();
+}
+
+// Las respuestas del FAIREST viven aca y no en el DOM: son tres estados
+// (si / no / no evaluado) y un checkbox solo sabe dos.
+let FAI = {};
+
+const ITEMS_FAI_6 = [
+  ['respiracion_bucal',  'Respiración bucal',      '¿Dificultad para respirar solo por nariz 3+ min?'],
+  ['tension_mentoniano', 'Tensión del mentoniano', '¿Se ve esfuerzo perioral al cerrar labios?'],
+  ['amigdalas',          'Hipertrofia amigdalina', 'Cobertura orofaríngea',
+   [['0-25','0-25%'],['25-50','25-50%'],['51-75','51-75%'],['76-100','76-100%']]],
+  ['anquiloglosia',      'Anquiloglosia',          'TRMR-TIP',
+   [['1','Grado 1'],['2','Grado 2'],['3','Grado 3'],['4','Grado 4']]],
+  ['desgaste_dentario',  'Desgaste dentario',      'Atrición, abfracción o recesión'],
+];
+
+const ITEMS_FAI_4 = [
+  ['festoneado_lingual', 'Festoneado lingual',   'Marcas de los dientes en los bordes'],
+  ['desborde_lingual',   'Desborde lingual',     'La lengua desborda en succión palatina (LPS)'],
+  ['friedman',           'Posición de Friedman', 'FTP',
+   [['1','FTP 1'],['2','FTP 2'],['3','FTP 3'],['4','FTP 4']]],
+  ['aleteo_palatino',    'Aleteo palatino',      'Positivo = NO se produce ronquido con la lengua en LPS'],
+];
+
+function control(clave, opciones){
+  if (opciones) {
+    return `<select class="faSel" data-k="${clave}"><option value="">—</option>` +
+      opciones.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('') +
+      `</select>`;
+  }
+  return `<span class="tri" data-k="${esc(clave)}">
+      <button type="button" data-v="no">No</button>
+      <button type="button" data-v="si">Sí</button></span>`;
+}
+
+function fila(n, item){
+  const [clave, titulo, ayuda, opciones] = item;
+  return `<tr><td class="n">${n}</td>
+    <td class="q">${esc(titulo)}<small>${esc(ayuda)}</small></td>
+    <td class="c">${control(clave, opciones)}</td></tr>`;
+}
+
+function pintarTamizaje(adulto){
+  let h = `<table class="fai"><tbody>`;
+  ITEMS_FAI_6.forEach((it, i) => { h += fila(i + 1, it); });
+  // El 6 no se marca: lo calcula el sistema con las mediciones del escaneo.
+  h += `<tr class="calc"><td class="n">6</td>
+      <td class="q">Paladar estrecho<small>bajo el percentil 15, con las mediciones de arriba</small></td>
+      <td class="c" id="item6">sin mediciones</td></tr>`;
+  if (adulto) {
+    h += `<tr class="sep"><td></td><td class="subt" colspan="2">+4 en adultos</td></tr>`;
+    ITEMS_FAI_4.forEach((it, i) => { h += fila(i + 7, it); });
+  }
+  h += `</tbody></table>
+    <button class="btn sec sm" style="margin-top:8px" onclick="marcarTodoNormal()">
+      Marcar los no evaluados como normales</button>`;
+  $('#fairestBox').innerHTML = h;
+
+  // Re-pintar borra los controles: hay que devolverles su estado.
+  Object.entries(FAI).forEach(([k, v]) => aplicarTri(k, v));
+  $('#fairestBox').querySelectorAll('.tri button').forEach(b => {
+    b.addEventListener('click', () => {
+      const k = b.closest('.tri').dataset.k, v = b.dataset.v;
+      FAI[k] = (FAI[k] === v) ? undefined : v;   // volver a tocarlo lo deja sin evaluar
+      aplicarTri(k, FAI[k]);
+      refrescarTamizaje();
+    });
+  });
+  $('#fairestBox').querySelectorAll('.faSel').forEach(sel => {
+    if (FAI[sel.dataset.k] != null) sel.value = FAI[sel.dataset.k];
+    sel.addEventListener('change', () => {
+      FAI[sel.dataset.k] = sel.value || undefined;
+      refrescarTamizaje();
+    });
+  });
+
+  pintarCuestionario(adulto);
+  refrescarTamizaje();
+}
+
+function aplicarTri(clave, valor){
+  const cont = $(`#fairestBox .tri[data-k="${clave}"]`);
+  if (!cont) return;
+  cont.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('on', b.dataset.v === valor);
+    b.classList.toggle('si', b.dataset.v === 'si');
+  });
+}
+
+function marcarTodoNormal(){
+  const items = ITEMS_FAI_6.concat(esAdulto() ? ITEMS_FAI_4 : []);
+  items.forEach(([clave, , , opciones]) => {
+    if (FAI[clave] != null) return;          // no pisa lo que ya se evaluó
+    if (opciones) {
+      FAI[clave] = opciones[0][0];           // el primer grado es el normal
+      const sel = $(`#fairestBox .faSel[data-k="${clave}"]`);
+      if (sel) sel.value = FAI[clave];
+    } else {
+      FAI[clave] = 'no';
+      aplicarTri(clave, 'no');
+    }
+  });
+  refrescarTamizaje();
+}
+
+function pintarCuestionario(adulto){
+  const b = $('#cuestBox');
+  if (adulto) {
+    b.innerHTML = `<div class="subt" style="font-size:.7rem;text-transform:uppercase;
+        letter-spacing:.5px;color:var(--navy);font-weight:700;margin-bottom:6px">STOP-BANG</div>
+      <table class="fai"><tbody>
+      <tr><td class="q">Ronca fuerte</td><td class="c">${control('sb_ronquido')}</td></tr>
+      <tr><td class="q">Cansancio o sueño durante el día</td><td class="c">${control('sb_cansancio')}</td></tr>
+      <tr><td class="q">Le han visto pausas al dormir</td><td class="c">${control('sb_apneas')}</td></tr>
+      <tr><td class="q">Presión arterial alta</td><td class="c">${control('sb_presion')}</td></tr>
+      </tbody></table>
+      <div class="med" style="margin-top:8px">
+        <div><label class="f">Peso (kg)</label><input type="number" step="0.1" id="sbPeso"></div>
+        <div><label class="f">Talla (cm)</label><input type="number" step="1" id="sbTalla"></div>
+        <div><label class="f">Cuello (cm)</label><input type="number" step="0.5" id="sbCuello"></div>
+      </div>
+      <p class="nota" style="margin:6px 0 12px">Edad y sexo salen de arriba. El cuello se mide
+        con huincha: son cinco segundos, y sin ese dato el puntaje queda incompleto.</p>`;
+    ['#sbPeso', '#sbTalla', '#sbCuello'].forEach(sel =>
+      $(sel).addEventListener('change', refrescarTamizaje));
+  } else {
+    const psq = window.PSQ_PREV;
+    b.innerHTML = psq
+      ? `<p class="nota" style="margin-bottom:10px">PSQ-CL respondido el ${esc(psq.fecha || '')}:
+         puntaje <b>${esc(psq.puntaje)}</b> — ` +
+        (psq.riesgo_alto ? '<b style="color:var(--red)">sobre el corte</b>' : 'bajo el corte (0,227)') + `.</p>`
+      : `<p class="nota" style="margin-bottom:10px">El PSQ-CL no ha sido respondido por este
+         paciente. <a href="/psq" target="_blank">Abrir el cuestionario</a> — el informe lo
+         dirá tal cual, no asume "sin riesgo".</p>`;
+  }
+}
+
+/* El puntaje lo calcula el BACKEND, no el navegador: es el mismo código que
+   imprime el papel. Duplicar los umbrales en JS es como terminan el formulario
+   y el documento firmado mostrando números distintos. */
+let tamTimer = null;
+function refrescarTamizaje(){
+  clearTimeout(tamTimer);
+  tamTimer = setTimeout(async () => {
+    const d = recolectar();
+    try {
+      const r = await api('/api/informe-pc/tamizaje', {method: 'POST', body: JSON.stringify(d)});
+      if (r.ok) pintarPuntaje(r.tamizaje);
+    } catch(e){}
+  }, 250);
+}
+
+function pintarPuntaje(t){
+  const fa = t.fairest;
+  const item6 = fa.items.find(i => i.clave === 'paladar_estrecho') || {};
+  const cel = $('#item6');
+  if (cel) {
+    cel.innerHTML = item6.positivo == null
+      ? 'sin mediciones'
+      : (item6.positivo ? '<b style="color:var(--red)">SÍ</b>' : '<b style="color:var(--green)">no</b>')
+        + (item6.percentil != null ? ` · p${esc(item6.percentil)}` : '');
+  }
+  const faltan = fa.sin_registrar.length;
+  let h = `<b>${esc(fa.instrumento)}: ${fa.puntaje_6} de 6 — riesgo ${esc(fa.banda)}.</b>`;
+  if (fa.total_adulto != null) h += ` Más ${fa.puntaje_extra_4} de los 4 ítems de adulto.`;
+  // La lectura del STOP-BANG ya empieza con su nombre; no se repite.
+  if (t.cuestionario) {
+    const l = t.cuestionario.lectura || '';
+    h += '<br>' + (l.startsWith(t.cuestionario.tipo) ? esc(l)
+                   : esc(t.cuestionario.tipo) + ': ' + esc(l));
+  }
+  if (faltan) h += `<br><span class="nota">${faltan} ${faltan === 1 ? 'ítem sin evaluar' : 'ítems sin evaluar'}
+    — se informan como no registrados, no como negativos.</span>`;
+  if (t.derivar) h += `<br><span class="deriva">Se sugiere evaluación médica.</span>
+    <span class="nota">${esc(t.motivo_derivar)}</span>`;
+  $('#tamPuntaje').innerHTML = h;
+}
+
+function agregarPlan(){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td style="width:70%"><input type="text" class="plAcc" placeholder="Acción"></td>
+                  <td><input type="text" class="plPlazo" placeholder="Plazo"></td>`;
+  $('#planBox').appendChild(tr);
+}
+
+function refrescarCabecera(){
+  const n = $('#pNombre').value, r = $('#pRut').value;
+  $('#cabPaciente').textContent = n ? (n + (r ? '  ·  ' + r : '')) : '';
+}
+
+async function lecturaPercentiles(){
+  const edad = parseFloat($('#pEdad').value), sexo = $('#pSexo').value;
+  const caja = $('#lectPercentiles');
+  if (isNaN(edad) || !sexo) {
+    caja.innerHTML = 'Falta edad o sexo: sin esos datos no hay percentil.'; return;
+  }
+  const tramo = $('#m_tramo_intermolar').value;
+  const pares = [['intercanino','maxilar','m_intercanino_maxilar','Intercanino sup.'],
+                 ['intermolar','maxilar','m_intermolar_maxilar','Intermolar sup.'],
+                 ['intercanino','mandibular','m_intercanino_mandibular','Intercanino inf.'],
+                 ['intermolar','mandibular','m_intermolar_mandibular','Intermolar inf.']];
+  const out = [];
+  for (const [medida, arcada, id, lbl] of pares) {
+    const mm = $('#' + id).value;
+    if (!mm) continue;
+    const u = `/api/informe-pc/percentil?medida=${medida}&arcada=${arcada}&sexo=${sexo}`
+            + `&edad=${edad}&mm=${mm}` + (medida === 'intermolar' ? `&tramo=${tramo}` : '');
+    try {
+      const r = await api(u);
+      out.push(r.ok
+        ? `<b>${lbl}</b>: percentil ${r.percentil} — ${r.lectura}`
+        : `<b>${lbl}</b>: sin referencia (${esc(r.detalle || r.motivo)})`);
+    } catch(e){}
+  }
+  caja.innerHTML = out.join('<br>') || 'Escribe las mediciones para ver los percentiles.';
+}
+
+/* ── Guardar ───────────────────────────────────────────────────── */
+function valConclusion(){
+  const el = document.querySelector('input[name=conc]:checked'); return el ? el.value : '';
+}
+function num(id){ const v = $('#' + id).value; return v === '' ? null : parseFloat(v); }
+
+function recolectar(){
+  // Solo viaja lo EVALUADO: una clave ausente significa "nadie lo miró", que no
+  // es lo mismo que "negativo".
+  const fairest = {}, sb = {};
+  Object.entries(FAI).forEach(([k, v]) => {
+    if (v == null || v === '') return;
+    if (k.startsWith('sb_')) sb[k.slice(3)] = v;
+    else fairest[k] = v;
+  });
+
+  const tam = { fairest };
+  if (esAdulto()) {
+    sb.edad = num('pEdad'); sb.sexo = $('#pSexo').value;
+    const peso = num('sbPeso'), talla = num('sbTalla'), cuello = num('sbCuello');
+    if (peso && talla) { sb.peso = peso; sb.talla = talla; }
+    if (cuello) sb.cuello = cuello;
+    tam.stopbang = sb;
+  } else if (window.PSQ_PREV) {
+    tam.psq = window.PSQ_PREV;
+  }
+
+  const plan = [];
+  document.querySelectorAll('#planBox tr').forEach(tr => {
+    const a = tr.querySelector('.plAcc').value.trim();
+    if (a) plan.push({accion: a, plazo: tr.querySelector('.plPlazo').value.trim()});
+  });
+
+  return {
+    id: ID,
+    rut: $('#pRut').value, rut_fmt: $('#pRut').value, nombre: $('#pNombre').value,
+    edad: num('pEdad'), sexo: $('#pSexo').value,
+    id_agenda: qs.get('id_agenda') || '', doctor_texto: qs.get('doctor') || '',
+    motivo_consulta: $('#motivo').value.trim(),
+    mediciones: {
+      intercanino_maxilar: num('m_intercanino_maxilar'),
+      intermolar_maxilar: num('m_intermolar_maxilar'),
+      intercanino_mandibular: num('m_intercanino_mandibular'),
+      intermolar_mandibular: num('m_intermolar_mandibular'),
+      tramo_intermolar: $('#m_tramo_intermolar').value,
+      resalte: num('m_resalte'), sobremordida: num('m_sobremordida'),
+      linea_media: num('m_linea_media'),
+      linea_media_lado: $('#m_linea_media_lado').value,
+      clase_molar_der: $('#m_clase_molar_der').value,
+      clase_molar_izq: $('#m_clase_molar_izq').value,
+      clase_canina_der: $('#m_clase_canina_der').value,
+      clase_canina_izq: $('#m_clase_canina_izq').value,
+      mordida_cruzada: $('#m_mordida_cruzada').value,
+    },
+    hallazgos: Array.from(document.querySelectorAll('.hz:checked')).map(c => c.value),
+    sin_hallazgos: $('#sinHallazgos').checked,
+    conclusion: valConclusion(), meses_control: num('mesesControl'),
+    plan_accion: plan,
+    tamizaje: tam,
+    ordenes: Array.from(document.querySelectorAll('.or:checked')).map(c => c.value),
+  };
+}
+
+async function guardar(){
+  const d = recolectar();
+  if (!d.nombre || !d.rut) { return avisar('Falta el nombre o el RUT.', true); }
+  if (!d.conclusion)       { return avisar('Falta la impresión diagnóstica.', true); }
+  $('#btnGuardar').disabled = true;
+  try {
+    const r = await api('/api/informe-pc/guardar', {method:'POST', body: JSON.stringify(d)});
+    if (!r.ok) return avisar(r.error || 'No se pudo guardar.', true);
+    ID = r.id;
+    avisar('Guardado.', false);
+    verDocumento(ID, false);
+  } catch(e){ avisar('Error de conexión.', true); }
+  finally { $('#btnGuardar').disabled = false; }
+}
+
+function avisar(txt, err){
+  const a = $('#aviso'); a.textContent = txt; a.className = 'aviso ' + (err ? 'err' : 'ok');
+}
+
+/* ── Documento ─────────────────────────────────────────────────── */
+async function verDocumento(id, autoImprimir){
+  let r;
+  try { r = await api('/api/informe-pc/documento?id=' + encodeURIComponent(id)); } catch(e){ return; }
+  if (!r.ok) return avisar(r.error || 'No se encontró el informe.', true);
+  DOC = r.documento;
+  $('#vCaptura').style.display = 'none'; $('#vRecepcion').style.display = 'none';
+  $('#doc').style.display = ''; $('#doc').innerHTML = pintarDocumento(DOC);
+  $('#tituloVista').textContent = 'Documento — ' + (DOC.paciente.nombre || '');
+  $('#barra').style.display = '';
+  $('#btnGuardar').textContent = 'Imprimir';
+  $('#btnGuardar').onclick = imprimir;
+  $('#btnMarcar').style.display = '';
+  $('#btnMarcar').disabled = !!DOC.impreso;
+  if (autoImprimir) setTimeout(imprimir, 350);
+}
+
+function imprimir(){ window.print(); }
+
+/* El navegador no distingue "imprimio" de "cancelo el dialogo": afterprint
+   dispara en los dos casos. Marcar solo el impreso desde ahi dejaria a
+   recepcion creyendo que entrego un informe que nunca salio de la impresora,
+   asi que lo marca una persona, igual que el "Ya lo subi" de consentimientos. */
+async function marcarImpreso(){
+  try {
+    const r = await api('/api/informe-pc/marcar-impreso', {method:'POST',
+              body: JSON.stringify({id: DOC.id})});
+    if (r.ok) { avisar('Marcado como impreso.', false); $('#btnMarcar').disabled = true; }
+  } catch(e){ avisar('No se pudo marcar.', true); }
+}
+
+function pintarDocumento(d){
+  const doc = d.doctor || {}, cli = d.clinica || {};
+  // El logo reemplaza a la linea de texto con el nombre de la clinica: el logo
+  // ya lo dice, y repetirlo restaba.
+  const cab = (titulo) => `
+    <div class="cab">
+      <div class="izq">
+        ${cli.logo ? `<img class="logo" src="${esc(cli.logo)}" alt="">` : ''}
+        <h1>${esc(titulo)}</h1>
+      </div>
+      <div class="der">${esc(cli.direccion || '')}<br>${esc(cli.telefono || '')}</div>
+    </div>
+    <div class="datos">
+      <div><b>Paciente:</b> ${esc(d.paciente.nombre)}</div>
+      <div><b>RUT:</b> ${esc(d.paciente.rut)}</div>
+      ${d.paciente.edad != null ? `<div><b>Edad:</b> ${esc(d.paciente.edad)} años</div>` : ''}
+      <div><b>Fecha:</b> ${esc(d.fecha_legible)}</div>
+    </div>`;
+
+  const firma = `<div class="firma">
+      ${doc.firma_url ? `<div><img src="${esc(doc.firma_url)}" alt=""></div>` : '<div style="height:56px"></div>'}
+      <div class="linea">${esc(doc.nombre || '')}<br>
+        <span style="font-size:8pt;color:var(--text-mid)">${esc(doc.especialidad || 'Ortodoncista')}
+        ${doc.registro ? ' · Reg. Nacional de Prestadores N° ' + esc(doc.registro) : ''}</span></div>
+    </div>`;
+
+  /* ── Hoja 1 ── */
+  const med = d.mediciones;
+  let h1 = cab('Informe de evaluación');
+
+  if (d.motivo_consulta) h1 += `<section><h2>Motivo de consulta</h2>
+      <p style="font-style:italic">«${esc(d.motivo_consulta)}»</p></section>`;
+
+  h1 += `<section><h2>Evaluación realizada</h2><ul class="dos">` +
+    d.evaluacion_realizada.map(x => `<li>${esc(x)}</li>`).join('') + `</ul></section>`;
+
+  h1 += `<section><h2>Hallazgos</h2>`;
+  if (d.sin_hallazgos) h1 += `<p>${esc(d.sin_hallazgos_texto)}</p>`;
+  else h1 += d.hallazgos.map(x => `<div class="hall"><b>${esc(x.etiqueta)}.</b>
+      ${esc(x.texto)} <span class="why">${esc(x.relevancia)}</span></div>`).join('');
+  h1 += `</section>`;
+
+  if (d.conclusion) h1 += `<section><h2>Impresión diagnóstica inicial</h2>
+      <div class="caja destaca"><p>${esc(d.conclusion.texto)}</p></div></section>`;
+
+  if (d.plan_accion.length) h1 += `<section><h2>Plan de acción</h2><ol>` +
+    d.plan_accion.map(p => `<li>${esc(p.accion)}${p.plazo ? ' — <i>' + esc(p.plazo) + '</i>' : ''}</li>`)
+      .join('') + `</ol></section>`;
+
+  if (d.que_aporta_estudio) h1 += `<section><h2>Qué aporta el Estudio Integral</h2>
+      <p>${esc(d.que_aporta_estudio)}</p></section>`;
+
+  h1 += firma;
+  h1 += `<div class="pie">${esc(d.disclaimer)}</div>`;
+
+  /* ── Hoja de mediciones ──
+     Va aparte porque sola ocupa una pagina carta completa: la tabla, las dos
+     reglas de oclusion y las cuatro curvas. Meterla en la hoja 1 partia el
+     informe justo por la mitad de un grafico. Lleva su propio encabezado con el
+     nombre del paciente, por si las hojas se separan, y NO lleva firma: es el
+     anexo del informe, que ya va firmado. */
+  let hm = '';
+  if (med.transversales.length || med.simples.length || (med.oclusion || []).length) {
+    hm = cab('Mediciones');
+    if (med.simples.length) {
+      hm += `<section><h2>Registro clínico</h2><table class="med">
+        <thead><tr><th>Medición</th><th>Valor</th></tr></thead><tbody>`;
+      med.simples.forEach(m => {
+        hm += `<tr><td>${esc(m.etiqueta)}</td><td>${esc(m.valor)} ${esc(m.unidad)}</td></tr>`;
+      });
+      hm += `</tbody></table></section>`;
+    }
+    if (med.oclusion && med.oclusion.length) {
+      hm += `<section><h2>Relación entre las arcadas</h2><div class="reglas">` +
+        med.oclusion.map(o =>
+          `<div class="regla"><div class="rtxt"><b>${esc(o.titulo)}:</b> ${esc(o.texto)}</div>` +
+          (o.svg || '') + `</div>`).join('') + `</div></section>`;
+    }
+    const conSvg = med.transversales.filter(m => m.svg);
+    if (conSvg.length) {
+      hm += `<section><h2>Anchos de arcada</h2><div class="curvas">` + conSvg.map(m =>
+        `<figure><figcaption>${esc(m.etiqueta)}${m.en_recambio ? ' *' : ''}</figcaption>${m.svg}</figure>`
+        ).join('') + `</div>`;
+      if (med.nota_recambio) hm += `<p class="nota">* ${esc(med.nota_recambio)}</p>`;
+      hm += `</section>`;
+    }
+    hm += `<div class="pie">${esc(med.nota)}</div>`;
+  }
+
+  /* ── Hoja del tamizaje ── */
+  const t = d.tamizaje, fa = t.fairest;
+  const flag = (v) => v === null || v === undefined
+    ? '<span class="nr">— no registrado</span>'
+    : (v ? '<span class="si">SÍ</span>' : '<span class="no">no</span>');
+
+  let h2 = cab('Tamizaje de vía aérea y sueño');
+  // La lectura del STOP-BANG ya empieza con su nombre; no se repite.
+  const lect = t.cuestionario.lectura || '';
+  h2 += `<section><h2>Cuestionario</h2><p>` +
+    (lect.startsWith(t.cuestionario.tipo)
+      ? `<b>${esc(t.cuestionario.tipo)}</b>${esc(lect.slice(t.cuestionario.tipo.length))}`
+      : `<b>${esc(t.cuestionario.tipo)}:</b> ${esc(lect)}`) + `</p>`;
+  if (t.cuestionario.tipo === 'STOP-BANG' && t.cuestionario.resultado && t.cuestionario.resultado.incompleto)
+    h2 += `<p class="nota">Quedaron ${t.cuestionario.resultado.sin_registrar.length} ítems sin medir:
+      el puntaje es un piso, no el resultado final.</p>`;
+  h2 += `</section>`;
+
+  h2 += `<section><h2>${esc(fa.instrumento)} — examen clínico</h2>
+    <div class="items10">` +
+    fa.items.map(i => `<div><span class="flag"></span>${esc(i.etiqueta)}: ${flag(i.positivo)}
+      ${i.clave === 'paladar_estrecho' && i.detalle ? '<br><span class="why" style="font-size:8.5pt">'
+        + esc(i.detalle) + '</span>' : ''}</div>`).join('') +
+    `</div>
+    <p style="margin-top:8px"><b>Puntaje: ${fa.puntaje_6} de 6 — riesgo ${esc(fa.banda)}.</b>` +
+    (fa.total_adulto != null
+      ? ` En adultos se suman 4 ítems adicionales: ${fa.puntaje_extra_4} positivos
+          (total ${fa.total_adulto} de 10). La banda de riesgo publicada corresponde a los
+          primeros 6 ítems.` : '') + `</p>
+    <p class="nota">${esc(fa.item6_criterio)}</p></section>`;
+
+  h2 += `<section><h2>Conducta</h2><div class="caja${t.derivar ? ' destaca' : ''}">
+      <p><b>${t.derivar ? 'Se sugiere evaluación médica.' : 'Sin señales que justifiquen evaluación médica hoy.'}</b>
+      ${esc(t.motivo_derivar)}</p>` +
+    (t.derivar ? `<p style="margin-top:5px">Especialidad sugerida: ${t.especialidades.map(esc).join(' o ')}.</p>` : '')
+    + `</div></section>`;
+
+  h2 += firma;
+  h2 += `<div class="pie">${esc(t.texto_legal)}</div>`;
+
+  /* ── Hoja 3 ── */
+  let h3 = '';
+  if (d.ordenes.length) {
+    h3 = cab('Orden de exámenes complementarios');
+    h3 += `<section><h2>Se solicita</h2><p>${esc(d.texto_orden)}</p>
+      <div style="margin-top:10px">` + d.ordenes.map(o =>
+      `<div class="ordfila">☑ <b>${esc(o.etiqueta)}</b>${o.detalle ? ' — ' + esc(o.detalle) : ''}</div>`
+      ).join('') + `</div></section>`;
+    h3 += firma;
+    h3 += `<div class="pie">Documento emitido por el profesional tratante. Los exámenes solicitados
+      corresponden al estudio diagnóstico de ortodoncia.</div>`;
+  }
+
+  return `<div class="hoja">${h1}</div>`
+       + (hm ? `<div class="hoja">${hm}</div>` : '')
+       + `<div class="hoja">${h2}</div>`
+       + (h3 ? `<div class="hoja">${h3}</div>` : '');
+}
+
+/* ── Recepción ─────────────────────────────────────────────────── */
+async function irRecepcion(){
+  let r;
+  try { r = await api('/api/informe-pc/pendientes'); } catch(e){ return; }
+  $('#vCaptura').style.display = 'none'; $('#doc').style.display = 'none';
+  $('#vRecepcion').style.display = ''; $('#barra').style.display = 'none';
+  $('#tituloVista').textContent = 'Informes de hoy';
+  $('#fechaRec').textContent = r.fecha || '';
+  const items = r.informes || [];
+  $('#vacioRec').textContent = items.length ? '' : 'No hay informes registrados hoy.';
+  $('#listaRec').innerHTML = items.map(i => `
+    <tr><td>${esc((i.creado||'').slice(11,16))}</td>
+      <td><b>${esc(i.nombre)}</b><br><span class="nota">${esc(i.rut_fmt || i.rut || '')}</span></td>
+      <td>${i.impreso ? '<span style="color:var(--green)">impreso ' + esc(i.impreso.slice(11,16)) + '</span>'
+                      : '<b style="color:var(--amber)">por imprimir</b>'}</td>
+      <td class="nota">${esc((i.ordenes_labels || []).join(' · ') || '—')}</td>
+      <td><button class="btn sec sm" onclick="verDocumento('${esc(i.id)}', false)">Ver</button>
+          <button class="btn sm" onclick="verDocumento('${esc(i.id)}', true)">Imprimir</button></td>
+    </tr>`).join('');
+}
+
+if (!getToken()) { pedirClave(); } else { iniciar(); }
+</script>
+</body>
+</html>

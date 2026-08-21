@@ -255,6 +255,32 @@ def actualizar_envio(registro_id, **campos):
     _STORE.actualizar(_fn)
 
 
+def ultimo_por_rut(rut):
+    """El PSQ mas reciente de un RUT, o None si nunca respondio.
+
+    Lo consume el Informe de Primera Consulta para mostrar el resultado que el
+    apoderado ya contesto en /psq, en vez de volver a preguntar las 22 items en
+    el box. Devuelve solo lo que la hoja necesita -- puntaje, riesgo y fecha --
+    y NO el detalle respuesta por respuesta: es informacion clinica del menor y
+    no tiene por que viajar al navegador para imprimir un resumen.
+
+    Ojo: que devuelva None significa "no lo ha respondido", que NO es lo mismo
+    que "sin riesgo". La hoja lo dice con esas palabras.
+    """
+    clave = limpiar_rut(rut)
+    if not clave:
+        return None
+    candidatos = [e for e in _STORE.load().get('envios', {}).values()
+                  if e.get('rut') == clave]
+    if not candidatos:
+        return None
+    e = max(candidatos, key=lambda x: x.get('fecha_iso', ''))
+    return {'puntaje': e.get('puntaje'), 'riesgo': e.get('riesgo'),
+            'riesgo_alto': e.get('riesgo') == 'alto',
+            'corte': PUNTAJE_CORTE,
+            'fecha': (e.get('fecha_iso') or '')[:10]}
+
+
 def listar_envios(limite=200):
     envios = _STORE.load().get('envios', {})
     items = sorted(envios.values(), key=lambda e: e.get('fecha_iso', ''), reverse=True)

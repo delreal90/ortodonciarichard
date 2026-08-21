@@ -41,6 +41,10 @@ SUITES = [
     ('link_aseguradora', 'test_link_aseguradora.py', 'link para que el paciente actualice su aseguradora'),
     ('seguros_api',  'test_seguros_api.py',  'el interruptor central del auto-envio (panel, no cada F2)'),
     ('psq',          'test_psq.py',          'cuestionario de sueño: puntaje, corte y destinatario (doctor/recepcion)'),
+    ('transversal',  'test_transversal.py',  'percentiles de Bishara: curva continua, sin inventar fuera de rango'),
+    ('stopbang',     'test_stopbang.py',     'STOP-BANG: umbrales y el puntaje incompleto es un piso'),
+    ('fairest',      'test_fairest.py',      'FAIREST 6/6+4: el item 6 con el P15 y las frases prohibidas'),
+    ('informe_pc',   'test_informe_pc.py',   'informe de evaluacion: documento, seguimiento, oclusion y limites'),
 ]
 
 AQUI = Path(__file__).parent

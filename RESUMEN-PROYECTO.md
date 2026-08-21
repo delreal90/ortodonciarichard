@@ -194,6 +194,16 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
   resultado por email al doctor que atendió por última vez al paciente en DentiDesk
   (`dentidesk.doctor_de_paciente`, hilo aparte para no bloquear la respuesta). Sin doctor
   resuelto o sin email configurado (`EMAIL_<DOCTOR>`) → cae a recepción. → "PSQ".
+- **Informe de evaluación** — el paciente pagaba $50.000 y el único papel que se
+  llevaba era el presupuesto. Ahora el Dr. abre `/informe-pc` desde el F2 (en cualquier
+  cita), marca casillas y guarda; recepción imprime **tres hojas** y las
+  entrega junto al presupuesto: informe de evaluación (con las mediciones del escáner Medit
+  y su **curva de crecimiento estilo OMS**, normativa de Bishara 1997), tamizaje de vía aérea
+  y sueño (PSQ-CL o STOP-BANG + FAIREST-6/6+4) y orden de exámenes. ⚠️ El tamizaje **no
+  diagnostica** y el código impide vincular expansión palatina con apnea. Línea base antes de
+  encender: **39,2% de conversión primera consulta → estudio**, plana en 5 años.
+  Desde el segundo informe las curvas muestran la trayectoria del paciente.
+  → "Informe de evaluación".
 
 ## Memorias (contexto que no está en el código)
 En `C:\Users\ESTUDIO3D\.claude\projects\...\memory\`: índice en `MEMORY.md`. Relevantes:
