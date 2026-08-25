@@ -277,6 +277,35 @@
       </div>
 
       <div id="kpi-cuerpo"></div>
+
+      <div class="card" style="border-left:4px solid #C9A84C">
+        <h3>🔧 Mantenimiento del datamart</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:14px">
+          La cosecha diaria corre sola a las 03:00 y refresca los últimos 30 días y los próximos 45.
+          Estos botones son para la carga inicial y para casos puntuales.</p>
+
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px">
+          <button class="btn btn-sm" onclick="kpiCosechar()">🔄 Cosechar ahora</button>
+          <button class="btn btn-sm" onclick="kpiReclasificar()">🏷️ Reclasificar motivos y estados</button>
+          <span style="font-size:.75rem;color:#a0aec0">Reclasificar no toca la red: recalcula desde lo ya guardado.</span>
+        </div>
+
+        <div style="background:#fffbeb;border:1px solid #f0e2b6;border-radius:8px;padding:12px">
+          <strong style="font-size:.86rem">Reconstruir la historia (una sola vez)</strong>
+          <p style="font-size:.78rem;color:#4A5568;margin:6px 0 10px">
+            Barre la agenda de DentiDesk hacia atrás y llena el datamart. Son ~1.500 días hábiles y
+            unos 10 minutos. <strong>Correr fuera del horario de atención</strong> (después de las 19:30
+            o el fin de semana): mientras corre le compite a DentiDesk con las secretarias.
+            Es reanudable, así que si se corta se puede volver a lanzar sin empezar de cero.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+            <div><label style="font-size:.78rem;color:#4A5568">Desde</label>
+              <input type="date" id="kpi-bf-desde" value="2021-01-01"
+                     style="padding:8px;border:1px solid #e2e8f0;border-radius:8px"></div>
+            <button class="btn btn-sm btn-danger" onclick="kpiBackfill()">⏳ Reconstruir historia</button>
+          </div>
+        </div>
+        <div id="kpi-mant-msg" style="margin-top:12px;font-size:.82rem"></div>
+      </div>
     </div>
 
     <!-- ── ESTADÍSTICAS ─────────────────────────────────────── -->
@@ -1452,6 +1481,59 @@ async function loadKpi() {
 function _clp(n) {
   if (n === null || n === undefined) return '—';
   return '$' + Math.round(n).toLocaleString('es-CL');
+}
+
+// ── Mantenimiento del datamart ────────────────────────
+function _kpiMsg(txt, ok) {
+  document.getElementById('kpi-mant-msg').innerHTML =
+    `<span style="color:${ok === false ? '#e53e3e' : '#2f855a'}">${_esc(txt)}</span>`;
+}
+
+async function _kpiPost(path, body) {
+  const r = await remotoFetch('kpi-url', 'kpi-token', path, { method: 'POST', body: body || {} });
+  const txt = await r.text();
+  try { return JSON.parse(txt); }
+  catch (e) { return { ok: false, error: `${path} respondió ${r.status} y no fue JSON` }; }
+}
+
+async function kpiCosechar() {
+  _kpiMsg('Cosechando la ventana móvil…');
+  const r = await _kpiPost('/api/kpi/cosechar');
+  if (r.ok) {
+    _kpiMsg(`✅ ${r.guardadas} citas guardadas de ${r.dias} días`
+      + (r.dias_error ? ` (${r.dias_error} días con error)` : '') + '.');
+    loadKpi();
+  } else _kpiMsg('❌ ' + (r.error || r.motivo || 'Error'), false);
+}
+
+async function kpiReclasificar() {
+  _kpiMsg('Recalculando categorías y estados…');
+  const r = await _kpiPost('/api/kpi/reclasificar');
+  if (r.ok) { _kpiMsg(`✅ ${r.revisadas} citas reclasificadas.`); loadKpi(); }
+  else _kpiMsg('❌ ' + (r.error || 'Error'), false);
+}
+
+async function kpiBackfill() {
+  const desde = document.getElementById('kpi-bf-desde').value;
+  if (!desde) { _kpiMsg('Elige una fecha de inicio.', false); return; }
+  // Es una operación larga contra DentiDesk en producción: se confirma a propósito,
+  // y se avisa si se está lanzando en pleno horario de atención.
+  const ahora = new Date();
+  const hora = ahora.getHours() + ahora.getMinutes() / 60;
+  const enHorario = ahora.getDay() >= 1 && ahora.getDay() <= 5 && hora >= 9 && hora < 19.5;
+  const aviso = enHorario
+    ? '\n\n⚠️ Son cerca de las ' + ahora.getHours() + ':00 de un día hábil: la clínica está '
+      + 'atendiendo y el barrido le va a competir a DentiDesk. Lo recomendable es esperar '
+      + 'a después de las 19:30.'
+    : '';
+  if (!confirm(`Reconstruir la agenda desde ${desde}.\n\n`
+      + 'Son ~1.500 días hábiles (unos 10 minutos) contra DentiDesk.' + aviso
+      + '\n\n¿Lanzar ahora?')) return;
+  _kpiMsg('Lanzando el barrido… corre en segundo plano, puedes cerrar esta pestaña.');
+  const r = await _kpiPost('/api/kpi/backfill', { desde });
+  if (r.ok) _kpiMsg(`⏳ Barrido lanzado (${r.desde} → ${r.hasta}). `
+    + 'Vuelve en unos minutos y aprieta «Ver» para mirar el avance.');
+  else _kpiMsg('❌ ' + (r.error || r.motivo || 'Error'), false);
 }
 
 function renderKpi(r, serie, pc, ocu, fug, car, pla) {

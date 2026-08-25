@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from datetime import date, timedelta
+from pathlib import Path
 
 # La base tiene que apuntar a un archivo temporal ANTES de importar kpi, porque la
 # ruta se resuelve al importar el módulo (mismo patrón que test_compras.py).
@@ -597,6 +598,29 @@ class TestEsquema(unittest.TestCase):
     def test_init_db_es_idempotente(self):
         kpi.init_db()
         kpi.init_db()
+
+    def test_las_consultas_funcionan_sobre_una_base_recien_creada(self):
+        """REGRESIÓN: en producción NADIE llamaba a `kpi.init_db()`, así que las tablas
+        no existían y todos los endpoints respondían 500 ("no such table: citas"). En
+        local no se notaba porque el script de backfill y estas pruebas la llaman por su
+        cuenta. Acá se simula el arranque limpio del servidor: base vacía, sin cargar
+        nada, y las consultas tienen que responder (con ceros), no reventar."""
+        import tempfile as _tf
+        anterior = kpi.DB_PATH
+        kpi.DB_PATH = Path(_tf.mkdtemp(prefix='kpi_virgen_')) / 'kpi.db'
+        try:
+            kpi.init_db()          # lo que ahora hace server.py al arrancar
+            self.assertEqual(kpi.calidad_datos()['total'], 0)
+            self.assertEqual(kpi.fugas()['agendadas'], 0)
+            self.assertEqual(kpi.cartera()['inicios'], 0)
+            self.assertEqual(kpi.destino_primeras_consultas()['total'], 0)
+            self.assertEqual(kpi.serie_mensual(), [])
+            self.assertEqual(kpi.plata()['ingresos'], 0)
+            self.assertEqual(kpi.ocupacion()['por_doctor'], [])
+            self.assertEqual(kpi.pacientes_nuevos(), 0)
+            self.assertTrue(kpi.resumen()['actual'] is not None)
+        finally:
+            kpi.DB_PATH = anterior
 
     def test_migrar_corre_antes_de_los_indices(self):
         """Regresión del bug `ix_compras_sus` documentado en CLAUDE.md: un CREATE INDEX

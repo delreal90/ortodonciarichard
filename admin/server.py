@@ -5443,6 +5443,16 @@ def reporte_semanal_run():
 # contra el mismo periodo del año anterior, que es lo que un panel necesita.
 # Todas las rutas leen de SQLite: cero red, respuesta inmediata.
 
+# El esquema se crea al arrancar, igual que compras.init_db() unas lineas mas abajo.
+# Sin esto las tablas no existen nunca en produccion y CUALQUIER endpoint de KPIs
+# responde 500 ("no such table: citas"): en local no se nota porque los scripts de
+# backfill y las pruebas llaman a init_db() por su cuenta. Es idempotente.
+try:
+    kpi.init_db()
+except Exception as _e:
+    print('[kpi] init_db error:', _e)
+
+
 def _kpi_rango():
     """(desde, hasta, doctor) de los query params. Sin fechas: el mes en curso.
     Devuelve None si alguna fecha viene mal formada."""

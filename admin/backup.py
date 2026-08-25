@@ -78,8 +78,15 @@ def archivos_a_respaldar(base_dir=None):
             if p.name in _EXCLUIR or p.name.endswith('.tmp'):
                 continue
             out.append((p, p.name))
-    # Base SQLite de compras (+ WAL/SHM si estan).
-    for nombre in ('compras.db', 'compras.db-wal', 'compras.db-shm'):
+    # Bases SQLite (+ WAL/SHM si estan).
+    #
+    # kpi.db no es solo un cache reconstruible: las citas se pueden volver a barrer
+    # de DentiDesk con kpi.backfill(), pero la tabla `disponibilidad` NO —
+    # getAvailableHours solo responde por dias FUTUROS, asi que los minutos libres de
+    # un dia que ya paso no se pueden recuperar de ninguna parte. Sin este respaldo,
+    # perder el disco de Render borra para siempre el denominador de la ocupacion.
+    for nombre in ('compras.db', 'compras.db-wal', 'compras.db-shm',
+                   'kpi.db', 'kpi.db-wal', 'kpi.db-shm'):
         p = base / nombre
         if p.exists():
             out.append((p, nombre))

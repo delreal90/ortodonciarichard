@@ -33,6 +33,7 @@ def _sembrar(base):
     (base / 'eventos.jsonl').write_text('{"e":1}\n', encoding='utf-8')
     (base / 'compras.db').write_text('SQLITE', encoding='utf-8')
     (base / 'compras.db-wal').write_text('WAL', encoding='utf-8')
+    (base / 'kpi.db').write_text('SQLITE', encoding='utf-8')
     firmas = base / 'seguros_firmas'
     firmas.mkdir(exist_ok=True)
     (firmas / 'alberto.png').write_text('PNG', encoding='utf-8')
@@ -53,6 +54,9 @@ class TestArchivos(unittest.TestCase):
         self.assertIn('eventos.jsonl', arcnames)
         self.assertIn('compras.db', arcnames)
         self.assertIn('compras.db-wal', arcnames)
+        # kpi.db: las citas se pueden re-barrer de DentiDesk, pero la tabla
+        # `disponibilidad` NO (getAvailableHours solo responde por dias futuros).
+        self.assertIn('kpi.db', arcnames)
         self.assertIn('seguros_firmas/alberto.png', arcnames)
         # Exclusiones
         self.assertNotIn('backup_registro.json', arcnames)
