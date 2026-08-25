@@ -26,6 +26,7 @@ SUITES = [
     ('avisos',      'test_avisos.py',      'guardas de recaptacion / control dental / NPS'),
     ('consentimientos', 'test_consentimientos.py', 'no duplicar consentimientos + aviso del dia'),
     ('compras',     'test_compras.py',     'recurrentes, stock y migraciones'),
+    ('dolar',       'test_dolar.py',       'dolar observado en compras USD: fin de semana y API caida'),
     ('fichas',      'test_fichas.py',      'ficha primera consulta (Google Form) -> base'),
     ('seguimiento_pc', 'test_seguimiento_pc.py', 'seguimiento de primeras consultas que no avanzaron'),
     ('reactivacion', 'test_reactivacion.py', 'reactivacion de inactivos (terminados / abandonados)'),
@@ -45,6 +46,7 @@ SUITES = [
     ('stopbang',     'test_stopbang.py',     'STOP-BANG: umbrales y el puntaje incompleto es un piso'),
     ('fairest',      'test_fairest.py',      'FAIREST 6/6+4: el item 6 con el P15 y las frases prohibidas'),
     ('informe_pc',   'test_informe_pc.py',   'informe de evaluacion: documento, seguimiento, oclusion y limites'),
+    ('kpi',          'test_kpi.py',          'datamart de KPIs: destino de la primera consulta, fugas y ocupacion'),
 ]
 
 AQUI = Path(__file__).parent

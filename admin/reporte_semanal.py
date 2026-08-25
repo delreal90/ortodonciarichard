@@ -26,7 +26,12 @@ import compras
 import seguros
 import dentidesk
 import control_dental
+import kpi              # datamart: evita re-barrer DentiDesk en cada corrida. Ver kpi.py.
 import notify           # _email_layout(): el sobre comun de los correos.
+
+import logging
+
+log = logging.getLogger(__name__)
 
 _DIAS_RETENCION = None  # no aplica -- este modulo no persiste nada propio.
 
@@ -55,10 +60,28 @@ def _scheduling_cfg():
 # ── Barrido clinico: recorre los dias habiles de la ventana ─────────────────
 
 def _barrido_clinico(desde, hasta, scfg=None):
-    """Recorre los dias HABILES en [desde,hasta] con dentidesk._get_agenda_day
-    (toda la clinica, todos los doctores) y cuenta atendidos, no_shows,
-    cancelaciones, primeras_consultas, inicios y altas. Cada dia va en su
-    propio try/except: si uno falla, cuenta 0 ese dia y sigue con el resto."""
+    """Cuenta atendidos, no_shows, cancelaciones, primeras consultas, inicios y altas
+    del periodo.
+
+    Primero lo pregunta al datamart de `kpi.py` (una consulta a SQLite, instantanea y
+    sin red). Ese almacen lo mantiene al dia el barrido diario `_loop_kpi_cosecha`, que
+    ademas re-mira los ultimos 30 dias porque el estado de una cita cambia DESPUES de
+    la visita. Si el datamart todavia no tiene el periodo (por ejemplo, la primera
+    semana despues de desplegar, antes de la primera cosecha), cae al barrido directo
+    contra DentiDesk de siempre — asi el reporte nunca sale vacio por una dependencia
+    que aun no esta poblada.
+
+    El barrido directo cuesta una llamada por dia habil y no guarda nada; el datamart
+    ya tiene la respuesta. La caida se registra en el resultado (`fuente`) para que se
+    note si el reporte lleva semanas usando el camino lento."""
+    try:
+        r = kpi.resumen_semanal(desde, hasta)
+        if r and r.get('citas'):
+            return r
+    except Exception as e:
+        log.warning('reporte_semanal: datamart no disponible (%r); '
+                    'se cae al barrido directo contra DentiDesk', e)
+
     scfg = scfg or _scheduling_cfg()
 
     atendidos = no_shows = cancelaciones = 0
@@ -108,6 +131,7 @@ def _barrido_clinico(desde, hasta, scfg=None):
         'inicios': inicios,
         'altas': altas,
         'dias_habiles': dias_habiles,
+        'fuente': 'dentidesk',
     }
 
 
@@ -281,7 +305,13 @@ def _seccion_clinico(c):
         + _fila_tabla('Primeras consultas', _miles(c.get('primeras_consultas', 0)))
         + _fila_tabla('Inicios de tratamiento', _miles(c.get('inicios', 0)))
         + _fila_tabla('Altas / fin de tratamiento', _miles(c.get('altas', 0)))
+        + _fila_tabla('Flujo neto de cartera (inicios - altas)',
+                      f"{c.get('inicios', 0) - c.get('altas', 0):+d}")
     )
+    # Si el reporte lleva semanas leyendo directo de DentiDesk es que el datamart no
+    # se esta poblando (el loop de cosecha esta caido); conviene que se note.
+    if c.get('fuente') == 'dentidesk':
+        filas += _fila_tabla('Fuente', 'DentiDesk directo (datamart sin datos)')
     return _tabla(filas)
 
 

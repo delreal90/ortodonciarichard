@@ -216,10 +216,11 @@ function buscador({ items, placeholder, onPick, onCrear, labelKey = 'nombre', va
 /* ══════════════════ TAB: NUEVA COMPRA ══════════════════ */
 let compraItems = [];   // {producto_id, producto_nombre, unidad, cantidad, precio_unitario}
 let compraProvId = null, compraFoto = null;
+let tcEditadoAMano = false;   // si la persona escribió el tipo de cambio, no se pisa
 
 RENDER.compras = () => {
   if (!puede('registrar')) { $('#tab-compras').innerHTML = soloLectura(); return; }
-  compraItems = []; compraProvId = null; compraFoto = null;
+  compraItems = []; compraProvId = null; compraFoto = null; tcEditadoAMano = false;
   const s = $('#tab-compras');
   const hoy = new Date().toISOString().slice(0, 10);
   s.innerHTML = `
@@ -248,7 +249,8 @@ RENDER.compras = () => {
         <div class="field"><label>Moneda</label>
           <select id="cMoneda"><option value="CLP">Peso chileno (CLP)</option><option value="USD">Dólar (USD)</option></select></div>
         <div class="field hidden" id="cTCWrap"><label>Tipo de cambio (CLP por USD)</label>
-          <input id="cTipoCambio" type="number" step="any" min="0" placeholder="Ej: 950"></div>
+          <input id="cTipoCambio" type="number" step="any" min="0" placeholder="Ej: 950">
+          <p class="muted" id="cTCNota" style="font-size:12px;margin-top:4px"></p></div>
         <div class="field"><label>Costo despacho <span id="cDespLabel">(CLP)</span></label>
           <input id="cDespacho" type="number" step="any" min="0" value="0"></div>
         <div class="field"><label>Costo importación (CLP, opcional)</label>
@@ -324,16 +326,41 @@ RENDER.compras = () => {
     const usd = $('#cMoneda').value === 'USD';
     $('#cTCWrap').classList.toggle('hidden', !usd);
     $('#cDespLabel').textContent = usd ? '(USD)' : '(CLP)';
+    if (usd) autocompletarDolar();
     recalcTotal();
   };
   $('#cMoneda').onchange = onMoneda;
-  $('#cTipoCambio').oninput = recalcTotal;
+  $('#cTipoCambio').oninput = () => { tcEditadoAMano = true; $('#cTCNota').textContent = ''; recalcTotal(); };
+  $('#cFecha').onchange = () => { if ($('#cMoneda').value === 'USD') autocompletarDolar(); };
   $('#cDespacho').oninput = recalcTotal;
   $('#cImportacion').oninput = recalcTotal;
   $('#cTipoGasto').onchange = () => pintarItems();
   $('#rHasta').onchange = e => $('#rFechaFinWrap').classList.toggle('hidden', e.target.value !== 'fecha');
   pintarItems();
 };
+
+// Propone el dólar observado (Banco Central) del día de la compra. No pisa el valor
+// si la persona ya lo escribió a mano, y si la consulta falla deja el campo libre
+// (nunca bloquea: se puede escribir el tipo de cambio igual).
+async function autocompletarDolar() {
+  const campo = $('#cTipoCambio'), nota = $('#cTCNota');
+  if (!campo || tcEditadoAMano) return;
+  nota.textContent = 'Buscando el dólar observado…';
+  try {
+    const j = await api('/api/compras/dolar?fecha=' + encodeURIComponent($('#cFecha').value || ''));
+    if (j.ok && j.valor) {
+      campo.value = j.valor;
+      nota.innerHTML = j.exacto
+        ? `Dólar observado del ${esc(j.fecha)} · puedes cambiarlo`
+        : `Ese día no tuvo publicación (fin de semana o feriado): se usó el del <b>${esc(j.fecha)}</b>`;
+      recalcTotal();
+    } else {
+      nota.textContent = 'No se pudo obtener el dólar del día — escríbelo a mano.';
+    }
+  } catch {
+    nota.textContent = 'No se pudo obtener el dólar del día — escríbelo a mano.';
+  }
+}
 
 function agregarItem(prod) {
   const ya = compraItems.find(i => i.producto_id === prod.id);

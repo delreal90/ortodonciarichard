@@ -716,6 +716,7 @@ import nps
 import seguimiento_pc
 import reactivacion
 import reporte_semanal
+import kpi              # datamart de KPIs (copia local de la agenda), ver kpi.py
 import backup
 from datetime import date, datetime, timedelta
 
@@ -5433,6 +5434,216 @@ def reporte_semanal_run():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PANEL DE KPIs  (datamart de la agenda — modulo kpi.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# A diferencia del reporte semanal de arriba (que recalcula todo contra DentiDesk en
+# cada corrida y no guarda nada), esto consulta una COPIA LOCAL de la agenda que se
+# alimenta sola con _loop_kpi_cosecha. Por eso puede mostrar series de años y comparar
+# contra el mismo periodo del año anterior, que es lo que un panel necesita.
+# Todas las rutas leen de SQLite: cero red, respuesta inmediata.
+
+def _kpi_rango():
+    """(desde, hasta, doctor) de los query params. Sin fechas: el mes en curso.
+    Devuelve None si alguna fecha viene mal formada."""
+    try:
+        d = (request.args.get('desde') or '').strip()
+        h = (request.args.get('hasta') or '').strip()
+        desde = date.fromisoformat(d) if d else None
+        hasta = date.fromisoformat(h) if h else None
+    except ValueError:
+        return None
+    return desde, hasta, (request.args.get('doctor') or '').strip()
+
+
+@app.route('/api/kpi/resumen', methods=['GET'])
+def kpi_resumen():
+    """Portada del panel: tiles del periodo + mismo periodo del año anterior +
+    variacion, mas ocupacion futura, confirmacion vigente y calidad de datos."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, doctor = r
+    return jsonify({'ok': True, 'resumen': kpi.resumen(desde, hasta, doctor or None)})
+
+
+@app.route('/api/kpi/serie', methods=['GET'])
+def kpi_serie():
+    """Una fila por mes con todos los conteos (atendidos, no-shows, primeras
+    consultas, inicios, altas, horas). El panel elige que graficar."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, doctor = r
+    return jsonify({'ok': True, 'serie': kpi.serie_mensual(desde, hasta, doctor or None)})
+
+
+@app.route('/api/kpi/primeras-consultas', methods=['GET'])
+def kpi_primeras_consultas():
+    """El reparto de destinos de cada primera consulta: inicio / siguio / perdido /
+    en_ventana. Incluye la lista de los PERDIDOS (con RUT) para poder contactarlos —
+    es la unica ruta de este bloque que devuelve datos de paciente."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, doctor = r
+    return jsonify({'ok': True, 'destino': kpi.destino_primeras_consultas(
+        desde, hasta, doctor or None)})
+
+
+@app.route('/api/kpi/ocupacion', methods=['GET'])
+def kpi_ocupacion():
+    """Capacidad usada. `historica` son horas por dia trabajado (no un %: para un dia
+    pasado no existe el denominador real). `futura` si trae % real, desde
+    getAvailableHours via la tabla disponibilidad."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, doctor = r
+    return jsonify({'ok': True,
+                    'historica': kpi.ocupacion(desde, hasta, doctor or None),
+                    'futura': kpi.ocupacion_futura(doctor=doctor or None),
+                    'heatmap': kpi.heatmap(desde, hasta, doctor or None)})
+
+
+@app.route('/api/kpi/fugas', methods=['GET'])
+def kpi_fugas():
+    """Inasistencia, cancelacion y reagenda + la confirmacion de las citas que aun no
+    ocurren (la unica medible: ver la nota en kpi.fugas)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, doctor = r
+    return jsonify({'ok': True,
+                    'fugas': kpi.fugas(desde, hasta, doctor or None),
+                    'confirmacion': kpi.tasa_confirmacion_vigente(doctor or None)})
+
+
+@app.route('/api/kpi/cartera', methods=['GET'])
+def kpi_cartera():
+    """Inicios vs altas (flujo neto) y tamaño de la cartera activa."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, doctor = r
+    return jsonify({'ok': True,
+                    'cartera': kpi.cartera(desde, hasta, doctor or None),
+                    'origen': kpi.origen_reservas(desde, hasta, doctor or None)})
+
+
+@app.route('/api/kpi/calidad', methods=['GET'])
+def kpi_calidad():
+    """Motivos y estados que el datamart no supo clasificar, y cuantas citas vienen
+    SIN motivo desde DentiDesk (~19%). Es la lista de trabajo para afinar los mapas."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, _ = r
+    return jsonify({'ok': True, 'calidad': kpi.calidad_datos(desde, hasta),
+                    'cosechas': kpi.snapshot('kpi_cosecha', 14)})
+
+
+@app.route('/api/kpi/cosechar', methods=['POST'])
+def kpi_cosechar():
+    """Fuerza la cosecha de la ventana movil (lo que hace el loop una vez al dia).
+    Util tras un cambio de datos en DentiDesk que se quiere ver de inmediato."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        atras = max(1, min(int(data.get('dias_atras', 30)), 120))
+        adelante = max(1, min(int(data.get('dias_adelante', 45)), 120))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'dias invalidos'}), 400
+    return jsonify(kpi.cosechar(dias_atras=atras, dias_adelante=adelante))
+
+
+@app.route('/api/kpi/backfill', methods=['POST'])
+def kpi_backfill():
+    """Reconstruye la historia barriendo getAgendaDay hacia atras. Se corre UNA vez y
+    FUERA DE HORARIO: son miles de requests contra la app que la clinica esta usando.
+    Corre en un hilo (como control-dental/backfill) para no colgar el request."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        desde = date.fromisoformat(data['desde'])
+        hasta = date.fromisoformat(data['hasta']) if data.get('hasta') else fechas.hoy_chile()
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'falta desde (YYYY-MM-DD)'}), 400
+    if desde > hasta:
+        return jsonify({'ok': False, 'error': 'desde es posterior a hasta'}), 400
+
+    def job():
+        try:
+            r = kpi.backfill(desde, hasta)
+            print('[kpi] backfill terminado:', r)
+        except Exception as e:
+            print('[kpi] backfill error:', e)
+
+    _threading.Thread(target=job, daemon=True).start()
+    return jsonify({'ok': True, 'lanzado': True, 'desde': desde.isoformat(),
+                    'hasta': hasta.isoformat(),
+                    'nota': 'corre en segundo plano; ver progreso en /api/kpi/calidad'})
+
+
+@app.route('/api/kpi/ingresos', methods=['POST'])
+def kpi_ingresos():
+    """Recibe las boletas/facturas DTE que la extension F2 lee con la SESION del
+    navegador (DentiDesk no las expone por API y su login tiene reCAPTCHA, asi que no
+    hay forma de leerlas server-side). Body: {dtes:[...]} con las filas tal cual las
+    devuelve ajaxConfigIntegracionSii. Upsert por folio: es idempotente, la extension
+    puede reenviar el mismo mes las veces que quiera."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    dtes = data.get('dtes')
+    if not isinstance(dtes, list):
+        return jsonify({'ok': False, 'error': 'falta dtes (lista)'}), 400
+    if len(dtes) > 5000:
+        return jsonify({'ok': False, 'error': 'demasiadas filas en un envio'}), 400
+    return jsonify(kpi.registrar_ingresos(dtes))
+
+
+@app.route('/api/kpi/plata', methods=['GET'])
+def kpi_plata():
+    """Ingresos (boletas DTE), gastos (compras.py) y margen, mas el ingreso por hora de
+    sillon. Devuelve meses_con_ingresos para que el panel no dibuje un margen falso
+    cuando todavia no se han cargado boletas del periodo."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    r = _kpi_rango()
+    if r is None:
+        return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
+    desde, hasta, doctor = r
+    return jsonify({'ok': True, 'plata': kpi.plata(desde, hasta, doctor or None)})
+
+
+@app.route('/api/kpi/reclasificar', methods=['POST'])
+def kpi_reclasificar():
+    """Recalcula categoria/estado/doctor desde los campos crudos ya guardados. Se usa
+    despues de agregar un motivo o estado nuevo a los mapas de kpi.py: evita tener que
+    volver a barrer años de agenda. Cero red."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify(kpi.reclasificar(scheduling.load_config()))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CUMPLEANOS  (equipo + pacientes — modulo cumpleanos.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -6004,6 +6215,27 @@ def compras_alertas():
     if err:
         return err
     return jsonify({'ok': True, 'productos': _compras.productos_bajo_minimo()})
+
+
+@app.route('/api/compras/dolar', methods=['GET'])
+@rate_limit("120 per hour")
+def compras_dolar():
+    """Dólar observado (Banco Central) de una fecha, para proponer el tipo de cambio
+    al registrar una compra en USD. ?fecha=YYYY-MM-DD (por defecto hoy).
+    Responde 200 con {ok:false} si no se pudo obtener — el frontend simplemente deja
+    el campo vacío para escribirlo a mano; nunca bloquea el registro de la compra."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    import dolar as _dolar
+    try:
+        r = _dolar.observado(request.args.get('fecha') or None)
+    except Exception as e:
+        print('[dolar] error inesperado:', e)
+        r = None
+    if not r:
+        return jsonify({'ok': False, 'error': 'No se pudo obtener el dólar observado'})
+    return jsonify({'ok': True, **r})
 
 
 # ── Compras (cabecera + ítems) ─────────────────────────────────────────────────
@@ -6733,6 +6965,50 @@ def _loop_seguimiento_pc():
         time.sleep(40)
 
 
+# Ventana de la cosecha de KPIs. Corre de madrugada (poco trafico contra DentiDesk) y
+# con el patron de VENTANA, no de minuto exacto: si Render reinicia justo a las 03:00,
+# con igualdad exacta ese dia no se cosecharia nada y nadie se enteraria.
+_KPI_HORA = '03:00'
+_KPI_LIMITE = '17:00'
+
+
+def _loop_kpi_cosecha():
+    """Refresca la copia local de la agenda una vez al dia (modulo kpi.py).
+
+    Los 30 dias HACIA ATRAS no son redundancia: el estado de una cita cambia despues
+    de la visita (la clinica marca 'Atendido' mas tarde), asi que sin re-mirarlas el
+    datamart se quedaria con estados viejos y la tasa de inasistencia saldria mal.
+    Los 45 hacia adelante traen la agenda comprometida, que es lo que permite ver la
+    ocupacion futura.
+
+    Ademas guarda la disponibilidad de los proximos dias habiles, que es el UNICO
+    denominador real para un % de ocupacion — y solo existe hacia adelante, asi que
+    si no se captura hoy, se pierde para siempre."""
+    import time
+    ya_corrio = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            cfg = scheduling.load_config()
+            if (cfg['dentidesk']['enabled']
+                    and _KPI_HORA <= slot < _KPI_LIMITE
+                    and ya_corrio != ahora.date()):
+                ya_corrio = ahora.date()
+                r = kpi.cosechar(cfg)
+                print('[kpi-cosecha]', slot, r)
+                try:
+                    d = kpi.capturar_disponibilidad(cfg)
+                    print('[kpi-disponibilidad]', d)
+                except Exception as e:
+                    # La disponibilidad es un extra: si falla, la cosecha de citas
+                    # (que es lo importante) ya quedo guardada.
+                    print('[kpi-disponibilidad] error:', e)
+        except Exception as e:
+            print('[kpi-cosecha] error:', e)
+        time.sleep(40)
+
+
 def _loop_reactivacion():
     """Barrido PROFUNDO (~18 meses) de reactivacion de inactivos. A diferencia de
     los otros loops, este NO es diario: es SEMANAL (lunes en la ventana horaria) +
@@ -7206,6 +7482,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_seguimiento_pc, daemon=True).start()
     threading.Thread(target=_loop_reactivacion, daemon=True).start()
     threading.Thread(target=_loop_reporte_semanal, daemon=True).start()
+    threading.Thread(target=_loop_kpi_cosecha, daemon=True).start()
     threading.Thread(target=_loop_backup, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()

@@ -104,6 +104,7 @@
     <a onclick="show('casos')" id="nav-casos"><i class="fa fa-tooth"></i> Casos clínicos</a>
     <a onclick="show('faq')" id="nav-faq"><i class="fa fa-question-circle"></i> FAQ</a>
     <a onclick="show('agenda')" id="nav-agenda"><i class="fa fa-calendar-check"></i> Agenda online</a>
+    <a onclick="show('kpi')" id="nav-kpi"><i class="fa fa-gauge-high"></i> KPIs</a>
     <a onclick="show('estadisticas')" id="nav-estadisticas"><i class="fa fa-chart-column"></i> Estadísticas</a>
     <a onclick="show('consentimientos')" id="nav-consentimientos"><i class="fa fa-file-signature"></i> Consentimientos</a>
     <a onclick="show('whatsapp')" id="nav-whatsapp"><i class="fab fa-whatsapp"></i> WhatsApp</a>
@@ -227,6 +228,55 @@
         <div id="pe-resumen" style="margin-bottom:16px"></div>
         <div id="pe-motivos">Carga la conexión para ver los motivos pendientes.</div>
       </div>
+    </div>
+
+    <!-- ── KPIs ─────────────────────────────────────────────── -->
+    <div class="section" id="sec-kpi">
+      <h2>KPIs de la clínica</h2>
+      <p class="desc">Rendimiento medido sobre la agenda completa (no solo lo agendado online).
+        Cada indicador se compara con el <strong>mismo período del año anterior</strong>, porque
+        la clínica tiene estacionalidad fuerte y un mes contra el anterior mide la estación, no la gestión.</p>
+
+      <div class="card" id="kpi-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="kpi-url" value="https://ortodonciarichard.onrender.com"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="kpi-token" type="password" placeholder="ADMIN_TOKEN"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <button class="btn btn-primary" onclick="loadKpi()">Conectar</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Período</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:.82rem;color:#4A5568">Desde</label>
+            <input type="date" id="kpi-desde" style="padding:9px;border:1px solid #e2e8f0;border-radius:8px"></div>
+          <div><label style="font-size:.82rem;color:#4A5568">Hasta</label>
+            <input type="date" id="kpi-hasta" style="padding:9px;border:1px solid #e2e8f0;border-radius:8px"></div>
+          <div><label style="font-size:.82rem;color:#4A5568">Doctor</label>
+            <select id="kpi-doctor" style="padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+              <option value="">Todos</option>
+              <option value="alberto">Dr. Alberto Del Real</option>
+              <option value="rodrigo">Dr. Rodrigo Oyonarte</option>
+              <option value="octavio">Dr. Octavio Del Real</option>
+              <option value="patricio">Dr. Patricio Vial</option>
+            </select></div>
+          <button class="btn btn-primary" onclick="loadKpi()">Ver</button>
+          <button class="btn btn-sm" onclick="kpiRango(12)">Últimos 12 meses</button>
+          <button class="btn btn-sm" onclick="kpiRango(0)">Este mes</button>
+          <button class="btn btn-sm" onclick="kpiRango(60)">Todo</button>
+        </div>
+      </div>
+
+      <div id="kpi-cuerpo"></div>
     </div>
 
     <!-- ── ESTADÍSTICAS ─────────────────────────────────────── -->
@@ -1063,6 +1113,7 @@ function show(sec) {
   if (sec === 'faq') loadFaq();
   if (sec === 'cv') loadCV();
   if (sec === 'agenda') { loadAgenda(); initPacienteEstado(); }
+  if (sec === 'kpi') initKpi();
   if (sec === 'estadisticas') initStats();
   if (sec === 'consentimientos') initConsentimientos();
   if (sec === 'whatsapp') initWhatsapp();
@@ -1237,6 +1288,360 @@ async function pePonerMotivo(i, btn) {
     btn.disabled = false; btn.textContent = 'Aplicar';
   }
 }
+
+// ══════════════════════════════════════════════════════
+// KPIs DE LA CLÍNICA  (datamart de la agenda — kpi.py)
+// ══════════════════════════════════════════════════════
+// A diferencia de "Estadísticas" (que solo ve lo agendado ONLINE, ~3% de las
+// reservas), esto lee la agenda COMPLETA desde la copia local que mantiene
+// kpi.py, así que puede mostrar años de historia y comparar contra el año
+// anterior. Patrón remoto de siempre, con las claves compartidas
+// stats_url/stats_token.
+
+function initKpi() {
+  if (!document.getElementById('kpi-desde').value) kpiRango(12);
+  remotoInit('kpi-url', 'kpi-token', loadKpi);
+}
+function _kpiUrl()   { return remotoUrl('kpi-url'); }
+async function _kpiFetch(path) {
+  const r = await remotoFetch('kpi-url', 'kpi-token', path);
+  if (r.status === 403) throw new Error('Token inválido (403)');
+  // Si el backend revienta, Flask devuelve su página HTML de error y r.json() falla
+  // con "Unexpected token '<'", que no le dice nada a nadie. Mejor nombrar la ruta que
+  // falló: es el mismo problema que ya se resolvió en wa_cloud._post().
+  const txt = await r.text();
+  try {
+    return JSON.parse(txt);
+  } catch (e) {
+    throw new Error(`${path} respondió ${r.status} y no fue JSON. `
+      + `Revisa el log del backend.`);
+  }
+}
+
+function kpiRango(meses) {
+  const hoy = new Date();
+  const hasta = hoy.toISOString().slice(0, 10);
+  let desde;
+  if (meses === 0) desde = hasta.slice(0, 8) + '01';
+  else if (meses >= 60) desde = '2021-01-01';
+  else { const d = new Date(hoy); d.setMonth(d.getMonth() - meses); desde = d.toISOString().slice(0, 10); }
+  document.getElementById('kpi-desde').value = desde;
+  document.getElementById('kpi-hasta').value = hasta;
+  if (remotoToken('kpi-token')) loadKpi();
+}
+
+// ── Primitivas de gráfico ─────────────────────────────
+// El panel no carga ninguna librería de charting y no hace falta empezar ahora:
+// estas dos, más _barras/_statCard que ya existían, cubren todo lo que se pinta.
+
+// Tile con comparación contra el año anterior. La flecha se colorea según si SUBIR
+// es bueno para ese indicador: en inasistencia o en % de perdidos, subir es malo.
+// `variacion` es el % (o null si no aplica) y `delta` la diferencia absoluta. Se usa
+// el % cuando tiene sentido y la diferencia cuando no — un % sobre valores que pueden
+// ser negativos (el flujo neto de cartera) invierte el signo y pinta de verde algo que
+// empeoró. `subirEsBueno` decide el color, no la dirección de la flecha.
+function _kpiTile(label, valor, unidad, variacion, subirEsBueno, nota, delta) {
+  const navy = '#1A2E4A';
+  let comp = '<div style="font-size:.72rem;color:#a0aec0">sin comparación</div>';
+  const dif = (variacion !== null && variacion !== undefined) ? variacion
+            : ((delta !== null && delta !== undefined) ? delta : null);
+  if (dif !== null) {
+    const usaPct = (variacion !== null && variacion !== undefined);
+    const bueno = subirEsBueno === null ? null : (dif >= 0) === subirEsBueno;
+    const color = bueno === null ? '#718096' : (bueno ? '#2f855a' : '#e53e3e');
+    const flecha = dif > 0 ? '▲' : (dif < 0 ? '▼' : '=');
+    const txt = usaPct ? Math.abs(dif) + '%' : (dif > 0 ? '+' : '') + dif;
+    comp = `<div style="font-size:.72rem;color:${color};font-weight:600">
+              ${flecha} ${txt} vs. año anterior</div>`;
+  }
+  const v = (valor === null || valor === undefined) ? '—' : valor;
+  return `<div class="card" style="flex:1;min-width:150px;text-align:center;border-top:3px solid ${navy};padding:16px">
+    <div style="font-size:1.8rem;font-weight:700;color:${navy};line-height:1.1">${_esc(String(v))}<span style="font-size:.9rem;font-weight:400">${_esc(unidad || '')}</span></div>
+    <div style="font-size:.78rem;color:#718096;margin:4px 0">${_esc(label)}</div>
+    ${comp}
+    ${nota ? `<div style="font-size:.68rem;color:#a0aec0;margin-top:4px">${_esc(nota)}</div>` : ''}
+  </div>`;
+}
+
+// Serie mensual en barras verticales. Se dibuja con divs, sin canvas ni SVG.
+function _kpiSerie(serie, campo, color, formato) {
+  if (!serie || !serie.length) return '<p style="color:#718096;font-size:.85rem">Sin datos en el período.</p>';
+  const vals = serie.map(m => Number(m[campo]) || 0);
+  const max = Math.max(...vals, 1);
+  const fmt = formato || (v => v);
+  // Con muchos meses las etiquetas no caben: se rotula 1 de cada N.
+  const paso = Math.ceil(serie.length / 14);
+  return `<div style="display:flex;align-items:flex-end;gap:2px;height:150px;padding-top:8px;overflow-x:auto">
+    ${serie.map((m, i) => {
+      const v = Number(m[campo]) || 0;
+      const h = Math.max(1, Math.round(v / max * 130));
+      return `<div style="flex:1;min-width:14px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end"
+                   title="${_esc(m.mes)}: ${_esc(String(fmt(v)))}">
+        <div style="font-size:.6rem;color:#718096">${v === max ? _esc(String(fmt(v))) : ''}</div>
+        <div style="width:100%;height:${h}px;background:${color};border-radius:2px 2px 0 0"></div>
+        <div style="font-size:.58rem;color:#a0aec0;height:26px;writing-mode:vertical-rl;margin-top:2px">
+          ${i % paso === 0 ? _esc(m.mes) : ''}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// Mapa de calor día × hora. La opacidad es proporcional a los minutos vendidos, así
+// los huecos de agenda se ven de una mirada.
+function _kpiHeatmap(hm) {
+  if (!hm || !hm.celdas || !hm.celdas.length) return '<p style="color:#718096;font-size:.85rem">Sin datos.</p>';
+  const max = Math.max(...hm.celdas.map(c => c.minutos), 1);
+  const idx = {};
+  hm.celdas.forEach(c => { idx[c.dow + '-' + c.hora] = c; });
+  const horas = [];
+  for (let h = 8; h <= 20; h++) horas.push(h);
+  let out = '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:.7rem">';
+  out += '<tr><th></th>' + horas.map(h => `<th style="padding:2px 4px;color:#718096;font-weight:500">${h}</th>`).join('') + '</tr>';
+  for (let d = 0; d < 5; d++) {
+    out += `<tr><td style="padding:2px 8px 2px 0;color:#4A5568;text-align:right">${_esc(hm.dias[d])}</td>`;
+    out += horas.map(h => {
+      const c = idx[d + '-' + h];
+      const min = c ? c.minutos : 0;
+      const op = min ? (0.12 + 0.88 * (min / max)) : 0;
+      // En minutos si no llega a una hora: Math.round(15/60) daba "0 h en 1 atenciones".
+      const dur = min >= 60 ? (min / 60).toFixed(1) + ' h' : min + ' min';
+      const t = c ? `${hm.dias[d]} ${h}:00 — ${dur} en ${c.atenciones} ${c.atenciones === 1 ? 'atención' : 'atenciones'}` : 'sin atenciones';
+      return `<td title="${_esc(t)}" style="width:26px;height:22px;background:rgba(26,46,74,${op.toFixed(2)});border:1px solid #edf2f7"></td>`;
+    }).join('');
+    out += '</tr>';
+  }
+  return out + '</table></div>';
+}
+
+const _KPI_DOC = { alberto: 'Alberto', rodrigo: 'Rodrigo', octavio: 'Octavio',
+                   patricio: 'Vial', rx: 'Radiología', '': '—' };
+function _kpiDoc(k) { return _KPI_DOC[k] || k; }
+function _n(v, dec) { return (v === null || v === undefined) ? '—' : Number(v).toFixed(dec === undefined ? 1 : dec); }
+
+async function loadKpi() {
+  const cuerpo = document.getElementById('kpi-cuerpo');
+  const token = remotoToken('kpi-token');
+  if (!token) { cuerpo.innerHTML = '<div class="card">Ingresa el admin token para ver los indicadores.</div>'; return; }
+  localStorage.setItem('stats_token', token);
+  localStorage.setItem('stats_url', _kpiUrl());
+
+  const desde = document.getElementById('kpi-desde').value;
+  const hasta = document.getElementById('kpi-hasta').value;
+  const doctor = document.getElementById('kpi-doctor').value;
+  const qs = `?desde=${desde}&hasta=${hasta}&doctor=${encodeURIComponent(doctor)}`;
+  cuerpo.innerHTML = '<div class="card">Cargando…</div>';
+
+  try {
+    const [res, serie, pc, ocu, fug, car, pla] = await Promise.all([
+      _kpiFetch('/api/kpi/resumen' + qs),
+      _kpiFetch('/api/kpi/serie' + qs),
+      _kpiFetch('/api/kpi/primeras-consultas' + qs),
+      _kpiFetch('/api/kpi/ocupacion' + qs),
+      _kpiFetch('/api/kpi/fugas' + qs),
+      _kpiFetch('/api/kpi/cartera' + qs),
+      _kpiFetch('/api/kpi/plata' + qs),
+    ]);
+    if (!res.ok) throw new Error(res.error || 'Error del servidor');
+    renderKpi(res.resumen, serie.serie, pc.destino, ocu, fug, car, pla.plata);
+  } catch (e) {
+    cuerpo.innerHTML = `<div class="card" style="border-left:4px solid var(--red)">
+      <strong>No se pudo cargar.</strong><br><span style="color:#718096">${_esc(e.message)}</span></div>`;
+  }
+}
+
+function _clp(n) {
+  if (n === null || n === undefined) return '—';
+  return '$' + Math.round(n).toLocaleString('es-CL');
+}
+
+function renderKpi(r, serie, pc, ocu, fug, car, pla) {
+  const a = r.actual, v = r.variacion_pct, dl = r.delta || {};
+  const navy = '#1A2E4A', gold = '#C9A84C', rojo = '#e53e3e', verde = '#2f855a';
+  let h = '';
+
+  if (!r.comparable) {
+    h += `<div class="card" style="border-left:4px solid ${gold};padding:12px 16px;margin-bottom:12px">
+      <span style="font-size:.82rem;color:#4A5568">El período elegido abarca ${r.meses} meses, así que
+      <strong>no se compara contra el año anterior</strong>: un rango de más de 18 meses se solapa consigo
+      mismo y la comparación no significaría nada. Elige un rango más corto para ver las variaciones.</span></div>`;
+  }
+
+  // ── Portada ──
+  h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">';
+  h += _kpiTile('Pacientes nuevos', a.pacientes_nuevos, '', v.pacientes_nuevos, true, null, dl.pacientes_nuevos);
+  h += _kpiTile('Primeras consultas', a.primeras_consultas, '', v.primeras_consultas, true, null, dl.primeras_consultas);
+  h += _kpiTile('Iniciaron tratamiento', _n(a.pct_inicio), '%', v.pct_inicio, true, null, dl.pct_inicio);
+  h += _kpiTile('Primeras consultas perdidas', _n(a.pct_perdido), '%', v.pct_perdido, false, 'nunca volvieron', dl.pct_perdido);
+  h += '</div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px">';
+  h += _kpiTile('Horas de sillón por día', _n(a.horas_por_dia, 2), ' h', v.horas_por_dia, true, null, dl.horas_por_dia);
+  h += _kpiTile('Citas que no ocurren', _n(a.tasa_no_ocurrio), '%', v.tasa_no_ocurrio, false, 'no llega + cancela + reagenda', dl.tasa_no_ocurrio);
+  h += _kpiTile('Flujo neto de cartera', (a.neto_cartera > 0 ? '+' : '') + a.neto_cartera, '', v.neto_cartera, true, 'inicios − altas', dl.neto_cartera);
+  h += _kpiTile('Pacientes activos', a.activos, '', v.activos, true, 'con cita en 90 días', dl.activos);
+  h += '</div>';
+
+  // ── A. Captación y conversión ──
+  h += `<div class="card"><h3>🎯 Destino de cada primera consulta</h3>
+    <p style="font-size:.8rem;color:#718096;margin-bottom:14px">
+      Volver a un control <strong>no</strong> es una fuga: el doctor pudo indicar observar en vez de tratar.
+      La fuga real es el paciente que consultó y <strong>nunca más vino</strong>.</p>`;
+  const d = pc.destinos, base = pc.base_clasificada || 1;
+  const tramos = [
+    ['Inició tratamiento', d.inicio, verde],
+    ['Volvió, sin iniciar', d.siguio, gold],
+    ['Perdido: nunca volvió', d.perdido, rojo],
+  ];
+  h += '<div style="display:flex;height:34px;border-radius:6px;overflow:hidden;margin-bottom:10px">';
+  h += tramos.map(([l, n, c]) => n ? `<div title="${_esc(l)}: ${n}" style="width:${(n / base * 100).toFixed(1)}%;background:${c};display:flex;align-items:center;justify-content:center;color:#fff;font-size:.72rem;font-weight:600">${(n / base * 100).toFixed(0)}%</div>` : '').join('');
+  h += '</div><div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;margin-bottom:6px">';
+  h += tramos.map(([l, n, c]) => `<span><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px"></span> ${_esc(l)}: <strong>${n}</strong></span>`).join('');
+  h += '</div>';
+  h += `<p style="font-size:.76rem;color:#a0aec0">
+      ${pc.total} primeras consultas · ${d.en_ventana} demasiado recientes para clasificar (excluidas del %) ·
+      conversión a ${pc.ventana_dias} días: <strong>${_n(pc.conversion_90d)}%</strong>
+      (línea base histórica: 39,2%) ·
+      mediana hasta iniciar: ${pc.dias_hasta_inicio.mediana === null ? '—' : pc.dias_hasta_inicio.mediana + ' días'}</p>`;
+
+  if (pc.por_doctor && pc.por_doctor.length > 1) {
+    h += '<table style="width:100%;font-size:.8rem;margin-top:14px;border-collapse:collapse">';
+    h += '<tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Consultas</th><th>Inició</th><th>Volvió</th><th>Perdido</th><th>% inicio</th><th>% perdido</th></tr>';
+    pc.por_doctor.forEach(x => {
+      h += `<tr style="border-top:1px solid #edf2f7"><td style="padding:5px">${_esc(_kpiDoc(x.doctor))}</td>
+        <td>${x.total}</td><td>${x.inicio}</td><td>${x.siguio}</td>
+        <td style="color:${x.perdido ? rojo : '#718096'}">${x.perdido}</td>
+        <td>${_n(x.pct_inicio)}%</td><td>${_n(x.pct_perdido)}%</td></tr>`;
+    });
+    h += '</table>';
+  }
+  h += '</div>';
+
+  h += `<div class="card"><h3>📈 Pacientes nuevos y primeras consultas por mes</h3>
+    <p style="font-size:.8rem;color:#718096">Primeras consultas atendidas al mes.</p>
+    ${_kpiSerie(serie, 'primeras_consultas', navy)}</div>`;
+
+  // ── B. Ocupación ──
+  h += '<div class="card"><h3>🪑 Ocupación de sillón</h3>';
+  h += `<p style="font-size:.8rem;color:#718096;margin-bottom:12px">
+    Horas <strong>agendadas</strong> por día trabajado. No es un porcentaje a propósito: para un día que
+    ya pasó no existe el dato de cuántas horas había disponibles, y un % inventado se ve preciso y está mal.
+    El % real solo existe hacia adelante (abajo).</p>`;
+  h += '<table style="width:100%;font-size:.82rem;border-collapse:collapse">';
+  h += '<tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Días trabajados</th><th>Atenciones</th><th>Horas totales</th><th>Horas/día</th><th>Atenciones/día</th></tr>';
+  (ocu.historica.por_doctor || []).forEach(x => {
+    h += `<tr style="border-top:1px solid #edf2f7"><td style="padding:5px">${_esc(_kpiDoc(x.doctor))}</td>
+      <td>${x.dias_trabajados}</td><td>${x.atenciones}</td><td>${_n(x.horas)}</td>
+      <td style="font-weight:600">${_n(x.horas_por_dia, 2)}</td><td>${_n(x.atenciones_por_dia)}</td></tr>`;
+  });
+  h += '</table></div>';
+
+  const fut = (ocu.futura && ocu.futura.por_doctor) || [];
+  if (fut.length) {
+    h += `<div class="card"><h3>📅 Próximos 15 días — lo único accionable hoy</h3>
+      <p style="font-size:.8rem;color:#718096;margin-bottom:12px">Acá el porcentaje sí es real: el
+      denominador lo da DentiDesk, que ya descuenta bloqueos, feriados y vacaciones.</p>`;
+    h += _barras(fut.map(x => ({ label: _kpiDoc(x.doctor) + ' — ' + _n(x.horas_libres) + ' h libres',
+                                 total: Math.round(x.pct_ocupacion || 0) })), gold);
+    h += '</div>';
+  }
+
+  h += `<div class="card"><h3>🔥 Dónde están los huecos</h3>
+    <p style="font-size:.8rem;color:#718096;margin-bottom:12px">Minutos vendidos por día y hora.
+    Mientras más claro, más hueco.</p>${_kpiHeatmap(ocu.heatmap)}</div>`;
+
+  // ── C. Fugas ──
+  const f = fug.fugas;
+  h += `<div class="card"><h3>🚪 Fugas de agenda</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      ${_statCard('No ocurrieron', _n(f.tasa_no_ocurrio) + '%', rojo)}
+      ${_statCard('Reagenda', _n(f.tasa_reagenda) + '%', navy)}
+      ${_statCard('Cancelación', _n(f.tasa_cancelacion) + '%', gold)}
+      ${_statCard('Inasistencia', _n(f.tasa_inasistencia) + '%', '#718096')}
+    </div>
+    <p style="font-size:.78rem;color:#718096">
+      ${f.no_ocurrieron} de ${f.agendadas} citas del período no se cumplieron ·
+      ${f.reagendadas} reagendadas · ${f.canceladas} canceladas · ${f.no_llega} inasistencias ·
+      ${f.quiere_reagendar} pidieron cambiar su hora · ${_n(f.horas_perdidas_no_llega)} h perdidas por inasistencia.</p>
+    <div style="background:#fffbeb;border-left:3px solid ${gold};padding:10px 12px;margin:12px 0;font-size:.78rem;color:#4A5568">
+      <strong>⚠️ No leas la inasistencia como tendencia.</strong> En el primer semestre de 2023 la clínica
+      cambió cómo etiqueta una cita que no se cumple: la inasistencia pasó de 2,9% a 0,2% y las cancelaciones
+      se desplomaron, pero ahora casi todo se marca «Re-agendado». La <strong>suma</strong> se mantuvo clavada
+      en ~21% durante los cinco años. Por eso el indicador principal acá es «no ocurrieron»: es el único
+      comparable a través de ese cambio. La caída de la inasistencia coincide con la época de los recordatorios
+      de WhatsApp, así que es especialmente fácil confundirla con una mejora.
+    </div>
+    <p style="font-size:.78rem;color:#a0aec0">
+      <strong>Confirmación:</strong> ${fug.confirmacion.confirmadas} de ${fug.confirmacion.proximas} citas próximas
+      están confirmadas (${_n(fug.confirmacion.pct)}%). Solo se puede medir hacia adelante: cuando una cita se marca
+      «Atendido», DentiDesk pisa el estado «Confirmado» anterior, así que la confirmación de una cita pasada
+      ya no existe.</p>
+    ${_kpiSerie(serie, 'tasa_no_ocurrio', rojo, v => v + '%')}</div>`;
+
+  // ── D. Cartera ──
+  const c = car.cartera;
+  h += `<div class="card"><h3>👥 Cartera: inicios vs. altas</h3>
+    <p style="font-size:.8rem;color:#718096;margin-bottom:12px">
+      Si las altas superan a los inicios, la cartera se vacía aunque el volumen de atenciones se vea estable.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      ${_statCard('Inicios', c.inicios, verde)}
+      ${_statCard('Altas', c.altas, gold)}
+      ${_statCard('Flujo neto', (c.neto > 0 ? '+' : '') + c.neto, c.neto >= 0 ? verde : rojo)}
+      ${_statCard('Activos (90 días)', c.activos, navy)}
+    </div>
+    ${_kpiSerie(c.serie, 'neto', navy)}</div>`;
+
+  const o = car.origen;
+  h += `<div class="card"><h3>🌐 Origen de la reserva</h3>
+    <p style="font-size:.8rem;color:#718096">
+      ${o.web} de ${o.total} citas se agendaron por el sitio (<strong>${_n(o.pct_web)}%</strong>).
+      El resto entró por mesón o teléfono.</p>
+    ${_kpiSerie(o.serie, 'pct_web', gold, x => x + '%')}</div>`;
+
+  // ── E. Plata ──
+  // Se dibuja solo si hay boletas cargadas: sin ingresos el margen daría un número
+  // catastrófico y falso (todos los gastos contra cero), y eso es peor que no mostrarlo.
+  if (pla && pla.meses_con_ingresos) {
+    h += `<div class="card"><h3>💰 Ingresos, gastos y margen</h3>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        ${_statCard('Ingresos', _clp(pla.ingresos), verde)}
+        ${_statCard('Gastos', _clp(pla.gastos), gold)}
+        ${_statCard('Margen', _clp(pla.margen), (pla.margen || 0) >= 0 ? verde : rojo)}
+        ${_statCard('Ingreso por hora de sillón', _clp(pla.ingreso_por_hora), navy)}
+      </div>
+      <p style="font-size:.78rem;color:#718096">
+        ${pla.boletas} documentos emitidos · ${_n(pla.horas_sillon)} h de sillón en el período.
+        Las notas de crédito ya vienen restadas.</p>
+      ${_kpiSerie(pla.serie, 'monto', verde, _clp)}</div>`;
+  } else {
+    h += `<div class="card"><h3>💰 Ingresos, gastos y margen</h3>
+      <p style="font-size:.82rem;color:#718096">
+        Todavía no hay boletas cargadas para este período. Los ingresos los empuja la
+        extensión F2 desde el PC de recepción (DentiDesk no expone las boletas por API y
+        su login tiene reCAPTCHA, así que no se pueden leer desde el servidor).
+        Mientras tanto no se muestra el margen: con los gastos cargados y los ingresos en
+        cero daría un número tan malo como falso.</p></div>`;
+  }
+
+  // ── Calidad de datos: el panel tiene que declarar sus límites ──
+  const q = r.calidad;
+  h += `<div class="card" style="border-left:4px solid ${gold}">
+    <h3>⚠️ Cómo leer estos números</h3>
+    <ul style="font-size:.8rem;color:#4A5568;line-height:1.7;padding-left:18px">
+      <li><strong>${q.sin_motivo} de ${q.total} citas del período (${_n(q.sin_motivo_pct)}%) no traen motivo</strong>
+          desde DentiDesk. Todo lo que depende del motivo —la conversión sobre todo— es un <strong>piso</strong>,
+          no un valor exacto.</li>
+      <li>La duración es la <strong>agendada</strong>: la API no entrega hora de término, así que las horas de
+          sillón son lo reservado, no lo efectivamente ocupado.</li>
+      <li>La inasistencia depende de que alguien marque «Paciente no llega». Una subida puede ser mejor
+          registro y no más inasistencia.</li>
+      <li>Datos disponibles desde <strong>${_esc(q.rango.desde || '—')}</strong>. Los pacientes que ya estaban
+          en tratamiento antes aparecen como «nuevos» al inicio de la serie.</li>
+      ${q.motivos_sin_clasificar.length ? `<li>${q.motivos_sin_clasificar.length} motivos sin clasificar
+          (ej. ${_esc(q.motivos_sin_clasificar.slice(0, 3).map(m => m.motivo).join(', '))}). No son errores:
+          son procedimientos que no marcan un hito del tratamiento.</li>` : ''}
+    </ul></div>`;
+
+  document.getElementById('kpi-cuerpo').innerHTML = h;
+}
+
 
 // ══════════════════════════════════════════════════════
 // ESTADÍSTICAS DE AGENDAMIENTO
@@ -1467,7 +1872,7 @@ function _barras(items, color) {
   const max = Math.max(...items.map(i => i.total), 1);
   return items.map(i => `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <div style="width:140px;font-size:.82rem;color:#2D3748;text-align:right;flex-shrink:0">${i.label}</div>
+      <div style="width:140px;font-size:.82rem;color:#2D3748;text-align:right;flex-shrink:0" title="${_esc(i.label)}">${_esc(i.label)}</div>
       <div style="flex:1;background:#edf2f7;border-radius:4px;overflow:hidden">
         <div style="width:${Math.round(i.total/max*100)}%;min-width:${i.total?'2px':'0'};background:${color};height:18px"></div>
       </div>

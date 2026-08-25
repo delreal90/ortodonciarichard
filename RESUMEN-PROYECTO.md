@@ -69,6 +69,9 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
 getAgendaDay, updateAgenda, getAgendaStatus, createAgenda, getAvailableHours) y
 **NO expone**: búsqueda de paciente por RUT, ficha clínica, evoluciones, ni boletas.
 - **JWT de un solo uso** (cada consulta = 2 round-trips; no cachear el token).
+- `getAgendaDay` **sí** trae `IdStatus` numérico y `BookedBy` (con el literal
+  `'Agendado via web'`), y devuelve agenda de **hace 5 años** — verificado 2026-08-21.
+  Lo que NO trae es `IdReason`. La clínica **no agenda los sábados**.
 - **Dedup de pacientes por RUT+EMAIL** (email que no coincide → ficha duplicada).
   Por eso existe la base local `pacientes.py` (`patient_index.json`).
 - IDs reales: **IdLocation 408**; profesionales **Octavio 9412 / Rodrigo 8452 /
@@ -151,6 +154,9 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
 - `consentimientos.py` (+ `consentimiento.html`, `drive_backup.py`) — firma digital.
 - `seguros.py` (+ `seguros_secretaria.html`, `seguros_seed/`) — formularios de reembolso.
 - `compras.py` (+ `compras.html/js`, `print_agent.py`) — compras/stock (SQLite).
+- `kpi.py` — **datamart de KPIs** (SQLite `kpi.db`, gitignored: tiene RUT). Copia local de
+  la agenda + las consultas que la convierten en indicadores. Cero red al consultar.
+  Segunda excepción legítima a la regla del JSON, igual que `compras.py`.
 - `panel.html` — panel admin (pestañas; las "remotas" hablan directo a Render con ADMIN_TOKEN).
 
 ## Sistemas construidos (una línea + dónde mirar en CLAUDE.md)
@@ -194,6 +200,16 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
   resultado por email al doctor que atendió por última vez al paciente en DentiDesk
   (`dentidesk.doctor_de_paciente`, hilo aparte para no bloquear la respuesta). Sin doctor
   resuelto o sin email configurado (`EMAIL_<DOCTOR>`) → cae a recepción. → "PSQ".
+- **Panel de KPIs** — `kpi.py` mantiene un **datamart SQLite** con una copia de la agenda
+  (61.342 citas desde 2021, backfill por API en 10 min) que se alimenta sola con
+  `_loop_kpi_cosecha`. Pestaña "📊 KPIs" en el panel: captación, **destino de cada primera
+  consulta** (inició / volvió sin iniciar / **perdido** / aún indeterminado), ocupación de
+  sillón, fugas y flujo neto de cartera, todo comparado contra el año anterior.
+  ⚠️ Mirar `tasa_no_ocurrio`, **no** `tasa_inasistencia`: en 2023 la clínica cambió cómo
+  etiqueta las citas incumplidas y la inasistencia "cayó" a 0,2% sin que la fuga real
+  (~21%) se moviera. → "Panel de KPIs".
+- **Reporte semanal de KPIs** — correo de los lunes al Dr. Alberto con 4 áreas
+  (`reporte_semanal.py`). Desde 2026-08-21 lee del datamart. → "Reporte semanal".
 - **Informe de evaluación** — el paciente pagaba $50.000 y el único papel que se
   llevaba era el presupuesto. Ahora el Dr. abre `/informe-pc` desde el F2 (en cualquier
   cita), marca casillas y guarda; recepción imprime **tres hojas** y las

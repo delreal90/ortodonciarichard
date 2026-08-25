@@ -1339,6 +1339,28 @@ El backend protege cada endpoint con `_require_compras(cap)`; el frontend muestr
 pestañas según `ME.caps` (mapa `TAB_CAP`). Login por usuario → token de sesión (30 días)
 en header `X-Compras-Token`. Contraseñas con PBKDF2-HMAC-SHA256 (200k iter, salt).
 
+### Dólar observado automático en compras USD (`admin/dolar.py`, 2026-08-25)
+
+Al elegir moneda **USD** (o cambiar la fecha de la compra), el campo "Tipo de cambio"
+se llena solo con el **dólar observado del Banco Central de ese día**, en vez de que
+alguien lo busque a mano.
+
+- **Fuente:** `https://mindicador.cl/api/dolar/<año>` (API pública que republica las
+  series del Banco Central). Se pide la **serie anual completa en UNA llamada** (~8 KB,
+  163 días) en vez de día por día: la API responde de forma **muy irregular** a las
+  consultas por fecha puntual (probado: mismo día devuelve dato o vacío según el intento).
+- **Cache** en la tabla `dolar_dia` de la misma base de compras (valores históricos que
+  nunca cambian; consulta posterior ~3 ms sin tocar la red). El año en curso se refresca
+  como máximo cada `TTL_HORAS=6` (tabla `dolar_refresco`). Ambas tablas se crean solas.
+- **Fin de semana/feriado:** ese día no tiene publicación → usa el último día hábil
+  anterior (hasta 10 días atrás) y la UI lo explica: *"Ese día no tuvo publicación…:
+  se usó el del 2026-08-21"*. Enero también mira el año anterior.
+- **Nunca bloquea:** si la API falla (devuelve 500/timeouts esporádicos — verificado en
+  vivo; hay 2 reintentos), el endpoint responde `{ok:false}` con **200** y el campo queda
+  para escribirlo a mano. Si la persona escribe el tipo de cambio, el sistema **no lo
+  pisa** aunque cambie la fecha (`tcEditadoAMano`).
+- Endpoint: `GET /api/compras/dolar?fecha=YYYY-MM-DD` (rol `registrar`, rate-limit 120/h).
+
 ### Ajuste manual de stock en los 3 sentidos, con trazabilidad (2026-08-20)
 
 Antes, desde Stock solo se podía **bajar** el stock (botón ➖ → `/api/compras/salida`);
@@ -1892,13 +1914,18 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
     `/api/agenda/reservar-reagenda` la pasa a "Re-agendado" (2132) cuando el paciente concreta
     la hora nueva. Si se cancelara acá y abandonara el flujo, quedaría sin hora.
   - ⚠️ **El nombre del estado NO puede contener `cancel`, `no llega`, `no seguir`, `reagend`,
-    `re-agend` ni `atendid`.** DentiDesk solo devuelve el NOMBRE del estado (nunca el IdStatus),
-    así que cuatro módulos deciden por subcadena si una cita sigue viva: `server.py`
+    `re-agend` ni `atendid`.** Cuatro módulos deciden por subcadena del NOMBRE si una cita
+    sigue viva: `server.py`
     (`_ESTADOS_NO_REAGENDABLES`), `dentidesk.py` (`_ESTADOS_INACTIVOS`), `control_dental.py`
     (`_ESTADOS_NO_OCURRIO`) y `consentimientos.py` (`_ESTADOS_CITA_NO_CUENTA`). Por eso
     "Quiere reagendar" **no servía**: contiene `reagend` → el paciente marcado no habría podido
     reagendar por el link (justo lo contrario del objetivo). Si algún día se renombra, respetar
     esa restricción; hay una prueba que la fija (`test_reagenda_diagnostico.py`).
+    ⚠️ **Corrección 2026-08-21:** hasta esa fecha acá decía que DentiDesk *"solo devuelve
+    el NOMBRE del estado (nunca el IdStatus)"*. Es falso — `getAgendaDay` **sí** trae
+    `IdStatus` numérico (lo que no trae es `IdReason`). `kpi.py` normaliza por número. Estos
+    cuatro módulos siguen usando subcadenas porque están probados en producción y no se
+    tocaron, así que **la restricción de arriba sigue vigente para ellos**.
   - **NO agregar 33579 a esas tuplas**: en `_ESTADOS_INACTIVOS` haría que
     `citas_futuras_paciente` deje de ver la hora y la guarda `ya_tiene_hora` de recaptación
     caería del lado permisivo (le mandaría recordatorios a alguien que sí tiene hora).
@@ -2550,6 +2577,172 @@ una rodada de scroll.
   reverso educativo fijo.
 - Fase 3: encuesta NPS para primeras consultas (`nps.clasificar_disparo()` hoy devuelve
   `None` para ese motivo) y comparar contra la línea base a los 3 meses.
+
+---
+
+## Reporte semanal de KPIs por correo (`reporte_semanal.py`)
+
+> Existía desde el 2026-07-30 y **no estaba documentado acá**. Se anota ahora porque es
+> el antecesor directo del panel de KPIs y sigue en producción.
+
+Correo de los lunes al Dr. Alberto con 4 áreas — **Comercial** (reservas online, embudo
+del sitio, fuga de primeras consultas), **Clínico** (atendidos, no-shows, cancelaciones,
+primeras consultas, inicios, altas), **Reputación** (NPS) y **Operación** (seguros,
+gastos) — más Reactivación. Lo dispara `_loop_reporte_semanal` en `server.py`; se puede
+previsualizar sin enviar con `GET /api/reporte/semanal/preview`.
+
+Cada fuente va en su **propio `try/except`**: `agregar()` NUNCA lanza, y un área que
+falla sale como `{'error': True}`. Un reporte con un bloque en error es mejor que un
+reporte que no sale.
+
+Desde el 2026-08-21 su bloque Clínico **lee del datamart** (sección siguiente) en vez de
+barrer DentiDesk día por día en cada corrida. Si el datamart no tiene el período, cae al
+barrido directo de siempre y lo dice en el correo (`Fuente: DentiDesk directo`) — si esa
+línea aparece semana tras semana, el loop de cosecha está caído.
+
+---
+
+## Panel de KPIs — datamart de la agenda (2026-08-21)
+
+Los indicadores del proyecto se calculaban siempre **en el momento** contra DentiDesk y no
+se guardaba nada, así que no había forma de ver una tendencia ni de comparar contra el año
+pasado. El informe de julio midió cosas importantes (pipeline de nuevos cayendo ~11%/año,
+conversión plana en 39,2%) y quedaron **congeladas en un .md**. `admin/kpi.py` es el
+almacén que faltaba: una copia local de la agenda que se alimenta sola.
+
+**Módulo:** `admin/kpi.py` + **SQLite** `kpi.db` (env `KPI_DB_PATH`, disco persistente,
+**gitignored** — tiene RUT). Es la misma excepción a la regla 2 que `compras.py`: son
+~90.000 filas con `GROUP BY` por mes/doctor/motivo, no un documento JSON.
+Molde de `compras.py`, incluidos los `CREATE INDEX` **después** de `_migrar()`.
+
+**Tablas:** `citas` (una por `IdAgenda`, con el dato crudo *y* el derivado),
+`disponibilidad` (fecha × doctor → minutos libres/ocupados), `ingresos` (fase 2),
+`snapshots` (avance del backfill y métricas no reconstruibles).
+
+**Se alimenta con `_loop_kpi_cosecha`** (03:00, patrón de VENTANA): ventana móvil de
+**−30 / +45 días hábiles**. Los −30 **no son redundancia**: la clínica marca "Atendido"
+*después* de la visita (misma trampa que descubrió `control_dental`), así que sin
+re-mirarlos el datamart se queda con estados viejos.
+
+### ⚠️ Tres correcciones a lo que este archivo decía sobre `getAgendaDay`
+
+Verificadas en vivo el 2026-08-21 sondeando la API con datos reales:
+
+1. **`IdStatus` numérico SÍ viene.** Este CLAUDE.md afirmaba que DentiDesk "solo devuelve
+   el NOMBRE del estado (nunca el IdStatus)". Es cierto para el **motivo** (`IdReason` no
+   viene, y por eso existe `motivos_id_reason_extra`), pero **no para el estado**.
+   `kpi.py` normaliza por número, que es exacto. ⚠️ Los otros cuatro módulos siguen
+   decidiendo por subcadena del nombre (`_ESTADOS_NO_REAGENDABLES`, `_ESTADOS_INACTIVOS`,
+   `_ESTADOS_NO_OCURRIO`, `_ESTADOS_CITA_NO_CUENTA`) — están probados en producción y
+   **no se tocaron**; la restricción de no renombrar estados con `cancel`/`reagend`/etc.
+   sigue vigente para ellos.
+2. **`BookedBy` trae quién agendó**, con el literal `'Agendado via web'` para las reservas
+   del sitio → el origen online/mesón sale para toda la historia, sin cruzar con
+   `agendamientos.jsonl` (que además solo existe desde julio-2026). Hoy el sitio es el
+   **~3%** de las reservas.
+3. **`CreateDate` está en el 100% de las citas** → la anticipación con que se agenda es
+   medible hacia atrás.
+
+Campos completos: `IdAgenda, IdStatus, Status, Date, time, duration, Reason,
+ProfessionalName, ProfessionalSpeciality, PatientDocument, PatientName, PatientEmail,
+Phone, Phone2, BookedBy, CreateDate, LocationName`.
+
+### El backfill: 5 años reconstruidos por API
+
+**DentiDesk devuelve la agenda de hace 5 años** (probado en 2021-03-10). El backfill
+corrió el 2026-08-21: **61.342 citas, 1.471 días hábiles, 0 errores, 10 minutos**
+(`ThreadPool(4)`, pausa entre lotes, reanudable vía `snapshots`). Rango 2021-01-04 →
+hoy. **Se corre UNA vez y fuera de horario de atención.**
+
+Esto supera al parquet de `ortodonciarichard-analytics/`: ese es un export de
+**atendidos** y no trae estado, así que con él **no existía línea base de inasistencia,
+cancelación ni reagenda**. También se verificó que **la clínica no agenda los sábados**,
+así que el barrido L-V no pierde nada y ahorra ~29% de las llamadas.
+
+**Validación contra el informe del 2026-07-30** (que se hizo con pandas sobre el parquet):
+atenciones por doctor 2023-2025 coinciden **dentro de 0 a 3 citas** sobre ~2.500; pacientes
+nuevos 2024 exacto (291); horas/día y días trabajados 2025 exactos; conversión 90 días
+38,5% vs 39,2%. Las diferencias en la columna *Total* del informe eran exactamente el
+auxiliar de radiología (2023: 565 citas = la diferencia exacta), que el informe sumaba y
+acá se separa como `doctor='rx'`.
+
+### ★ Destino de la primera consulta — el KPI que no existía
+
+Pedido explícito del usuario (2026-08-21):
+
+> *"hay pacientes que tienen primera consulta, pero uno no indica el estudio, sino que
+> puede indicar controlar u otra cosa, y ese no es un paciente perdido. Pero el que tuvo
+> primera consulta y nunca más vino, ese sí es un paciente perdido."*
+
+Ninguna métrica del proyecto medía eso: `analisis_conversion_pc.py` es binaria (convirtió
+o no, mezclando al que está en observación con el perdido), y `seguimiento_pc.es_avance()`
+hace lo contrario (cuenta **cualquier** control como avance). `destino_primeras_consultas()`
+reparte en **cuatro**: `inicio` · `siguio` (volvió sin iniciar — **no es fuga**) ·
+`perdido` (cero citas posteriores) · `en_ventana` (demasiado reciente para juzgar,
+**excluido del denominador**, si no la fuga baja sola cuando hay consultas nuevas).
+
+⚠️ `perdido` mira **toda** la historia posterior, no los 90 días: "nunca más vino" no tiene
+ventana. La ventana solo define `conversion_90d`, que se mantiene para seguir comparable
+con la línea base de 39,2%. *Segunda Consulta* queda en `siguio`, no en `inicio` (el script
+histórico la contaba como avance) — decisión con prueba que la fija.
+
+### ⚠️⚠️ El cambio de etiquetado de 2023 (mirar `tasa_no_ocurrio`, NO `tasa_inasistencia`)
+
+El backfill dejó ver algo que ningún análisis previo podía: en el **primer semestre de
+2023 la clínica cambió cómo etiqueta una cita que no se cumple**.
+
+| semestre | no llega | reagendada | cancelada | suma | % del total |
+|---|---|---|---|---|---|
+| 2022-S1 | 141 | 538 | 442 | 1.121 | 21,0% |
+| 2023-S1 | **14** | **1.050** | **94** | 1.158 | 20,1% |
+
+La inasistencia "cayó" de 2,9% a 0,2% y las cancelaciones se desplomaron, pero **la suma
+se quedó clavada en ~21% durante los cinco años**: ahora casi todo se marca *Re-agendado*.
+Leer esa caída como una mejora sería un error grave, y muy fácil de cometer, porque
+coincide con la época en que se encendieron los recordatorios de WhatsApp. Por eso el
+indicador principal es **`tasa_no_ocurrio`** (no llega + cancela + reagenda), que es
+robusto al cambio de criterio y el único comparable a través de 2023. Hay una prueba que
+fija esa propiedad.
+
+### Otras decisiones que no se negocian
+
+- **La ocupación pasada NO se expresa en porcentaje.** Para un día que ya pasó no existe
+  el denominador (`getAvailableHours` solo responde por días futuros) y la jornada del
+  config no es la real (Octavio trabaja ~140 días/año, no 250). Se informan **horas de
+  sillón por día trabajado**, que se comparan entre doctores y contra el propio historial.
+  El % real solo existe hacia adelante, desde la tabla `disponibilidad` que captura el
+  barrido diario — **lo que no se guarde hoy no se reconstruye mañana**.
+- **La tasa de confirmación no se puede medir hacia atrás.** DentiDesk guarda UN campo de
+  estado: al marcar "Atendido" se pisa el "Confirmado por WhatsApp" anterior. Lo medible es
+  `tasa_confirmacion_vigente()`, sobre las citas que aún no ocurren.
+- **`reclasificar()` es la salida de emergencia.** La base guarda el dato CRUDO además del
+  derivado, así que cuando un mapa quede corto se corrige la constante y se reclasifica
+  **sin volver a barrer 5 años**. Ya se usó: el backfill destapó los IdStatus 27085/27086
+  ("Primera Consulta Ingresada" / "Ficha Primera Consulta") que no estaban en la doc.
+- **El 17,6% de las citas no trae motivo** desde DentiDesk (10.771 de 61.342; coincide con
+  el ~17% del parquet). Toda métrica que dependa del motivo es un **piso**. El panel lo
+  declara en su tarjeta "Cómo leer estos números", junto con el resto de los límites.
+
+### Archivos y endpoints
+
+```
+admin/kpi.py        ← esquema, cosecha, backfill, clasificación, consultas (cero red)
+admin/test_kpi.py   ← 49 pruebas, SQLite temporal, cero red
+admin/panel.html    ← pestaña "📊 KPIs" (patrón remoto, stats_url/stats_token)
+```
+Endpoints (`server.py`, bloque "PANEL DE KPIs", **todos con ADMIN_TOKEN**):
+`GET /api/kpi/resumen|serie|primeras-consultas|ocupacion|fugas|cartera|calidad`,
+`POST /api/kpi/cosechar|backfill|reclasificar`. Solo `/primeras-consultas` devuelve RUT
+(la lista de perdidos, para poder contactarlos).
+
+En el panel se agregaron `_kpiTile` (con comparación interanual), `_kpiSerie` (barras por
+mes) y `_kpiHeatmap` (día × hora) — **sin librería de gráficos**, como el resto del panel.
+De paso se cerró un hueco: `_barras()` interpolaba su `label` **sin `_esc()`**, y ahora se
+le pasan nombres de motivo que vienen de DentiDesk.
+
+**Pendiente:** fase 2, ingresos desde las boletas DTE (el vigilante de `content.js` ya las
+lee para Seguros; falta empujarlas a `POST /api/kpi/ingresos` para tener margen e ingreso
+por hora de sillón). Correr el backfill en producción una vez desplegado.
 
 ---
 

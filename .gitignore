@@ -75,6 +75,13 @@ admin/compras.db
 admin/compras.db-wal
 admin/compras.db-shm
 admin/compras.db.backup*
+
+# Datamart de KPIs (kpi.py): copia local de la agenda. Tiene RUT de pacientes y
+# montos facturados -> NUNCA al repo, que es PUBLICO.
+admin/kpi.db
+admin/kpi.db-wal
+admin/kpi.db-shm
+admin/kpi.db.backup*
 admin/compras_fotos/
 # Seed de la importacion historica: contiene proveedores/montos reales de la clinica
 admin/seed*.json
