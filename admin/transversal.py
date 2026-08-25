@@ -53,6 +53,11 @@ NORMAS_PATH = Path(__file__).parent / 'transversal_normas.json'
 # Cita corta para el pie de la hoja impresa. La larga vive en el JSON.
 CITA = ('Bishara SE, Jakobsen JR, Treder J, Nowak A. Arch width changes from 6 weeks '
         'to 45 years of age. Am J Orthod Dentofacial Orthop. 1997;111(4):401-9.')
+NOTA_DE_SUSTITUIDA = ('En esta edad la fuente publica una desviación estándar que triplica '
+                      'la de todas sus edades vecinas, muy probablemente por un error de '
+                      'imprenta. Para el gráfico se usó la del punto contiguo; el promedio '
+                      'de referencia no se modificó.')
+
 NOTA_RECAMBIO = ('En las edades marcadas, la referencia atraviesa el recambio de dientes '
                  'temporales a permanentes: ahí el ascenso de la curva refleja ese cambio '
                  'además del crecimiento.')
@@ -106,11 +111,32 @@ def _serie(medida, arcada, sexo):
 
     Es UNA sola serie de los 3 a los 45 anios, no dos. Ver la nota sobre el
     recambio en el encabezado del modulo.
+
+    ⚠️ LA DE SOSPECHOSA SE SUSTITUYE PARA DIBUJAR (no la media)
+    -----------------------------------------------------------
+    El intermolar mandibular femenino a los 3 anios trae DE = 6,2 mm en la Tabla
+    II, contra 1,9-2,4 en TODAS sus vecinas y 2,0 en la celda masculina de la
+    misma edad. Con esa DE la banda P3-P97 mide 23,3 mm de ancho donde las demas
+    miden 7, y la curva dibuja un embudo que no representa nada biologico: se ve
+    como si la variabilidad se desplomara entre los 3 y los 5 anios.
+
+    Es casi seguro un error de imprenta del paper. Se conserva el valor
+    publicado en el JSON (la fuente no se altera) y la MEDIA se respeta tal
+    cual; lo unico que se sustituye, y solo para calcular y dibujar, es la DE,
+    por la del punto vecino de la misma serie. La hoja lo declara y el resultado
+    viene marcado con 'de_sustituida'.
     """
     filas = [r for r in _normas()['registros']
              if r['medida'] == medida and r['arcada'] == arcada and r['sexo'] == sexo]
     filas.sort(key=lambda r: r['edad'])
-    return tuple((r['edad'], r['media'], r['de'], bool(r.get('sospechoso'))) for r in filas)
+    des = [r['de'] for r in filas]
+    for i, r in enumerate(filas):
+        if r.get('sospechoso'):
+            vecina = des[i + 1] if i + 1 < len(des) else (des[i - 1] if i else None)
+            if vecina:
+                des[i] = vecina
+    return tuple((r['edad'], r['media'], des[i], bool(r.get('sospechoso')))
+                 for i, r in enumerate(filas))
 
 
 def diente_de_referencia(medida, edad):
@@ -237,6 +263,7 @@ def referencia(medida, arcada, sexo, edad, tramo=None):
     sospechoso = any(p[3] for p in serie if abs(p[0] - edad) <= 2.5)
 
     return {'ok': True, 'media': round(media, 2), 'de': round(de, 2),
+            'de_sustituida': sospechoso,
             'tramo': tramo or '', 'diente': diente_de_referencia(medida, edad),
             'interpolado': edad not in edades, 'en_borde': edad > edades[-1],
             'en_recambio': en_recambio(medida, edad),

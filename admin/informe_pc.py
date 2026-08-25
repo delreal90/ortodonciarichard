@@ -65,14 +65,30 @@ _STORE = jsonstore.JsonStore(REGISTRO_PATH, default={'informes': {}}, indent=2,
 
 # Este bloque es el corazon del asunto: hace visible el trabajo que hoy no se ve.
 # Cero clics para el doctor.
-EVALUACION_REALIZADA = (
-    'Escaneo digital 3D de sus dientes y arcadas, sin radiación.',
-    'Examen clínico de dientes, mordida, encías y articulación.',
-    'Análisis de su cara y de su sonrisa.',
-    'Mediciones de sus arcadas comparadas con valores de referencia para su edad y sexo.',
-    'Tamizaje de respiración y sueño.',
-    'Revisión de sus antecedentes de salud y respuesta a sus consultas.',
+# Lo que se hizo en la consulta. Es elegible: puede que en una cita no se haya
+# escaneado, o no se haya alcanzado a hacer el tamizaje, y el informe no puede
+# afirmar que se hizo algo que no se hizo. Vienen marcados por defecto porque
+# lo habitual es hacerlos todos, pero se pueden desmarcar.
+CATALOGO_EVALUACION = (
+    ('escaneo',      'Escaneo digital 3D de sus dientes y arcadas, sin radiación.'),
+    ('examen',       'Examen clínico de dientes, mordida, encías y articulación.'),
+    ('facial',       'Análisis de su cara y de su sonrisa.'),
+    ('mediciones',   'Mediciones de sus arcadas comparadas con valores de referencia '
+                     'para su edad y sexo.'),
+    ('tamizaje',     'Tamizaje de respiración y sueño.'),
+    ('antecedentes', 'Revisión de sus antecedentes de salud y respuesta a sus consultas.'),
+    ('radiografias', 'Revisión de las radiografías que usted trajo.'),
+    ('fotografias',  'Registro fotográfico clínico.'),
 )
+
+EVALUACION_MAP = dict(CATALOGO_EVALUACION)
+
+# Las que vienen marcadas al abrir un informe nuevo. 'radiografias' y
+# 'fotografias' NO: dependen de que el paciente haya traido algo o de que se
+# hayan tomado, y darlas por hechas seria afirmar de mas.
+EVALUACION_POR_DEFECTO = ('escaneo', 'examen', 'facial', 'mediciones',
+                          'tamizaje', 'antecedentes')
+
 
 QUE_APORTA_ESTUDIO = (
     'Lo que usted realizó hoy es la evaluación clínica y la opinión de un especialista. '
@@ -236,18 +252,28 @@ CONCLUSIONES_MAP = {c[0]: {'etiqueta': c[1], 'texto': c[2]} for c in CONCLUSIONE
 # recomendacion, no una orden.
 
 CATALOGO_ORDENES = (
-    ('rx_panoramica', 'Radiografía panorámica', 'Ortopantomografía'),
-    ('tele_perfil', 'Telerradiografía de perfil', 'Con análisis cefalométrico'),
-    ('tele_frontal', 'Telerradiografía frontal', 'Postero-anterior'),
-    ('cbct', 'Tomografía computarizada de haz cónico (CBCT)', ''),
-    ('rx_periapical', 'Radiografías periapicales', ''),
-    ('rx_carpal', 'Radiografía carpal', 'Evaluación de maduración ósea'),
-    ('fotografias', 'Fotografías clínicas', 'Intraorales y extraorales'),
-    ('escaneo', 'Escaneo intraoral / modelos de estudio', ''),
-    ('analisis_modelos', 'Análisis de modelos', ''),
+    ('rx_panoramica',   'Radiografía panorámica', 'Ortopantomografía', None),
+    ('tele_perfil',     'Telerradiografía de perfil', '', None),
+    ('tele_frontal',    'Telerradiografía frontal', 'Póstero-anterior', None),
+    ('cefalometria',    'Análisis cefalométrico', '', None),
+    # El CBCT no es un examen: es varios. Pedir "CBCT" a secas obliga al centro
+    # de imagenes a llamar para preguntar, y al paciente a irradiarse de mas o
+    # de menos.
+    ('cbct',            'Tomografía computarizada de haz cónico (CBCT)', '',
+     {'etiqueta': 'Alcance',
+      'opciones': ('Unimaxilar', 'Bimaxilar', 'Cráneo completo'),
+      'libre': 'Zona (especificar)'}),
+    ('rx_periapical',   'Radiografías periapicales', '',
+     {'etiqueta': 'Piezas', 'libre': 'Piezas (ej. 1.1, 2.1, 3.6)'}),
+    ('rx_bitewing',     'Radiografías bitewing', 'Aleta de mordida', None),
+    ('rx_mano',         'Radiografía de mano', 'Evaluación de maduración ósea', None),
+    ('fotografias',     'Fotografías clínicas', 'Intraorales y extraorales', None),
+    ('escaneo',         'Escaneo intraoral / modelos de estudio', '', None),
+    ('analisis_modelos', 'Análisis de modelos', '', None),
 )
 
-ORDENES = {o[0]: {'etiqueta': o[1], 'detalle': o[2]} for o in CATALOGO_ORDENES}
+ORDENES = {o[0]: {'etiqueta': o[1], 'detalle': o[2], 'precisa': o[3]}
+           for o in CATALOGO_ORDENES}
 
 TEXTO_ORDEN = ('Se solicitan los exámenes marcados con el fin de completar el estudio '
                'diagnóstico del paciente.')
@@ -267,8 +293,11 @@ def catalogo():
                           'texto': SIN_HALLAZGOS[2]},
         'conclusiones': [{'clave': c, 'etiqueta': e, 'texto': t} for c, e, t in CONCLUSIONES],
         'relaciones': [{'valor': v, 'etiqueta': e} for v, e, _ in RELACIONES],
-        'ordenes': [{'clave': c, 'etiqueta': e, 'detalle': d} for c, e, d in CATALOGO_ORDENES],
-        'textos': {'evaluacion_realizada': list(EVALUACION_REALIZADA),
+        'ordenes': [{'clave': c, 'etiqueta': e, 'detalle': d, 'precisa': p}
+                    for c, e, d, p in CATALOGO_ORDENES],
+        'evaluacion': [{'clave': c, 'texto': t} for c, t in CATALOGO_EVALUACION],
+        'evaluacion_defecto': list(EVALUACION_POR_DEFECTO),
+        'textos': {
                    'que_aporta_estudio': QUE_APORTA_ESTUDIO,
                    'disclaimer': DISCLAIMER,
                    'nota_mediciones': NOTA_MEDICIONES,
@@ -329,7 +358,13 @@ def listar(fecha=None, solo_pendientes=False):
     fecha = fecha or fechas.hoy_chile().isoformat()
     items = [i for i in _STORE.load().get('informes', {}).values() if i.get('fecha') == fecha]
     if solo_pendientes:
-        items = [i for i in items if not i.get('impreso')]
+        # Un informe sin impresion diagnostica NO esta listo: es el borrador que
+        # queda al mostrarle el QR del cuestionario al paciente apenas empieza
+        # la consulta. Sin esto recepcion lo veria como pendiente de imprimir y
+        # podria entregarle al paciente un informe a medio llenar.
+        # Se deriva del contenido en vez de llevar un flag aparte: en cuanto el
+        # Dr. elige la impresion diagnostica y guarda, aparece solo.
+        items = [i for i in items if not i.get('impreso') and i.get('conclusion')]
     return sorted(items, key=lambda i: i.get('creado') or '', reverse=True)
 
 
@@ -525,6 +560,36 @@ def imagenes_de(informe_id, thumbs=False):
         out.append({'archivo': img.get('archivo'), 'titulo': img.get('titulo', ''),
                     'src': imagen_data_uri(nombre)})
     return out
+
+
+# ── QR ───────────────────────────────────────────────────────────────────
+
+def qr_data_uri(texto, escala=4):
+    """Un QR como data URI (SVG). Devuelve '' si algo falla: un informe NUNCA
+    se cae por no poder dibujar un codigo."""
+    if not texto:
+        return ''
+    try:
+        import base64
+        import io as _io
+        import segno
+        buf = _io.BytesIO()
+        segno.make(texto, error='m').save(buf, kind='svg', scale=escala, border=1,
+                                          dark='#1A2E4A')
+        return 'data:image/svg+xml;base64,' + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return ''
+
+
+# El paso siguiente mas frecuente despues de la evaluacion. Lleva a la agenda
+# online con el paciente, el doctor y el motivo ya elegidos: el Estudio Integral
+# agenda SUS DOS CITAS con la separacion minima que ya exige el sistema, asi que
+# el paciente no tiene que entender nada de eso.
+MOTIVO_ESTUDIO = 'estudio_integral'
+
+TEXTO_LINK_ESTUDIO = ('Puede agendar las dos citas del Estudio Integral escaneando este código '
+                      'con la cámara de su teléfono, o entrando al enlace. Sus datos ya van '
+                      'cargados: solo elige día y hora.')
 
 # ── Armado del documento ─────────────────────────────────────────────────
 #
@@ -839,6 +904,25 @@ def puntuar_tamizaje(item):
     return doc['tamizaje']
 
 
+def _evaluacion_realizada(item):
+    """Lo que se hizo en esta consulta, en el orden del catalogo, mas lo que el
+    doctor haya escrito en el campo libre.
+
+    Es elegible porque el informe NO puede afirmar que se hizo algo que no se
+    hizo: si en esa cita no se escaneo, esa linea no va. Un informe viejo
+    (guardado antes de que esto fuera elegible) no trae la lista, y en ese caso
+    se asume lo que era fijo entonces.
+    """
+    elegidas = item.get('evaluacion')
+    if elegidas is None:
+        elegidas = list(EVALUACION_POR_DEFECTO)
+    out = [EVALUACION_MAP[c] for c, _ in CATALOGO_EVALUACION if c in elegidas]
+    otros = (item.get('evaluacion_otros') or '').strip()
+    if otros:
+        out.append(otros)
+    return out
+
+
 def armar_documento(item, doctor=None, clinica=None):
     """Convierte un informe guardado en el documento listo para imprimir.
 
@@ -898,6 +982,17 @@ def armar_documento(item, doctor=None, clinica=None):
         sin_hallazgos = True
     else:
         hallazgos = [dict(HALLAZGOS[c], clave=c) for c in claves if c in HALLAZGOS]
+        sin_hallazgos = False
+    # Los personalizados van al final, despues del catalogo: son lo que el
+    # catalogo no supo nombrar, no una categoria aparte.
+    for extra in (item.get('hallazgos_personalizados') or []):
+        titulo = (extra.get('titulo') or '').strip()
+        if not titulo:
+            continue
+        hallazgos.append({'clave': 'personalizado', 'etiqueta': titulo,
+                          'texto': (extra.get('descripcion') or '').strip(),
+                          'relevancia': '', 'grupo': 'personalizado',
+                          'grupo_label': 'Otros hallazgos'})
         sin_hallazgos = False
 
     # ── Impresion diagnostica inicial ──
@@ -962,7 +1057,17 @@ def armar_documento(item, doctor=None, clinica=None):
     }
 
     # ── Ordenes ──
-    ordenes = [dict(ORDENES[c], clave=c) for c in (item.get('ordenes') or []) if c in ORDENES]
+    detalles = item.get('ordenes_detalle') or {}
+    ordenes = []
+    for c in (item.get('ordenes') or []):
+        if c not in ORDENES:
+            continue
+        o = dict(ORDENES[c], clave=c)
+        # Lo que precisa el examen (alcance del CBCT, piezas de las periapicales)
+        # va PEGADO al examen: una orden que dice solo "CBCT" obliga al centro de
+        # imagenes a llamar para preguntar.
+        o['precision'] = (detalles.get(c) or '').strip()
+        ordenes.append(o)
     plan = [p for p in (item.get('plan_accion') or []) if (p or {}).get('accion')]
 
     return {
@@ -975,7 +1080,7 @@ def armar_documento(item, doctor=None, clinica=None):
         'doctor': doctor or {},
         'clinica': clinica or {},
         'motivo_consulta': item.get('motivo_consulta') or '',
-        'evaluacion_realizada': list(EVALUACION_REALIZADA),
+        'evaluacion_realizada': _evaluacion_realizada(item),
         'mediciones': {'transversales': transversales, 'simples': simples,
                        'oclusion': oclusion,
                        'nota': NOTA_MEDICIONES,
@@ -993,6 +1098,7 @@ def armar_documento(item, doctor=None, clinica=None):
         'sin_hallazgos_texto': SIN_HALLAZGOS[2],
         'conclusion': conclusion,
         'plan_accion': plan,
+        'agendar_estudio': item.get('agendar_estudio_link') or None,
         # Al que no requiere tratamiento no se le ofrece el Estudio: seria
         # exactamente la venta que este documento existe para no parecer.
         'que_aporta_estudio': (QUE_APORTA_ESTUDIO if ck != 'no_requiere' else ''),

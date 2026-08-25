@@ -193,6 +193,8 @@ class TestCoberturaDeAuth(unittest.TestCase):
         '/api/seguro/actualizar-aseguradora':   'el paciente actualiza su aseguradora con el token del correo (rate limit 10/min)',
         '/api/whatsapp/webhook':                'firma HMAC de Meta, fail-closed',
         '/api/psq/enviar':                      'cuestionario de sueño: el paciente lo envía sin sesión (rate limit 10/min)',
+        '/api/tamizaje/datos':                  'cuestionario de sueño del informe: lo abre el paciente escaneando el QR, sin sesión. La llave es un token firmado que vence en 2 h (rate limit 30/min)',
+        '/api/tamizaje/enviar':                 'el paciente responde ese cuestionario desde su teléfono; mismo token firmado y con vencimiento (rate limit 10/min)',
         '/api/compras/login':                   'la puerta de entrada de Compras',
         '/api/compras/logout':                  'cierra la sesion de Compras',
         '/api/compras/me':                      'lee el X-Compras-Token del header',

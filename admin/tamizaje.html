@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cuestionario de sueño — Ortodoncia Richard</title>
+<style>
+  :root { --navy:#1A2E4A; --gold:#C9A84C; --bg:#F0F5FB; --line:#d9e2ee;
+          --text:#1A2535; --mid:#4A5568; --red:#e53e3e; --green:#38a169; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family: system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+         background:var(--bg); color:var(--text); font-size:16px; padding-bottom:90px; }
+  header { background:var(--navy); color:#fff; padding:16px 18px; }
+  header .marca { color:var(--gold); font-size:.7rem; letter-spacing:2px;
+                  text-transform:uppercase; margin-bottom:4px; }
+  header h1 { font-size:1.1rem; }
+  main { max-width:640px; margin:14px auto; padding:0 14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px;
+          padding:14px 16px; margin-bottom:12px; }
+  .intro { font-size:.92rem; color:var(--mid); line-height:1.5; }
+  .seccion { font-size:.72rem; text-transform:uppercase; letter-spacing:1px;
+             color:var(--navy); font-weight:700; margin:16px 0 6px; }
+  .preg { padding:11px 0; border-bottom:1px solid #eef3f9; }
+  .preg:last-child { border-bottom:0; }
+  .preg p { font-size:.95rem; margin-bottom:8px; line-height:1.35; }
+  .ops { display:flex; flex-wrap:wrap; gap:7px; }
+  /* Botones grandes: esto se contesta con el pulgar, de pie, en una sala de
+     espera. Un radio chico es una respuesta equivocada esperando a pasar. */
+  .ops button { border:1px solid var(--line); background:#fff; border-radius:9px;
+                padding:10px 15px; font:inherit; font-size:.92rem; cursor:pointer;
+                color:var(--mid); min-width:74px; }
+  .ops button.on { background:var(--navy); color:#fff; border-color:var(--navy);
+                   font-weight:600; }
+  input[type=number] { width:130px; padding:10px; border:1px solid var(--line);
+                       border-radius:9px; font:inherit; }
+  .barra { position:fixed; bottom:0; left:0; right:0; background:#fff;
+           border-top:1px solid var(--line); padding:12px 16px; display:flex;
+           align-items:center; gap:12px; }
+  .barra .sp { flex:1; font-size:.85rem; color:var(--mid); }
+  .btn { background:var(--navy); color:#fff; border:0; border-radius:9px;
+         padding:13px 22px; font:inherit; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; }
+  .legal { font-size:.8rem; color:var(--mid); line-height:1.45; }
+  .fin { text-align:center; padding:40px 20px; }
+  .fin .tick { font-size:3rem; color:var(--green); }
+  .fin h2 { margin:10px 0 8px; font-size:1.15rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marca">Ortodoncia Richard</div>
+  <h1 id="titulo">Cuestionario de sueño</h1>
+</header>
+
+<main>
+  <div id="cargando" class="card">Cargando…</div>
+
+  <div id="form" style="display:none">
+    <div class="card">
+      <p class="intro" id="intro"></p>
+    </div>
+    <div class="card" id="preguntas"></div>
+    <div class="card"><p class="legal" id="legal"></p></div>
+  </div>
+
+  <div id="listo" class="card fin" style="display:none">
+    <div class="tick">✓</div>
+    <h2>Gracias, ya quedó registrado</h2>
+    <p class="intro">Su respuesta llegó a la consulta. Puede dejar el teléfono.</p>
+  </div>
+
+  <div id="error" class="card" style="display:none"></div>
+</main>
+
+<div class="barra" id="barra" style="display:none">
+  <span class="sp" id="faltan"></span>
+  <button class="btn" id="btnEnviar" onclick="enviar()">Enviar</button>
+</div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+let FORM = null;
+const R = {};
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+const ETIQUETA = {si:'Sí', no:'No', no_se:'No sé',
+                  nunca:'Nunca', algunas_veces:'Algunas veces',
+                  muchas_veces:'Muchas veces', casi_siempre:'Casi siempre'};
+
+async function iniciar(){
+  if (!TOKEN) return falla('Este enlace no es válido. Pídale a la consulta que le muestre el código otra vez.');
+  let r;
+  try { r = await (await fetch('/api/tamizaje/datos?token=' + encodeURIComponent(TOKEN))).json(); }
+  catch(e){ return falla('No hay conexión. Intente de nuevo en un momento.'); }
+  if (!r.ok) {
+    return falla(r.motivo === 'expirado'
+      ? 'Este código ya venció. Pídale a la consulta que le muestre uno nuevo.'
+      : 'Este enlace no es válido. Pídale a la consulta que le muestre el código otra vez.');
+  }
+  FORM = r.formulario;
+  $('#titulo').textContent = FORM.titulo;
+  $('#intro').textContent = (r.nombre ? 'Para ' + r.nombre + '. ' : '') +
+    'Son unas pocas preguntas y toma menos de dos minutos. No hay respuestas buenas ni malas.';
+  $('#legal').textContent = FORM.texto_legal || '';
+  pintar();
+  $('#cargando').style.display = 'none';
+  $('#form').style.display = '';
+  $('#barra').style.display = '';
+  contar();
+}
+
+function falla(msg){
+  $('#cargando').style.display = 'none';
+  $('#error').style.display = '';
+  $('#error').innerHTML = `<p class="intro">${esc(msg)}</p>`;
+}
+
+function pintar(){
+  let h = '', seccion = null;
+  FORM.preguntas.forEach(p => {
+    if (p.seccion && p.seccion !== seccion) {
+      seccion = p.seccion;
+      h += `<div class="seccion">${esc(seccion)}</div>`;
+    }
+    h += `<div class="preg"><p>${esc(p.texto)}</p>`;
+    if (p.tipo === 'numero') {
+      h += `<input type="number" inputmode="decimal" data-k="${esc(p.id)}" class="num">`;
+    } else {
+      const ops = p.opciones || ['si','no','no_se'];
+      h += `<div class="ops" data-k="${esc(p.id)}">` + ops.map(o =>
+        `<button type="button" data-v="${esc(o)}">${esc(ETIQUETA[o] || o)}</button>`).join('') + `</div>`;
+    }
+    h += `</div>`;
+  });
+  $('#preguntas').innerHTML = h;
+
+  $('#preguntas').querySelectorAll('.ops button').forEach(b => {
+    b.addEventListener('click', () => {
+      const cont = b.closest('.ops'), k = cont.dataset.k;
+      R[k] = b.dataset.v;
+      cont.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      contar();
+    });
+  });
+  $('#preguntas').querySelectorAll('.num').forEach(i =>
+    i.addEventListener('input', () => { R[i.dataset.k] = i.value; contar(); }));
+}
+
+function contar(){
+  // El STOP-BANG puede enviarse incompleto (el puntaje es un piso y el informe
+  // lo dice); el PSQ no, porque su puntaje es una proporción y con preguntas
+  // sueltas sin contestar no significa lo mismo.
+  const total = FORM.preguntas.length;
+  const hechas = FORM.preguntas.filter(p => R[p.id] != null && R[p.id] !== '').length;
+  const faltan = total - hechas;
+  $('#faltan').textContent = faltan ? `Faltan ${faltan} de ${total}` : 'Listo para enviar';
+  // El PSQ exige todo (su puntaje es una proporcion: con preguntas sin contestar
+  // no significa lo mismo). El STOP-BANG acepta incompleto --el puntaje es un
+  // piso y la hoja lo dice-- pero no VACIO: enviar cero respuestas no aporta
+  // nada y deja el informe diciendo que el paciente contesto.
+  $('#btnEnviar').disabled = (FORM.tipo === 'psq') ? faltan > 0 : hechas === 0;
+}
+
+async function enviar(){
+  $('#btnEnviar').disabled = true;
+  try {
+    const r = await (await fetch('/api/tamizaje/enviar', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: TOKEN, respuestas: R})})).json();
+    if (!r.ok) { $('#btnEnviar').disabled = false;
+                 return falla('No se pudo enviar. Avísele a la consulta.'); }
+    $('#form').style.display = 'none'; $('#barra').style.display = 'none';
+    $('#listo').style.display = '';
+  } catch(e){
+    $('#btnEnviar').disabled = false;
+    falla('No hay conexión. Intente de nuevo en un momento.');
+  }
+}
+
+iniciar();
+</script>
+</body>
+</html>

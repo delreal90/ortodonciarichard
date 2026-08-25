@@ -338,8 +338,8 @@ class TestFrasesProhibidas(unittest.TestCase):
     def test_los_textos_fijos_del_modulo_estan_limpios(self):
         texto = ' '.join([informe_pc.QUE_APORTA_ESTUDIO, informe_pc.DISCLAIMER,
                           informe_pc.NOTA_MEDICIONES, informe_pc.TEXTO_ORDEN,
-                          informe_pc.SIN_HALLAZGOS[2]] +
-                         list(informe_pc.EVALUACION_REALIZADA))
+                          informe_pc.SIN_HALLAZGOS[2], informe_pc.TEXTO_LINK_ESTUDIO] +
+                         [t for _, t in informe_pc.CATALOGO_EVALUACION])
         self.assertEqual(fairest.frases_prohibidas_en(texto), [])
 
     def test_el_documento_armado_esta_limpio_en_todas_sus_variantes(self):
@@ -763,6 +763,116 @@ class TestEdicion(unittest.TestCase):
         iid = informe_pc.guardar(_base())
         informe_pc.guardar(_base(id=iid, motivo_consulta='corregido'))
         self.assertIsNone(informe_pc.obtener(iid).get('editado_tras_imprimir'))
+
+
+class TestEvaluacionRealizada(unittest.TestCase):
+    """El informe no puede afirmar que se hizo algo que no se hizo."""
+
+    def test_solo_sale_lo_marcado(self):
+        doc = informe_pc.armar_documento(_base(evaluacion=['escaneo', 'examen']))
+        self.assertEqual(len(doc['evaluacion_realizada']), 2)
+        self.assertTrue(any('Escaneo' in x for x in doc['evaluacion_realizada']))
+        self.assertFalse(any('Tamizaje' in x for x in doc['evaluacion_realizada']))
+
+    def test_respeta_el_orden_del_catalogo(self):
+        # Da igual en que orden lleguen: en el papel van siempre igual.
+        doc = informe_pc.armar_documento(_base(evaluacion=['antecedentes', 'escaneo', 'facial']))
+        self.assertEqual(doc['evaluacion_realizada'][0], informe_pc.EVALUACION_MAP['escaneo'])
+
+    def test_el_campo_libre_va_al_final(self):
+        doc = informe_pc.armar_documento(_base(evaluacion=['escaneo'],
+                                               evaluacion_otros='Revisión del CBCT que trajo'))
+        self.assertEqual(doc['evaluacion_realizada'][-1], 'Revisión del CBCT que trajo')
+
+    def test_sin_nada_marcado_no_afirma_nada(self):
+        doc = informe_pc.armar_documento(_base(evaluacion=[]))
+        self.assertEqual(doc['evaluacion_realizada'], [])
+
+    def test_un_informe_viejo_sin_la_lista_usa_el_default(self):
+        # Los guardados antes de que esto fuera elegible no traen 'evaluacion'.
+        doc = informe_pc.armar_documento(_base())
+        self.assertEqual(len(doc['evaluacion_realizada']),
+                         len(informe_pc.EVALUACION_POR_DEFECTO))
+
+    def test_las_radiografias_y_fotos_no_vienen_por_defecto(self):
+        # Dependen de que el paciente haya traido algo o de que se hayan tomado.
+        self.assertNotIn('radiografias', informe_pc.EVALUACION_POR_DEFECTO)
+        self.assertNotIn('fotografias', informe_pc.EVALUACION_POR_DEFECTO)
+
+
+class TestOrdenesConDetalle(unittest.TestCase):
+    """Una orden que dice solo 'CBCT' obliga al centro de imagenes a llamar."""
+
+    def _ordenes(self, **ov):
+        return informe_pc.armar_documento(_base(**ov))['ordenes']
+
+    def test_el_cbct_lleva_su_alcance(self):
+        o = self._ordenes(ordenes=['cbct'], ordenes_detalle={'cbct': 'Bimaxilar'})[0]
+        self.assertEqual(o['precision'], 'Bimaxilar')
+
+    def test_las_periapicales_llevan_las_piezas(self):
+        o = self._ordenes(ordenes=['rx_periapical'],
+                          ordenes_detalle={'rx_periapical': '1.1, 2.1, 3.6'})[0]
+        self.assertEqual(o['precision'], '1.1, 2.1, 3.6')
+
+    def test_sin_detalle_la_precision_va_vacia(self):
+        self.assertEqual(self._ordenes(ordenes=['cbct'])[0]['precision'], '')
+
+    def test_el_catalogo_declara_cuales_hay_que_precisar(self):
+        self.assertIsNotNone(informe_pc.ORDENES['cbct']['precisa'])
+        self.assertIsNotNone(informe_pc.ORDENES['rx_periapical']['precisa'])
+        self.assertIsNone(informe_pc.ORDENES['rx_panoramica']['precisa'])
+
+    def test_los_examenes_pedidos_existen_en_el_catalogo(self):
+        for clave in ('rx_bitewing', 'cefalometria', 'rx_mano'):
+            with self.subTest(clave=clave):
+                self.assertIn(clave, informe_pc.ORDENES)
+        # 'carpal' se renombro a 'de mano'.
+        self.assertNotIn('rx_carpal', informe_pc.ORDENES)
+        self.assertIn('mano', informe_pc.ORDENES['rx_mano']['etiqueta'].lower())
+
+
+class TestHallazgosPersonalizados(unittest.TestCase):
+
+    def test_se_imprimen_despues_de_los_del_catalogo(self):
+        doc = informe_pc.armar_documento(_base(
+            hallazgos=['apinamiento'],
+            hallazgos_personalizados=[{'titulo': 'Frenillo con inserción baja',
+                                       'descripcion': 'Llega hasta la papila.'}]))
+        self.assertEqual(doc['hallazgos'][0]['clave'], 'apinamiento')
+        self.assertEqual(doc['hallazgos'][-1]['etiqueta'], 'Frenillo con inserción baja')
+        self.assertEqual(doc['hallazgos'][-1]['texto'], 'Llega hasta la papila.')
+
+    def test_uno_sin_titulo_se_descarta(self):
+        doc = informe_pc.armar_documento(_base(
+            hallazgos=[], sin_hallazgos=False,
+            hallazgos_personalizados=[{'titulo': '   ', 'descripcion': 'algo'}]))
+        self.assertEqual(doc['hallazgos'], [])
+
+    def test_uno_personalizado_alcanza_para_que_no_diga_sin_hallazgos(self):
+        doc = informe_pc.armar_documento(_base(
+            hallazgos=[], hallazgos_personalizados=[{'titulo': 'Algo', 'descripcion': ''}]))
+        self.assertFalse(doc['sin_hallazgos'])
+
+
+class TestQrYLinkDelEstudio(unittest.TestCase):
+
+    def test_el_qr_es_un_data_uri(self):
+        q = informe_pc.qr_data_uri('https://ejemplo.cl/x')
+        self.assertTrue(q.startswith('data:image/svg+xml;base64,'))
+
+    def test_sin_texto_no_hay_qr(self):
+        self.assertEqual(informe_pc.qr_data_uri(''), '')
+        self.assertEqual(informe_pc.qr_data_uri(None), '')
+
+    def test_el_documento_trae_el_link_guardado(self):
+        link = {'url': 'https://ortodonciarichard.cl/#agendar=abc', 'qr': 'data:image/svg+xml;base64,x',
+                'texto': informe_pc.TEXTO_LINK_ESTUDIO}
+        doc = informe_pc.armar_documento(_base(agendar_estudio_link=link))
+        self.assertEqual(doc['agendar_estudio']['url'], link['url'])
+
+    def test_sin_link_el_documento_no_lo_inventa(self):
+        self.assertIsNone(informe_pc.armar_documento(_base())['agendar_estudio'])
 
 
 if __name__ == '__main__':

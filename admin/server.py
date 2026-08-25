@@ -3852,6 +3852,7 @@ def psq_historial():
 
 import informe_pc
 import transversal
+import tamizaje_link   # el cuestionario que el paciente contesta en su telefono
 
 
 def _firma_data_uri(doc_key):
@@ -4004,9 +4005,11 @@ def informe_pc_guardar():
         return jsonify({'ok': False, 'error': 'Falta el nombre del paciente'}), 400
     if not (d.get('rut') or '').strip():
         return jsonify({'ok': False, 'error': 'Falta el RUT del paciente'}), 400
-    if not (d.get('conclusion') or '').strip():
-        return jsonify({'ok': False, 'error': 'Falta la impresion diagnostica'}), 400
-
+    # Sin impresion diagnostica queda como BORRADOR, no se rechaza: es lo que se
+    # guarda al mostrarle al paciente el QR del cuestionario o al colgar una
+    # imagen, apenas empieza la consulta y antes de que haya nada que concluir.
+    # Recepcion no lo ve hasta que este completo (informe_pc.listar filtra por
+    # 'conclusion'), asi que un borrador no puede terminar impreso.
     d['rut'] = scheduling.limpiar_rut(d.get('rut'))
     d['rut_fmt'] = scheduling.formatear_rut(d.get('rut_fmt') or d['rut'])
     d.setdefault('fecha', fechas.hoy_chile().isoformat())
@@ -4033,6 +4036,45 @@ def informe_pc_pendientes():
             'sin_firma': _doctor_informe(i.get('doctor_texto') or '').get('sin_firma', True),
         })
     return jsonify({'ok': True, 'fecha': fecha, 'informes': items})
+
+
+@app.route('/api/informe-pc/link-estudio', methods=['POST'])
+def informe_pc_link_estudio():
+    """Crea el link corto para que el paciente agende las DOS citas del Estudio
+    Integral, con su RUT, su doctor y el motivo ya elegidos.
+
+    Se guarda dentro del informe: reimprimir el mismo documento no puede generar
+    un link distinto, porque el paciente ya se llevo el papel con el anterior.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.get_json(silent=True) or {}
+    item = informe_pc.obtener(d.get('id', ''))
+    if not item:
+        return jsonify({'ok': False, 'error': 'Guarda el informe antes de generar el link'}), 404
+
+    ya = item.get('agendar_estudio_link')
+    if ya and ya.get('url'):
+        return jsonify({'ok': True, 'link': ya, 'reusado': True})
+
+    doc = _doctor_informe(item.get('doctor_texto') or '')
+    if not doc.get('key'):
+        return jsonify({'ok': False,
+                        'error': 'No se pudo determinar el doctor de la cita'}), 409
+    try:
+        creado = link_agenda.crear(item.get('rut'), doc['key'], informe_pc.MOTIVO_ESTUDIO,
+                                   id_agenda_origen=item.get('id_agenda') or '')
+    except Exception as e:
+        app.logger.warning('informe-pc: no se pudo crear el link de estudio: %s', e)
+        return jsonify({'ok': False, 'error': 'No se pudo crear el link'}), 502
+
+    link = {'url': creado.get('url', ''), 'expira': creado.get('expira', ''),
+            'qr': informe_pc.qr_data_uri(creado.get('url', '')),
+            'texto': informe_pc.TEXTO_LINK_ESTUDIO}
+    informe_pc.guardar({'id': item['id'], 'rut': item.get('rut'),
+                        'nombre': item.get('nombre'), 'conclusion': item.get('conclusion'),
+                        'agendar_estudio_link': link})
+    return jsonify({'ok': True, 'link': link})
 
 
 @app.route('/api/informe-pc/documento', methods=['GET'])
@@ -4093,6 +4135,107 @@ def informe_pc_imagenes():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     return jsonify({'ok': True,
                     'imagenes': informe_pc.imagenes_de(request.args.get('id', ''), thumbs=True)})
+
+
+@app.route('/api/informe-pc/tamizaje-link', methods=['POST'])
+def informe_pc_tamizaje_link():
+    """Crea el link + QR para que el paciente contesta el cuestionario de sueno
+    desde su telefono, ahi mismo en la consulta."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.get_json(silent=True) or {}
+    item = informe_pc.obtener(d.get('id', ''))
+    if not item:
+        return jsonify({'ok': False, 'error': 'Guarda el informe antes de generar el QR'}), 404
+    edad = informe_pc._edad_de(item)
+    if edad is None:
+        return jsonify({'ok': False,
+                        'error': 'Falta la edad: sin ella no se sabe que cuestionario toca'}), 409
+
+    token = tamizaje_link.crear_token(item['id'], item.get('rut', ''),
+                                      item.get('nombre', ''), edad, item.get('sexo', ''))
+    url = request.url_root.rstrip('/') + '/tamizaje?token=' + token
+    return jsonify({'ok': True, 'url': url, 'qr': informe_pc.qr_data_uri(url),
+                    'tipo': tamizaje_link.tipo_para(edad),
+                    'vigencia_min': tamizaje_link.VIGENCIA_SEGUNDOS // 60})
+
+
+@app.route('/tamizaje')
+def tamizaje_page():
+    """Pagina publica del cuestionario. El token va en la URL porque lo abre el
+    paciente desde su telefono escaneando un QR: no hay sesion ni clave."""
+    return send_from_directory('.', 'tamizaje.html')
+
+
+@app.route('/api/tamizaje/datos', methods=['GET'])
+@rate_limit('30 per minute')
+def tamizaje_datos():
+    """Las preguntas que le tocan a ese paciente. Publico: la llave es el token
+    firmado, que ademas vence."""
+    datos = tamizaje_link.leer_token(request.args.get('token', ''))
+    if not datos.get('ok'):
+        return jsonify({'ok': False, 'motivo': datos.get('motivo')}), 400
+    return jsonify({'ok': True, 'nombre': datos.get('nombre', ''),
+                    'formulario': tamizaje_link.formulario(datos.get('edad'))})
+
+
+@app.route('/api/tamizaje/enviar', methods=['POST'])
+@rate_limit('10 per minute')
+def tamizaje_enviar():
+    """Recibe el cuestionario contestado y lo deja EN el informe.
+
+    El resultado se congela dentro del informe a proposito: si el paciente
+    contesta otro PSQ el mes que viene, el papel que ya se imprimio no puede
+    cambiar de contenido retroactivamente.
+    """
+    d = request.get_json(silent=True) or {}
+    datos = tamizaje_link.leer_token(d.get('token', ''))
+    if not datos.get('ok'):
+        return jsonify({'ok': False, 'motivo': datos.get('motivo')}), 400
+
+    item = informe_pc.obtener(datos.get('id', ''))
+    if not item:
+        return jsonify({'ok': False, 'error': 'El informe ya no existe'}), 404
+
+    respuestas = d.get('respuestas') or {}
+    tam = dict(item.get('tamizaje') or {})
+
+    if tamizaje_link.tipo_para(datos.get('edad')) == 'stopbang':
+        sb = dict(tam.get('stopbang') or {})
+        for k in ('ronquido', 'cansancio', 'apneas', 'presion'):
+            if respuestas.get(k) in ('si', 'no'):
+                sb[k] = respuestas[k]
+        for k in ('peso', 'talla'):
+            if respuestas.get(k):
+                sb[k] = respuestas[k]
+        sb['edad'] = datos.get('edad')
+        sb['sexo'] = datos.get('sexo') or item.get('sexo') or ''
+        sb['respondido_por_el_paciente'] = fechas.ahora_chile().isoformat(timespec='seconds')
+        tam['stopbang'] = sb
+    else:
+        error = psq.validar_respuestas(respuestas)
+        if error:
+            return jsonify({'ok': False, 'error': 'Faltan respuestas'}), 400
+        r = psq.calcular_riesgo(respuestas)
+        ahora = fechas.ahora_chile()
+        # Se guarda tambien en el registro del PSQ para que aparezca en su
+        # historial y lo encuentre psq.ultimo_por_rut(), igual que si lo hubiera
+        # contestado por /psq.
+        rut_limpio = scheduling.limpiar_rut(datos.get('rut', ''))
+        psq.guardar_envio('%s-%s' % (rut_limpio, ahora.strftime('%Y%m%dT%H%M%S')), {
+            'id': '%s-%s' % (rut_limpio, ahora.strftime('%Y%m%dT%H%M%S')),
+            'rut': rut_limpio, 'nombre': datos.get('nombre', ''),
+            'fecha_iso': ahora.isoformat(), 'respuestas': respuestas,
+            'puntaje': r['puntaje'], 'riesgo': r['riesgo'], 'estado': 'desde_informe',
+        })
+        tam['psq'] = {'puntaje': r['puntaje'], 'riesgo': r['riesgo'],
+                      'riesgo_alto': r['riesgo'] == 'alto', 'corte': r['corte'],
+                      'fecha': ahora.date().isoformat()}
+
+    informe_pc.guardar({'id': item['id'], 'rut': item.get('rut'),
+                        'nombre': item.get('nombre'), 'conclusion': item.get('conclusion'),
+                        'tamizaje': tam})
+    return jsonify({'ok': True})
 
 
 @app.route('/api/informe-pc/marcar-impreso', methods=['POST'])

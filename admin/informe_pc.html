@@ -50,6 +50,7 @@
   .med { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  #ordenesBox { display: block; }
   .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
           border-radius: 20px; padding: 5px 11px; cursor: pointer; background: #fff;
           font-size: .82rem; user-select: none; }
@@ -86,10 +87,26 @@
   .tri button.on { background: var(--navy); color: #fff; font-weight: 600; }
   .tri button.on.si { background: var(--red); }
 
+  /* El QR se muestra en la pantalla del box y el apoderado lo escanea desde su
+     asiento: tiene que leerse a un metro de distancia. */
+  .qrbox { display: flex; gap: 14px; align-items: center; margin: 8px 0 10px;
+           border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+           background: #fffdf7; }
+  .qrbox img { width: 132px; height: 132px; }
+  .qrbox .txt { flex: 1; font-size: .84rem; line-height: 1.45; }
+  .qrbox .esperando { color: var(--amber); font-weight: 600; }
+
   .puntaje { margin-top: 10px; padding: 8px 11px; border-radius: 6px;
              background: #f4f8fd; font-size: .84rem; }
   .puntaje b { color: var(--navy); }
   .puntaje .deriva { color: var(--amber); font-weight: 600; }
+
+  .orfila { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            width: 100%; margin-bottom: 4px; }
+  .precisa { display: flex; gap: 6px; flex: 1; min-width: 220px; }
+  .precisa select { max-width: 150px; }
+  .hzp { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  .hzp .hzTit { max-width: 240px; }
 
   .zonaimg { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px;
              display: flex; align-items: center; gap: 12px; }
@@ -180,6 +197,30 @@
   .hall { margin-bottom: 5px; }
   .hall b { font-size: 10pt; color: var(--navy); }
   .hall .why { font-size: 9pt; color: var(--text-mid); }
+  /* El plan de acción es lo único del documento que le pide algo al paciente. */
+  .plan-dest { border: 1.5px solid var(--gold); border-radius: 7px;
+               padding: 9px 12px 11px; background: #fffdf7; break-inside: avoid; }
+  .plan-dest > h2 { border-bottom: 0; color: #8a6d1f; margin-bottom: 4px; }
+  ol.pasos { list-style: none; margin: 0; counter-reset: paso; }
+  ol.pasos li { counter-increment: paso; position: relative; padding: 3px 0 3px 26px;
+                font-size: 10pt; }
+  ol.pasos li::before { content: counter(paso); position: absolute; left: 0; top: 3px;
+                        width: 18px; height: 18px; border-radius: 50%;
+                        background: var(--navy); color: #fff; font-size: 8pt;
+                        font-weight: 700; text-align: center; line-height: 18px; }
+  /* El plazo iba pegado a la accion con 6 px y sin separador: se leia
+     "Estudio Integraleste mes". Va como aparte, con punto medio. */
+  ol.pasos .plazo { color: var(--text-mid); font-size: 9pt; margin-left: 8px;
+                    white-space: nowrap; }
+  ol.pasos .plazo::before { content: '· '; }
+  .agendar { display: flex; align-items: center; gap: 12px; margin-top: 8px;
+             border-top: 1px solid #efe3c4; padding-top: 8px; }
+  .agendar .ag-txt { flex: 1; }
+  .agendar .ag-txt p { font-size: 9pt; margin-top: 2px; }
+  .agendar .ag-url { font-family: ui-monospace, Consolas, monospace; font-size: 8.5pt;
+                     color: var(--navy); word-break: break-all; }
+  .agendar .ag-qr { width: 2.6cm; height: 2.6cm; }
+
   .caja { border: 1px solid var(--line); border-radius: 5px; padding: 8px 11px; }
   .caja.destaca { border-left: 3px solid var(--gold); }
   .pie { position: absolute; bottom: 1.1cm; left: 1.6cm; right: 1.6cm;
@@ -271,6 +312,14 @@
     </div>
     </div>
 
+    <div class="card">
+      <h2>Evaluación realizada <small>desmarca lo que no hiciste en esta cita</small></h2>
+      <div class="chips" id="evalBox"></div>
+      <div style="margin-top:8px"><label class="f">Otros (se imprime tal cual)</label>
+        <input type="text" id="evalOtros" maxlength="160"
+               placeholder="Ej.: Revisión del CBCT que trajo de otra clínica"></div>
+    </div>
+
     <div class="grid2">
       <div class="card">
         <h2>Mediciones del escaneo <small>puntos de Bishara</small></h2>
@@ -329,6 +378,9 @@
       <label class="chip" style="margin-bottom:8px"><input type="checkbox" id="sinHallazgos">
         Sin hallazgos relevantes</label>
       <div id="hallazgosBox"></div>
+      <div id="hzPropios"></div>
+      <button class="btn sec sm" style="margin-top:8px" onclick="agregarHallazgo()">
+        + agregar un hallazgo que no está en la lista</button>
     </div>
 
     <div class="card" id="cardImgs">
@@ -355,6 +407,10 @@
         <h2>Plan de acción</h2>
         <table class="plan"><tbody id="planBox"></tbody></table>
         <button class="btn sec sm" style="margin-top:6px" onclick="agregarPlan()">+ agregar</button>
+        <hr style="border:0;border-top:1px solid var(--line);margin:10px 0">
+        <label class="chip"><input type="checkbox" id="chkEstudio"> Incluir el link y el QR
+          para agendar el Estudio Integral</label>
+        <div id="estudioBox" class="nota" style="margin-top:6px"></div>
       </div>
     </div>
 
@@ -471,6 +527,17 @@ function cargarEnFormulario(it){
   const med = it.mediciones || {};
   Object.keys(med).forEach(k => set('#m_' + k, med[k]));
 
+  if (Array.isArray(it.evaluacion)) {
+    document.querySelectorAll('.ev').forEach(c => {
+      c.checked = it.evaluacion.includes(c.value);
+      c.closest('.chip').classList.toggle('on', c.checked);
+    });
+  }
+  set('#evalOtros', it.evaluacion_otros);
+
+  HZP = (it.hallazgos_personalizados || []).slice();
+  pintarHallazgosPropios();
+
   (it.hallazgos || []).forEach(k => {
     const c = document.querySelector(`.hz[value="${k}"]`);
     if (c) { c.checked = true; c.dispatchEvent(new Event('change', {bubbles: true})); }
@@ -486,6 +553,14 @@ function cargarEnFormulario(it){
   (it.ordenes || []).forEach(k => {
     const c = document.querySelector(`.or[value="${k}"]`);
     if (c) { c.checked = true; c.dispatchEvent(new Event('change', {bubbles: true})); }
+  });
+  Object.entries(it.ordenes_detalle || {}).forEach(([k, v]) => {
+    const sel = $(`.orSel[data-k="${k}"]`), txt = $(`.orTxt[data-k="${k}"]`);
+    const partes = String(v).split(' · ');
+    if (sel && partes[0] && Array.from(sel.options).some(o => o.value === partes[0])) {
+      sel.value = partes.shift();
+    }
+    if (txt) txt.value = partes.join(' · ');
   });
 
   // Plan de acción: se re-crean las filas que haga falta.
@@ -510,6 +585,11 @@ function cargarEnFormulario(it){
   });
   if (tam.psq) window.PSQ_PREV = tam.psq;
 
+  if (it.agendar_estudio_link && it.agendar_estudio_link.url) {
+    $('#chkEstudio').checked = true;
+    $('#estudioBox').innerHTML = `Link ya generado: <a href="${esc(it.agendar_estudio_link.url)}"
+      target="_blank">${esc(it.agendar_estudio_link.url)}</a>`;
+  }
   cargarMiniaturas();
   cambioEdad();                       // repinta el tamizaje y las lecturas
   const sb = tam.stopbang || {};
@@ -559,10 +639,34 @@ function pintarFormulario(){
     $('#mesesBox').style.display = (valConclusion() === 'control_evolucion') ? '' : 'none';
   });
 
-  // ordenes
-  $('#ordenesBox').innerHTML = CAT.ordenes.map(o =>
-    `<label class="chip" title="${esc(o.detalle)}"><input type="checkbox" class="or"
-      value="${esc(o.clave)}"> ${esc(o.etiqueta)}</label>`).join('');
+  // evaluación realizada
+  $('#evalBox').innerHTML = CAT.evaluacion.map(e =>
+    `<label class="chip"><input type="checkbox" class="ev" value="${esc(e.clave)}"
+      ${CAT.evaluacion_defecto.includes(e.clave) ? 'checked' : ''}> ${esc(e.texto)}</label>`).join('');
+  $('#evalBox').querySelectorAll('.chip').forEach(l =>
+    l.classList.toggle('on', l.querySelector('input').checked));
+
+  // órdenes: las que necesitan precisarse muestran su control al marcarlas
+  $('#ordenesBox').innerHTML = CAT.ordenes.map(o => {
+    let extra = '';
+    if (o.precisa) {
+      const ops = (o.precisa.opciones || []).map(x =>
+        `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+      extra = `<div class="precisa" data-para="${esc(o.clave)}" style="display:none">
+        ${ops ? `<select class="orSel" data-k="${esc(o.clave)}"><option value="">—</option>${ops}</select>` : ''}
+        <input type="text" class="orTxt" data-k="${esc(o.clave)}"
+               placeholder="${esc(o.precisa.libre || o.precisa.etiqueta)}"></div>`;
+    }
+    return `<div class="orfila">
+      <label class="chip" title="${esc(o.detalle)}"><input type="checkbox" class="or"
+        value="${esc(o.clave)}"> ${esc(o.etiqueta)}</label>${extra}</div>`;
+  }).join('');
+  $('#ordenesBox').querySelectorAll('.or').forEach(c => {
+    c.addEventListener('change', () => {
+      const d = $(`.precisa[data-para="${c.value}"]`);
+      if (d) d.style.display = c.checked ? 'flex' : 'none';
+    });
+  });
 
   // Relación molar y canina en cuartos de cúspide. La escala viene del backend
   // para no tener dos versiones de la misma tabla. '—' es un valor legítimo:
@@ -576,6 +680,7 @@ function pintarFormulario(){
   // plan
   agregarPlan(); agregarPlan();
   engancharImagenes();
+  $('#chkEstudio').addEventListener('change', generarLinkEstudio);
 
   // tamizaje
   pintarTamizaje(false);
@@ -701,6 +806,69 @@ function marcarTodoNormal(){
   refrescarTamizaje();
 }
 
+/* ── El cuestionario que contesta el paciente ─────────────────────
+   Si nadie lo contestó, el informe lo dice y sale incompleto justo en la parte
+   que más puede cambiarle la vida al paciente. Pero el apoderado está ahí, con
+   su teléfono: se le muestra un QR y contesta en la sala. */
+let PULSO = null;
+
+async function mostrarQrTamizaje(){
+  const caja = $('#qrTamizaje');
+  // Se guarda SIEMPRE, no solo la primera vez: el backend decide que
+  // cuestionario toca segun la edad, y la edad se acaba de escribir en el
+  // formulario. Guardando solo cuando falta el id, un informe que ya existia
+  // (porque se le colgo una imagen antes) generaba el QR con los datos viejos.
+  const ok = await guardar(true); if (!ok) return;
+  caja.innerHTML = 'Generando el código…';
+  try {
+    const r = await api('/api/informe-pc/tamizaje-link', {method: 'POST',
+              body: JSON.stringify({id: ID})});
+    if (!r.ok) { caja.innerHTML = `<b style="color:var(--red)">${esc(r.error)}</b>`; return; }
+    caja.innerHTML = `<div class="qrbox">
+      <img src="${esc(r.qr)}" alt="">
+      <div class="txt">
+        <b>Que lo escanee con la cámara de su teléfono.</b>
+        <p>Son ${r.tipo === 'psq' ? '22 preguntas cortas' : 'unas pocas preguntas'};
+           sus datos ya van cargados. El código vale por ${r.vigencia_min} minutos.</p>
+        <p class="esperando" id="qrEstado">Esperando la respuesta…</p>
+        <a href="${esc(r.url)}" target="_blank" class="nota">abrir el cuestionario acá</a>
+      </div></div>`;
+    arrancarPulso();
+  } catch(e){ caja.textContent = 'No se pudo generar el código.'; }
+}
+
+/* Mientras el QR está a la vista se pregunta cada 5 s si ya contestaron. Se
+   corta solo a los 15 minutos: un pulso olvidado golpeando el servidor toda la
+   tarde es peor que perder el aviso. */
+function arrancarPulso(){
+  detenerPulso();
+  const hasta = Date.now() + 15 * 60 * 1000;
+  PULSO = setInterval(async () => {
+    if (Date.now() > hasta) return detenerPulso();
+    try {
+      const g = await api('/api/informe-pc/obtener?id=' + encodeURIComponent(ID));
+      if (!g.ok) return;
+      const tam = g.informe.tamizaje || {};
+      const llego = tam.psq || (tam.stopbang && tam.stopbang.respondido_por_el_paciente);
+      if (!llego) return;
+      detenerPulso();
+      if (tam.psq) window.PSQ_PREV = tam.psq;
+      Object.entries(tam.stopbang || {}).forEach(([k, v]) => {
+        if (['edad','sexo','peso','talla','cuello','imc','respondido_por_el_paciente'].includes(k)) return;
+        FAI['sb_' + k] = String(v);
+      });
+      const sb = tam.stopbang || {};
+      pintarTamizaje(esAdulto());
+      if (sb.peso) $('#sbPeso') && ($('#sbPeso').value = sb.peso);
+      if (sb.talla) $('#sbTalla') && ($('#sbTalla').value = sb.talla);
+      refrescarTamizaje();
+      avisar('El paciente respondió el cuestionario.', false);
+    } catch(e){}
+  }, 5000);
+}
+
+function detenerPulso(){ if (PULSO) { clearInterval(PULSO); PULSO = null; } }
+
 function pintarCuestionario(adulto){
   const b = $('#cuestBox');
   if (adulto) {
@@ -718,7 +886,10 @@ function pintarCuestionario(adulto){
         <div><label class="f">Cuello (cm)</label><input type="number" step="0.5" id="sbCuello"></div>
       </div>
       <p class="nota" style="margin:6px 0 12px">Edad y sexo salen de arriba. El cuello se mide
-        con huincha: son cinco segundos, y sin ese dato el puntaje queda incompleto.</p>`;
+        con huincha: son cinco segundos, y sin ese dato el puntaje queda incompleto.</p>
+      <div id="qrTamizaje"></div>
+      <button class="btn sec sm" onclick="mostrarQrTamizaje()">
+        📱 Que lo conteste el paciente en su teléfono</button>`;
     ['#sbPeso', '#sbTalla', '#sbCuello'].forEach(sel =>
       $(sel).addEventListener('change', refrescarTamizaje));
   } else {
@@ -727,9 +898,11 @@ function pintarCuestionario(adulto){
       ? `<p class="nota" style="margin-bottom:10px">PSQ-CL respondido el ${esc(psq.fecha || '')}:
          puntaje <b>${esc(psq.puntaje)}</b> — ` +
         (psq.riesgo_alto ? '<b style="color:var(--red)">sobre el corte</b>' : 'bajo el corte (0,227)') + `.</p>`
-      : `<p class="nota" style="margin-bottom:10px">El PSQ-CL no ha sido respondido por este
-         paciente. <a href="/psq" target="_blank">Abrir el cuestionario</a> — el informe lo
-         dirá tal cual, no asume "sin riesgo".</p>`;
+      : `<p class="nota" style="margin-bottom:8px">El PSQ-CL no ha sido respondido por este
+         paciente. El informe lo dirá tal cual: no asume "sin riesgo".</p>
+         <div id="qrTamizaje"></div>
+         <button class="btn sec sm" style="margin-bottom:10px" onclick="mostrarQrTamizaje()">
+           📱 Que lo conteste el apoderado en su teléfono</button>`;
   }
 }
 
@@ -859,6 +1032,53 @@ function engancharImagenes(){
   });
 }
 
+/* Hallazgos que el catálogo no supo nombrar. Se imprimen al final, después de
+   los del catálogo: son lo que faltaba, no una categoría aparte. */
+let HZP = [];
+
+function agregarHallazgo(titulo, descripcion){
+  HZP.push({titulo: titulo || '', descripcion: descripcion || ''});
+  pintarHallazgosPropios();
+}
+
+function pintarHallazgosPropios(){
+  $('#hzPropios').innerHTML = HZP.map((h, i) => `
+    <div class="hzp">
+      <input type="text" class="hzTit" data-i="${i}" placeholder="Título del hallazgo"
+             value="${esc(h.titulo)}">
+      <input type="text" class="hzDes" data-i="${i}" placeholder="Descripción para el paciente"
+             value="${esc(h.descripcion)}">
+      <button class="quitar" data-i="${i}">Quitar</button>
+    </div>`).join('');
+  $('#hzPropios').querySelectorAll('.hzTit').forEach(e =>
+    e.addEventListener('input', () => { HZP[e.dataset.i].titulo = e.value; }));
+  $('#hzPropios').querySelectorAll('.hzDes').forEach(e =>
+    e.addEventListener('input', () => { HZP[e.dataset.i].descripcion = e.value; }));
+  $('#hzPropios').querySelectorAll('.quitar').forEach(b =>
+    b.addEventListener('click', () => { HZP.splice(b.dataset.i, 1); pintarHallazgosPropios(); }));
+}
+
+/* El link del Estudio se crea UNA vez y se guarda en el informe: reimprimir el
+   mismo documento no puede generar un link distinto, porque el paciente ya se
+   llevo el papel con el anterior. */
+async function generarLinkEstudio(){
+  const caja = $('#estudioBox');
+  if (!$('#chkEstudio').checked) { caja.innerHTML = ''; return; }
+  // Igual que el QR del cuestionario: se guarda siempre, porque el link se arma
+  // con los datos del paciente tal como estan en ese momento.
+  { const ok = await guardar(true); if (!ok) { $('#chkEstudio').checked = false; return; } }
+  caja.textContent = 'Generando el link…';
+  try {
+    const r = await api('/api/informe-pc/link-estudio', {method: 'POST',
+              body: JSON.stringify({id: ID})});
+    if (!r.ok) { caja.innerHTML = `<b style="color:var(--red)">${esc(r.error)}</b>`;
+                 $('#chkEstudio').checked = false; return; }
+    caja.innerHTML = `Link listo: <a href="${esc(r.link.url)}" target="_blank">${esc(r.link.url)}</a>` +
+      (r.link.expira ? ` · vence el ${esc(r.link.expira)}` : '') +
+      (r.reusado ? ' <span class="nota">(el que ya tenía este informe)</span>' : '');
+  } catch(e){ caja.textContent = 'No se pudo generar el link.'; $('#chkEstudio').checked = false; }
+}
+
 function agregarPlan(){
   const tr = document.createElement('tr');
   tr.innerHTML = `<td style="width:70%"><input type="text" class="plAcc" placeholder="Acción"></td>
@@ -952,21 +1172,39 @@ function recolectar(){
       clase_canina_izq: $('#m_clase_canina_izq').value,
       mordida_cruzada: $('#m_mordida_cruzada').value,
     },
+    evaluacion: Array.from(document.querySelectorAll('.ev:checked')).map(c => c.value),
+    evaluacion_otros: $('#evalOtros').value.trim(),
     hallazgos: Array.from(document.querySelectorAll('.hz:checked')).map(c => c.value),
+    hallazgos_personalizados: HZP.filter(h => (h.titulo || '').trim()),
     sin_hallazgos: $('#sinHallazgos').checked,
     conclusion: valConclusion(), meses_control: num('mesesControl'),
     plan_accion: plan,
     tamizaje: tam,
     ordenes: Array.from(document.querySelectorAll('.or:checked')).map(c => c.value),
+    ordenes_detalle: (() => {
+      const d = {};
+      document.querySelectorAll('#ordenesBox .or:checked').forEach(c => {
+        const sel = $(`.orSel[data-k="${c.value}"]`), txt = $(`.orTxt[data-k="${c.value}"]`);
+        const partes = [sel && sel.value, txt && txt.value.trim()].filter(Boolean);
+        if (partes.length) d[c.value] = partes.join(' · ');
+      });
+      return d;
+    })(),
     // Solo los títulos: los archivos ya están en el servidor.
     titulos_imagenes: IMGS.map(i => ({archivo: i.archivo, titulo: i.titulo || ''})),
   };
 }
 
+/* El guardado SILENCIOSO es siempre a mitad de la consulta: colgar una imagen,
+   pedir el QR del cuestionario, generar el link del Estudio. Todo eso pasa
+   antes de que exista una impresion diagnostica, asi que exigirla ahi dejaba
+   esas tres cosas inalcanzables justo cuando sirven. Solo el guardado explicito
+   --el Dr. apretando Guardar-- exige el informe completo.
+   Recepcion no ve ese borrador hasta entonces (ver informe_pc.listar). */
 async function guardar(silencioso){
   const d = recolectar();
   if (!d.nombre || !d.rut) { avisar('Falta el nombre o el RUT.', true); return false; }
-  if (!d.conclusion)       { avisar('Falta la impresión diagnóstica.', true); return false; }
+  if (!silencioso && !d.conclusion) { avisar('Falta la impresión diagnóstica.', true); return false; }
   // El guardado silencioso (al anexar una imagen o cambiarle el titulo) NO toca
   // el boton: si lo deshabilitara, un clic en ese momento no haria nada y sin
   // ningun aviso, que es la peor forma de fallar.
@@ -989,6 +1227,7 @@ function avisar(txt, err){
 
 /* ── Documento ─────────────────────────────────────────────────── */
 async function verDocumento(id, autoImprimir){
+  detenerPulso();
   let r;
   try { r = await api('/api/informe-pc/documento?id=' + encodeURIComponent(id)); } catch(e){ return; }
   if (!r.ok) return avisar(r.error || 'No se encontró el informe.', true);
@@ -1063,9 +1302,25 @@ function pintarDocumento(d){
   if (d.conclusion) h1 += `<section><h2>Impresión diagnóstica inicial</h2>
       <div class="caja destaca"><p>${esc(d.conclusion.texto)}</p></div></section>`;
 
-  if (d.plan_accion.length) h1 += `<section><h2>Plan de acción</h2><ol>` +
-    d.plan_accion.map(p => `<li>${esc(p.accion)}${p.plazo ? ' — <i>' + esc(p.plazo) + '</i>' : ''}</li>`)
-      .join('') + `</ol></section>`;
+  // El plan es lo que el paciente TIENE QUE HACER: es lo único del documento
+  // que le pide una acción, así que se destaca del resto.
+  if (d.plan_accion.length || d.agendar_estudio) {
+    h1 += `<section class="plan-dest"><h2>Plan de acción — qué sigue</h2>`;
+    if (d.plan_accion.length) {
+      h1 += `<ol class="pasos">` + d.plan_accion.map(p =>
+        `<li><b>${esc(p.accion)}</b>${p.plazo ? `<span class="plazo">${esc(p.plazo)}</span>` : ''}</li>`
+        ).join('') + `</ol>`;
+    }
+    if (d.agendar_estudio && d.agendar_estudio.url) {
+      h1 += `<div class="agendar">
+        <div class="ag-txt"><b>Agende su Estudio Integral</b>
+          <p>${esc(d.agendar_estudio.texto || '')}</p>
+          <p class="ag-url">${esc(d.agendar_estudio.url)}</p></div>
+        ${d.agendar_estudio.qr ? `<img class="ag-qr" src="${esc(d.agendar_estudio.qr)}" alt="">` : ''}
+      </div>`;
+    }
+    h1 += `</section>`;
+  }
 
   if (d.que_aporta_estudio) h1 += `<section><h2>Qué aporta el Estudio Integral</h2>
       <p>${esc(d.que_aporta_estudio)}</p></section>`;
@@ -1167,7 +1422,9 @@ function pintarDocumento(d){
     h3 = cab('Orden de exámenes complementarios');
     h3 += `<section><h2>Se solicita</h2><p>${esc(d.texto_orden)}</p>
       <div style="margin-top:10px">` + d.ordenes.map(o =>
-      `<div class="ordfila">☑ <b>${esc(o.etiqueta)}</b>${o.detalle ? ' — ' + esc(o.detalle) : ''}</div>`
+      `<div class="ordfila">☑ <b>${esc(o.etiqueta)}</b>` +
+      (o.precision ? ` — <b>${esc(o.precision)}</b>` : '') +
+      (o.detalle ? ` <span class="nota">${esc(o.detalle)}</span>` : '') + `</div>`
       ).join('') + `</div></section>`;
     h3 += firma;
     h3 += `<div class="pie">Documento emitido por el profesional tratante. Los exámenes solicitados

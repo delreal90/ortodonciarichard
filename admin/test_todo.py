@@ -46,6 +46,7 @@ SUITES = [
     ('stopbang',     'test_stopbang.py',     'STOP-BANG: umbrales y el puntaje incompleto es un piso'),
     ('fairest',      'test_fairest.py',      'FAIREST 6/6+4: el item 6 con el P15 y las frases prohibidas'),
     ('informe_pc',   'test_informe_pc.py',   'informe de evaluacion: documento, seguimiento, oclusion y limites'),
+    ('tamizaje_link','test_tamizaje_link.py','QR del cuestionario de sueno: token, que instrumento toca y el borrador'),
     ('kpi',          'test_kpi.py',          'datamart de KPIs: destino de la primera consulta, fugas y ocupacion'),
 ]
 

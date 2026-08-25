@@ -2607,6 +2607,92 @@ los que él eligió para que salgan junto a su firma. Si el doctor no tiene firm
 informe aparece en recepción con un aviso **"sin firma cargada"**, para que se sepa antes de
 imprimir y no con el papel en la mano.
 
+### Tercera vuelta: elegir qué se hizo, QR del cuestionario y agendar el Estudio (2026-08-25)
+
+**Lo que se evaluó ya no es una lista fija.** "Evaluación realizada" salía siempre completa,
+así que afirmaba por escrito cosas que en esa consulta podían no haberse hecho — en un papel
+que va firmado, eso es afirmar de más. Ahora se elige de `CATALOGO_EVALUACION` (8 ítems,
+`EVALUACION_POR_DEFECTO` marca los seis habituales) más un campo **"otros"** libre.
+
+**Hallazgos propios.** `hallazgos_personalizados` (título + descripción) se imprimen al
+final, **después** del catálogo y bajo "Otros hallazgos": son lo que el catálogo no supo
+nombrar, no una categoría aparte.
+
+**La orden de exámenes se precisa.** El catálogo ganó un cuarto campo: cuando un examen
+necesita concretarse, trae `{'etiqueta', 'opciones', 'libre'}` y el formulario pinta el
+control. Hoy lo usan **CBCT** (unimaxilar / bimaxilar / cráneo completo / zona a
+especificar) y **periapicales** (qué piezas). Se agregaron **cefalometría** y **bitewing**,
+y *Radiografía carpal* pasó a llamarse **Radiografía de mano**, que es como se pide.
+
+**El plan de acción es ahora el bloque destacado** de la hoja 1 (`.plan-dest`, recuadro con
+borde dorado): son los pasos que el paciente tiene que dar, y estaban con el mismo peso
+visual que el resto. El plazo va separado con punto medio — iba pegado con 6 px y sin
+separador, y se leía *"Estudio Integraleste mes"*.
+
+**Agendar el Estudio desde el papel.** Si el plan incluye tomar registros, el bloque trae
+**el link escrito y su QR** (`link_agenda.crear` con `MOTIVO_ESTUDIO`), que llevan al flujo
+de dos citas con 14 días de separación que ya existía. El link se **reutiliza** si ya se
+generó para ese informe: dos QR distintos para la misma indicación son dos citas.
+
+#### El QR del cuestionario de sueño — `admin/tamizaje_link.py` + `admin/tamizaje.html`
+
+El tamizaje se apoya en un cuestionario (PSQ-CL si es menor, STOP-BANG si es adulto) y, si
+nadie lo contestó, la hoja lo dice: **no asume "sin riesgo" a partir de un formulario en
+blanco**. Pero el apoderado está ahí, con su teléfono, esperando. Ahora el Dr. muestra un
+**QR en la pantalla del box**, el apoderado contesta desde su asiento y **el formulario del
+box se entera solo** (`arrancarPulso()`, cada 5 s, se corta a los 15 min o al recibir la
+respuesta).
+
+- **Token firmado que vence en 2 h** (mismo patrón que los consentimientos). Lleva RUT,
+  nombre y edad para no volver a pedírselos, y el id del informe. Vence corto **a propósito**:
+  un QR proyectado en una pantalla lo puede fotografiar cualquiera que pase.
+- ⚠️ **"Vencido" e "inválido" se distinguen**: al paciente se le dice que pida uno nuevo, no
+  que hizo algo malo.
+- **Al paciente se le PREGUNTA; la hoja firmada AFIRMA.** `stopbang.ITEMS` está escrito como
+  afirmación clínica ("Ronca fuerte (se oye a través de una puerta cerrada)"), que es lo
+  correcto en el papel del doctor pero se lee raro con dos botones Sí/No debajo.
+  `tamizaje_link.TEXTO_PACIENTE` lo reformula **por la misma clave**: el instrumento y su
+  puntaje siguen viviendo en `stopbang.py` / `psq.py`. Un ítem sin reformular cae a su texto
+  clínico antes que quedarse sin pregunta, y hay pruebas que fijan las dos cosas.
+- **Al adulto solo se le preguntan los 4 ítems que él puede contestar** más peso y talla.
+  Cuello, edad, sexo e IMC los resuelve la clínica: pedirle a un paciente su circunferencia
+  de cuello es pedirle un dato que no tiene. El puntaje sale **incompleto** y la hoja lo
+  declara como piso.
+- **El PSQ exige estar completo** (su puntaje es una proporción); el STOP-BANG acepta
+  incompleto pero **no vacío**: cero respuestas no aportan nada y dejarían el informe
+  diciendo que el paciente contestó.
+- La respuesta se guarda **dentro del informe** y además en el registro del PSQ, así aparece
+  en su historial y la encuentra `psq.ultimo_por_rut()`, igual que si la hubiera contestado
+  por `/psq`.
+- Rutas **públicas** (`/tamizaje`, `/api/tamizaje/datos`, `/api/tamizaje/enviar`): las abre
+  el paciente sin sesión, la llave es el token firmado. Declaradas con su razón en
+  `test_seguridad.py` (regla 4), con rate limit 30/min y 10/min.
+
+#### ⚠️ El borrador: por qué un informe puede guardarse sin impresión diagnóstica
+
+El QR se muestra **apenas empieza la consulta**, cuando todavía no hay nada que concluir. Al
+exigir la impresión diagnóstica para guardar, el QR quedaba inalcanzable justo en el momento
+en que sirve — y lo mismo pasaba con anexar una imagen y con el link del Estudio.
+
+Ahora el **guardado silencioso** (las tres cosas de arriba) no la exige; solo el guardado
+explícito, el Dr. apretando Guardar, pide el informe completo. Lo que impide que ese borrador
+termine impreso es `informe_pc.listar(solo_pendientes=True)`, que **filtra por `conclusion`**.
+Se deriva del contenido en vez de llevar un flag aparte: en cuanto el Dr. elige la impresión
+diagnóstica y guarda, el informe aparece solo en recepción. El borrador **sí** sigue visible
+en la lista completa del día — se esconde de "pendiente de imprimir", no del día, porque si
+quedó a medias hay que poder volver a él.
+
+⚠️ **El QR y el link del Estudio guardan SIEMPRE, no solo la primera vez.** El backend decide
+qué cuestionario toca según la edad, y la edad se acaba de escribir en el formulario:
+guardando solo cuando faltaba el id, un informe que ya existía (porque se le colgó una imagen
+antes) generaba el QR con los datos viejos.
+
+#### Ocupación de las hojas tras esta vuelta (medida el 2026-08-25)
+
+Peor caso real —adulto, los 24 hallazgos del catálogo, 2 hallazgos propios, los 9 exámenes,
+mediciones completas y tamizaje entero—: **97 % / 88 % / 62 % / 56 %**. Las cuatro hojas
+caben. La hoja 1 es la que crece; si se le agregan bloques hay que volver a medir.
+
 ### Pendientes
 
 - Revisión visual de la maqueta impresa con datos reales (no se pudo verificar a ojo).
@@ -2617,8 +2703,7 @@ imprimir y no con el papel en la mano.
 - Protocolo de escaneo con la asistente: qué se escanea y **qué puntos se miden en Medit**.
 - Copiar la extensión actualizada al PC del box y al de recepción (los cambios de
   `content.js` **no viajan por Render**).
-- Fase 2: QR para agendar el Estudio (`link_agenda.crear`), fotos intraorales al registro,
-  reverso educativo fijo.
+- Fase 2: fotos intraorales al registro, reverso educativo fijo.
 - Fase 3: encuesta NPS para primeras consultas (`nps.clasificar_disparo()` hoy devuelve
   `None` para ese motivo) y comparar contra la línea base a los 3 meses.
 

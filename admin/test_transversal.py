@@ -47,7 +47,13 @@ class TestExactitudContraLaTabla(unittest.TestCase):
                                              r['edad'], r['tramo'])
                 self.assertTrue(ref['ok'], ref)
                 self.assertEqual(ref['media'], r['media'])
-                self.assertEqual(ref['de'], r['de'])
+                if r.get('sospechoso'):
+                    # La DE de esa celda se sustituye a proposito (ver _serie):
+                    # 6,2 mm contra 1,9-2,4 en todas sus vecinas.
+                    self.assertNotEqual(ref['de'], r['de'])
+                    self.assertTrue(ref['de_sustituida'])
+                else:
+                    self.assertEqual(ref['de'], r['de'])
                 self.assertEqual(ref['tramo'], r['tramo'])
                 self.assertFalse(ref['interpolado'])
 
@@ -229,11 +235,35 @@ class TestCeldaSospechosa(unittest.TestCase):
     pero el modulo TIENE que marcarla para que la hoja avise y para que nadie
     decida el item 6 del FAIREST con esa celda."""
 
-    def test_la_celda_se_informa_como_sospechosa(self):
+    def test_la_de_absurda_se_sustituye_pero_la_media_se_respeta(self):
+        # Intermolar mandibular femenino a los 3 anios: la Tabla II publica
+        # DE = 6,2 mm contra 1,9-2,4 en TODAS sus vecinas y 2,0 en la celda
+        # masculina de la misma edad. Con esa DE la banda dibuja un embudo que
+        # no representa nada biologico.
         ref = transversal.referencia('intermolar', 'mandibular', 'F', 3)
-        self.assertTrue(ref['ok'])
-        self.assertEqual(ref['de'], 6.2)
-        self.assertTrue(ref['sospechoso'])
+        self.assertEqual(ref['media'], 34.8, 'la media publicada NO se toca')
+        self.assertNotEqual(ref['de'], 6.2)
+        self.assertTrue(ref['de_sustituida'])
+
+    def test_el_json_conserva_el_valor_publicado(self):
+        # La fuente no se altera: lo que se sustituye es lo que se dibuja.
+        crudas = [r['de'] for r in REGISTROS if r.get('sospechoso')]
+        self.assertEqual(crudas, [6.2])
+
+    def test_la_banda_deja_de_hacer_embudo(self):
+        # El sintoma que se veia en el papel: la banda de una paciente mujer se
+        # desplomaba entre los 3 y los 5 anios.
+        anchos = []
+        for edad in (3, 4, 5, 6):
+            r = transversal.referencia('intermolar', 'mandibular', 'F', edad)
+            anchos.append(2 * 1.8808 * r['de'])
+        self.assertLess(max(anchos) - min(anchos), 1.0,
+                        'la banda no puede cambiar de ancho de golpe entre edades vecinas')
+
+    def test_la_celda_masculina_vecina_no_se_toca(self):
+        r = transversal.referencia('intermolar', 'mandibular', 'M', 3)
+        self.assertEqual(r['de'], 2.0)
+        self.assertFalse(r['de_sustituida'])
 
     def test_una_celda_vecina_normal_no_se_marca(self):
         ref = transversal.referencia('intermolar', 'mandibular', 'M', 3)
