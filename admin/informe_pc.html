@@ -91,6 +91,17 @@
   .puntaje b { color: var(--navy); }
   .puntaje .deriva { color: var(--amber); font-weight: 600; }
 
+  .zonaimg { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px;
+             display: flex; align-items: center; gap: 12px; }
+  .zonaimg.sobre { border-color: var(--navy); background: #f4f8fd; }
+  .tiras { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .tira { width: 150px; border: 1px solid var(--line); border-radius: 6px; padding: 5px; }
+  .tira img { width: 100%; height: 96px; object-fit: cover; border-radius: 4px;
+              background: #f0f4f9; }
+  .tira input { font-size: .74rem; padding: 4px 6px; margin-top: 4px; }
+  .tira .quitar { background: none; border: 0; color: var(--red); cursor: pointer;
+                  font-size: .74rem; padding: 2px 0 0; }
+
   .radios { display: flex; flex-direction: column; gap: 5px; }
   .radios label { display: flex; gap: 8px; align-items: flex-start; font-size: .86rem;
                   cursor: pointer; }
@@ -154,6 +165,13 @@
   .regla .rtxt { font-size: 9.5pt; padding: 2px 4px 0; }
   .regla { border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px;
            margin-bottom: 6px; break-inside: avoid; }
+
+  .fotos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+  .fotos figure { border: 1px solid var(--line); border-radius: 5px; padding: 5px;
+                  break-inside: avoid; }
+  .fotos img { width: 100%; height: auto; max-height: 9.5cm; object-fit: contain; }
+  .fotos figcaption { font-size: 8.5pt; color: var(--text-mid); margin-top: 3px;
+                      text-align: center; }
 
   .curvas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px; }
   .curvas figure { border: 1px solid var(--line); border-radius: 5px; padding: 4px;
@@ -313,6 +331,17 @@
       <div id="hallazgosBox"></div>
     </div>
 
+    <div class="card" id="cardImgs">
+      <h2>Imágenes <small>se anexan al final, antes del tamizaje</small></h2>
+      <div class="zonaimg" id="zonaImgs">
+        <input type="file" id="fileImgs" accept="image/*" multiple style="display:none">
+        <button class="btn sec sm" onclick="document.getElementById('fileImgs').click()">
+          Elegir archivos</button>
+        <span class="nota">o pega con Ctrl+V (captura del escáner, foto del celular)</span>
+      </div>
+      <div class="tiras" id="tiraImgs"></div>
+    </div>
+
     <div class="grid2">
       <div class="card">
         <h2>Impresión diagnóstica inicial</h2>
@@ -364,6 +393,11 @@ const qs  = new URLSearchParams(location.search);
 let CAT = null, ID = qs.get('id') || '', MODO = qs.get('modo') || 'captura';
 let DOC = null;
 
+// Contexto de la cita: llega por query string al crear el informe desde el F2,
+// y se recupera del propio informe al reabrirlo. Si esto se pierde, el
+// documento queda sin doctor y por lo tanto sin firma.
+let CTX = {doctor_texto: qs.get('doctor') || '', id_agenda: qs.get('id_agenda') || ''};
+
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -403,6 +437,16 @@ async function iniciar(){
   pintarFormulario();
   $('#vCaptura').style.display = ''; $('#barra').style.display = '';
 
+  // Con ?id= se REABRE un informe guardado en vez de empezar uno en blanco.
+  if (ID) {
+    try {
+      const g = await api('/api/informe-pc/obtener?id=' + encodeURIComponent(ID));
+      if (g.ok) { cargarEnFormulario(g.informe); return; }
+      avisar('No se encontró ese informe; se abre uno nuevo.', true);
+      ID = '';
+    } catch(e){ return; }
+  }
+
   const rut = qs.get('rut') || '';
   $('#pRut').value = qs.get('rut_fmt') || rut;
   $('#pNombre').value = ((qs.get('nombre')||'') + ' ' + (qs.get('apellido')||'')).trim();
@@ -413,6 +457,75 @@ async function iniciar(){
     } catch(e){}
   }
   refrescarCabecera();
+}
+
+function cargarEnFormulario(it){
+  // Lo primero: recuperar el contexto de la cita, que no viene en la URL.
+  CTX = {doctor_texto: it.doctor_texto || CTX.doctor_texto || '',
+         id_agenda: it.id_agenda || CTX.id_agenda || ''};
+  const set = (id, v) => { const e = $(id); if (e && v != null && v !== '') e.value = v; };
+  set('#pNombre', it.nombre); set('#pRut', it.rut_fmt || it.rut);
+  set('#pEdad', it.edad); set('#pSexo', it.sexo);
+  set('#motivo', it.motivo_consulta);
+
+  const med = it.mediciones || {};
+  Object.keys(med).forEach(k => set('#m_' + k, med[k]));
+
+  (it.hallazgos || []).forEach(k => {
+    const c = document.querySelector(`.hz[value="${k}"]`);
+    if (c) { c.checked = true; c.dispatchEvent(new Event('change', {bubbles: true})); }
+  });
+  $('#sinHallazgos').checked = !!it.sin_hallazgos;
+
+  if (it.conclusion) {
+    const r = document.querySelector(`input[name=conc][value="${it.conclusion}"]`);
+    if (r) { r.checked = true; r.dispatchEvent(new Event('change', {bubbles: true})); }
+  }
+  set('#mesesControl', it.meses_control);
+
+  (it.ordenes || []).forEach(k => {
+    const c = document.querySelector(`.or[value="${k}"]`);
+    if (c) { c.checked = true; c.dispatchEvent(new Event('change', {bubbles: true})); }
+  });
+
+  // Plan de acción: se re-crean las filas que haga falta.
+  const plan = (it.plan_accion || []).filter(p => p && p.accion);
+  while (document.querySelectorAll('#planBox tr').length < Math.max(plan.length, 2)) agregarPlan();
+  document.querySelectorAll('#planBox tr').forEach((tr, i) => {
+    tr.querySelector('.plAcc').value = plan[i] ? plan[i].accion : '';
+    tr.querySelector('.plPlazo').value = plan[i] ? (plan[i].plazo || '') : '';
+  });
+
+  // Tamizaje: FAI guarda 'si'/'no'/grado; el STOP-BANG viaja con prefijo sb_.
+  const tam = it.tamizaje || {};
+  FAI = {};
+  Object.entries(tam.fairest || {}).forEach(([k, v]) => {
+    if (v === true) v = 'si'; else if (v === false) v = 'no';
+    if (v != null && v !== '') FAI[k] = String(v);
+  });
+  Object.entries(tam.stopbang || {}).forEach(([k, v]) => {
+    if (['edad', 'sexo', 'peso', 'talla', 'cuello', 'imc'].includes(k)) return;
+    if (v === true) v = 'si'; else if (v === false) v = 'no';
+    if (v != null && v !== '') FAI['sb_' + k] = String(v);
+  });
+  if (tam.psq) window.PSQ_PREV = tam.psq;
+
+  cargarMiniaturas();
+  cambioEdad();                       // repinta el tamizaje y las lecturas
+  const sb = tam.stopbang || {};
+  set('#sbPeso', sb.peso); set('#sbTalla', sb.talla); set('#sbCuello', sb.cuello);
+  pintarImagenes();
+  refrescarCabecera();
+  avisar('Editando el informe del ' + esc(it.fecha || '') +
+         (it.impreso ? ' — ya fue impreso: si lo cambias, hay que reimprimirlo.' : ''), !!it.impreso);
+}
+
+async function cargarMiniaturas(){
+  if (!ID) return;
+  try {
+    const r = await api('/api/informe-pc/imagenes?id=' + encodeURIComponent(ID));
+    if (r.ok) { IMGS = r.imagenes; pintarImagenes(); }
+  } catch(e){}
 }
 
 function precargar(p){
@@ -462,6 +575,7 @@ function pintarFormulario(){
 
   // plan
   agregarPlan(); agregarPlan();
+  engancharImagenes();
 
   // tamizaje
   pintarTamizaje(false);
@@ -660,6 +774,91 @@ function pintarPuntaje(t){
   $('#tamPuntaje').innerHTML = h;
 }
 
+/* ── Imágenes ────────────────────────────────────────────────────
+   El navegador reduce la imagen y genera además la miniatura: en Render no hay
+   Pillow, y así el request cabe en el límite de 3 MB del servidor. */
+let IMGS = [];
+const LADO_IMPRESION = 1400, LADO_MINIATURA = 220;
+
+function achicar(file, lado, calidad){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const e = Math.min(1, lado / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * e); c.height = Math.round(img.height * e);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL('image/jpeg', calidad));
+    };
+    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error('no es una imagen')); };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function subirImagen(file){
+  // Las imágenes se cuelgan de un informe: si todavía no existe, se guarda
+  // primero. Es más simple que inventar un depósito temporal.
+  if (!ID) { const ok = await guardar(true); if (!ok) return; }
+  try {
+    const [data, thumb] = await Promise.all([achicar(file, LADO_IMPRESION, 0.82),
+                                             achicar(file, LADO_MINIATURA, 0.7)]);
+    const r = await api('/api/informe-pc/imagen', {method: 'POST',
+      body: JSON.stringify({id: ID, data, thumb, titulo: ''})});
+    if (!r.ok) return avisar(r.error || 'No se pudo agregar la imagen.', true);
+    IMGS.push({archivo: r.imagen.archivo, titulo: r.imagen.titulo, src: thumb});
+    pintarImagenes();
+    avisar('Imagen agregada.', false);
+  } catch(e){ avisar('Ese archivo no es una imagen.', true); }
+}
+
+function pintarImagenes(){
+  const c = $('#tiraImgs');
+  if (!c) return;
+  c.innerHTML = IMGS.map((im, i) => `
+    <div class="tira">
+      <img src="${esc(im.src || '')}" alt="">
+      <input type="text" placeholder="Título (opcional)" value="${esc(im.titulo || '')}"
+             data-i="${i}" class="tit">
+      <button class="quitar" data-i="${i}">Quitar</button>
+    </div>`).join('');
+  c.querySelectorAll('.tit').forEach(inp => {
+    inp.addEventListener('change', () => { IMGS[inp.dataset.i].titulo = inp.value; guardar(true); });
+  });
+  c.querySelectorAll('.quitar').forEach(b => {
+    b.addEventListener('click', async () => {
+      const im = IMGS[b.dataset.i];
+      try { await api('/api/informe-pc/imagen/borrar', {method: 'POST',
+              body: JSON.stringify({id: ID, archivo: im.archivo})}); } catch(e){}
+      IMGS.splice(b.dataset.i, 1); pintarImagenes();
+    });
+  });
+}
+
+function engancharImagenes(){
+  $('#fileImgs').addEventListener('change', async e => {
+    for (const f of e.target.files) await subirImagen(f);
+    e.target.value = '';
+  });
+  // Pegar: lo más rápido cuando la imagen viene de una captura del escáner.
+  document.addEventListener('paste', async e => {
+    if ($('#vCaptura').style.display === 'none') return;
+    const items = Array.from((e.clipboardData || {}).items || [])
+                       .filter(i => i.type.startsWith('image/'));
+    if (!items.length) return;
+    e.preventDefault();
+    for (const it of items) { const f = it.getAsFile(); if (f) await subirImagen(f); }
+  });
+  const z = $('#zonaImgs');
+  ['dragenter', 'dragover'].forEach(ev => z.addEventListener(ev, e => {
+    e.preventDefault(); z.classList.add('sobre'); }));
+  ['dragleave', 'drop'].forEach(ev => z.addEventListener(ev, e => {
+    e.preventDefault(); z.classList.remove('sobre'); }));
+  z.addEventListener('drop', async e => {
+    for (const f of e.dataTransfer.files) await subirImagen(f);
+  });
+}
+
 function agregarPlan(){
   const tr = document.createElement('tr');
   tr.innerHTML = `<td style="width:70%"><input type="text" class="plAcc" placeholder="Acción"></td>
@@ -736,7 +935,7 @@ function recolectar(){
     id: ID,
     rut: $('#pRut').value, rut_fmt: $('#pRut').value, nombre: $('#pNombre').value,
     edad: num('pEdad'), sexo: $('#pSexo').value,
-    id_agenda: qs.get('id_agenda') || '', doctor_texto: qs.get('doctor') || '',
+    id_agenda: CTX.id_agenda, doctor_texto: CTX.doctor_texto,
     motivo_consulta: $('#motivo').value.trim(),
     mediciones: {
       intercanino_maxilar: num('m_intercanino_maxilar'),
@@ -759,22 +958,29 @@ function recolectar(){
     plan_accion: plan,
     tamizaje: tam,
     ordenes: Array.from(document.querySelectorAll('.or:checked')).map(c => c.value),
+    // Solo los títulos: los archivos ya están en el servidor.
+    titulos_imagenes: IMGS.map(i => ({archivo: i.archivo, titulo: i.titulo || ''})),
   };
 }
 
-async function guardar(){
+async function guardar(silencioso){
   const d = recolectar();
-  if (!d.nombre || !d.rut) { return avisar('Falta el nombre o el RUT.', true); }
-  if (!d.conclusion)       { return avisar('Falta la impresión diagnóstica.', true); }
-  $('#btnGuardar').disabled = true;
+  if (!d.nombre || !d.rut) { avisar('Falta el nombre o el RUT.', true); return false; }
+  if (!d.conclusion)       { avisar('Falta la impresión diagnóstica.', true); return false; }
+  // El guardado silencioso (al anexar una imagen o cambiarle el titulo) NO toca
+  // el boton: si lo deshabilitara, un clic en ese momento no haria nada y sin
+  // ningun aviso, que es la peor forma de fallar.
+  if (!silencioso) $('#btnGuardar').disabled = true;
   try {
     const r = await api('/api/informe-pc/guardar', {method:'POST', body: JSON.stringify(d)});
-    if (!r.ok) return avisar(r.error || 'No se pudo guardar.', true);
+    if (!r.ok) { avisar(r.error || 'No se pudo guardar.', true); return false; }
     ID = r.id;
+    if (silencioso) return true;
     avisar('Guardado.', false);
-    verDocumento(ID, false);
-  } catch(e){ avisar('Error de conexión.', true); }
-  finally { $('#btnGuardar').disabled = false; }
+    await verDocumento(ID, false);
+    return true;
+  } catch(e){ avisar('Error de conexión.', true); return false; }
+  finally { if (!silencioso) $('#btnGuardar').disabled = false; }
 }
 
 function avisar(txt, err){
@@ -901,6 +1107,20 @@ function pintarDocumento(d){
     hm += `<div class="pie">${esc(med.nota)}</div>`;
   }
 
+  /* ── Hoja de imágenes ──
+     Va después de las mediciones y antes del tamizaje, que es donde termina la
+     parte clínica del informe. Sin firma: es anexo del informe, que ya va
+     firmado. */
+  let hi = '';
+  if ((d.imagenes || []).length) {
+    hi = cab('Imágenes');
+    hi += `<section><h2>Registro del día</h2><div class="fotos">` +
+      d.imagenes.map(im => `<figure>
+          <img src="${esc(im.src)}" alt="">
+          ${im.titulo ? `<figcaption>${esc(im.titulo)}</figcaption>` : ''}
+        </figure>`).join('') + `</div></section>`;
+  }
+
   /* ── Hoja del tamizaje ── */
   const t = d.tamizaje, fa = t.fairest;
   const flag = (v) => v === null || v === undefined
@@ -956,6 +1176,7 @@ function pintarDocumento(d){
 
   return `<div class="hoja">${h1}</div>`
        + (hm ? `<div class="hoja">${hm}</div>` : '')
+       + (hi ? `<div class="hoja">${hi}</div>` : '')
        + `<div class="hoja">${h2}</div>`
        + (h3 ? `<div class="hoja">${h3}</div>` : '');
 }
@@ -974,9 +1195,12 @@ async function irRecepcion(){
     <tr><td>${esc((i.creado||'').slice(11,16))}</td>
       <td><b>${esc(i.nombre)}</b><br><span class="nota">${esc(i.rut_fmt || i.rut || '')}</span></td>
       <td>${i.impreso ? '<span style="color:var(--green)">impreso ' + esc(i.impreso.slice(11,16)) + '</span>'
-                      : '<b style="color:var(--amber)">por imprimir</b>'}</td>
+                      : '<b style="color:var(--amber)">por imprimir</b>'}
+          ${i.editado_tras_imprimir ? '<br><b style="color:var(--red)">editado después: reimprimir</b>' : ''}
+          ${i.sin_firma ? '<br><span class="nota" style="color:var(--amber)">sin firma cargada</span>' : ''}</td>
       <td class="nota">${esc((i.ordenes_labels || []).join(' · ') || '—')}</td>
-      <td><button class="btn sec sm" onclick="verDocumento('${esc(i.id)}', false)">Ver</button>
+      <td><button class="btn sec sm" onclick="location.href='/informe-pc?id=${esc(i.id)}'">Editar</button>
+          <button class="btn sec sm" onclick="verDocumento('${esc(i.id)}', false)">Ver</button>
           <button class="btn sm" onclick="verDocumento('${esc(i.id)}', true)">Imprimir</button></td>
     </tr>`).join('');
 }

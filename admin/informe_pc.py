@@ -296,7 +296,22 @@ def guardar(datos):
         item['fecha'] = previo.get('fecha') or datos.get('fecha') or fechas.hoy_chile().isoformat()
         item['creado'] = previo.get('creado') or ahora
         item['actualizado'] = ahora
+        # Si se edita algo que YA se imprimio, el papel que tiene el paciente
+        # quedo desactualizado. Se marca para que recepcion lo vea en su lista y
+        # sepa que hay que reimprimirlo. NO se borra la marca de impreso: que
+        # paso por la impresora es un hecho, y borrarla seria falsear el
+        # historial.
         item.setdefault('impreso', None)
+        if previo.get('impreso'):
+            item['editado_tras_imprimir'] = ahora
+        # El formulario manda los TITULOS de las imagenes, no las imagenes: los
+        # archivos ya viven en disco. Si la lista saliera del formulario, un
+        # guardado normal borraria todas las fotos del informe.
+        titulos = {t.get('archivo'): (t.get('titulo') or '').strip()[:80]
+                   for t in (datos.get('titulos_imagenes') or []) if t.get('archivo')}
+        item['imagenes'] = [dict(img, titulo=titulos.get(img.get('archivo'), img.get('titulo', '')))
+                            for img in (previo.get('imagenes') or [])]
+        item.pop('titulos_imagenes', None)
         reg['informes'][iid] = item
         return reg
 
@@ -350,6 +365,166 @@ def podar(dias=None):
     _STORE.actualizar(_fn)
     return borrados['n']
 
+
+
+# ── Imagenes del informe ─────────────────────────────────────────────────
+#
+# Fotos clinicas, capturas del escaneo, lo que el Dr. quiera anexar. Se guardan
+# como ARCHIVOS en el disco persistente y NO dentro del JSON del registro: un
+# informe con cuatro fotos en base64 haria que cada lectura del registro
+# arrastre megabytes, y ese registro se lee entero en cada guardado.
+#
+# El navegador manda DOS versiones ya reducidas: la de impresion y una
+# miniatura. Se hace en el cliente porque en Render no hay Pillow (solo esta en
+# el PC de la clinica, para la etiquetadora) y porque asi el request cabe en el
+# MAX_CONTENT_LENGTH de 3 MB del servidor.
+
+IMAGENES_DIR = Path(os.environ.get('INFORME_PC_IMAGENES_DIR',
+                                   _BASE_DIR / 'informe_pc_imagenes'))
+
+MAX_IMAGENES = 8
+# Un dataURL de 2,2 MB deja margen bajo el limite de 3 MB del request contando
+# el resto del cuerpo JSON.
+MAX_BYTES_IMAGEN = 2_200_000
+
+_EXT_POR_MIME = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
+
+
+def _decodificar(dataurl):
+    """dataURL -> (bytes, extension). Devuelve (None, motivo) si no sirve.
+
+    Solo se aceptan los tres formatos que produce un canvas de navegador: si
+    llega otra cosa, es que no vino de donde creemos que vino.
+    """
+    import base64
+    if not isinstance(dataurl, str) or not dataurl.startswith('data:'):
+        return None, 'no es una imagen'
+    try:
+        cabecera, datos = dataurl.split(',', 1)
+        mime = cabecera[5:].split(';')[0].strip().lower()
+    except ValueError:
+        return None, 'imagen mal formada'
+    ext = _EXT_POR_MIME.get(mime)
+    if not ext:
+        return None, 'formato no aceptado (%s)' % mime
+    try:
+        crudo = base64.b64decode(datos, validate=True)
+    except Exception:
+        return None, 'imagen mal codificada'
+    if not crudo:
+        return None, 'imagen vacia'
+    if len(crudo) > MAX_BYTES_IMAGEN:
+        return None, 'la imagen pesa demasiado'
+    return (crudo, ext), None
+
+
+def agregar_imagen(informe_id, data, thumb, titulo=''):
+    """Guarda una imagen del informe. Devuelve {'ok':True,'imagen':{...}} o
+    {'ok':False,'error':...} -- mismo contrato con 'ok' que link_agenda."""
+    item = obtener(informe_id)
+    if not item:
+        return {'ok': False, 'error': 'No se encontro ese informe'}
+    if len(item.get('imagenes') or []) >= MAX_IMAGENES:
+        return {'ok': False, 'error': 'Maximo %d imagenes por informe' % MAX_IMAGENES}
+
+    grande, err = _decodificar(data)
+    if err:
+        return {'ok': False, 'error': err}
+    chica, err = _decodificar(thumb or data)
+    if err:
+        return {'ok': False, 'error': err}
+
+    IMAGENES_DIR.mkdir(parents=True, exist_ok=True)
+    base = '%s_%s' % (informe_id, secrets.token_hex(4))
+    archivo, archivo_t = base + grande[1], base + '_t' + chica[1]
+    (IMAGENES_DIR / archivo).write_bytes(grande[0])
+    (IMAGENES_DIR / archivo_t).write_bytes(chica[0])
+
+    reg = {'archivo': archivo, 'thumb': archivo_t,
+           'titulo': (titulo or '').strip()[:80],
+           'agregada': fechas.ahora_chile().isoformat(timespec='seconds')}
+
+    def _fn(datos):
+        it = datos['informes'].get(informe_id)
+        if it is not None:
+            it.setdefault('imagenes', []).append(reg)
+        return datos
+
+    _STORE.actualizar(_fn)
+    return {'ok': True, 'imagen': reg}
+
+
+def borrar_imagen(informe_id, archivo):
+    """Saca una imagen del informe y borra sus archivos."""
+    quitada = {'ok': False}
+
+    def _fn(datos):
+        it = datos['informes'].get(informe_id)
+        if not it:
+            return datos
+        quedan = []
+        for img in (it.get('imagenes') or []):
+            if img.get('archivo') == archivo:
+                quitada['ok'] = True
+                quitada['reg'] = img
+            else:
+                quedan.append(img)
+        it['imagenes'] = quedan
+        return datos
+
+    _STORE.actualizar(_fn)
+    if quitada['ok']:
+        for clave in ('archivo', 'thumb'):
+            nombre = (quitada.get('reg') or {}).get(clave)
+            # Nunca se construye una ruta con lo que llego de afuera sin
+            # comprobar que cae DENTRO del directorio de imagenes.
+            if nombre and _dentro_de_imagenes(nombre):
+                try:
+                    (IMAGENES_DIR / nombre).unlink()
+                except OSError:
+                    pass
+    return quitada['ok']
+
+
+def _dentro_de_imagenes(nombre):
+    """True si `nombre` es un archivo directo de IMAGENES_DIR (sin '..' ni rutas
+    absolutas). Es la guarda contra un traversal por el nombre de archivo."""
+    if not nombre or '/' in nombre or '\\' in nombre or nombre.startswith('.'):
+        return False
+    try:
+        destino = (IMAGENES_DIR / nombre).resolve()
+        return destino.parent == IMAGENES_DIR.resolve()
+    except OSError:
+        return False
+
+
+def imagen_data_uri(nombre):
+    """Una imagen guardada, como data URI. Devuelve '' si no existe.
+
+    Se embeben en el documento en vez de servirse por URL porque un <img> no
+    manda el header del token, y estas son fotos clinicas de un paciente: no
+    pueden quedar en una ruta que baste adivinar.
+    """
+    import base64
+    import mimetypes
+    if not _dentro_de_imagenes(nombre):
+        return ''
+    ruta = IMAGENES_DIR / nombre
+    if not ruta.exists():
+        return ''
+    mime = mimetypes.guess_type(str(ruta))[0] or 'image/jpeg'
+    return 'data:%s;base64,%s' % (mime, base64.b64encode(ruta.read_bytes()).decode())
+
+
+def imagenes_de(informe_id, thumbs=False):
+    """Las imagenes de un informe, con su contenido embebido."""
+    item = obtener(informe_id) or {}
+    out = []
+    for img in (item.get('imagenes') or []):
+        nombre = img.get('thumb') if thumbs else img.get('archivo')
+        out.append({'archivo': img.get('archivo'), 'titulo': img.get('titulo', ''),
+                    'src': imagen_data_uri(nombre)})
+    return out
 
 # ── Armado del documento ─────────────────────────────────────────────────
 #
@@ -821,6 +996,7 @@ def armar_documento(item, doctor=None, clinica=None):
         # Al que no requiere tratamiento no se le ofrece el Estudio: seria
         # exactamente la venta que este documento existe para no parecer.
         'que_aporta_estudio': (QUE_APORTA_ESTUDIO if ck != 'no_requiere' else ''),
+        'imagenes': imagenes_de(item.get('id')) if item.get('imagenes') else [],
         'tamizaje': tamizaje,
         'ordenes': ordenes,
         'texto_orden': TEXTO_ORDEN,

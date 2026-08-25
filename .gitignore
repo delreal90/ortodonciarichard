@@ -125,3 +125,7 @@ admin/psq_registro.json
 # tamizaje de sueno y ordenes de examenes, por RUT. Datos clinicos: nunca a git.
 # En Render vive en el disco persistente (junto a patient_index.json).
 admin/informe_pc_registro.json
+
+# Informe de evaluacion: fotos clinicas anexadas al informe (cara, boca,
+# capturas del escaneo). Datos de pacientes: disco persistente, nunca a git.
+admin/informe_pc_imagenes/

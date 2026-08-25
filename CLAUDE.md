@@ -2430,6 +2430,7 @@ admin/stopbang.py                                ← STOP-BANG adultos
 admin/informe_pc.py                              ← catálogos, registro y armado del documento
 admin/informe_pc.html                            ← captura (box) + ?modo=recepcion + impresión
 admin/logo_informe.png                           ← logo de la cabecera (recorte del logo del sitio)
+admin/informe_pc_imagenes/                       ← fotos anexadas (gitignored, disco persistente)
 dentidesk-assistant/content.js                   ← botón "📄 Informe de primera consulta"
 ```
 
@@ -2562,6 +2563,49 @@ terminan mostrando números distintos.
 original ("una pantalla sin scroll") no se cumple; se prefirió eso antes que esconder
 secciones detrás de desplegables, porque en un flujo de dos minutos un clic cuesta más que
 una rodada de scroll.
+
+### Editar, imágenes y firma automática (2026-08-21)
+
+**Editar.** `/informe-pc?id=<id>` reabre un informe guardado con el formulario ya poblado, y
+en recepción hay un botón **Editar** junto a Ver e Imprimir. `GET /api/informe-pc/obtener`
+devuelve el informe CRUDO — distinto de `/documento`, que lo entrega ya armado para imprimir
+y con eso no se puede repoblar un formulario de casillas.
+
+⚠️ **Editar algo YA impreso lo marca `editado_tras_imprimir`** y recepción lo ve en rojo
+("editado después: reimprimir"). El papel que tiene el paciente quedó desactualizado y
+alguien tiene que enterarse sin depender de acordarse. La marca de `impreso` **no se borra**:
+que pasó por la impresora es un hecho.
+
+⚠️ **El contexto de la cita vive en `CTX`, no en la query string.** El `doctor` y el
+`id_agenda` llegan por URL cuando el informe nace desde el F2, pero al REABRIRLO esa query no
+existe. La primera versión los tomaba de la URL en `recolectar()`, así que **editar un informe
+le borraba el doctor y con él la firma**. Ahora `cargarEnFormulario()` los recupera del propio
+informe. Si se agrega otro dato de contexto, va en `CTX`.
+
+**Imágenes** (`informe_pc.agregar_imagen` / `borrar_imagen` / `imagenes_de`). Se cargan con
+el botón, **pegando con Ctrl+V** (lo más rápido para una captura del escáner) o arrastrando.
+Se anexan en una **hoja propia entre Mediciones y Tamizaje**, hasta 8, con título opcional.
+
+- **Los archivos van al disco, NO al JSON del registro.** Un informe con cuatro fotos en
+  base64 haría que cada lectura del registro arrastre megabytes, y ese registro se lee entero
+  en cada guardado. Viven en `informe_pc_imagenes/` (disco persistente, **gitignored**).
+- **El navegador manda las dos versiones ya reducidas** (1400 px para imprimir, 220 px de
+  miniatura): en Render no hay Pillow —solo está en el PC de la clínica, para la
+  etiquetadora— y así el request cabe en el `MAX_CONTENT_LENGTH` de 3 MB.
+- **Se embeben como data URI en el documento**, no se sirven por URL: un `<img>` no manda el
+  header del token, y son fotos clínicas de un paciente.
+- ⚠️ **El formulario manda los TÍTULOS, no las imágenes.** `guardar()` reconstruye la lista
+  desde lo que ya estaba en disco. Si la tomara del formulario, un guardado normal borraría
+  todas las fotos del informe. Hay una prueba que fija exactamente eso.
+- `_dentro_de_imagenes()` es la guarda de traversal: ningún nombre llegado de afuera puede
+  leer o borrar un archivo fuera de ese directorio.
+
+**Firma y timbre.** Salen de donde el doctor YA los cargó: la pestaña Seguros del panel
+(`seguros.firma_de_doctor`). No hay una segunda carga ni un segundo lugar que mantener. Lo
+que el doctor escribió ahí **manda sobre el config**: `nombre_visible` y `especialidad` son
+los que él eligió para que salgan junto a su firma. Si el doctor no tiene firma cargada, el
+informe aparece en recepción con un aviso **"sin firma cargada"**, para que se sepa antes de
+imprimir y no con el papel en la mano.
 
 ### Pendientes
 

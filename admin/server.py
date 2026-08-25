@@ -3872,8 +3872,19 @@ def _firma_data_uri(doc_key):
 
 def _doctor_informe(doctor_texto=''):
     """Resuelve el doctor a partir del texto que trae el modal de DentiDesk.
-    Si no se puede resolver, se devuelve lo que haya sin inventar un nombre:
-    es mejor una firma en blanco que atribuirle el informe a otro profesional."""
+
+    La firma y el timbre salen de donde el doctor YA los cargó: la pestaña
+    Seguros del panel (`seguros.firma_de_doctor`). No hay una segunda carga ni
+    un segundo lugar donde mantenerlos; si se agrega ahí, aparecen acá solos.
+
+    Lo que el doctor escribió en Seguros MANDA sobre el config: el
+    'nombre_visible' y la 'especialidad' de ese registro son los que él eligió
+    para que salgan impresos junto a su firma.
+
+    Si no se puede resolver el doctor, se devuelve lo que haya sin inventar un
+    nombre: es mejor una firma en blanco que atribuirle el informe a otro
+    profesional.
+    """
     cfg = scheduling.load_config()
     key = ''
     try:
@@ -3881,13 +3892,24 @@ def _doctor_informe(doctor_texto=''):
     except Exception:
         key = ''
     d = (cfg.get('doctores') or {}).get(key) or {}
-    nombre = d.get('professional_name') or (doctor_texto or '').strip()
+    try:
+        firmado = seguros.datos_doctor(key) if key else {}
+    except Exception as e:
+        app.logger.warning('informe-pc: no se pudieron leer los datos de firma de %s: %s', key, e)
+        firmado = {}
+
+    nombre = (firmado.get('nombre_visible') or d.get('professional_name')
+              or (doctor_texto or '').strip())
+    firma = _firma_data_uri(key) if key else ''
     return {
         'key': key,
         'nombre': ('Dr. ' + nombre) if nombre and not nombre.lower().startswith('dr') else nombre,
-        'especialidad': d.get('titulo_impreso') or '',
+        'especialidad': firmado.get('especialidad') or d.get('titulo_impreso') or '',
         'registro': d.get('registro_prestador') or '',
-        'firma_url': _firma_data_uri(key) if key else '',
+        'firma_url': firma,
+        # Para que recepción vea que ese informe saldría sin firma ANTES de
+        # imprimirlo, en vez de descubrirlo con el papel en la mano.
+        'sin_firma': not firma,
     }
 
 
@@ -4005,8 +4027,10 @@ def informe_pc_pendientes():
         items.append({
             'id': i.get('id'), 'nombre': i.get('nombre'), 'rut_fmt': i.get('rut_fmt'),
             'creado': i.get('creado'), 'impreso': i.get('impreso'),
+            'editado_tras_imprimir': i.get('editado_tras_imprimir'),
             'ordenes_labels': [informe_pc.ORDENES[c]['etiqueta']
                                for c in (i.get('ordenes') or []) if c in informe_pc.ORDENES],
+            'sin_firma': _doctor_informe(i.get('doctor_texto') or '').get('sin_firma', True),
         })
     return jsonify({'ok': True, 'fecha': fecha, 'informes': items})
 
@@ -4023,6 +4047,52 @@ def informe_pc_documento():
     return jsonify({'ok': True,
                     'documento': informe_pc.armar_documento(item, doctor=doc,
                                                             clinica=_clinica_informe())})
+
+
+@app.route('/api/informe-pc/obtener', methods=['GET'])
+def informe_pc_obtener():
+    """El informe TAL COMO SE GUARDO, para volver a abrirlo en el formulario.
+
+    Distinto de /documento, que lo devuelve ya armado para imprimir: ahi los
+    hallazgos vienen con su texto y las mediciones con su percentil, y con eso
+    no se puede repoblar un formulario de casillas."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    item = informe_pc.obtener(request.args.get('id', ''))
+    if not item:
+        return jsonify({'ok': False, 'error': 'No se encontro ese informe'}), 404
+    return jsonify({'ok': True, 'informe': item})
+
+
+@app.route('/api/informe-pc/imagen', methods=['POST'])
+def informe_pc_imagen():
+    """Anexa una imagen al informe. El navegador la manda ya reducida y con su
+    miniatura: en Render no hay Pillow y el request tiene que caber en los 3 MB
+    del MAX_CONTENT_LENGTH."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.get_json(silent=True) or {}
+    r = informe_pc.agregar_imagen(d.get('id', ''), d.get('data'), d.get('thumb'),
+                                  d.get('titulo', ''))
+    return jsonify(r), (200 if r.get('ok') else 400)
+
+
+@app.route('/api/informe-pc/imagen/borrar', methods=['POST'])
+def informe_pc_imagen_borrar():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    d = request.get_json(silent=True) or {}
+    ok = informe_pc.borrar_imagen(d.get('id', ''), d.get('archivo', ''))
+    return jsonify({'ok': ok}), (200 if ok else 404)
+
+
+@app.route('/api/informe-pc/imagenes', methods=['GET'])
+def informe_pc_imagenes():
+    """Las miniaturas, para repoblar el formulario al reabrir un informe."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True,
+                    'imagenes': informe_pc.imagenes_de(request.args.get('id', ''), thumbs=True)})
 
 
 @app.route('/api/informe-pc/marcar-impreso', methods=['POST'])

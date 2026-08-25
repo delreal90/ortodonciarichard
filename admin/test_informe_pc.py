@@ -23,6 +23,7 @@ Lo que se protege:
     contenga una frase prohibida. Todo esto se imprime con la firma del doctor.
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -633,6 +634,135 @@ class TestFraseDeAngle(unittest.TestCase):
         self.assertEqual(min(pos), -informe_pc.CUARTOS_MAX)
         self.assertEqual(max(pos), informe_pc.CUARTOS_MAX)
         self.assertIn(0, pos)
+
+
+def _png(color=b'\x00\x00\xff'):
+    """Un PNG minimo real, como dataURL. No se usa Pillow: en produccion no
+    existe, y estas pruebas tienen que correr igual que alla."""
+    import base64
+    import struct
+    import zlib
+
+    def trozo(tipo, datos):
+        c = tipo + datos
+        return struct.pack('>I', len(datos)) + c + struct.pack('>I', zlib.crc32(c))
+
+    cab = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)
+    idat = zlib.compress(b'\x00' + color)
+    crudo = (b'\x89PNG\r\n\x1a\n' + trozo(b'IHDR', cab) +
+             trozo(b'IDAT', idat) + trozo(b'IEND', b''))
+    return 'data:image/png;base64,' + base64.b64encode(crudo).decode()
+
+
+class TestImagenes(unittest.TestCase):
+    """Fotos clinicas anexadas al informe. Se guardan como ARCHIVOS: meterlas
+    en el JSON del registro haria que cada guardado arrastre megabytes."""
+
+    def setUp(self):
+        _limpiar_registro()
+        self.iid = informe_pc.guardar(_base())
+
+    def test_agregar_deja_el_archivo_en_disco_y_la_ficha_en_el_registro(self):
+        r = informe_pc.agregar_imagen(self.iid, _png(), _png(), 'Intraoral frontal')
+        self.assertTrue(r['ok'], r)
+        img = r['imagen']
+        self.assertEqual(img['titulo'], 'Intraoral frontal')
+        self.assertTrue((informe_pc.IMAGENES_DIR / img['archivo']).exists())
+        self.assertTrue((informe_pc.IMAGENES_DIR / img['thumb']).exists())
+        self.assertEqual(len(informe_pc.obtener(self.iid)['imagenes']), 1)
+
+    def test_el_registro_guarda_el_nombre_del_archivo_y_no_la_imagen(self):
+        informe_pc.agregar_imagen(self.iid, _png(), _png())
+        crudo = json.dumps(informe_pc.obtener(self.iid))
+        self.assertNotIn('base64', crudo)
+        self.assertLess(len(crudo), 4000)
+
+    def test_topa_en_el_maximo(self):
+        for _ in range(informe_pc.MAX_IMAGENES):
+            self.assertTrue(informe_pc.agregar_imagen(self.iid, _png(), _png())['ok'])
+        r = informe_pc.agregar_imagen(self.iid, _png(), _png())
+        self.assertFalse(r['ok'])
+        self.assertIn('aximo', r['error'])
+
+    def test_rechaza_lo_que_no_sea_una_imagen_de_navegador(self):
+        for basura in ('data:application/pdf;base64,QQ==', 'http://x/y.jpg', '', None,
+                       'data:image/svg+xml;base64,QQ=='):
+            with self.subTest(basura=basura):
+                self.assertFalse(informe_pc.agregar_imagen(self.iid, basura, _png())['ok'])
+
+    def test_a_un_informe_que_no_existe_no_se_le_agrega_nada(self):
+        self.assertFalse(informe_pc.agregar_imagen('noexiste', _png(), _png())['ok'])
+
+    def test_borrar_saca_la_ficha_y_los_archivos(self):
+        img = informe_pc.agregar_imagen(self.iid, _png(), _png())['imagen']
+        self.assertTrue(informe_pc.borrar_imagen(self.iid, img['archivo']))
+        self.assertEqual(informe_pc.obtener(self.iid)['imagenes'], [])
+        self.assertFalse((informe_pc.IMAGENES_DIR / img['archivo']).exists())
+        self.assertFalse((informe_pc.IMAGENES_DIR / img['thumb']).exists())
+
+    def test_un_nombre_con_traversal_no_lee_nada(self):
+        # La guarda que impide que un nombre de archivo llegado de afuera saque
+        # cualquier archivo del servidor.
+        for malo in ('../informe_pc.py', '..\\informe_pc.py', '/etc/passwd',
+                     '.oculto', 'sub/dir.jpg', ''):
+            with self.subTest(malo=malo):
+                self.assertEqual(informe_pc.imagen_data_uri(malo), '')
+
+    def test_guardar_el_informe_no_pierde_las_imagenes(self):
+        # El formulario manda titulos, no imagenes: si el guardado tomara la
+        # lista del formulario, un guardado normal las borraria todas.
+        img = informe_pc.agregar_imagen(self.iid, _png(), _png(), 'Perfil')['imagen']
+        informe_pc.guardar({'id': self.iid, 'rut': '1-9', 'nombre': 'X',
+                            'conclusion': 'corresponde'})
+        self.assertEqual(len(informe_pc.obtener(self.iid)['imagenes']), 1)
+        self.assertEqual(informe_pc.obtener(self.iid)['imagenes'][0]['archivo'], img['archivo'])
+
+    def test_el_titulo_se_puede_cambiar_desde_el_formulario(self):
+        img = informe_pc.agregar_imagen(self.iid, _png(), _png(), 'viejo')['imagen']
+        informe_pc.guardar({'id': self.iid, 'rut': '1-9', 'nombre': 'X',
+                            'conclusion': 'corresponde',
+                            'titulos_imagenes': [{'archivo': img['archivo'], 'titulo': 'nuevo'}]})
+        self.assertEqual(informe_pc.obtener(self.iid)['imagenes'][0]['titulo'], 'nuevo')
+
+    def test_el_documento_trae_las_imagenes_embebidas(self):
+        informe_pc.agregar_imagen(self.iid, _png(), _png(), 'Intraoral')
+        doc = informe_pc.armar_documento(informe_pc.obtener(self.iid))
+        self.assertEqual(len(doc['imagenes']), 1)
+        self.assertTrue(doc['imagenes'][0]['src'].startswith('data:image/'))
+        self.assertEqual(doc['imagenes'][0]['titulo'], 'Intraoral')
+
+    def test_sin_imagenes_el_documento_trae_la_lista_vacia(self):
+        self.assertEqual(informe_pc.armar_documento(informe_pc.obtener(self.iid))['imagenes'], [])
+
+
+class TestEdicion(unittest.TestCase):
+    """Reabrir un informe guardado y modificarlo."""
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def test_editar_conserva_creado_y_no_duplica(self):
+        iid = informe_pc.guardar(_base(motivo_consulta='primero'))
+        creado = informe_pc.obtener(iid)['creado']
+        informe_pc.guardar(_base(id=iid, motivo_consulta='corregido'))
+        self.assertEqual(len(informe_pc.listar(fecha=FECHA)), 1)
+        self.assertEqual(informe_pc.obtener(iid)['creado'], creado)
+        self.assertEqual(informe_pc.obtener(iid)['motivo_consulta'], 'corregido')
+
+    def test_editar_algo_ya_impreso_queda_marcado_para_reimprimir(self):
+        # El papel que tiene el paciente quedo desactualizado, y recepcion tiene
+        # que enterarse sin tener que acordarse.
+        iid = informe_pc.guardar(_base())
+        informe_pc.marcar_impreso(iid)
+        informe_pc.guardar(_base(id=iid, motivo_consulta='corregido'))
+        it = informe_pc.obtener(iid)
+        self.assertTrue(it.get('editado_tras_imprimir'))
+        self.assertTrue(it['impreso'], 'la marca de impreso no se borra: paso por la impresora')
+
+    def test_editar_algo_no_impreso_no_marca_nada(self):
+        iid = informe_pc.guardar(_base())
+        informe_pc.guardar(_base(id=iid, motivo_consulta='corregido'))
+        self.assertIsNone(informe_pc.obtener(iid).get('editado_tras_imprimir'))
 
 
 if __name__ == '__main__':
