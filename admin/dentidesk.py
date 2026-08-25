@@ -481,14 +481,33 @@ def actualizar_estado_cita(id_agenda, id_status, cfg=None):
 # Si no hay match (nombre/label no coincide exacto) devuelven '' -- el
 # frontend cae de vuelta a pedirselo al paciente, sin romper el flujo.
 
+def sin_titulo_doctor(nombre):
+    """Quita un prefijo 'Dr.'/'Dra.' del nombre de un profesional.
+
+    Vive aca porque aca vive el ProfessionalName: la API de DentiDesk lo
+    devuelve SIN titulo ('Alberto Del Real'), pero el modal de la cita --que es
+    de donde lee el F2-- lo muestra CON titulo ('Dr. Alberto Del Real'). Los dos
+    tienen que resolver al mismo doctor.
+    """
+    d = (nombre or '').strip()
+    low = d.lower()
+    for pref in ('dra.', 'dra ', 'dr.', 'dr '):
+        if low.startswith(pref):
+            return d[len(pref):].strip()
+    return d
+
+
 def doc_key_por_nombre(cfg, professional_name):
     professional_name = (professional_name or '').strip()
     if not professional_name:
         return ''
-    objetivo = _norm_motivo(professional_name)
+    # Se compara SIN titulo de los dos lados. El config guarda 'Alberto Del
+    # Real' y el F2 manda 'Dr. Alberto Del Real': sin esto no calzaban, y el
+    # informe salia sin firma aunque el doctor la tuviera cargada.
+    objetivo = _norm_motivo(sin_titulo_doctor(professional_name))
     for k, v in cfg['doctores'].items():
         if (not k.startswith('_') and isinstance(v, dict)
-                and _norm_motivo(v.get('professional_name') or '') == objetivo):
+                and _norm_motivo(sin_titulo_doctor(v.get('professional_name') or '')) == objetivo):
             return k
     log.warning('doc_key_por_nombre: sin match para professional_name=%r (normalizado=%r)',
                 professional_name, objetivo)

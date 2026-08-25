@@ -2601,7 +2601,16 @@ Se anexan en una **hoja propia entre Mediciones y Tamizaje**, hasta 8, con títu
   leer o borrar un archivo fuera de ese directorio.
 
 **Firma y timbre.** Salen de donde el doctor YA los cargó: la pestaña Seguros del panel
-(`seguros.firma_de_doctor`). No hay una segunda carga ni un segundo lugar que mantener. Lo
+(`seguros.firma_de_doctor`).
+
+> ⚠️ **El título rompía el match (arreglado el 2026-08-25).** El informe salía **sin firma**
+> aunque el doctor la tuviera cargada: `scheduling_config.json` guarda `professional_name`
+> como *"Alberto Del Real"* —así lo devuelve la API de DentiDesk— pero el **modal de la cita**,
+> que es de donde lee el F2, lo muestra *"Dr. Alberto Del Real"*. `doc_key_por_nombre()` ahora
+> compara **sin título de los dos lados** (`dentidesk.sin_titulo_doctor`, que absorbió la copia
+> que vivía en `wa_cloud.nombre_doctor_sin_titulo` — el dueño del `ProfessionalName` es
+> `dentidesk.py`). Sin llave de doctor no solo faltaba la firma: también la especialidad y el
+> N° de registro. No hay una segunda carga ni un segundo lugar que mantener. Lo
 que el doctor escribió ahí **manda sobre el config**: `nombre_visible` y `especialidad` son
 los que él eligió para que salgan junto a su firma. Si el doctor no tiene firma cargada, el
 informe aparece en recepción con un aviso **"sin firma cargada"**, para que se sepa antes de

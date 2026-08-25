@@ -283,13 +283,13 @@ def nombre_doctor_sin_titulo(doctor):
     Real'), pero esto lo hace robusto igual. ⚠️ La plantilla asume doctor
     HOMBRE (los 4 especialistas lo son); si algun dia atiende una profesional
     mujer, 'el Dr.' la trataria mal y habria que resolver el articulo/titulo
-    aparte (el genero NO se infiere del nombre)."""
-    d = (doctor or '').strip()
-    low = d.lower()
-    for pref in ('dra.', 'dra ', 'dr.', 'dr '):
-        if low.startswith(pref):
-            return d[len(pref):].strip()
-    return d
+    aparte (el genero NO se infiere del nombre).
+
+    La implementacion vive en dentidesk.py, que es donde vive el
+    ProfessionalName; aca solo se delega para no tener dos copias que puedan
+    divergir."""
+    import dentidesk
+    return dentidesk.sin_titulo_doctor(doctor)
 
 
 def enviar_nps(telefono, nombre, cuando, doctor, id_agenda, fecha_iso=''):

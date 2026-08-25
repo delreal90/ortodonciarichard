@@ -122,6 +122,28 @@ class TestResolucionDeDoctor(unittest.TestCase):
     def test_desconocido_devuelve_vacio(self):
         self.assertEqual(dentidesk.doc_key_por_nombre(self.cfg, 'Nadie Que Exista'), '')
 
+    def test_con_titulo_tambien_resuelve(self):
+        """El config guarda 'Alberto Del Real' y la API de DentiDesk devuelve el
+        ProfessionalName asi, pero el MODAL de la cita --de donde lee el F2--
+        lo muestra 'Dr. Alberto Del Real'. Sin esto no calzaba, y el informe de
+        evaluacion salia SIN FIRMA aunque el doctor la tuviera cargada."""
+        for variante in ('Dr. Alberto Del Real', 'DR. ALBERTO DEL REAL',
+                         'Dr Alberto Del Real', 'Dra. Alberto Del Real'):
+            with self.subTest(variante=variante):
+                self.assertEqual(dentidesk.doc_key_por_nombre(self.cfg, variante), 'alberto')
+
+    def test_el_titulo_no_convierte_a_cualquiera_en_doctor(self):
+        """Sacar el titulo hace el match mas permisivo; no puede hacerlo laxo."""
+        self.assertEqual(dentidesk.doc_key_por_nombre(self.cfg, 'Dr. Nadie Que Exista'), '')
+        self.assertEqual(dentidesk.doc_key_por_nombre(self.cfg, 'Dr.'), '')
+
+    def test_sin_titulo_doctor(self):
+        self.assertEqual(dentidesk.sin_titulo_doctor('Dra. Ana Perez'), 'Ana Perez')
+        self.assertEqual(dentidesk.sin_titulo_doctor('Alberto Del Real'), 'Alberto Del Real')
+        self.assertEqual(dentidesk.sin_titulo_doctor(''), '')
+        # No es un prefijo: no se le puede comer el nombre.
+        self.assertEqual(dentidesk.sin_titulo_doctor('Drago Milic'), 'Drago Milic')
+
 
 class TestCacheNoGuardaFallos(unittest.TestCase):
     """_get_agenda_day cacheaba 10 minutos la lista vacia de una llamada
