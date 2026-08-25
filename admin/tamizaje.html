@@ -31,8 +31,11 @@
                 color:var(--mid); min-width:74px; }
   .ops button.on { background:var(--navy); color:#fff; border-color:var(--navy);
                    font-weight:600; }
-  input[type=number] { width:130px; padding:10px; border:1px solid var(--line);
-                       border-radius:9px; font:inherit; }
+  input[type=number], select.lista { padding:10px; border:1px solid var(--line);
+                       border-radius:9px; font:inherit; background:#fff; color:inherit; }
+  input[type=number] { width:130px; }
+  select.lista { width:100%; max-width:260px; }
+  .ayuda { font-size:.8rem; color:var(--mid); margin:-4px 0 8px; }
   .barra { position:fixed; bottom:0; left:0; right:0; background:#fff;
            border-top:1px solid var(--line); padding:12px 16px; display:flex;
            align-items:center; gap:12px; }
@@ -88,7 +91,7 @@ const esc = s => String(s == null ? '' : s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
-const ETIQUETA = {si:'Sí', no:'No', no_se:'No sé',
+const ETIQUETA = {si:'Sí', no:'No', no_se:'No sé / no uso camisa',
                   nunca:'Nunca', algunas_veces:'Algunas veces',
                   muchas_veces:'Muchas veces', casi_siempre:'Casi siempre'};
 
@@ -128,8 +131,15 @@ function pintar(){
       h += `<div class="seccion">${esc(seccion)}</div>`;
     }
     h += `<div class="preg"><p>${esc(p.texto)}</p>`;
+    if (p.ayuda) h += `<p class="ayuda">${esc(p.ayuda)}</p>`;
     if (p.tipo === 'numero') {
       h += `<input type="number" inputmode="decimal" data-k="${esc(p.id)}" class="num">`;
+    } else if (p.tipo === 'lista') {
+      // Doce tallas de camisa como botones serian una pared. Un select es lo
+      // que el telefono ya sabe mostrar bien (rueda nativa en iOS y Android).
+      h += `<select class="lista" data-k="${esc(p.id)}"><option value="">Elija…</option>` +
+        (p.opciones || []).map(o =>
+          `<option value="${esc(o)}">${esc(ETIQUETA[o] || o)}</option>`).join('') + `</select>`;
     } else {
       const ops = p.opciones || ['si','no','no_se'];
       h += `<div class="ops" data-k="${esc(p.id)}">` + ops.map(o =>
@@ -149,6 +159,8 @@ function pintar(){
   });
   $('#preguntas').querySelectorAll('.num').forEach(i =>
     i.addEventListener('input', () => { R[i.dataset.k] = i.value; contar(); }));
+  $('#preguntas').querySelectorAll('.lista').forEach(sel =>
+    sel.addEventListener('change', () => { R[sel.dataset.k] = sel.value; contar(); }));
 }
 
 function contar(){

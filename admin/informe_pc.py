@@ -368,6 +368,16 @@ def listar(fecha=None, solo_pendientes=False):
     return sorted(items, key=lambda i: i.get('creado') or '', reverse=True)
 
 
+def todos():
+    """Todos los informes del registro, sin filtrar por fecha.
+
+    Lo usa el historial de tamizajes del panel: un STOP-BANG contestado vive
+    dentro del informe de ese dia, asi que buscarlos exige mirar el registro
+    entero y no solo el dia de hoy como hace listar().
+    """
+    return list(_STORE.load().get('informes', {}).values())
+
+
 def marcar_impreso(iid, quien=''):
     """Marca un informe como impreso. Devuelve True si existia."""
     encontrado = {'ok': False}
@@ -788,6 +798,26 @@ def _esc_svg(t):
     return str(t).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
+def _nota_cuello(sb):
+    """De donde salio la circunferencia de cuello, para declararlo en la hoja.
+
+    El STOP-BANG publicado mide el cuello con huincha. Cuando el paciente
+    contesta desde su telefono se le pregunta la talla de camisa --que es lo que
+    sabe-- y de ahi se derivan los centimetros. Es un dato REFERIDO y la hoja
+    tiene que decirlo: el item se decide por un umbral en centimetros
+    (stopbang.CUELLO_UMBRAL_CM), asi que de donde viene el numero cambia cuanto
+    pesa.
+    """
+    if sb.get('cuello') in (None, ''):
+        return ''
+    if sb.get('cuello_origen') == 'camisa':
+        talla = sb.get('cuello_camisa') or ''
+        return ('Cuello %s cm, referido por el paciente a partir de su talla de camisa%s '
+                '(no medido con huincha).'
+                % (sb['cuello'], (' (%s)' % talla) if talla else ''))
+    return 'Cuello %s cm, medido en la clínica.' % sb['cuello']
+
+
 def filas_oclusion(med):
     """La relacion molar y canina lista para imprimir: la frase canonica y la
     regla. La frase es corta y es la que el ortodoncista reconoce al instante;
@@ -1026,7 +1056,8 @@ def armar_documento(item, doctor=None, clinica=None):
         res_sb = stopbang.evaluar(sb_datos)
         deriva_sb, motivo_sb = stopbang.sugiere_derivacion(res_sb)
         cuestionario_alto = deriva_sb
-        cuestionario = {'tipo': 'STOP-BANG', 'resultado': res_sb, 'lectura': motivo_sb}
+        cuestionario = {'tipo': 'STOP-BANG', 'resultado': res_sb, 'lectura': motivo_sb,
+                        'nota_cuello': _nota_cuello(sb_datos)}
     else:
         # El PSQ-CL lo responde el apoderado en /psq; aca solo se muestra el
         # resultado que ya existe. Si nunca lo contesto, se dice: no se inventa

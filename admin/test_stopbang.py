@@ -198,5 +198,45 @@ class TestSugiereDerivacion(unittest.TestCase):
         self.assertIn('polisomnografía', res['texto_legal'])
 
 
+
+class TestCuelloPorTallaDeCamisa(unittest.TestCase):
+    """La circunferencia de cuello es el unico item que el paciente no puede
+    contestar de memoria. Su talla de camisa SI la sabe, y es esa misma medida
+    en pulgadas."""
+
+    def test_convierte_pulgadas_a_centimetros(self):
+        self.assertAlmostEqual(stopbang.cuello_desde_camisa('16'), 40.6, places=1)
+        self.assertAlmostEqual(stopbang.cuello_desde_camisa('15 1/2'), 39.4, places=1)
+
+    def test_el_umbral_cae_entre_la_15_y_medio_y_la_16(self):
+        """Es el corte que decide el item, asi que se fija: 15 1/2 no lo pasa y
+        16 si. Si alguien toca la conversion, esto tiene que romperse."""
+        bajo = stopbang.cuello_desde_camisa('15 1/2')
+        alto = stopbang.cuello_desde_camisa('16')
+        self.assertLessEqual(bajo, stopbang.CUELLO_UMBRAL_CM)
+        self.assertGreater(alto, stopbang.CUELLO_UMBRAL_CM)
+
+    def test_no_se_deja_el_item_sin_registrar(self):
+        """Sin registrar NO es negativo: el puntaje sale incompleto y la hoja lo
+        dice. Convertir un "no se" en un 0 seria inventar un dato tranquilizador."""
+        for v in (None, '', 'no_se'):
+            self.assertIsNone(stopbang.cuello_desde_camisa(v))
+
+    def test_basura_no_inventa_un_numero(self):
+        for v in ('grande', 'XL', '99', '3'):
+            self.assertIsNone(stopbang.cuello_desde_camisa(v))
+
+    def test_acepta_pulgadas_directas(self):
+        """Por si alguna vez llega el numero en vez de la etiqueta."""
+        self.assertAlmostEqual(stopbang.cuello_desde_camisa(16), 40.6, places=1)
+
+    def test_no_se_le_aplica_correccion_por_holgura(self):
+        """Un cuello de camisa se corta con holgura, pero descontarle milimetros
+        inventados seria un ajuste sin fuente en un item que se juega en un
+        umbral. Se convierte y punto; la hoja declara de donde vino."""
+        for etiqueta, pulgadas in stopbang.TALLAS_CAMISA:
+            self.assertAlmostEqual(stopbang.cuello_desde_camisa(etiqueta),
+                                   round(pulgadas * stopbang.PULGADA_CM, 1), places=1)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

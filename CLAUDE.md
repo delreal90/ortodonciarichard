@@ -2687,6 +2687,63 @@ qué cuestionario toca según la edad, y la edad se acaba de escribir en el form
 guardando solo cuando faltaba el id, un informe que ya existía (porque se le colgó una imagen
 antes) generaba el QR con los datos viejos.
 
+#### El tamizaje se pregunta en la consulta, no en el formulario de ingreso (2026-08-25)
+
+Se detectó que **el Google Form de la ficha de primera consulta ya traía las 4 preguntas
+del STOP-BANG de adultos**, y que se le estaban haciendo **a pacientes pediátricos**: de las
+152 respuestas que las contestaron, **96 eran de pacientes de 0 a 17 años**. Para un menor el
+instrumento validado es el PSQ, no el STOP-BANG — les preguntaban *"¿ronca tan fuerte que su
+pareja le dé codazos?"* y *"¿padece hipertensión?"* a niños de 8 años. Además esas respuestas
+nunca llegaban a ningún lado: `fichas.py` importa **solo** contacto y demografía, a propósito.
+
+Decisión del usuario: **el tamizaje se hace en la consulta con el QR**, que ya elige el
+instrumento por edad. Las preguntas de sueño del Google Form quedan obsoletas.
+⚠️ **Sacarlas es una edición del Google Form, que vive fuera de este repo** — no la hace el
+código. Mientras sigan ahí, siguen produciendo respuestas con la escala equivocada.
+
+#### Los 8 ítems del STOP-BANG con solo 6 preguntas
+
+Ninguno de los 8 se le pregunta tal cual al paciente. Cuatro son preguntas directas; los
+otros cuatro se resuelven **sin pedirle un dato que no tiene**:
+
+| Ítem | De dónde sale |
+|---|---|
+| **B** — IMC | de su **peso y talla** (`stopbang.imc`, calculado en el servidor) |
+| **A** — edad | de su ficha |
+| **N** — cuello | de su **talla de camisa** (`stopbang.cuello_desde_camisa`) |
+| **G** — sexo | de su ficha — **no se le pregunta**, y volver a pedirlo sería una pregunta de más que además se puede contestar distinto |
+
+**La talla de camisa ES la medida del cuello en pulgadas**, y es un número que la persona sí
+sabe. El umbral del ítem son 40 cm, o sea cae justo entre la **15½ (39,4 cm, negativo)** y la
+**16 (40,6 cm, positivo)**; hay una prueba que fija ese corte.
+
+⚠️ **Es un dato REFERIDO, no una medición.** El STOP-BANG publicado toma el cuello con
+huincha, y un cuello de camisa se corta con holgura. Por eso:
+- Se guarda `cuello_origen` y **la hoja lo declara**: *"Cuello 43,2 cm, referido por el
+  paciente a partir de su talla de camisa (17) (no medido con huincha)"*.
+- Una medición con huincha hecha en la clínica **siempre le gana**.
+- **NO se le aplica ningún factor de corrección por la holgura.** Sería un ajuste sin fuente
+  en un ítem que se decide por un umbral, o sea cambiaría el resultado inventando. Hay una
+  prueba que lo impide.
+
+Con esto un adulto llega a **8 de 8 ítems registrados** contestando 6 preguntas, así que el
+puntaje ya no sale declarado como piso. Si elige *"No sé"* en la talla, ese ítem queda **sin
+registrar** — que no es negativo — y vuelve a ser un piso.
+
+#### Pestaña «Tamizaje de sueño» en el panel
+
+Los dos instrumentos viven en registros distintos por buenas razones: el **PSQ tiene registro
+propio** (se puede contestar desde `/psq` sin que exista un informe) y el **STOP-BANG vive
+DENTRO del informe** (nace de su QR y se imprime en su hoja). `tamizaje_link.historial()` los
+junta **en el backend**, no en el navegador — repetir el corte del PSQ o las bandas del
+STOP-BANG en JS es exactamente cómo el panel y el papel firmado terminan mostrando números
+distintos. Endpoint `GET /api/tamizaje/historial` (ADMIN_TOKEN).
+
+La tabla marca los que quedaron **sobre el corte** (que es para lo que se mira: a quién hay
+que llamar), filtra por instrumento, y enlaza al informe. `informe_pc.todos()` es nuevo:
+`listar()` filtra por fecha y un STOP-BANG contestado puede estar en el informe de cualquier
+día.
+
 #### Ocupación de las hojas tras esta vuelta (medida el 2026-08-25)
 
 Peor caso real —adulto, los 24 hallazgos del catálogo, 2 hallazgos propios, los 9 exámenes,
@@ -2698,8 +2755,9 @@ caben. La hoja 1 es la que crece; si se le agregan bloques hay que volver a medi
 - Revisión visual de la maqueta impresa con datos reales (no se pudo verificar a ojo).
 - Validar con el Dr. el catálogo de 24 hallazgos, las 5 impresiones diagnósticas y los 9
   exámenes de la orden.
-- Confirmar qué columnas de STOP-BANG existen hoy en la Ficha de Primera Consulta del
-  Google Form (`fichas.py` excluye lo clínico a propósito; la precarga aún no está cableada).
+- **Sacar las preguntas de sueño del Google Form** de primera consulta (edición del
+  formulario, fuera de este repo): hoy le hacen el STOP-BANG de adultos a pacientes
+  pediátricos y esas respuestas no alimentan nada.
 - Protocolo de escaneo con la asistente: qué se escanea y **qué puntos se miden en Medit**.
 - Copiar la extensión actualizada al PC del box y al de recepción (los cambios de
   `content.js` **no viajan por Render**).

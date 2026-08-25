@@ -1392,6 +1392,10 @@ function pintarDocumento(d){
   if (t.cuestionario.tipo === 'STOP-BANG' && t.cuestionario.resultado && t.cuestionario.resultado.incompleto)
     h2 += `<p class="nota">Quedaron ${t.cuestionario.resultado.sin_registrar.length} ítems sin medir:
       el puntaje es un piso, no el resultado final.</p>`;
+  // De donde salio el cuello: un dato referido por talla de camisa no es lo
+  // mismo que uno medido con huincha, y el item se juega en un umbral.
+  if (t.cuestionario.nota_cuello)
+    h2 += `<p class="nota">${esc(t.cuestionario.nota_cuello)}</p>`;
   h2 += `</section>`;
 
   h2 += `<section><h2>${esc(fa.instrumento)} — examen clínico</h2>

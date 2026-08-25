@@ -32,6 +32,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 import psq
 import stopbang
+from scheduling import formatear_rut
 
 # Dos horas: lo que dura una visita larga. Un QR que sigue sirviendo mañana es
 # un QR que alguien puede haber fotografiado de la pantalla del box.
@@ -109,9 +110,19 @@ def formulario(edad):
         preguntas = [{'id': clave, 'texto': TEXTO_PACIENTE.get(clave, texto), 'tipo': 'si_no'}
                      for clave, _letra, _etq, texto in stopbang.ITEMS
                      if clave in ('ronquido', 'cansancio', 'apneas', 'presion')]
+        # Peso y talla en vez del IMC, y talla de camisa en vez de centimetros de
+        # cuello: en los tres casos se pregunta el dato que la persona SABE y el
+        # calculo lo hace el servidor. El sexo NO se pregunta -- ya esta en la
+        # ficha, y volver a pedirlo es una pregunta de mas que ademas se puede
+        # contestar distinto.
         preguntas += [
             {'id': 'peso', 'texto': '¿Cuánto pesa, aproximadamente? (kg)', 'tipo': 'numero'},
             {'id': 'talla', 'texto': '¿Cuánto mide? (cm)', 'tipo': 'numero'},
+            {'id': 'cuello_camisa',
+             'texto': '¿Qué talla de camisa usa en el cuello?',
+             'ayuda': 'Es el número de la etiqueta. Si no lo sabe, deje "No sé".',
+             'tipo': 'lista',
+             'opciones': [t for t, _p in stopbang.TALLAS_CAMISA] + ['no_se']},
         ]
         return {'tipo': 'stopbang', 'titulo': 'Cuestionario de sueño',
                 'preguntas': preguntas, 'texto_legal': stopbang.TEXTO_LEGAL}
@@ -123,3 +134,67 @@ def formulario(edad):
                           for p in psq.PREGUNTAS],
             'texto_legal': ('Este cuestionario es un tamizaje: orienta al profesional, '
                             'no es un diagnóstico.')}
+
+
+# ── El historial que se mira en el panel ─────────────────────────────────
+#
+# Los dos instrumentos viven en lugares distintos y por buenas razones: el PSQ
+# tiene registro propio (lo puede contestar cualquiera desde /psq, exista o no
+# un informe) y el STOP-BANG vive DENTRO del informe del paciente (nace de su
+# QR y se imprime en su hoja). Para mirarlos hay que juntarlos, y eso se hace
+# aca --sin red, sobre los dos registros-- en vez de que el panel pida dos
+# listas y las cruce en el navegador.
+def historial(limite=300):
+    """Los tamizajes de sueno contestados, del mas nuevo al mas viejo.
+
+    Cada fila: fecha, nombre, rut, instrumento, puntaje, lectura, si quedo
+    sobre el corte, de donde vino y --si corresponde-- el informe al que
+    pertenece, para poder abrirlo.
+    """
+    import informe_pc   # aca y no arriba: informe_pc es el consumidor natural
+                        # de este modulo y el import al reves seria circular.
+    filas = []
+
+    for e in psq.listar_envios(limite=limite):
+        filas.append({
+            'fecha': e.get('fecha_iso') or '',
+            'nombre': e.get('nombre') or '',
+            'rut': formatear_rut(e.get('rut') or ''),
+            'instrumento': 'PSQ-CL',
+            'puntaje': e.get('puntaje'),
+            'lectura': _lectura_psq(e),
+            'alto': e.get('riesgo') == 'alto',
+            'origen': 'informe' if e.get('estado') == 'desde_informe' else 'psq',
+            'informe_id': '',
+        })
+
+    for item in informe_pc.todos():
+        sb = (item.get('tamizaje') or {}).get('stopbang') or {}
+        if not sb.get('respondido_por_el_paciente'):
+            continue
+        datos = dict(sb)
+        if datos.get('imc') in (None, '') and datos.get('peso') and datos.get('talla'):
+            datos['imc'] = stopbang.imc(datos['peso'], datos['talla'])
+        res = stopbang.evaluar(datos)
+        _deriva, lectura = stopbang.sugiere_derivacion(res)
+        filas.append({
+            'fecha': sb.get('respondido_por_el_paciente') or item.get('creado') or '',
+            'nombre': item.get('nombre') or '',
+            'rut': item.get('rut_fmt') or item.get('rut') or '',
+            'instrumento': 'STOP-BANG',
+            'puntaje': res.get('puntaje'),
+            'lectura': lectura,
+            'alto': bool(_deriva),
+            'origen': 'informe',
+            'informe_id': item.get('id') or '',
+        })
+
+    filas.sort(key=lambda f: f.get('fecha') or '', reverse=True)
+    return filas[:limite]
+
+
+def _lectura_psq(e):
+    alto = e.get('riesgo') == 'alto'
+    return ('Puntaje %s (corte %s): %s'
+            % (e.get('puntaje'), str(psq.PUNTAJE_CORTE).replace('.', ','),
+               'sobre el corte' if alto else 'bajo el corte'))

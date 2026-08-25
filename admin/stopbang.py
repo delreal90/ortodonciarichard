@@ -26,9 +26,11 @@ LOS OCHO ITEMS (uno por letra)
 TRES DE LOS OCHO NO SON PREGUNTAS, SON MEDICIONES
 --------------------------------------------------
 IMC, cuello y edad no se contestan de memoria. La edad sale sola de la ficha; el
-IMC se calcula si el paciente sabe su peso y talla; y el CUELLO hay que medirlo
-con huincha -- son cinco segundos y lo puede hacer la asistente en el mismo
-momento del escaneo. Un item que no se midio NO se cuenta como negativo: se
+IMC se calcula si el paciente sabe su peso y talla; y el CUELLO se mide con
+huincha (son cinco segundos y lo puede hacer la asistente en el mismo momento
+del escaneo) o, si el paciente contesta desde su telefono, se deduce de su talla
+de camisa -- ver cuello_desde_camisa() y su advertencia.
+Un item que no se midio NO se cuenta como negativo: se
 informa el puntaje con su denominador real ("3 de 6 items contestados") para que
 nadie lea un 2/8 incompleto como riesgo bajo.
 
@@ -38,6 +40,49 @@ CEREBRO SIN RED: solo recibe respuestas y calcula.
 IMC_UMBRAL = 35
 EDAD_UMBRAL = 50
 CUELLO_UMBRAL_CM = 40
+
+# ── El cuello por talla de camisa ────────────────────────────────────────
+#
+# La circunferencia de cuello es el unico item del STOP-BANG que el paciente no
+# puede contestar de memoria: nadie sabe cuanto mide su cuello en centimetros.
+# Pero SI sabe que camisa usa, y la talla de camisa ES la medida del cuello en
+# pulgadas -- por eso se pregunta asi cuando contesta desde su telefono.
+#
+# ⚠️ Es un DATO REFERIDO, no una medicion. El cuello del STOP-BANG publicado se
+# toma con huincha, y un cuello de camisa se corta con holgura sobre el cuello
+# real. Por eso:
+#   - Se guarda de donde vino (cuello_origen) y la hoja lo declara.
+#   - Una medicion con huincha hecha en la clinica SIEMPRE le gana.
+#   - NO se le aplica ningun factor de correccion: inventar un descuento en
+#     milimetros para "compensar la holgura" seria un ajuste sin fuente, y en un
+#     item que se decide por un umbral de 40 cm eso cambia el resultado.
+PULGADA_CM = 2.54
+
+# Rango util en adultos. Los medios puntos son los que existen de verdad en la
+# etiqueta de una camisa; se escriben como los lee el paciente.
+TALLAS_CAMISA = (
+    ('14', 14.0), ('14 1/2', 14.5), ('15', 15.0), ('15 1/2', 15.5),
+    ('16', 16.0), ('16 1/2', 16.5), ('17', 17.0), ('17 1/2', 17.5),
+    ('18', 18.0), ('18 1/2', 18.5), ('19', 19.0), ('20', 20.0),
+)
+
+
+def cuello_desde_camisa(talla):
+    """Centimetros de cuello a partir de la talla de camisa, o None.
+
+    None cuando no se sabe (el paciente eligio "No sé" o dejo el campo vacio).
+    Ese item queda SIN REGISTRAR, que no es lo mismo que negativo: el puntaje
+    sale incompleto y la hoja lo dice.
+    """
+    if talla in (None, '', 'no_se'):
+        return None
+    try:
+        pulgadas = float(dict(TALLAS_CAMISA).get(str(talla).strip(), talla))
+    except (TypeError, ValueError):
+        return None
+    if not 10 <= pulgadas <= 25:
+        return None
+    return round(pulgadas * PULGADA_CM, 1)
 
 ITEMS = (
     ('ronquido',  'S', 'Ronquido fuerte',

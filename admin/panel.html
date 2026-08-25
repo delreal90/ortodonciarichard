@@ -111,6 +111,7 @@
     <a onclick="show('seguros')" id="nav-seguros"><i class="fa fa-file-medical"></i> Seguros</a>
     <a onclick="show('controldental')" id="nav-controldental"><i class="fa fa-tooth"></i> Control dental</a>
     <a onclick="show('satisfaccion')" id="nav-satisfaccion"><i class="fas fa-star"></i> Satisfacción</a>
+    <a onclick="show('suenio')" id="nav-suenio"><i class="fa fa-bed"></i> Tamizaje de sueño</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
   </nav>
@@ -227,6 +228,50 @@
         </div>
         <div id="pe-resumen" style="margin-bottom:16px"></div>
         <div id="pe-motivos">Carga la conexión para ver los motivos pendientes.</div>
+      </div>
+    </div>
+
+    <!-- ── Tamizaje de sueño ─────────────────────────────────── -->
+    <div class="section" id="sec-suenio">
+      <h2>Tamizaje de sueño</h2>
+      <p class="desc">Los cuestionarios que el paciente contesta en su teléfono con el QR del
+        informe, o desde <code>/psq</code>. Al menor de 18 le toca el <strong>PSQ-CL</strong>
+        (corte 0,227); al adulto, el <strong>STOP-BANG</strong>.
+        Son instrumentos de <strong>tamizaje, no de diagnóstico</strong>: orientan a quién
+        derivar, no dicen quién tiene apnea.</p>
+
+      <div class="card" id="suenio-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="suenio-url" value="https://ortodonciarichard.onrender.com"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="suenio-token" type="password" placeholder="ADMIN_TOKEN"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <button class="btn" onclick="loadSuenio()">Cargar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:4px">Contestados</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:12px">
+          Los que quedaron <strong>sobre el corte</strong> van marcados: son los que conviene
+          conversar y, si corresponde, derivar.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <select id="suenio-filtro" onchange="pintarSuenio()"
+                  style="padding:8px;border:1px solid #e2e8f0;border-radius:8px">
+            <option value="">Todos</option>
+            <option value="alto">Solo sobre el corte</option>
+            <option value="PSQ-CL">Solo PSQ-CL (menores)</option>
+            <option value="STOP-BANG">Solo STOP-BANG (adultos)</option>
+          </select>
+        </div>
+        <div id="suenio-lista"><p style="font-size:.85rem;color:#718096">Sin cargar.</p></div>
       </div>
     </div>
 
@@ -1129,6 +1174,75 @@
 let equipoData = [], casosData = [], faqData = [];
 let currentFaqTab = '', currentEquipoTab = '';
 
+// ────────────────────────────────────────────────────────────────
+// TAMIZAJE DE SUEÑO  (PSQ-CL en menores, STOP-BANG en adultos)
+//
+// Los dos instrumentos viven en registros distintos y el backend los junta
+// (tamizaje_link.historial). Acá solo se pintan: repetir el corte del PSQ o
+// las bandas del STOP-BANG en el navegador es como el formulario y el papel
+// firmado terminan mostrando números distintos.
+// ────────────────────────────────────────────────────────────────
+let SUENIO = [];
+
+function initSuenio() {
+  remotoInit('suenio-url', 'suenio-token', loadSuenio);
+}
+
+async function loadSuenio() {
+  const el = document.getElementById('suenio-lista');
+  el.innerHTML = '<p style="font-size:.85rem;color:#718096">Cargando…</p>';
+  try {
+    const r = await remotoFetch('suenio-url', 'suenio-token', '/api/tamizaje/historial');
+    if (r.status === 403) {
+      el.innerHTML = '<p style="font-size:.85rem;color:#e53e3e">Token incorrecto.</p>'; return;
+    }
+    const d = await r.json();
+    SUENIO = d.items || [];
+    pintarSuenio();
+  } catch (e) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#e53e3e">No se pudo conectar con el backend.</p>';
+  }
+}
+
+function pintarSuenio() {
+  const el = document.getElementById('suenio-lista');
+  const f = document.getElementById('suenio-filtro').value;
+  const items = SUENIO.filter(x =>
+    !f ? true : (f === 'alto' ? x.alto : x.instrumento === f));
+
+  if (!items.length) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#718096">' +
+      (SUENIO.length ? 'Nada con ese filtro.'
+                     : 'Todavía nadie ha contestado un cuestionario de sueño.') + '</p>';
+    return;
+  }
+
+  const altos = SUENIO.filter(x => x.alto).length;
+  el.innerHTML =
+    `<p style="font-size:.85rem;color:#4A5568;margin-bottom:10px">
+       ${SUENIO.length} contestado${SUENIO.length === 1 ? '' : 's'} ·
+       <strong>${altos}</strong> sobre el corte</p>
+     <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+       <tr style="text-align:left;color:#4A5568;border-bottom:1px solid #e2e8f0">
+         <th style="padding:7px 6px">Fecha</th><th>Paciente</th><th>Instrumento</th>
+         <th>Resultado</th><th></th></tr>` +
+    items.map(x => `<tr style="border-bottom:1px solid #f1f5f9${x.alto ? ';background:#fff8f8' : ''}">
+       <td style="padding:7px 6px;white-space:nowrap">${_esc((x.fecha || '').slice(0, 10))}</td>
+       <td><strong>${_esc(x.nombre)}</strong><br>
+           <span style="color:#718096">${_esc(x.rut)}</span></td>
+       <td style="white-space:nowrap">${_esc(x.instrumento)}</td>
+       <td>${x.alto ? '<strong style="color:#e53e3e">▲ </strong>' : ''}${_esc(x.lectura)}</td>
+       <td style="white-space:nowrap">${x.informe_id
+          ? `<a href="#" onclick="verInformeSuenio('${_esc(x.informe_id)}');return false"
+               style="color:#1A2E4A">ver informe</a>` : ''}</td></tr>`).join('') +
+    `</table>`;
+}
+
+function verInformeSuenio(id) {
+  const base = remotoUrl('suenio-url');
+  window.open(base + '/informe-pc?modo=ver&id=' + encodeURIComponent(id), '_blank');
+}
+
 // ── Navegación ───────────────────────────────────────
 function show(sec) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -1149,6 +1263,7 @@ function show(sec) {
   if (sec === 'seguros') initSeguros();
   if (sec === 'controldental') initControlDental();
   if (sec === 'satisfaccion') initSatisfaccion();
+  if (sec === 'suenio') initSuenio();
 }
 
 // ══════════════════════════════════════════════════════

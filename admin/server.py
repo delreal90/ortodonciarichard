@@ -3852,6 +3852,7 @@ def psq_historial():
 
 import informe_pc
 import transversal
+import stopbang       # el instrumento de adultos: umbrales y talla de camisa
 import tamizaje_link   # el cuestionario que el paciente contesta en su telefono
 
 
@@ -4208,7 +4209,18 @@ def tamizaje_enviar():
         for k in ('peso', 'talla'):
             if respuestas.get(k):
                 sb[k] = respuestas[k]
+
+        # El cuello se le pregunta como talla de camisa, que es el dato que la
+        # persona sabe. Una medicion con huincha hecha en la clinica SIEMPRE le
+        # gana: es la del instrumento publicado, y la de camisa es referida.
+        cm = stopbang.cuello_desde_camisa(respuestas.get('cuello_camisa'))
+        if cm is not None and sb.get('cuello_origen', 'camisa') == 'camisa':
+            sb['cuello'] = cm
+            sb['cuello_camisa'] = respuestas.get('cuello_camisa')
+            sb['cuello_origen'] = 'camisa'
+
         sb['edad'] = datos.get('edad')
+        # El sexo NO se le pregunta al paciente: ya viene en su ficha.
         sb['sexo'] = datos.get('sexo') or item.get('sexo') or ''
         sb['respondido_por_el_paciente'] = fechas.ahora_chile().isoformat(timespec='seconds')
         tam['stopbang'] = sb
@@ -4236,6 +4248,23 @@ def tamizaje_enviar():
                         'nombre': item.get('nombre'), 'conclusion': item.get('conclusion'),
                         'tamizaje': tam})
     return jsonify({'ok': True})
+
+
+@app.route('/api/tamizaje/historial', methods=['GET'])
+def tamizaje_historial():
+    """Los tamizajes de sueno contestados, PSQ y STOP-BANG juntos.
+
+    Lo consume la pestania "Sueno" del panel. Devuelve nombre y RUT porque el
+    punto es saber A QUIEN hay que llamar; va con ADMIN_TOKEN, como el resto.
+    NO devuelve el detalle respuesta por respuesta: para eso esta el informe.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        limite = max(1, min(int(request.args.get('limite', 300)), 1000))
+    except (TypeError, ValueError):
+        limite = 300
+    return jsonify({'ok': True, 'items': tamizaje_link.historial(limite=limite)})
 
 
 @app.route('/api/informe-pc/marcar-impreso', methods=['POST'])
