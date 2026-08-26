@@ -254,8 +254,19 @@
     /* En pantalla el pie va anclado abajo de la hoja simulada; al imprimir
        vuelve al flujo normal. Con position:fixed se repetiria en las TRES
        paginas, y los tres pies quedarian encimados. */
-    .pie { position: static; margin-top: 20px; }
-    @page { size: letter; margin: 1.3cm 1.5cm; }
+    .pie { position: static; margin-top: 12px; }
+    /* El pie NUNCA puede quedar solo en una pagina: una hoja con una sola linea
+       de letra chica se lee como un error de impresion, no como un informe
+       largo. Si no cabe, se va junto con la firma -- y si tampoco cabe la
+       firma, la pagina siguiente lleva hallazgos + firma + pie, que si se
+       entiende. */
+    .firma { break-after: avoid; margin-top: 18px; }
+    /* Se recupera medio centimetro de aire entre secciones. La hoja 1 medía
+       25,8 cm contra 25,34 utiles y se pasaba POR 4,6 mm, mandando el pie solo
+       a una segunda pagina. No se tocan tamanios de letra: el papel lo lee un
+       paciente, muchas veces sin lentes a mano. */
+    .hoja section { margin-top: 11px; }
+    @page { size: letter; margin: 1.1cm 1.5cm; }
   }
 </style>
 </head>

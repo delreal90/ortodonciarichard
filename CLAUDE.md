@@ -220,9 +220,16 @@ más dos archivos en la raíz. Commits `ef5af9d`, `63e7f48`, `c1fc64d`, `97bc69e
 - **4 doctores como `Physician`** (Octavio, Rodrigo, Alberto, Patricio) con `alumniOf`
   (universidad + año de titulación), membresías (`memberOf`: AAO/WFO/SORT Chile, Colegio de
   Cirujano Dentistas) y **credencial + `identifier` del Registro Nacional de Prestadores de
-  la Superintendencia de Salud** (N° real por doctor: 312378 / 48538 / 33401 / 40662,
-  `recognizedBy` → GovernmentOrganization `rnpi.superdesalud.gob.cl`). Esto es señal fuerte
-  de legitimidad para IA y Google.
+  la Superintendencia de Salud**, `recognizedBy` → GovernmentOrganization
+  `rnpi.superdesalud.gob.cl`. Esto es señal fuerte de legitimidad para IA y Google.
+  > ⚠️ **El N° va nombrado, nunca como lista suelta.** Acá decía
+  > *"312378 / 48538 / 33401 / 40662"* después de enumerar *"(Octavio, Rodrigo, Alberto,
+  > Patricio)"*, y se leía como dos listas paralelas — pero el JSON-LD de `index.html` está
+  > en otro orden (Alberto primero). Ese malentendido puso el registro de otro doctor en
+  > `scheduling_config.json` el 2026-08-25, o sea **en el informe firmado**. Los correctos:
+  > **Octavio 48538 · Rodrigo 33401 · Alberto 312378 · Patricio 40662**. La fuente de verdad
+  > es `js/main.js` (`doctorData[key].registro`), y `test_informe_pc.py` verifica que
+  > `index.html` y `scheduling_config.json` coincidan con ella.
 
 **Meta tags:** `canonical` a `https://www.ortodonciarichard.cl/`, Open Graph completo
 (og:type/title/description/url/image/site_name/locale=es_CL), y señales geográficas
@@ -2366,7 +2373,8 @@ extra se informan como conteo y no se inventa una escala.
 ### Formato carta y dónde corta cada hoja (2026-08-20)
 
 **Carta (21,59 × 27,94 cm), no A4** — `@page { size: letter }` y `.hoja` del mismo ancho.
-Área útil con márgenes de 1,3 × 1,5 cm: **25,3 cm de alto**.
+Área útil con márgenes de **1,1 × 1,5 cm: 25,74 cm de alto** (era 1,3 cm hasta el
+2026-08-25; ver el arreglo del pie huérfano más abajo).
 
 El documento son **cuatro hojas**, y el corte NO es arbitrario: se midió el alto real de cada
 bloque en el navegador. La sección de Mediciones sola ocupaba **25,5 cm** — una página carta
@@ -2403,6 +2411,33 @@ repetiría 40 KB en cada una de las cuatro hojas.
 usuario 2026-08-20). `transversal.CITA` y `NOTA_MUESTRA` siguen existiendo y viajando en el
 documento por si alguna versión las quiere, pero no se imprimen. Queda una sola mención de la
 fuente en el papel: la línea del ítem 6 en la hoja del tamizaje, que explica el criterio.
+
+#### El pie se iba solo a una segunda página (2026-08-25)
+
+Un informe corto —4 hallazgos, sin órdenes— salía **en dos páginas, y la segunda llevaba
+únicamente la línea legal del pie**. Medido con las reglas de `@media print` aplicadas y el
+ancho real del área imprimible: la hoja 1 daba **25,8 cm contra 25,34 útiles**. Se pasaba
+**por 4,6 mm**, y lo único que no cabía era el pie.
+
+Tres cambios, ninguno toca tamaños de letra (el papel lo lee un paciente, muchas veces sin
+lentes a mano):
+
+- `@page` de **1,3 → 1,1 cm** de margen vertical: +0,4 cm útiles.
+- Menos aire entre secciones al imprimir (`section` 13 → 11 px), y márgenes de firma y pie
+  algo más cortos.
+- ⚠️ **`.firma { break-after: avoid }`** — el pie **nunca** puede quedar solo en una página:
+  una hoja con una sola línea de letra chica se lee como un error de impresión, no como un
+  informe largo. Si no cabe, se va junto con la firma; y si tampoco cabe la firma, la página
+  siguiente lleva hallazgos + firma + pie, que sí se entiende.
+
+El informe que lo destapó quedó en **25,1 cm (97 %)**. Sigue apretado: **la hoja 1 crece con
+los hallazgos y pasarse a dos páginas es parte del diseño** — lo que se arregló es que, al
+pasarse, no quede una página huérfana.
+
+⚠️ **Al medir, dos cosas invalidan el resultado:** medir con el `min-height` de pantalla (la
+hoja simulada mide 27,94 cm y el pie va `position:absolute`, que en impresión pasa a
+`static`), y medir con la ventana angosta — el texto reflowea y la altura se dispara. Hay que
+aplicar las reglas de `@media print` y forzar el ancho del área imprimible (**18,59 cm**).
 
 ### Impresión: sin agente, sin PDF
 

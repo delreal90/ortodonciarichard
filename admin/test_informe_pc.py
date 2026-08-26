@@ -23,8 +23,10 @@ Lo que se protege:
     contenga una frase prohibida. Todo esto se imprime con la firma del doctor.
 """
 
+import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -874,6 +876,76 @@ class TestQrYLinkDelEstudio(unittest.TestCase):
     def test_sin_link_el_documento_no_lo_inventa(self):
         self.assertIsNone(informe_pc.armar_documento(_base())['agendar_estudio'])
 
+
+
+class TestRegistroDelPrestador(unittest.TestCase):
+    """El N° del Registro Nacional de Prestadores se imprime junto a la firma
+    del doctor. Vive en TRES archivos --js/main.js (el modal del sitio),
+    index.html (el schema para Google) y scheduling_config.json (el informe)--
+    y el 2026-08-25 quedaron rotados entre doctores: el informe de Alberto salio
+    con el numero de Rodrigo.
+
+    Paso porque la doc los listaba sueltos ("312378 / 48538 / 33401 / 40662")
+    despues de enumerar los doctores en OTRO orden del que usa el schema.
+
+    La fuente de verdad es js/main.js. Esta prueba obliga a los otros dos a
+    coincidir con ella, doctor por doctor.
+    """
+
+    RAIZ = Path(__file__).resolve().parent.parent
+
+    def _de_main_js(self):
+        js = io.open(self.RAIZ / 'js' / 'main.js', encoding='utf-8').read()
+        out = {}
+        for m in re.finditer(r'^    ([a-z]+): \{', js, re.M):
+            trozo = js[m.end():m.end() + 2500]
+            r = re.search(r"registro:\s*'(\d+)'", trozo)
+            n = re.search(r"name:\s*'([^']+)'", trozo)
+            if r:
+                out[m.group(1)] = {'registro': r.group(1), 'nombre': n.group(1) if n else ''}
+        return out
+
+    def test_main_js_los_tiene_todos(self):
+        datos = self._de_main_js()
+        self.assertEqual(set(datos), {'octavio', 'rodrigo', 'alberto', 'patricio'})
+        for k, v in datos.items():
+            self.assertRegex(v['registro'], r'^\d{4,7}$', k)
+
+    def test_no_hay_dos_doctores_con_el_mismo_numero(self):
+        """Es lo que delata un intercambio: si dos comparten numero, alguien
+        copio mal."""
+        regs = [v['registro'] for v in self._de_main_js().values()]
+        self.assertEqual(len(regs), len(set(regs)))
+
+    def test_el_config_del_informe_coincide(self):
+        """scheduling_config.json es el que usa el papel firmado."""
+        cfg = json.loads(io.open(self.RAIZ / 'admin' / 'scheduling_config.json',
+                                 encoding='utf-8').read())
+        doctores = cfg.get('doctores') or {}
+        for key, v in self._de_main_js().items():
+            d = doctores.get(key) or {}
+            if not d.get('registro_prestador'):
+                continue   # todavia no cargado para ese doctor: no es un error
+            self.assertEqual(d['registro_prestador'], v['registro'],
+                             'registro_prestador de %s no coincide con js/main.js' % key)
+
+    def test_el_schema_del_sitio_coincide(self):
+        """index.html se lo entrega a Google y a los buscadores de IA. El bloque
+        de cada doctor se ubica por su NOMBRE, no por su posicion: el orden del
+        JSON-LD no es el mismo que el de doctorData, y confiar en la posicion es
+        exactamente el error que esta prueba existe para atajar.
+        """
+        html = io.open(self.RAIZ / 'index.html', encoding='utf-8').read()
+        for key, v in self._de_main_js().items():
+            quien = v['nombre']
+            i = html.find('"name": "%s"' % quien)
+            self.assertNotEqual(i, -1, 'no se encontro a %s en el schema' % quien)
+            trozo = html[i:i + 4000]
+            m = re.search(r'"propertyID": "Registro Superintendencia de Salud \(Chile\)",'
+                          r' "value": "(\d+)"', trozo)
+            self.assertIsNotNone(m, 'sin identifier de registro para %s' % quien)
+            self.assertEqual(m.group(1), v['registro'],
+                             'el schema de %s no coincide con js/main.js' % quien)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
