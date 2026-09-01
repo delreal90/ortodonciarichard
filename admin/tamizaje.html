@@ -91,7 +91,10 @@ const esc = s => String(s == null ? '' : s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
-const ETIQUETA = {si:'Sí', no:'No', no_se:'No sé / no uso camisa',
+// Mapa GLOBAL: vale para todas las preguntas. Un texto que solo aplica a
+// una (como el de la talla de camisa) va en 'etiquetas' de esa pregunta:
+// puesto aca se colaba en las 22 del PSQ, que tambien usan 'no_se'.
+const ETIQUETA = {si:'Sí', no:'No', no_se:'No sé',
                   nunca:'Nunca', algunas_veces:'Algunas veces',
                   muchas_veces:'Muchas veces', casi_siempre:'Casi siempre'};
 
@@ -123,6 +126,11 @@ function falla(msg){
   $('#error').innerHTML = `<p class="intro">${esc(msg)}</p>`;
 }
 
+// La etiqueta propia de la pregunta gana sobre la global.
+function etiq(p, o){
+  return (p.etiquetas && p.etiquetas[o]) || ETIQUETA[o] || o;
+}
+
 function pintar(){
   let h = '', seccion = null;
   FORM.preguntas.forEach(p => {
@@ -139,11 +147,11 @@ function pintar(){
       // que el telefono ya sabe mostrar bien (rueda nativa en iOS y Android).
       h += `<select class="lista" data-k="${esc(p.id)}"><option value="">Elija…</option>` +
         (p.opciones || []).map(o =>
-          `<option value="${esc(o)}">${esc(ETIQUETA[o] || o)}</option>`).join('') + `</select>`;
+          `<option value="${esc(o)}">${esc(etiq(p, o))}</option>`).join('') + `</select>`;
     } else {
       const ops = p.opciones || ['si','no','no_se'];
       h += `<div class="ops" data-k="${esc(p.id)}">` + ops.map(o =>
-        `<button type="button" data-v="${esc(o)}">${esc(ETIQUETA[o] || o)}</button>`).join('') + `</div>`;
+        `<button type="button" data-v="${esc(o)}">${esc(etiq(p, o))}</button>`).join('') + `</div>`;
     }
     h += `</div>`;
   });

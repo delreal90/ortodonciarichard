@@ -300,5 +300,29 @@ class TestHistorial(unittest.TestCase):
         # IMC 44 supera el umbral de 35: ese item tiene que estar sumando.
         self.assertGreaterEqual(fila['puntaje'], 3)
 
+
+class TestLoQueLeeElPaciente(unittest.TestCase):
+    """Detalles de presentacion que ya salieron mal una vez. El formulario lo
+    abre un apoderado en su telefono, sin nadie al lado que le explique."""
+
+    def test_no_se_significa_no_se_en_el_psq(self):
+        """El texto "No sé / no uso camisa" es de la pregunta de la talla. Puesto
+        en el mapa global se colaba en las 22 del PSQ, que tambien usan 'no_se'
+        -- y ahi no significa nada."""
+        for p in tamizaje_link.formulario(10)['preguntas']:
+            self.assertNotIn('etiquetas', p, p['id'])
+
+    def test_la_talla_de_camisa_si_lleva_su_texto_propio(self):
+        pregs = {p['id']: p for p in tamizaje_link.formulario(45)['preguntas']}
+        self.assertIn('camisa', pregs['cuello_camisa']['etiquetas']['no_se'].lower())
+
+    def test_las_secciones_van_con_su_titulo_legible(self):
+        """Salian las claves crudas ('noche', 'dia', 'conducta') como
+        encabezados, que se leen como un error del sistema."""
+        vistas = {p['seccion'] for p in tamizaje_link.formulario(10)['preguntas']}
+        self.assertEqual(vistas, set(psq.SECCIONES.values()))
+        for clave in psq.SECCIONES:
+            self.assertNotIn(clave, vistas)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -122,13 +122,20 @@ def formulario(edad):
              'texto': '¿Qué talla de camisa usa en el cuello?',
              'ayuda': 'Es el número de la etiqueta. Si no lo sabe, deje "No sé".',
              'tipo': 'lista',
-             'opciones': [t for t, _p in stopbang.TALLAS_CAMISA] + ['no_se']},
+             'opciones': [t for t, _p in stopbang.TALLAS_CAMISA] + ['no_se'],
+             # Solo para ESTA pregunta: 'no_se' tambien lo usan las 22 del PSQ,
+             # donde "no uso camisa" no tiene ningun sentido.
+             'etiquetas': {'no_se': 'No sé / no uso camisa'}},
         ]
         return {'tipo': 'stopbang', 'titulo': 'Cuestionario de sueño',
                 'preguntas': preguntas, 'texto_legal': stopbang.TEXTO_LEGAL}
 
     return {'tipo': 'psq', 'titulo': 'Cuestionario de sueño de su hijo o hija',
-            'preguntas': [{'id': p['id'], 'texto': p['texto'], 'seccion': p['seccion'],
+            # La seccion va con su titulo legible (psq.SECCIONES), no con la
+            # clave: al paciente le salian encabezados "noche" / "dia" /
+            # "conducta" en minuscula, que se leen como un error del sistema.
+            'preguntas': [{'id': p['id'], 'texto': p['texto'],
+                           'seccion': psq.SECCIONES.get(p['seccion'], p['seccion']),
                            'tipo': p['tipo'],
                            'opciones': list(psq.opciones_validas(p))}
                           for p in psq.PREGUNTAS],
