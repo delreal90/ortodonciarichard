@@ -1395,6 +1395,22 @@ def pacientes_reset():
     pacientes.vaciar()
     return jsonify({'ok': True, 'total': 0})
 
+@app.route('/api/pacientes/genero/discordantes', methods=['GET'])
+def pacientes_genero_discordantes():
+    """Los pacientes cuyo sexo declarado contradice a un nombre que la base ve
+    abrumadoramente de un solo sexo -- para ir a corregir esas fichas.
+
+    ⚠️ A diferencia de /evaluacion, este SI devuelve RUT y nombre: sin eso no se
+    puede abrir la ficha. Va con ADMIN_TOKEN y no se loguea.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import genero
+    import pacientes as _pac
+    items = genero.discordantes_detalle(_pac._load_index())
+    return jsonify({'ok': True, 'total': len(items), 'items': items})
+
+
 @app.route('/api/pacientes/genero/evaluacion', methods=['GET'])
 def pacientes_genero_evaluacion():
     """Que tan bien funciona la regla nombre->sexo sobre la base real.

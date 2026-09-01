@@ -276,3 +276,48 @@ def discordantes(registros, minimo=20, dominancia=0.95):
     return {'nombres': casos[:30],
             'total_discordan': sum(c['discordan'] for c in casos),
             'total_en_esos_nombres': sum(c['discordan'] + c['concuerdan'] for c in casos)}
+
+
+def discordantes_detalle(indice, minimo=20, dominancia=0.95):
+    """Los pacientes concretos detras del conteo de discordantes().
+
+    'indice' es el diccionario {rut: registro} de la base, porque aca SI hace
+    falta el RUT: el punto es poder abrir esa ficha en DentiDesk y corregirla.
+
+    ⚠️ Devuelve datos identificatorios. Solo se expone tras ADMIN_TOKEN y no se
+    escribe en ningun log ni archivo versionado.
+    """
+    registros = list(indice.values())
+    tabla = construir_tabla(registros)
+
+    dominante = {}
+    for clave, celda in tabla.items():
+        if ' ' in clave:
+            continue
+        total = celda['M'] + celda['F']
+        if total < minimo:
+            continue
+        mayor = 'M' if celda['M'] >= celda['F'] else 'F'
+        if celda[mayor] / total >= dominancia:
+            dominante[clave] = (mayor, celda[mayor], total)
+
+    out = []
+    for rut, rec in indice.items():
+        declarado = (rec or {}).get('genero') or ''
+        if declarado not in ('M', 'F'):
+            continue
+        tks = tokens(rec.get('nombres'))
+        if not tks or tks[0] not in dominante:
+            continue
+        mayor, concuerdan, total = dominante[tks[0]]
+        if declarado == mayor:
+            continue
+        out.append({
+            'rut': rut,
+            'nombre': ' '.join(x for x in [rec.get('nombres'), rec.get('apellidos')] if x).strip(),
+            'declarado': declarado,
+            'sugerido': mayor,
+            'nombre_pila': tks[0],
+            'respaldo': '%d de %d en la base' % (concuerdan, total),
+        })
+    return sorted(out, key=lambda d: d['nombre_pila'])
