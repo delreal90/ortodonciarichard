@@ -302,7 +302,8 @@
         <div><label class="f">Edad (años)</label><input type="number" id="pEdad" min="1" max="99" step="0.5"></div>
         <div><label class="f">Sexo</label>
           <select id="pSexo"><option value="">—</option><option value="M">Masculino</option>
-            <option value="F">Femenino</option></select></div>
+            <option value="F">Femenino</option></select>
+          <span class="nota" id="notaSexo" style="display:none"></span></div>
       </div>
       <div class="alerta" id="avisoEdad" style="display:none"></div>
     </div>
@@ -623,7 +624,19 @@ function precargar(p){
   if (p.nombre)  $('#pNombre').value = p.nombre;
   if (p.rut_fmt) $('#pRut').value    = p.rut_fmt;
   if (p.edad != null) $('#pEdad').value = p.edad;
-  if (p.sexo)    $('#pSexo').value   = p.sexo;
+  if (p.sexo) {
+    $('#pSexo').value = p.sexo;
+  } else if (p.sexo_sugerido) {
+    // El sexo declarado solo entra por el export del panel, asi que al paciente
+    // nuevo le falta. Se prellena con la sugerencia por nombre, pero DICIENDO
+    // que es una sugerencia: el percentil de los anchos se calcula contra la
+    // tabla de ese sexo, y un error ahi no se nota mirando el papel.
+    const d = p.sexo_sugerido_detalle || {};
+    $('#pSexo').value = p.sexo_sugerido;
+    $('#notaSexo').style.display = '';
+    $('#notaSexo').textContent = 'Sugerido por el nombre (' + (d.casos || 0)
+      + ' pacientes de la base se llaman así). Confírmalo.';
+  }
   if (p.psq)     window.PSQ_PREV = p.psq;
   if (!p.edad && !p.fecha_nacimiento) {
     $('#avisoEdad').style.display = '';

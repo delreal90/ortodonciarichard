@@ -1395,6 +1395,28 @@ def pacientes_reset():
     pacientes.vaciar()
     return jsonify({'ok': True, 'total': 0})
 
+@app.route('/api/pacientes/genero/evaluacion', methods=['GET'])
+def pacientes_genero_evaluacion():
+    """Que tan bien funciona la regla nombre->sexo sobre la base real.
+
+    Cada paciente se evalua con una tabla que no incluye su propio voto, asi
+    que el numero no esta inflado. Devuelve SOLO agregados y nombres de pila
+    (nunca RUT ni fichas): es para calibrar la regla, no para mirar pacientes.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import genero
+    import pacientes as _pac
+    registros = list(_pac._load_index().values())
+    return jsonify({'ok': True,
+                    'total_base': len(registros),
+                    'con_sexo_declarado': sum(1 for r in registros
+                                              if (r or {}).get('genero') in ('M', 'F')),
+                    'evaluacion': genero.evaluar(registros),
+                    'ambiguos': genero.ambiguos(registros)[:40],
+                    'umbral': genero.UMBRAL, 'min_casos': genero.MIN_CASOS})
+
+
 @app.route('/api/pacientes/estado', methods=['GET'])
 def pacientes_estado():
     if not _check_admin_token():
@@ -3959,13 +3981,23 @@ def informe_pc_precarga():
     fnac = rec.get('fecha_nacimiento') or ''
     edad = _pac.edad_a_fecha(fnac) if fnac else -1
     nombre = ' '.join(x for x in [rec.get('nombres'), rec.get('apellidos')] if x).strip()
+
+    # El sexo declarado tiene UNA fuente (el export del panel), asi que al
+    # paciente nuevo le falta. Si no esta, se SUGIERE por el nombre --con la
+    # evidencia de esta misma base-- y se manda aparte, marcado como sugerencia:
+    # el formulario lo prellena pero el doctor lo ve y lo corrige en un clic.
+    sexo = rec.get('genero') or ''
+    sugerido = _pac.sugerir_genero(rec.get('nombres') or nombre) if not sexo else None
+
     return jsonify({
         'ok': True,
         'nombre': nombre,
         'rut_fmt': scheduling.formatear_rut(rut) if rut else '',
         'fecha_nacimiento': fnac,
         'edad': (edad if edad >= 0 else None),
-        'sexo': (rec.get('genero') or ''),
+        'sexo': sexo,
+        'sexo_sugerido': (sugerido or {}).get('sexo', ''),
+        'sexo_sugerido_detalle': sugerido,
         'psq': psq.ultimo_por_rut(rut),
     })
 

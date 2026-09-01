@@ -60,6 +60,29 @@ def lookup(rut):
     return _load_index().get(_limpiar_rut(rut))
 
 
+# La tabla nombre->sexo se arma recorriendo la base entera, asi que se cachea.
+# Se invalida por el TAMANIO de la base: cuando entran pacientes nuevos --que es
+# justo cuando la tabla se queda corta-- se rearma sola. No hace falta mas
+# precision: si cambia el sexo de una ficha sin cambiar el total, la tabla vieja
+# sigue siendo valida (es una sugerencia sobre miles de casos, no un dato).
+_TABLA_GENERO = {'n': -1, 'tabla': {}}
+
+
+def sugerir_genero(nombres):
+    """Sexo probable a partir del nombre de pila, aprendido de esta misma base.
+
+    ⚠️ Es una SUGERENCIA para prellenar un campo que una persona revisa, NO un
+    dato declarado. No se guarda en la base y saludo() no la usa: ver el
+    docstring de genero.py y el de saludo() aca abajo.
+    """
+    import genero
+    idx = _load_index()
+    if _TABLA_GENERO['n'] != len(idx):
+        _TABLA_GENERO['tabla'] = genero.construir_tabla(idx.values())
+        _TABLA_GENERO['n'] = len(idx)
+    return genero.inferir(nombres, _TABLA_GENERO['tabla'])
+
+
 def saludo(rut_o_rec):
     """'o' | 'a' | 'o/a' segun el genero de la ficha.
 
@@ -68,8 +91,11 @@ def saludo(rut_o_rec):
     El fallback 'o/a' cuando no se sabe el genero es DELIBERADO: tratarla de
     'Estimado' a una paciente es peor que el generico 'Estimado/a', asi que
     ante la duda NUNCA se adivina. En particular, no se infiere por el
-    nombre -- 'Maria Jose' y 'Jose Maria' romperian cualquier heuristica
-    basada en el primer o el ultimo token."""
+    nombre. Existe sugerir_genero() --que si resuelve 'Maria Jose' vs
+    'Jose Maria' con la evidencia de la propia base-- pero aca NO se usa a
+    proposito: su sugerencia sirve para prellenar un campo que el doctor ve y
+    corrige en un clic, no para encabezar un correo que sale solo y que el
+    paciente lee antes de que nadie pueda arreglarlo."""
     rec = rut_o_rec if isinstance(rut_o_rec, dict) else lookup(rut_o_rec)
     genero = (rec or {}).get('genero', '')
     if genero == 'M':
