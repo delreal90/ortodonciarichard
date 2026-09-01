@@ -1408,13 +1408,27 @@ def pacientes_genero_evaluacion():
     import genero
     import pacientes as _pac
     registros = list(_pac._load_index().values())
-    return jsonify({'ok': True,
-                    'total_base': len(registros),
-                    'con_sexo_declarado': sum(1 for r in registros
-                                              if (r or {}).get('genero') in ('M', 'F')),
-                    'evaluacion': genero.evaluar(registros),
-                    'ambiguos': genero.ambiguos(registros)[:40],
-                    'umbral': genero.UMBRAL, 'min_casos': genero.MIN_CASOS})
+
+    # Umbral y minimo por query string para poder CALIBRAR la regla contra los
+    # datos reales sin un deploy por cada intento. Solo afectan a esta medicion:
+    # se restauran antes de salir.
+    orig = (genero.UMBRAL, genero.MIN_CASOS)
+    try:
+        genero.UMBRAL = float(request.args.get('umbral', genero.UMBRAL))
+        genero.MIN_CASOS = int(request.args.get('min_casos', genero.MIN_CASOS))
+        out = {'ok': True,
+               'total_base': len(registros),
+               'con_sexo_declarado': sum(1 for r in registros
+                                         if (r or {}).get('genero') in ('M', 'F')),
+               'evaluacion': genero.evaluar(registros),
+               'ambiguos': genero.ambiguos(registros)[:40],
+               'discordantes': genero.discordantes(registros),
+               'umbral': genero.UMBRAL, 'min_casos': genero.MIN_CASOS}
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'umbral o min_casos invalidos'}), 400
+    finally:
+        genero.UMBRAL, genero.MIN_CASOS = orig
+    return jsonify(out)
 
 
 @app.route('/api/pacientes/estado', methods=['GET'])

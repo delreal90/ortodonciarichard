@@ -226,3 +226,36 @@ def ambiguos(registros, minimo=MIN_CASOS):
             out.append({'nombre': clave, 'M': celda['M'], 'F': celda['F'],
                         'mayoria': round(mayor, 3)})
     return sorted(out, key=lambda d: -(d['M'] + d['F']))
+
+
+def discordantes(registros, minimo=20, dominancia=0.95):
+    """Registros cuyo sexo declarado contradice a un nombre que la base ve
+    abrumadoramente de un solo sexo.
+
+    NO es una medida de la regla: es una medida de la CALIDAD DEL DATO. Si 50
+    Catalinas estan declaradas mujer y 6 hombre, lo mas probable no es que
+    existan seis hombres llamados Catalina.
+
+    Importa porque el sexo declarado se usa en cosas que el paciente ve, y
+    porque es la respuesta contra la que se mide esta regla: si la respuesta
+    tiene ruido, la precision medida sale mas baja que la real.
+    """
+    tabla = construir_tabla(registros)
+    casos = []
+    for clave, celda in tabla.items():
+        if ' ' in clave:           # solo primeros nombres, no compuestos
+            continue
+        total = celda['M'] + celda['F']
+        if total < minimo:
+            continue
+        mayor = 'M' if celda['M'] >= celda['F'] else 'F'
+        if celda[mayor] / total < dominancia:
+            continue
+        contra = celda['F'] if mayor == 'M' else celda['M']
+        if contra:
+            casos.append({'nombre': clave, 'mayoria': mayor,
+                          'concuerdan': celda[mayor], 'discordan': contra})
+    casos.sort(key=lambda c: -c['discordan'])
+    return {'nombres': casos[:30],
+            'total_discordan': sum(c['discordan'] for c in casos),
+            'total_en_esos_nombres': sum(c['discordan'] + c['concuerdan'] for c in casos)}
