@@ -2811,6 +2811,83 @@ caben. La hoja 1 es la que crece; si se le agregan bloques hay que volver a medi
 
 ---
 
+## Sexo del paciente sugerido por el nombre (`admin/genero.py`, 2026-09-01)
+
+El sexo tiene **una sola fuente**: el export Excel del panel de DentiDesk. El barrido de la
+agenda no lo trae (`getAgendaDay` devuelve nombre, RUT, correo y teléfono) y la ficha de
+primera consulta **no lo pregunta**. Así que al paciente nuevo le falta — justo el de primera
+consulta, que es cuando el informe lo necesita para el percentil de sus anchos de arcada.
+
+`genero.py` cubre ese hueco **aprendiendo de la propia base**, no de una lista genérica de
+nombres: cuenta hombres y mujeres por nombre de pila entre los pacientes que sí tienen el dato
+declarado. Es la misma población, así que la evidencia es la que corresponde.
+
+### Los nombres compuestos son el caso que define el diseño
+
+*María José* es mujer y *José María* es hombre: los mismos dos tokens, distinto orden,
+distinto sexo. Por eso el orden de búsqueda es:
+
+1. **El compuesto de los dos primeros nombres** (`maria jose`) — la evidencia más precisa, y
+   la que resuelve el caso de frente.
+2. Si no alcanza, **el primer nombre**. En castellano manda, y por sí solo ya separa los dos.
+3. ⚠️ **NUNCA el segundo nombre suelto.** Sería exactamente la trampa: *José María* → *María*
+   → mujer. Hay una prueba que lo impide.
+
+Si la evidencia no alcanza el umbral, devuelve **vacío**. Un "no sé" honesto le cuesta al
+doctor un clic; una sugerencia equivocada con apariencia de dato le cuesta el percentil
+calculado contra la tabla del sexo que no era.
+
+### ⚠️ Es una SUGERENCIA, y no puede tocar el saludo
+
+No se guarda en la base ni pisa el campo `genero`: se calcula al vuelo en
+`/api/informe-pc/precarga` y el formulario la muestra marcada como *"Sugerido por el nombre
+(N pacientes de la base se llaman así). Confírmalo."*
+
+**`pacientes.saludo()` sigue SIN usarla** y sigue cayendo a "Estimado/a". No es un olvido: el
+costo de equivocarse no es el mismo en los dos lados. En el informe, un sexo errado se ve en
+pantalla y se corrige en un clic; en un WhatsApp que sale solo, tratar de "Estimado" a una
+paciente es una falta que ella lee y que nadie alcanza a corregir. Hay una prueba que fija esa
+separación.
+
+### Calibración con datos reales (4.229 pacientes con sexo declarado)
+
+Cada paciente se evalúa con una tabla que **no incluye su propio voto** — si no, un nombre que
+aparece una sola vez daría 100 % de acierto por construcción.
+
+| umbral | cobertura | precisión |
+|---|---|---|
+| 0,75 | 82,5 % | 93,6 % |
+| 0,80 | 79,2 % | 93,8 % |
+| **0,85** | **73,4 %** | **94,3 %** |
+| 0,90 | 62,8 % | 94,5 % |
+| 0,95 | 47,1 % | 96,0 % |
+
+**La precisión casi no se mueve mientras la cobertura se duplica.** Eso significa que los
+desacuerdos no son nombres genuinamente mixtos sino **ruido del dato declarado**: subir el
+umbral no compra precisión, solo deja de responder. Por eso 0,85 (con `MIN_CASOS = 3`), que
+acepta a Catalina —89 % mujeres en esta base— y sigue dejando fuera a Paula (77 %).
+
+`GET /api/pacientes/genero/evaluacion` (ADMIN_TOKEN) mide todo esto sobre la base real y
+acepta **`?umbral=` y `?min_casos=`** para recalibrar sin desplegar. Devuelve solo agregados y
+nombres de pila: **nunca RUT ni fichas**.
+
+### 🔎 Hallazgo aparte: el sexo declarado tiene ~3 % de error
+
+`genero.discordantes()` mide la calidad del dato, no la regla: entre los nombres que la base ve
+en un 95 % o más de un solo sexo, **28 de 857 registros lo contradicen (3,3 %)** — tres Nicolás
+declarados mujer, tres Sofías declaradas hombre. Lo más probable no es que existan.
+
+Importa por dos razones: ese campo se usa en cosas que el paciente ve, y es la respuesta contra
+la que se mide esta regla — o sea **la precisión real es algo mejor que el 94,3 % medido**,
+porque parte de los "errores" son casos donde la sugerencia acierta y la ficha está mal.
+
+**Pendiente:** el hueco se cierra de verdad agregando la pregunta de sexo a la ficha de primera
+consulta (edición del Google Form, fuera de este repo). Con eso el dato entra declarado y la
+sugerencia queda solo como respaldo.
+
+
+---
+
 ## Reporte semanal de KPIs por correo (`reporte_semanal.py`)
 
 > Existía desde el 2026-07-30 y **no estaba documentado acá**. Se anota ahora porque es

@@ -54,12 +54,29 @@ import unicodedata
 # Cuantos pacientes con sexo declarado tiene que haber para que un nombre
 # cuente. Con menos, una coincidencia de dos o tres personas se convierte en
 # una regla, y en una base de miles eso pasa seguido.
-MIN_CASOS = 5
+MIN_CASOS = 3
 
-# Que tan de acuerdo tienen que estar. 0.90 deja pasar el ruido normal (un
-# tipeo, un genero mal cargado en una ficha) sin dejar pasar los nombres
-# genuinamente ambiguos, que es lo que hay que devolver vacio.
-UMBRAL = 0.90
+# Que tan de acuerdo tiene que estar la base para dar una respuesta.
+#
+# CALIBRADO CONTRA LA BASE REAL (4.229 pacientes con sexo declarado, 2026-09-01),
+# midiendo a cada paciente con una tabla que no incluye su propio voto:
+#
+#     umbral   cobertura   precision
+#      0,75      82,5%       93,6%
+#      0,80      79,2%       93,8%
+#      0,85      73,4%       94,3%   <- elegido
+#      0,90      62,8%       94,5%
+#      0,95      47,1%       96,0%
+#
+# La precision casi no se mueve (93,6 a 96,0) mientras la cobertura se duplica.
+# Eso pasa porque los desacuerdos NO son nombres genuinamente mixtos sino ruido
+# del dato declarado --ver discordantes(): 3,3% de los registros con un nombre
+# claramente de un sexo lo contradicen--. Subir el umbral no compra precision,
+# solo deja de responder.
+#
+# 0,85 acepta a Catalina (89% mujeres en esta base) y sigue dejando fuera a
+# Paula (77%), que es donde el desacuerdo ya no parece ruido.
+UMBRAL = 0.85
 
 # Particulas que no son nombres y no aportan evidencia.
 _RELLENO = {'de', 'del', 'la', 'las', 'los', 'y', 'san', 'santa'}
