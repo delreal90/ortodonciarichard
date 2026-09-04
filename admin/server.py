@@ -710,6 +710,7 @@ import recordatorios_wa
 import webhook_wa
 import recaptacion
 import control_dental
+import fotos_finales   # aviso de collage post-tratamiento, ver fotos_finales.py
 import paciente_estado  # menu filtrado de la agenda online segun el estado clinico del paciente
 import link_agenda      # links de agenda pre-cargados (F2 -> paciente), ver link_agenda.py
 import nps
@@ -5332,6 +5333,153 @@ def control_dental_motivos_desconocidos():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# FOTOS POST-TRATAMIENTO / COLLAGE  ── modulo fotos_finales.py
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Avisa al doctor cuando un paciente vino al control post-retiro (el control en
+# que se le toman las fotos con las encias ya sanas), para que arme el collage
+# antes/despues. Se ubica junto a CONTROL DENTAL a proposito: mismo molde de
+# barrido diario + backfill + motivos clasificables sin deploy.
+# TODOS los endpoints con ADMIN_TOKEN: exponen nombre y RUT de pacientes.
+
+def _procesar_fotos_finales(cfg_ff, hoy):
+    """Barrido + envio del aviso de collage. Devuelve un resumen para el log.
+
+    El envio marca 'avisados' SOLO si el correo salio: si SMTP falla, los
+    candidatos siguen pendientes y se reintentan al dia siguiente en vez de
+    perderse (mismo criterio que _procesar_control_dental)."""
+    r = fotos_finales.barrer(cfg_ff)
+    lista = fotos_finales.pendientes(cfg_ff)
+    if not lista:
+        return {**r, 'enviados': 0, 'correo': 'sin candidatos'}
+
+    email, motivo = psq.email_doctor(cfg_ff.get('doctor_key', '')), 'doctor'
+    if not email:
+        # Nunca falla en silencio: si el doctor no tiene EMAIL_<DOC_KEY>
+        # configurado en Render, el aviso igual llega a recepcion.
+        email, motivo = psq.EMAIL_RESPALDO, 'sin_email_doctor'
+    res = notify.avisar_collage_pendiente(email, lista)
+    if not res.get('ok'):
+        return {**r, 'enviados': 0, 'correo': f"error: {res.get('error')}"}
+    fotos_finales.marcar_avisados([p['rut'] for p in lista], hoy)
+    return {**r, 'enviados': len(lista), 'correo': motivo, 'destino': email}
+
+
+@app.route('/api/fotos-finales/config', methods=['GET', 'POST'])
+def fotos_finales_config():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'POST':
+        cfg = fotos_finales.save_config(request.json or {})
+    else:
+        cfg = fotos_finales.load_config()
+    return jsonify({'ok': True, 'config': cfg, 'resumen': fotos_finales.resumen(),
+                    'email_doctor': bool(psq.email_doctor(cfg.get('doctor_key', '')))})
+
+
+@app.route('/api/fotos-finales/pendientes', methods=['GET'])
+def fotos_finales_pendientes():
+    """Los candidatos que saldrian en el proximo correo (sin enviarlo)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'pendientes': fotos_finales.pendientes()})
+
+
+@app.route('/api/fotos-finales/run', methods=['POST'])
+def fotos_finales_run():
+    """Corre a mano el barrido + envio (para probar). Ignora cfg['activo'] --
+    igual que /api/control-dental/run-- pero respeta el anti-duplicados."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg_ff = fotos_finales.load_config()
+    return jsonify({'ok': True, **_procesar_fotos_finales(cfg_ff, fechas.hoy_chile())})
+
+
+@app.route('/api/fotos-finales/backfill', methods=['POST'])
+def fotos_finales_backfill():
+    """One-off: siembra los retiros de los ultimos N meses SIN generar avisos.
+    Son ~130 consultas a DentiDesk, asi que corre en un hilo (molde de
+    /api/control-dental/backfill) y el resultado queda en el log de Render."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    cfg_dd = scheduling.load_config()
+    if not cfg_dd['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk'}), 400
+    try:
+        meses = int((request.json or {}).get('meses', 6))
+    except (TypeError, ValueError):
+        meses = 6
+
+    def job():
+        try:
+            print('[fotos-finales] backfill:', fotos_finales.backfill(meses=meses))
+        except Exception as e:
+            print('[fotos-finales] error en backfill:', e)
+    _threading.Thread(target=job, daemon=True).start()
+    return jsonify({'ok': True, 'iniciado': True})
+
+
+@app.route('/api/fotos-finales/historial', methods=['GET'])
+def fotos_finales_historial():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'historial': fotos_finales.historial(),
+                    'motivos_desconocidos': fotos_finales.motivos_desconocidos()})
+
+
+@app.route('/api/fotos-finales/descartar', methods=['POST'])
+def fotos_finales_descartar():
+    """El doctor decide que ese caso no lleva collage: sale de pendientes y no
+    se vuelve a proponer."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    rut = ((request.json or {}).get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    return jsonify({'ok': True, 'descartado': fotos_finales.descartar(rut)})
+
+
+@app.route('/api/fotos-finales/watchlist', methods=['GET', 'POST'])
+def fotos_finales_watchlist():
+    """Inscripcion manual: 'cuando venga este paciente, recuerdamelo'. La
+    proxima cita atendida suya dispara el aviso sin exigir un retiro previo
+    (su retiro puede ser anterior a que existiera este sistema)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    if request.method == 'POST':
+        data = request.json or {}
+        rut = (data.get('rut') or '').strip()
+        if not rut:
+            return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+        if not fotos_finales.agregar_watchlist(rut, data.get('nombre', ''), data.get('nota', '')):
+            return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    return jsonify({'ok': True, 'watchlist': fotos_finales.listar_watchlist()})
+
+
+@app.route('/api/fotos-finales/watchlist/quitar', methods=['POST'])
+def fotos_finales_watchlist_quitar():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    rut = ((request.json or {}).get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    return jsonify({'ok': True, 'quitado': fotos_finales.quitar_watchlist(rut)})
+
+
+@app.route('/api/fotos-finales/buscar-paciente', methods=['GET'])
+def fotos_finales_buscar_paciente():
+    """Buscador por nombre para inscribir en la watchlist diciendo el nombre
+    (ej. 'juan perez'), sin tener el RUT a mano."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import pacientes
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 3:
+        return jsonify({'ok': False, 'error': 'Escribe al menos 3 letras'}), 400
+    return jsonify({'ok': True, 'pacientes': pacientes.buscar_por_nombre(q)})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ESTADO DEL PACIENTE (menu filtrado de la agenda online) ── paciente_estado.py
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -7251,6 +7399,41 @@ def _loop_control_dental():
         time.sleep(40)
 
 
+def _loop_fotos_finales():
+    """Barrido + aviso de collage, una vez al dia al cierre de la jornada.
+
+    Mismo patron de VENTANA que _loop_control_dental (hora_envio <= slot <
+    '23:30') en vez de igualdad exacta de minuto: con igualdad exacta bastaba
+    que Render reiniciara en ese minuto para perder el dia. La ventana llega
+    hasta las 23:30 y no hasta las 17:00 como las otras justamente porque este
+    aviso sale DESPUES de la jornada (19:45 por defecto).
+
+    Solo dias habiles: la clinica no atiende sabados (verificado en el backfill
+    del datamart), asi que un barrido de fin de semana no encuentra nada nuevo.
+    Respeta cfg['activo'] (False por defecto -- se enciende cuando el doctor
+    reviso la lista que dejo el backfill) y que DentiDesk este habilitado."""
+    import time
+    ya_corrio = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            cfg_dd = scheduling.load_config()
+            cfg_ff = fotos_finales.load_config()
+            hora_cfg = cfg_ff.get('hora_envio', '19:45')
+            if (cfg_ff.get('activo')
+                    and cfg_dd['dentidesk']['enabled']
+                    and ahora.isoweekday() <= 5
+                    and hora_cfg <= slot < '23:30'
+                    and ya_corrio != ahora.date()):
+                ya_corrio = ahora.date()
+                r = _procesar_fotos_finales(cfg_ff, ahora.date())
+                print('[fotos-finales]', slot, r)
+        except Exception as e:
+            print('[fotos-finales] error:', e)
+        time.sleep(40)
+
+
 def _loop_seguimiento_pc():
     """Barrido diario del seguimiento de primeras consultas. Mismo patron de
     VENTANA que _loop_control_dental (hora_barrido <= slot < '17:00', una vez al
@@ -7794,6 +7977,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_recurrentes, daemon=True).start()
     threading.Thread(target=_loop_control_dental, daemon=True).start()
     threading.Thread(target=_loop_seguimiento_pc, daemon=True).start()
+    threading.Thread(target=_loop_fotos_finales, daemon=True).start()
     threading.Thread(target=_loop_reactivacion, daemon=True).start()
     threading.Thread(target=_loop_reporte_semanal, daemon=True).start()
     threading.Thread(target=_loop_kpi_cosecha, daemon=True).start()
@@ -7808,6 +7992,7 @@ def _iniciar_scheduler():
     print('[recurrentes] scheduler iniciado (barrido diario 09:00, cargos recurrentes)')
     print('[nps] scheduler iniciado (encuestas de satisfaccion, ventana configurable en el panel)')
     print('[alerta-consentimientos] scheduler iniciado (barrido diario 09:30, aviso a recepcion)')
+    print('[fotos-finales] scheduler iniciado (aviso de collage post-tratamiento, 19:45)')
 
 _iniciar_scheduler()
 

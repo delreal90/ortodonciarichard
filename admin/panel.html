@@ -112,6 +112,7 @@
     <a onclick="show('controldental')" id="nav-controldental"><i class="fa fa-tooth"></i> Control dental</a>
     <a onclick="show('satisfaccion')" id="nav-satisfaccion"><i class="fas fa-star"></i> Satisfacción</a>
     <a onclick="show('suenio')" id="nav-suenio"><i class="fa fa-bed"></i> Tamizaje de sueño</a>
+    <a onclick="show('collages')" id="nav-collages"><i class="fa fa-images"></i> Collages</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
   </nav>
@@ -272,6 +273,99 @@
           </select>
         </div>
         <div id="suenio-lista"><p style="font-size:.85rem;color:#718096">Sin cargar.</p></div>
+      </div>
+    </div>
+
+    <!-- ── COLLAGES (fotos post-tratamiento) ─────────────────── -->
+    <div class="section" id="sec-collages">
+      <h2>Collages post-tratamiento</h2>
+      <p class="desc">Avisa cuando un paciente vino al <strong>control después del retiro</strong>
+        —ese en que ya se le toman las fotos con las encías sanas—, para no dejar casos
+        terminados sin su collage antes/después. Sale <strong>un solo correo al día</strong>
+        con todos los del día; son unos 4 al mes.</p>
+
+      <div class="card" id="collages-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="collages-url" value="https://ortodonciarichard.onrender.com"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="collages-token" type="password" placeholder="ADMIN_TOKEN"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <button class="btn btn-primary" onclick="loadCollages()">Conectar</button>
+        </div>
+        <div id="collages-estado" style="margin-top:12px;font-size:.85rem;color:#718096"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:4px">Recordarme un paciente</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:12px">
+          Escribe su nombre y, cuando venga a su próximo control, el correo del día lo incluye.
+          Sirve para pacientes cuyo retiro es anterior a este sistema.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:12px">
+          <div style="flex:1;min-width:220px">
+            <label style="font-size:.82rem;color:#4A5568">Nombre del paciente</label>
+            <input id="collages-buscar" placeholder="ej. juan pérez"
+                   onkeydown="if(event.key==='Enter')buscarPacienteCollage()"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Nota (opcional)</label>
+            <input id="collages-nota" placeholder="ej. terminó con Digitrack"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <button class="btn" onclick="buscarPacienteCollage()">Buscar</button>
+        </div>
+        <div id="collages-resultados"></div>
+        <div id="collages-watchlist" style="margin-top:14px"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:4px">Esperando aviso</h3>
+        <p style="font-size:.82rem;color:#718096;margin-bottom:12px">
+          Lo que saldría en el próximo correo. Si un caso no lleva collage, descártalo y no
+          se vuelve a proponer.</p>
+        <div id="collages-pendientes"><p style="font-size:.85rem;color:#718096">Sin cargar.</p></div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Configuración</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="min-width:150px">
+            <label style="font-size:.82rem;color:#4A5568">Hora del correo</label>
+            <input id="collages-hora" placeholder="19:45"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="min-width:130px">
+            <label style="font-size:.82rem;color:#4A5568">Días mínimos</label>
+            <input id="collages-min" type="number" min="1"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="min-width:130px">
+            <label style="font-size:.82rem;color:#4A5568">Días máximos</label>
+            <input id="collages-max" type="number" min="1"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:.9rem;padding-bottom:9px">
+            <input type="checkbox" id="collages-activo"> Encendido
+          </label>
+          <button class="btn btn-primary" onclick="guardarCollagesConfig()">Guardar</button>
+          <button class="btn" onclick="runCollages()">Ejecutar ahora</button>
+          <button class="btn" onclick="backfillCollages()">Sembrar retiros (6 meses)</button>
+        </div>
+        <p style="font-size:.8rem;color:#718096;margin-top:10px">
+          Antes de encenderlo: siembra los retiros una vez (fuera de horario de atención) y
+          revisa la lista. <strong>Sembrar no manda ningún correo.</strong></p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:12px">Ya avisados</h3>
+        <div id="collages-historial"><p style="font-size:.85rem;color:#718096">Sin cargar.</p></div>
       </div>
     </div>
 
@@ -1243,6 +1337,184 @@ function verInformeSuenio(id) {
   window.open(base + '/informe-pc?modo=ver&id=' + encodeURIComponent(id), '_blank');
 }
 
+// ══════════════════════════════════════════════════════
+// COLLAGES POST-TRATAMIENTO (fotos_finales.py)
+// ══════════════════════════════════════════════════════
+
+function initCollages() {
+  remotoInit('collages-url', 'collages-token', loadCollages);
+}
+
+function _collFetch(ruta, opciones) {
+  return remotoFetch('collages-url', 'collages-token', ruta, opciones || {});
+}
+
+async function loadCollages() {
+  const est = document.getElementById('collages-estado');
+  est.textContent = 'Cargando…';
+  try {
+    const [rc, rp, rh, rw] = await Promise.all([
+      _collFetch('/api/fotos-finales/config'),
+      _collFetch('/api/fotos-finales/pendientes'),
+      _collFetch('/api/fotos-finales/historial'),
+      _collFetch('/api/fotos-finales/watchlist'),
+    ]);
+    if (rc.status === 403) { est.innerHTML = '<span style="color:#e53e3e">Token incorrecto.</span>'; return; }
+    const c = await rc.json(), p = await rp.json(), h = await rh.json(), w = await rw.json();
+    const cfg = c.config || {}, res = c.resumen || {};
+    document.getElementById('collages-hora').value = cfg.hora_envio || '';
+    document.getElementById('collages-min').value = cfg.dias_minimos || '';
+    document.getElementById('collages-max').value = cfg.dias_maximos || '';
+    document.getElementById('collages-activo').checked = !!cfg.activo;
+    // Que el correo del doctor esté configurado no es un detalle: sin
+    // EMAIL_<DOCTOR> en Render el aviso igual sale, pero le llega a recepción.
+    est.innerHTML =
+      `<strong>${cfg.activo ? '🟢 Encendido' : '⚪ Apagado'}</strong> · ` +
+      `${_esc(cfg.doctor_nombre || '')} · ` +
+      `${res.retiros_conocidos || 0} retiros conocidos · ${res.avisados || 0} avisados` +
+      (c.email_doctor ? '' :
+        '<br><span style="color:#d69e2e">⚠ Sin EMAIL_' +
+        _esc((cfg.doctor_key || '').toUpperCase()) +
+        ' en Render: el aviso llegará a recepción.</span>');
+    pintarPendientesCollage(p.pendientes || []);
+    pintarHistorialCollage(h.historial || []);
+    pintarWatchlist(w.watchlist || []);
+  } catch (e) {
+    est.innerHTML = '<span style="color:#e53e3e">No se pudo conectar con el backend.</span>';
+  }
+}
+
+function pintarPendientesCollage(items) {
+  const el = document.getElementById('collages-pendientes');
+  if (!items.length) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#718096">Nadie esperando aviso.</p>';
+    return;
+  }
+  el.innerHTML =
+    `<table style="width:100%;border-collapse:collapse;font-size:.85rem">
+       <tr style="text-align:left;color:#4A5568;border-bottom:1px solid #e2e8f0">
+         <th style="padding:7px 6px">Paciente</th><th>Vino a</th><th>Viene de</th><th></th></tr>` +
+    items.map(x => `<tr style="border-bottom:1px solid #f1f5f9">
+       <td style="padding:7px 6px"><strong>${_esc(x.nombre || x.rut)}</strong><br>
+           <span style="color:#718096">${_esc(x.fecha_control || '')}</span></td>
+       <td>${_esc(x.motivo_control || '')}</td>
+       <td>${x.origen === 'watchlist'
+              ? '📌 lo anotaste' + (x.nota ? ': ' + _esc(x.nota) : '')
+              : _esc(x.motivo_retiro || '') + '<br><span style="color:#718096">' +
+                _esc(x.fecha_retiro || '') + '</span>'}</td>
+       <td style="white-space:nowrap">
+         <a href="#" onclick="descartarCollage('${_esc(x.rut)}');return false"
+            style="color:#e53e3e">descartar</a></td></tr>`).join('') +
+    `</table>`;
+}
+
+function pintarWatchlist(items) {
+  const el = document.getElementById('collages-watchlist');
+  if (!items.length) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#718096">Ningún paciente anotado.</p>';
+    return;
+  }
+  el.innerHTML =
+    `<p style="font-size:.82rem;color:#4A5568;margin-bottom:8px">Anotados (${items.length}):</p>` +
+    items.map(x => `<div style="display:flex;justify-content:space-between;gap:10px;
+         padding:7px 10px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;font-size:.85rem">
+       <span><strong>${_esc(x.nombre || x.rut)}</strong>
+         ${x.nota ? '<span style="color:#718096"> · ' + _esc(x.nota) + '</span>' : ''}</span>
+       <a href="#" onclick="quitarWatchlist('${_esc(x.rut)}');return false"
+          style="color:#e53e3e">quitar</a></div>`).join('');
+}
+
+function pintarHistorialCollage(items) {
+  const el = document.getElementById('collages-historial');
+  if (!items.length) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#718096">Todavía no se ha avisado nada.</p>';
+    return;
+  }
+  el.innerHTML =
+    `<table style="width:100%;border-collapse:collapse;font-size:.85rem">
+       <tr style="text-align:left;color:#4A5568;border-bottom:1px solid #e2e8f0">
+         <th style="padding:7px 6px">Avisado</th><th>Paciente</th><th>Vino a</th></tr>` +
+    items.map(x => `<tr style="border-bottom:1px solid #f1f5f9">
+       <td style="padding:7px 6px;white-space:nowrap">${_esc(x.avisado || '')}</td>
+       <td>${_esc(x.nombre || x.rut)}</td>
+       <td>${_esc(x.motivo_control || '')}
+           <span style="color:#718096">${_esc(x.fecha_control || '')}</span></td></tr>`).join('') +
+    `</table>`;
+}
+
+async function buscarPacienteCollage() {
+  const el = document.getElementById('collages-resultados');
+  const q = document.getElementById('collages-buscar').value.trim();
+  if (q.length < 3) { el.innerHTML = '<p style="font-size:.85rem;color:#e53e3e">Escribe al menos 3 letras.</p>'; return; }
+  el.innerHTML = '<p style="font-size:.85rem;color:#718096">Buscando…</p>';
+  try {
+    const r = await _collFetch('/api/fotos-finales/buscar-paciente?q=' + encodeURIComponent(q));
+    const d = await r.json();
+    const lista = d.pacientes || [];
+    if (!lista.length) {
+      el.innerHTML = '<p style="font-size:.85rem;color:#718096">Sin coincidencias en la base.</p>';
+      return;
+    }
+    el.innerHTML = lista.map(p => `<div style="display:flex;justify-content:space-between;gap:10px;
+         padding:7px 10px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;font-size:.85rem">
+       <span>${_esc(p.nombre)}</span>
+       <a href="#" onclick="agregarWatchlist('${_esc(p.rut)}','${_esc(p.nombre)}');return false"
+          style="color:#1A2E4A">anotar</a></div>`).join('');
+  } catch (e) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#e53e3e">No se pudo buscar.</p>';
+  }
+}
+
+async function agregarWatchlist(rut, nombre) {
+  const nota = document.getElementById('collages-nota').value.trim();
+  await _collFetch('/api/fotos-finales/watchlist',
+                   { method: 'POST', body: { rut, nombre, nota } });
+  document.getElementById('collages-resultados').innerHTML = '';
+  document.getElementById('collages-buscar').value = '';
+  document.getElementById('collages-nota').value = '';
+  loadCollages();
+}
+
+async function quitarWatchlist(rut) {
+  await _collFetch('/api/fotos-finales/watchlist/quitar', { method: 'POST', body: { rut } });
+  loadCollages();
+}
+
+async function descartarCollage(rut) {
+  if (!confirm('¿Descartar este caso? No se volverá a proponer.')) return;
+  await _collFetch('/api/fotos-finales/descartar', { method: 'POST', body: { rut } });
+  loadCollages();
+}
+
+async function guardarCollagesConfig() {
+  const body = {
+    hora_envio: document.getElementById('collages-hora').value.trim(),
+    dias_minimos: parseInt(document.getElementById('collages-min').value, 10),
+    dias_maximos: parseInt(document.getElementById('collages-max').value, 10),
+    activo: document.getElementById('collages-activo').checked,
+  };
+  const r = await _collFetch('/api/fotos-finales/config', { method: 'POST', body });
+  alert(r.ok ? 'Guardado.' : 'No se pudo guardar.');
+  loadCollages();
+}
+
+async function runCollages() {
+  const est = document.getElementById('collages-estado');
+  est.textContent = 'Ejecutando (puede tardar)…';
+  const r = await _collFetch('/api/fotos-finales/run', { method: 'POST', body: {} });
+  const d = await r.json();
+  alert(d.ok ? `Listo. Enviados: ${d.enviados} (${d.correo})` : 'Error al ejecutar.');
+  loadCollages();
+}
+
+async function backfillCollages() {
+  if (!confirm('Siembra los retiros de los últimos 6 meses. No manda ningún correo. ¿Seguir?')) return;
+  const r = await _collFetch('/api/fotos-finales/backfill', { method: 'POST', body: { meses: 6 } });
+  const d = await r.json();
+  alert(d.ok ? 'Sembrando en segundo plano. Recarga en un par de minutos.'
+             : (d.error || 'No se pudo iniciar.'));
+}
+
 // ── Navegación ───────────────────────────────────────
 function show(sec) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -1264,6 +1536,7 @@ function show(sec) {
   if (sec === 'controldental') initControlDental();
   if (sec === 'satisfaccion') initSatisfaccion();
   if (sec === 'suenio') initSuenio();
+  if (sec === 'collages') initCollages();
 }
 
 // ══════════════════════════════════════════════════════

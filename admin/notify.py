@@ -19,6 +19,7 @@ import os
 import ssl
 import smtplib
 import logging
+from datetime import date
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1343,4 +1344,89 @@ def enviar_resultado_psq(destinatario_email, doctor_label, paciente, resultado, 
         return {'ok': True}
     except Exception as e:
         log.error('SMTP resultado PSQ error: %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
+# ── Aviso de collage post-tratamiento (fotos_finales.py) ─────────────────────
+
+_MESES_COLLAGE = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+                  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+
+
+def _fecha_corta_collage(iso):
+    """'2026-07-28' -> '28 de julio'. Deja pasar lo que no parsea."""
+    try:
+        d = date.fromisoformat((iso or '')[:10])
+    except ValueError:
+        return iso or ''
+    return f'{d.day} de {_MESES_COLLAGE[d.month - 1]}'
+
+
+def _filas_collage(lista):
+    """Una fila por paciente: nombre a la izquierda; a la derecha a qué vino hoy
+    y de qué retiro viene (o la nota, si lo inscribió el doctor a mano)."""
+    filas = []
+    for p in lista:
+        motivo = (p.get('motivo_control') or '').strip() or 'control'
+        if p.get('origen') == 'watchlist':
+            nota = (p.get('nota') or '').strip()
+            detalle = 'Lo dejaste anotado para acordarte'
+            if nota:
+                detalle += f': {nota}'
+        else:
+            detalle = (f"Terminó con {p.get('motivo_retiro', 'su retiro')} "
+                       f"el {_fecha_corta_collage(p.get('fecha_retiro'))}")
+        filas.append(_fila(
+            p.get('nombre', '') or p.get('rut', ''),
+            f"Vino hoy a {motivo}<br>"
+            f"<span style=\"color:#718096;font-size:13px\">{detalle}</span>"))
+    return ''.join(filas)
+
+
+def avisar_collage_pendiente(destinatario_email, lista):
+    """Aviso agrupado al doctor: estos pacientes vinieron a su control post
+    tratamiento, así que ya existen las fotos con las encías sanas para armar el
+    collage antes/después.
+
+    UN solo correo con todos los del día (nunca uno por paciente): son ~4 al mes,
+    la mayoría de los días trae 0 o 1. Si la lista viene vacía no manda nada.
+
+    `lista`: candidatos tal como los devuelve fotos_finales.pendientes().
+    Devuelve {ok, error} -- el llamador SOLO debe marcar avisados si ok, para que
+    una caída de SMTP se reintente en vez de perder el aviso.
+    """
+    if not lista:
+        return {'ok': False, 'error': 'lista vacía'}
+
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    if not smtp_user or not smtp_pass or '@' not in (destinatario_email or ''):
+        return {'ok': False, 'error': 'sin SMTP o email de destino'}
+
+    n = len(lista)
+    titulo = ('Hay fotos para un collage' if n == 1
+              else f'Hay fotos para {n} collages')
+    filas = _fila_seccion(f'📸 Control post-tratamiento de hoy ({n})') + _filas_collage(lista)
+    html = _aviso_recepcion_html(
+        titulo, filas,
+        etiqueta='Collage — Aviso diario',
+        pie='Ortodoncia Richard · Aviso automático de fotos post-tratamiento')
+
+    msg = MIMEMultipart('alternative')
+    msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
+    msg['To'] = destinatario_email
+    nombres = ', '.join(p.get('nombre', '') for p in lista[:3] if p.get('nombre'))
+    msg['Subject'] = f'{titulo}' + (f' — {nombres}' if nombres else '')
+    msg['Reply-To'] = smtp_user
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destinatario_email], msg.as_bytes())
+        log.info('Aviso de collage enviado a %s (%d paciente(s))', destinatario_email, n)
+        return {'ok': True}
+    except Exception as e:
+        log.error('SMTP aviso de collage error: %s', e)
         return {'ok': False, 'error': str(e)}

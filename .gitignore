@@ -129,3 +129,9 @@ admin/informe_pc_registro.json
 # Informe de evaluacion: fotos clinicas anexadas al informe (cara, boca,
 # capturas del escaneo). Datos de pacientes: disco persistente, nunca a git.
 admin/informe_pc_imagenes/
+
+# Aviso de collage post-tratamiento (fotos_finales.py): el registro lleva RUT,
+# nombre y el historial de retiros/controles de cada paciente. Nunca a git.
+# En Render vive en el disco persistente (junto a patient_index.json).
+admin/fotos_finales_config.json
+admin/fotos_finales_registro.json

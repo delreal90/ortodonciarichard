@@ -74,8 +74,9 @@ compartidas `stats_token` / `stats_url`**.
 > propósito robaba el ADMIN_TOKEN del `localStorage`).
 
 ### 8. 🧪 Antes de cada `git push`: `cd admin && python test_todo.py`
-**162 pruebas, 8 suites, cero red / cero correo / cero WhatsApp / cero DentiDesk.** Se
-pueden correr con producción andando. Recuerda que **`git push` ES el deploy**: Render
+**890 pruebas, 33 suites, cero red / cero correo / cero WhatsApp / cero DentiDesk.** Se
+pueden correr con producción andando. (Este número queda viejo cada vez que se suma una
+suite; el que manda es el que imprime `test_todo.py` al terminar.) Recuerda que **`git push` ES el deploy**: Render
 redespliega solo.
 
 ### 🔒 Y lo de siempre: este repo es PÚBLICO
@@ -2885,6 +2886,102 @@ porque parte de los "errores" son casos donde la sugerencia acierta y la ficha e
 consulta (edición del Google Form, fuera de este repo). Con eso el dato entra declarado y la
 sugerencia queda solo como respaldo.
 
+
+---
+
+## Aviso de collage post-tratamiento (`fotos_finales.py`, 2026-09-04)
+
+Cuando el Dr. Alberto termina un tratamiento, el paciente vuelve unas semanas después —ya
+con las **encías sanas**— al control en que se le toman las fotos post tratamiento. Ese es
+el momento en que existe el material para el collage antes/después, y nadie avisaba que
+había llegado: dependía de que el doctor se acordara caso a caso, así que casos terminados
+quedaban sin su collage. Este sistema detecta ese control y le manda **un correo agrupado
+al día** sugiriendo armarlo.
+
+### ⚠️ Se detecta un PATRÓN, no un motivo — y esto no se puede "simplificar"
+
+Lo primero que se intentó fue buscar un motivo que dijera "fotos". **No sirve.** Medido
+sobre las 46.692 atenciones del histórico (`ortodonciarichard-analytics`, 2021-jul 2026):
+el Dr. Alberto usó los motivos que nombran fotos (`Imp Essix + Scanner Final + Fotos + Rx`)
+**2 veces en cinco años**. Después de un retiro sus pacientes vuelven con motivos
+corrientes: *Control Contención* (69), *Control Removible* (67), *Impresión p/Essix* (43),
+*Aligner/Essix* (37), *Control Digitrack* (18).
+
+Por eso el disparador es **la primera cita atendida después de un retiro de aparatos**. El
+mismo histórico da los números con que están calibrados los defaults:
+
+| dato medido | valor | qué define |
+|---|---|---|
+| días entre el retiro y esa cita (Alberto) | mediana **27** (p25 19, p75 34) | `dias_minimos` 10 · `dias_maximos` 180 |
+| avisos que habría generado | **~52 al año (~4,3 al mes)** | un solo correo diario alcanza |
+| primera cita posterior que fue una urgencia | **15 de 302** | por eso existe `_URGENCIA` |
+
+### ⚠️ NO se reusa `control_dental._FIN_DEFINITIVO`
+
+Parece la misma lista, pero esa incluye `control contencion`, `retenedor fijo` y `retiro
+retenedores fijos`, que **acá son la cita de DESTINO**. Si se reusara, el control de las
+fotos se leería como un retiro nuevo y el aviso no saldría nunca. `fotos_finales._RETIROS`
+es una lista propia (retiro total / digitrack / invisalign / clear correct / alineadores /
+total + inicio) y hay una prueba que fija esa diferencia.
+
+`_URGENCIA` (subcadenas `suelto`, `roto`, `perdida`, `perdido`, `desajustado`, `urgencia`,
+`dolor`) salta las visitas de reposición **sin consumir el aviso**: el paciente que vuelve
+a los 15 días porque se le soltó el retenedor no trae fotos útiles, así que su candidatura
+sigue viva para la cita siguiente. Hay prueba de las dos mitades.
+
+### Las dos formas de entrar
+
+1. **Automática** — `barrer()` recorre `getAgendaDay` de **−45 días hábiles a hoy** (solo
+   pasado: interesan citas ya atendidas) con el molde exacto de `seguimiento_pc.barrer()`.
+   Los −45 días **no son redundancia**: la clínica marca "Atendido" *después* de la visita,
+   así que sin re-mirar hacia atrás el barrido no vería nunca el estado final. Eso lo hace
+   además idempotente y auto-reparable si Render reinicia.
+2. **Manual (`watchlist`)** — "cuando venga tal paciente, recuérdamelo". Se
+   inscribe **por nombre** desde el panel (`pacientes.buscar_por_nombre`) y su próxima cita
+   atendida dispara el aviso **sin exigir un retiro visto**: su retiro puede ser anterior a
+   que el sistema existiera. Al avisar **sale solo de la watchlist** — si se quedara,
+   avisaría en cada cita futura. Una cita ANTERIOR a la inscripción no dispara: lo pedido es
+   "cuando venga", no "que ya vino".
+
+⚠️ **`pacientes.buscar_por_nombre()` matchea por TOKENS, no por subcadena.** La base guarda
+nombres y apellidos separados, pero la agenda muestra al paciente como
+*"Pérez Soto 1234A-D Juan"* (apellidos primero, con número de ficha y código de
+dispositivo en medio): buscar `"juan pérez"` por subcadena no encontraría nada.
+
+### Envío
+
+`_procesar_fotos_finales()` + `_loop_fotos_finales()` en `server.py`, patrón **VENTANA**
+(`hora_envio <= slot < '23:30'`, solo días hábiles) igual que `_loop_control_dental` — con
+igualdad exacta de minuto bastaba un reinicio de Render a las 19:46 para perder el día. La
+ventana llega hasta las 23:30 y no hasta las 17:00 como las otras justamente porque este
+aviso sale **después** de la jornada (19:45 por defecto, decisión del usuario: el caso
+todavía está fresco).
+
+`notify.avisar_collage_pendiente()` usa `_email_layout` (regla 6) y manda **un solo correo
+agrupado**, nunca uno por paciente. Destinatario: `psq.email_doctor('alberto')` → env
+**`EMAIL_ALBERTO`**, con fallback a recepción si no está configurada (nunca falla en
+silencio; el panel lo avisa en amarillo). ⚠️ **Un fallo de SMTP NO marca `avisados`**: el
+candidato sigue pendiente y se reintenta al día siguiente en vez de perderse.
+
+`backfill(meses=6)` siembra los retiros anteriores al arranque **sin generar un solo
+aviso** — la lección de `confirmaciones.py`: sin eso, encender el sistema mandaría de golpe
+los controles de medio año.
+
+**Panel:** pestaña "📸 Collages" (patrón remoto, `stats_url`/`stats_token`, regla 7) con
+conexión, watchlist con buscador por nombre, pendientes (con "descartar"), configuración
+(+ "Ejecutar ahora" y "Sembrar retiros") e historial.
+
+**Endpoints** (`server.py`, bloque `FOTOS POST-TRATAMIENTO / COLLAGE`, **todos con
+ADMIN_TOKEN**): `GET/POST /api/fotos-finales/config` · `GET /pendientes` · `POST /run` ·
+`POST /backfill` · `GET /historial` · `POST /descartar` · `GET/POST /watchlist` ·
+`POST /watchlist/quitar` · `GET /buscar-paciente?q=`.
+
+**Pruebas:** `test_fotos_finales.py` — 38, cero red y cero correo.
+
+**Pendiente para encender:** setear `EMAIL_ALBERTO` en Render; correr el backfill UNA vez
+fuera de horario; revisar la lista y recién ahí poner `activo: true` (viene en `false` a
+propósito). Fase 2: botón "📸 Recordar collage" en el F2 sobre la cita abierta (⚠️ los
+cambios de `content.js` **no viajan por Render**, hay que copiar la extensión a los PC).
 
 ---
 

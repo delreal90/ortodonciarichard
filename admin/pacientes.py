@@ -105,6 +105,48 @@ def saludo(rut_o_rec):
     return 'o/a'
 
 
+def _tokens_nombre(texto):
+    """Tokens normalizados (sin tildes, minusculas, sin puntuacion) de un nombre."""
+    t = unicodedata.normalize('NFKD', texto or '')
+    t = ''.join(c for c in t if not unicodedata.combining(c))
+    return [tok for tok in re.split(r'[^0-9a-zA-Z]+', t.lower()) if tok]
+
+
+def buscar_por_nombre(texto, limite=10):
+    """Busca pacientes por nombre en la base local. Devuelve
+    [{rut, nombres, apellidos, nombre}] ordenado por nombre.
+
+    El match es POR TOKENS, no por subcadena, y en cualquier orden: la base
+    guarda nombres y apellidos separados, pero la agenda muestra al paciente
+    como "Perez Soto 1234A-D Juan" (apellidos primero, con numero de
+    ficha y codigo de dispositivo en medio). Buscando "juan perez" por
+    subcadena no encontraria nada; por tokens si.
+
+    Se exige que TODOS los tokens de la consulta esten presentes (un token
+    puede calzar como prefijo, para que "per so" encuentre a "Perez
+    Soto"), asi escribir mas apellido acota en vez de traer mas ruido.
+
+    Devuelve el RUT sin enmascarar: los unicos que llaman son endpoints con
+    ADMIN_TOKEN (el panel), no el frontend del paciente.
+    """
+    buscados = _tokens_nombre(texto)
+    if not buscados:
+        return []
+    salida = []
+    for rut, rec in _load_index().items():
+        nombre = f"{rec.get('nombres', '')} {rec.get('apellidos', '')}".strip()
+        disponibles = _tokens_nombre(nombre)
+        if not disponibles:
+            continue
+        if all(any(t.startswith(b) for t in disponibles) for b in buscados):
+            salida.append({'rut': rut,
+                           'nombres': rec.get('nombres', ''),
+                           'apellidos': rec.get('apellidos', ''),
+                           'nombre': nombre})
+    salida.sort(key=lambda p: (p['apellidos'], p['nombres']))
+    return salida[:limite]
+
+
 def total():
     return len(_load_index())
 

@@ -48,6 +48,7 @@ SUITES = [
     ('informe_pc',   'test_informe_pc.py',   'informe de evaluacion: documento, seguimiento, oclusion y limites'),
     ('tamizaje_link','test_tamizaje_link.py','QR del cuestionario de sueno: token, que instrumento toca y el borrador'),
     ('genero',       'test_genero.py',       'regla nombre->sexo aprendida de la base: Maria Jose vs Jose Maria'),
+    ('fotos_finales','test_fotos_finales.py','aviso de collage: el control post-retiro, no la urgencia'),
     ('kpi',          'test_kpi.py',          'datamart de KPIs: destino de la primera consulta, fugas y ocupacion'),
 ]
 
