@@ -99,6 +99,89 @@ El diseño completo está en `CLAUDE.md` → *"Base de datos clínica — DISEÑ
 
 ---
 
+## 3-bis. ⭐ ALCANCE DECIDIDO (2026-09-10): una sola base analítica
+
+El usuario lo pidió explícito: *"quiero el más amplio… idealmente tener una base de datos
+para todo el proyecto, cosa que sea lo más integrado posible"*.
+
+**Esto reemplaza la recomendación anterior de `clinica.db` separada de `kpi.db`.** Con la
+integración como objetivo, dos bases obligan a cruzar en Python lo que SQL haría solo.
+
+### La distinción que ordena todo
+
+Hay **dos capas** que se confunden fácil, y solo una se unifica:
+
+| | Qué es | Qué se hace |
+|---|---|---|
+| **Registros operativos** | El estado vivo de cada sistema: qué recordatorio se mandó, qué consentimiento está pendiente, qué cita espera respuesta | **SE QUEDAN DONDE ESTÁN.** Su aislamiento es una protección, no un descuido |
+| **Capa de análisis** | Donde se hacen preguntas cruzadas | **UNA SOLA BASE**, integrada de verdad |
+
+⚠️ **Por qué los operativos NO se fusionan.** Hoy, si el registro de seguros se corrompe,
+los recordatorios de WhatsApp siguen funcionando. Fusionarlos convierte cada escritura en
+un riesgo para todo lo demás — y son decenas al día. Además `jsonstore` ya resuelve bien
+ese caso: escritura atómica, lock, y **un archivo corrupto se aparta en vez de pisarse**.
+
+### La base: `kpi.db` extendida, no una nueva
+
+Ya tiene la agenda completa (**61.342 citas, 2021 → hoy**), el patrón de esquema con
+migraciones, el backfill reanudable y **60 pruebas**. Empezar de cero sería tirar eso.
+
+Se le agregan al lado las tablas clínicas:
+
+```
+YA EXISTEN          citas · disponibilidad · ingresos · snapshots
+SE AGREGAN          pacientes · informes · mediciones · oclusion
+                    hallazgos · ordenes · tamizajes · meta
+```
+
+⚠️ **`pacientes` es la ÚNICA tabla con RUT.** Todo lo demás lleva `pid`
+(`HMAC-SHA256(rut_limpio, salt)`). Eso da las dos propiedades a la vez:
+
+- **Integración total** — un `JOIN` cruza un ancho de arcada con el destino de la primera
+  consulta, sin salir de SQL.
+- **Export anonimizado por construcción** — exportar para un estudio es *"todo menos
+  `pacientes`"*, sin trabajo extra ni riesgo de olvidar una columna.
+
+⚠️ **`citas` hoy indexa por RUT limpio.** Hay que agregarle `pid` (derivable del RUT que ya
+tiene) para que los `JOIN` no pasen por el RUT. Es una migración de una columna más un
+backfill, del tipo que `kpi.reclasificar()` ya sabe hacer.
+
+### `compras.db` queda AFUERA
+
+Tiene `usuarios` con `password_hash` y `salt`, y `sesiones` activas. Es otro dominio, con
+su propio login y sus propios roles: meterlo en la base clínica significa que **la base que
+se exporta para investigación carga credenciales**.
+
+Lo que sí conviene: **proyectar sus agregados** (gasto mensual por categoría y ámbito) a la
+tabla `ingresos` o a una hermana, para poder cruzar costo contra producción sin mover el
+sistema de compras.
+
+### Lo que esta base NUNCA va a tener
+
+⚠️ **La ficha clínica real vive en DentiDesk**, que solo expone 6 endpoints de agenda —
+sin API de pacientes ni de documentos (verificado, ver `CLAUDE.md`). Así que acá habrá la
+agenda, los informes de evaluación, los tamizajes, los consentimientos y las encuestas.
+**No** el odontograma, **no** las evoluciones, **no** las radiografías.
+
+Decirlo importa: una base que se llama "de todo el proyecto" invita a suponer que tiene
+todo, y una consulta que asume un dato que no está da un resultado sesgado sin avisar.
+
+### Orden sugerido
+
+1. **Medir** cuánto pesa el registro de informes y cuánto crece. Decide si la proyección es
+   urgente o puede esperar.
+2. **`pid` en `citas`** — la migración que habilita todos los cruces.
+3. **Tablas clínicas + proyección** desde `informe_pc_registro.json`, idempotente y
+   reconstruible con un `proyectar_todo()`.
+4. **El contador de muestra** — cuántos pacientes acumulados por edad y sexo cumplen los
+   criterios de Bishara. Es lo que dice cuándo alcanza para el estudio, y el único
+   incentivo real para llenar bien el formulario todos los días.
+5. **Proyectar el resto**: tamizajes (ya hay `tamizaje_link.historial()` que los junta),
+   consentimientos, NPS, y los agregados de compras.
+6. **El export**, que a esta altura ya sale anonimizado solo.
+
+---
+
 ## 4. El costo de escala que ya se ve
 
 `informe_pc_registro.json` lo parsea `jsonstore` **entero en cada lectura y en cada
@@ -150,12 +233,8 @@ Detalle en `CLAUDE.md` → sección *Evaluación transversal*.
 
 ## 8. Preguntas abiertas para esa sesión
 
-1. **¿Alcance?** ¿Solo lo clínico del informe, o también cruzar con la agenda (`kpi.db`),
-   seguros, NPS y control dental? El cruce con la agenda es el que habilita las preguntas
-   más interesantes.
-2. **¿Una base o dos?** El diseño actual propone `clinica.db` **separada** de `kpi.db`,
-   sin `ATTACH` en producción — así se preserva la propiedad de que la clínica menos su
-   tabla de pacientes es anónima. Se puede reconsiderar.
+1. ~~¿Alcance?~~ **DECIDIDO el 2026-09-10: el más amplio.** Ver la sección 3-bis.
+2. ~~¿Una base o dos?~~ **DECIDIDO: una sola**, `kpi.db` extendida. Ver la sección 3-bis.
 3. **¿Migrar los registros JSON operativos** (recordatorios, confirmaciones, links) o
    dejarlos donde están? Son de operación, no de análisis: probablemente se quedan.
 4. **¿Dónde vive el salt del seudónimo?** Dentro de la base (sobrevive un redeploy, pero
