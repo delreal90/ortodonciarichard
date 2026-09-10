@@ -2473,7 +2473,7 @@ dentidesk-assistant/content.js                   ← botón "📄 Informe de pri
 Endpoints (`server.py`, bloque "INFORME DE PRIMERA CONSULTA"), todos con `ADMIN_TOKEN`
 salvo `GET /informe-pc`, que sirve la página y pide la clave al cargar (criterio de
 `/seguro`): `/api/informe-pc/catalogo|precarga|percentil|guardar|pendientes|documento|
-marcar-impreso`.
+marcar-impreso|buscar|previos|progreso`.
 
 El botón del F2 **solo aparece cuando el motivo de la cita es Primera Consulta**, y abre la
 página con el paciente en la query string — **sin token en la URL** (quedan en el
@@ -2795,6 +2795,143 @@ Peor caso real —adulto, los 24 hallazgos del catálogo, 2 hallazgos propios, l
 mediciones completas y tamizaje entero—: **97 % / 88 % / 62 % / 56 %**. Las cuatro hojas
 caben. La hoja 1 es la que crece; si se le agregan bloques hay que volver a medir.
 
+### Cuarta vuelta: el historial deja de ser inalcanzable (2026-09-10)
+
+Un informe **solo se podía ver el día que se hizo**. `?modo=recepcion` pedía "los de hoy" y
+no había otra puerta: pasado ese día el informe existía en el registro pero solo se llegaba a
+él escribiendo la URL a mano con su `id`. El paciente que perdía su informe no podía pedir que
+se lo reimprimieran, y el Dr. no veía lo que le había dicho la vez anterior — el F2 **siempre**
+abre un informe en blanco, aunque el paciente tenga tres.
+
+**`informe_pc.buscar()`** hace un solo barrido para todos los filtros: rango de fechas
+(inclusivo en los dos extremos), nombre **sin tildes**, RUT en cualquier formato y doctor.
+`listar()` pasó a ser un envoltorio suyo y **su contrato no cambió** — recepción y el barrido
+de pendientes dependen de que "sin argumentos = hoy". **`informe_pc.previos()`** devuelve los
+otros informes del mismo paciente.
+
+⚠️ **El texto de búsqueda prueba LOS DOS criterios, nombre y RUT, no elige uno.** Quien
+escribe `12345678` quiere el RUT y quien escribe `nunez` quiere el apellido; el buscador no
+tiene por qué hacerle adivinar cuál entiende. Con una guarda: el RUT solo se prueba si lo
+tecleado **tiene dígitos**, porque `limpiar_rut('ana')` es `''` y `''` es prefijo de cualquier
+cosa — sin eso, buscar un nombre inexistente devolvía el registro entero.
+
+**Las tres pantallas:** la pestaña **«Informes»** del panel (filtrado **del servidor**, con
+paginación: a diferencia de la de Tamizaje, este conjunto crece para siempre y traerlo entero
+para filtrarlo en el navegador deja de funcionar solo) · **recepción** con selector de día y
+buscador, que es lo que permite reimprimir · y **`?modo=buscar`**, que es lo que abre el botón
+**«🗂 Informes anteriores»** del F2 ya filtrado por el RUT de la cita.
+
+**El bloque de informes previos** aparece en el formulario de captura y se pide en **tres**
+momentos: informe nuevo, informe reabierto para editar (ese camino **no pasa por `/precarga`**)
+y cuando el Dr. corrige el RUT a mano.
+⚠️ Sus botones Ver y Editar abren en **pestaña nueva**, nunca con `location.href`: con
+`location.href` el Dr. perdería el informe a medio llenar que tiene en pantalla.
+
+#### La tabla de progreso — tres cosas que NO puede afirmar
+
+`informe_pc.progreso(rut)`, desplegable desde ese mismo bloque. **Solo en pantalla: no se
+imprime** (decisión del usuario 2026-09-10; la hoja 1 ya va al 97 % y una tabla comparativa
+crece con el número de visitas, así que no hay presupuesto vertical que reservarle).
+
+Compara anchos transversales, resalte, sobremordida, línea media y las clases por lado. Un
+número en una tabla se lee como un hecho, así que:
+
+1. ⚠️ **Un Δ en milímetros NO es mejoría.** El ancho de arcada crece solo. Lo que significa
+   algo es el **Δ del percentil**, que ya está ajustado por edad y sexo. Se muestran los dos
+   y la nota al pie lo dice. El caso real lo ilustra: un intermolar sube **3,9 mm** y aun así
+   solo pasa del **percentil 1 al 12,5**.
+2. ⚠️ **El percentil de cada columna se calcula con la edad y el sexo de ESE informe**, no con
+   los de hoy: usar la edad actual para un informe de hace dos años da un percentil que ese
+   paciente nunca tuvo. Hay una prueba que lo compara contra `transversal.percentil`.
+3. ⚠️ **No se informan los cuartos de cúspide.** No están en ningún índice validado ni tienen
+   datos de reproducibilidad entre examinadores (ver la sección de la escala de Angle). La
+   tabla solo dice si **cambió de clase** o si **cruzó el escalón de media cúspide**, que es
+   el único con respaldo — ABO, PAR e ICON coinciden en él.
+
+Además: las columnas que caen en el **recambio** van marcadas con ↻, y la **línea media** solo
+da delta numérico si no cambió de lado (de 2 mm a la derecha a 1 mm a la izquierda no es 1 mm
+de cambio: cruzó la línea).
+
+Todo eso lo resuelve el **backend**. El JavaScript solo pinta: repetir esas reglas en el
+navegador es exactamente cómo el formulario y el papel firmado terminan mostrando cosas
+distintas.
+
+#### Los informes se guardan PARA SIEMPRE — se eliminó `podar()`
+
+Existía `informe_pc.podar()`, que borraba los de más de 365 días. **Un tratamiento de
+ortodoncia dura dos o tres años**, así que borraba el primer informe del paciente antes de que
+terminara, y con él los puntos más antiguos de sus curvas de crecimiento. Su docstring afirmaba
+*"Se llama desde el scheduler"* y `grep` confirmó que **no la llamaba nadie**: dejarla
+desconectada era dejar un arma cargada con una etiqueta nueva. Ni siquiera borraba las
+imágenes, que habrían quedado huérfanas en el disco. Hay una prueba que afirma que el símbolo
+no existe.
+
+#### Dos costos de escala que este cambio arregló y uno que queda
+
+- **`armar_documento()` barría el registro completo CUATRO veces por documento** — una
+  `mediciones_previas()` por cada ancho transversal, y cada una parseaba el JSON entero. Ahora
+  lo carga una vez; hay una prueba que **cuenta las lecturas y exige 1, no 4**.
+- **`sin_firma` se resolvía una vez POR FILA**, y resolverlo cuesta leer el config, resolver el
+  doctor y base64-ear su firma desde el disco. Se memoiza **por request** — no entre requests:
+  un doctor que acaba de subir su firma tiene que verlo al instante.
+- ⚠️ **Lo que queda:** el registro es un JSON que `jsonstore` parsea entero en cada lectura
+  **y en cada guardado**. A ~2 informes/día son ~500/año; guardando para siempre eso no tiene
+  techo. El arreglo de 4→1 compra un margen de 4×; la solución de fondo es proyectar a SQLite
+  (ver más abajo).
+
+#### `admin/texto.py` — `sin_tildes()`
+
+Buscar "nunez" y encontrar "Núñez" es requisito del buscador. Quitar tildes estaba
+**reimplementado 7 veces** (`control_dental.py`, `cumpleanos.py`, `dentidesk.py`, `fairest.py`,
+`fichas.py` ×2, `genero.py`) y escribir la octava dentro de `informe_pc.py` era el error que
+documenta el encabezado de este archivo. ⚠️ **Las 7 copias siguen ahí**: migrarlas es un commit
+aparte, cada una toca código probado en producción.
+
+#### Dos bugs preexistentes que este flujo destapó
+
+- **`pedirClave()` no ocultaba `#doc`**: un 403 a mitad de flujo dejaba el informe de un
+  paciente **a la vista** debajo de la tarjeta de la clave. Ahora hay una sola `mostrarVista()`
+  y las vistas son de verdad excluyentes.
+- **`verDocumento()` mutaba la barra** (Guardar → Imprimir) y nadie la restituía. Mientras
+  recepción → documento era un camino de ida no se notaba; al poder volver a la búsqueda, el
+  botón de imprimir quedaba pegado sobre una lista. `restaurarBarra()`.
+
+#### Base de datos clínica — DISEÑADA, no construida
+
+El usuario quiere que estos datos se acumulen como base para estadística y estudios, lo que
+conecta con la oportunidad ya anotada arriba: una **normativa chilena de anchos de arcada** con
+los criterios de Bishara y un n de tres dígitos, que hoy no existe. El diseño acordado
+(2026-09-10), **pendiente de aprobar y construir**:
+
+- `admin/clinica_db.py` + SQLite `clinica.db` (env `CLINICA_DB_PATH`, gitignored junto a
+  `kpi.db`). Molde `kpi.py`/`compras.py`, **incluido el orden `CREATE TABLE` → `_migrar()` →
+  índices en un `executescript` separado**.
+- ⚠️ **El JSON sigue siendo la fuente de verdad; SQLite es una PROYECCIÓN** derivada,
+  desechable y reconstruible con `proyectar_todo()`. Respeta la regla 2 y usa la excepción
+  documentada solo donde corresponde. Es también lo que permite **corregir 5 años de
+  percentiles** si un día cambia la tabla normativa, sin volver a escribir nada a mano.
+- Tablas: `pacientes` · `informes` · `mediciones` (**formato largo**, con `medidor` en la clave
+  para admitir un segundo operador sin `ALTER TABLE` — hace falta para reportar ICC) ·
+  `oclusion` · `hallazgos` · `ordenes` · `tamizajes` · `meta`.
+- **`pid` = seudónimo estable** `HMAC-SHA256(rut_limpio, salt)`. El RUT vive **solo** en
+  `pacientes`; todo lo demás lleva `pid`. Consecuencia que vale el diseño entero: *el export
+  para un estudio es "todo menos `pacientes`" y ya sale seudonimizado*.
+- ⚠️ **El texto libre no se proyecta** (`motivo_consulta`, `evaluacion_otros`, descripciones de
+  hallazgos propios): son los campos con más chance de traer datos identificantes y no son
+  analizables igual.
+- **Ya se empezó a acumular el dato que faltaba:** la casilla **«Sin tratamiento de ortodoncia
+  previo»** (`sin_tratamiento_previo`) está en el formulario desde hoy. Es criterio de
+  inclusión de Bishara y no se registraba; agregarla ahora evita tener que preguntarlo
+  retroactivamente.
+- **Falta además**, y no es código: el **protocolo de escaneo escrito** (Bishara mide la
+  cúspide MV y el FAIREST la mesiolingual, ~15 mm de diferencia — sin protocolo el n no vale)
+  y reproducibilidad entre examinadores con ICC.
+- ⚠️ **Ley 21.719** (plena vigencia 1-dic-2026): los datos de salud son sensibles y el uso para
+  **investigación es otra finalidad** que la asistencial. Hacen falta una línea en el
+  consentimiento que cubra el uso anonimizado para investigación, y `privacidad.html`
+  declarando la base y su finalidad. **Seudonimizado no es anónimo**: para publicar hay que
+  agregar o re-etiquetar sin guardar el mapeo.
+
 ### Pendientes
 
 - Revisión visual de la maqueta impresa con datos reales (no se pudo verificar a ojo).
@@ -2805,7 +2942,10 @@ caben. La hoja 1 es la que crece; si se le agregan bloques hay que volver a medi
   pediátricos y esas respuestas no alimentan nada.
 - Protocolo de escaneo con la asistente: qué se escanea y **qué puntos se miden en Medit**.
 - Copiar la extensión actualizada al PC del box y al de recepción (los cambios de
-  `content.js` **no viajan por Render**).
+  `content.js` **no viajan por Render**). Ahora incluye el botón «🗂 Informes anteriores»;
+  la funcionalidad está completa sin la extensión (pestaña del panel y `?modo=buscar`), el
+  botón es un atajo.
+- Aprobar y construir la **base de datos clínica** diseñada más arriba.
 - Fase 2: fotos intraorales al registro, reverso educativo fijo.
 - Fase 3: encuesta NPS para primeras consultas (`nps.clasificar_disparo()` hoy devuelve
   `None` para ese motivo) y comparar contra la línea base a los 3 meses.

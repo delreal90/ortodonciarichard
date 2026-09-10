@@ -342,6 +342,12 @@
             <option value="F">Femenino</option></select>
           <span class="nota" id="notaSexo" style="display:none"></span></div>
       </div>
+      <label class="nota" style="display:block;margin-top:8px">
+        <input type="checkbox" id="pSinTrat">
+        Sin tratamiento de ortodoncia previo</label>
+      <p class="nota" style="font-size:8pt;margin-top:2px">Es uno de los criterios de
+        inclusión de Bishara: sirve para que estas mediciones puedan usarse algún día como
+        muestra de referencia. Si no se sabe, dejar sin marcar.</p>
       <div class="alerta" id="avisoEdad" style="display:none"></div>
     </div>
 
@@ -624,6 +630,7 @@ function cargarEnFormulario(it){
   const set = (id, v) => { const e = $(id); if (e && v != null && v !== '') e.value = v; };
   set('#pNombre', it.nombre); set('#pRut', it.rut_fmt || it.rut);
   set('#pEdad', it.edad); set('#pSexo', it.sexo);
+  $('#pSinTrat').checked = !!it.sin_tratamiento_previo;
   set('#motivo', it.motivo_consulta);
 
   const med = it.mediciones || {};
@@ -1408,6 +1415,7 @@ function recolectar(){
     id: ID,
     rut: $('#pRut').value, rut_fmt: $('#pRut').value, nombre: $('#pNombre').value,
     edad: num('pEdad'), sexo: $('#pSexo').value,
+    sin_tratamiento_previo: $('#pSinTrat').checked,
     id_agenda: CTX.id_agenda, doctor_texto: CTX.doctor_texto,
     motivo_consulta: $('#motivo').value.trim(),
     mediciones: {
