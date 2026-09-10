@@ -4155,6 +4155,21 @@ def informe_pc_buscar():
                     'informes': _proyectar_informes(encontrados[offset:offset + limite])})
 
 
+@app.route('/api/informe-pc/progreso', methods=['GET'])
+def informe_pc_progreso():
+    """Como cambiaron las mediciones del paciente entre sus informes.
+
+    Con menos de dos informes con mediciones devuelve columnas vacias: no hay
+    evolucion que mostrar con un solo punto, y una tabla de una columna invita a
+    leer como progreso lo que es una foto.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'progreso': informe_pc.progreso(
+        (request.args.get('rut') or '').strip(),
+        excluir_id=(request.args.get('excluir') or '').strip() or None)})
+
+
 @app.route('/api/informe-pc/previos', methods=['GET'])
 def informe_pc_previos():
     """Los otros informes de este paciente.

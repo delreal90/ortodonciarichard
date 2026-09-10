@@ -237,6 +237,16 @@
   .previos h3 { font-size: 10pt; text-transform: uppercase; letter-spacing: 1px;
                 color: var(--navy); margin-bottom: 8px; }
   .previos table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  .prog { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .prog th { text-align: center; font-size: 8.5pt; color: var(--text-mid);
+             font-weight: 600; padding: 4px 6px; }
+  .prog th.izq, .prog td.izq { text-align: left; }
+  .prog td { text-align: center; padding: 4px 6px; }
+  .prog .delta { font-weight: 600; }
+  .prog .sube { color: var(--green); }
+  .prog .baja { color: var(--red); }
+  .prog .p { display: block; font-size: 8pt; color: var(--text-mid); }
+  .prog .actual { background: #fffdf7; }
   .previos td { padding: 5px 4px; border-bottom: 1px solid #eee; }
   .previos tr:last-child td { border-bottom: 0; }
 
@@ -314,6 +324,11 @@
     <div class="previos" id="cardPrevios" style="display:none">
       <h3 id="previosTitulo"></h3>
       <table><tbody id="listaPrevios"></tbody></table>
+      <div style="margin-top:8px">
+        <button class="btn sec sm" id="btnProg" style="display:none"
+                onclick="verProgreso()">📈 Ver cómo ha cambiado</button>
+      </div>
+      <div class="prog" id="cajaProg" style="display:none"></div>
     </div>
     <div class="grid2">
     <div class="card">
@@ -761,6 +776,84 @@ async function cargarPrevios(){
       </td></tr>`;
   }).join('');
   caja.style.display = '';
+  // Hace falta el informe actual MAS uno previo para que haya algo que
+  // comparar; con uno solo la tabla no se ofrece.
+  $('#btnProg').style.display = '';
+  $('#cajaProg').style.display = 'none';
+  $('#btnProg').textContent = '📈 Ver cómo ha cambiado';
+}
+
+/* ── Tabla de progreso ─────────────────────────────────────────────
+   Las curvas de la hoja de Mediciones ya dibujan la trayectoria de los anchos,
+   pero no dejan leer CUANTO cambio cada cosa, y no dicen nada del resalte, la
+   linea media ni las clases.
+
+   ⚠️ Todo lo delicado --que el percentil se calcula con la edad de cada
+   informe, que el recambio se marca, y que la escala de Angle no informa
+   cuartos-- lo resuelve el BACKEND (informe_pc.progreso). Aca solo se pinta:
+   repetir esas reglas en JavaScript es como el formulario y el papel firmado
+   terminan mostrando cosas distintas. */
+async function verProgreso(){
+  const caja = $('#cajaProg');
+  if (caja.style.display !== 'none') {   // segundo clic: cerrar
+    caja.style.display = 'none';
+    $('#btnProg').textContent = '📈 Ver cómo ha cambiado';
+    return;
+  }
+  const rut = ($('#pRut').value || '').trim();
+  caja.innerHTML = '<p class="nota">Cargando…</p>';
+  caja.style.display = '';
+  $('#btnProg').textContent = '📈 Ocultar';
+
+  let r;
+  try {
+    r = await api('/api/informe-pc/progreso?rut=' + encodeURIComponent(rut) +
+                  (ID ? '&excluir=' + encodeURIComponent(ID) : ''));
+  } catch(e){ caja.innerHTML = '<p class="nota">No se pudo cargar.</p>'; return; }
+
+  const pr = (r && r.progreso) || {};
+  const cols = pr.columnas || [];
+  if (cols.length < 2) {
+    caja.innerHTML = '<p class="nota">Hace falta más de una visita con mediciones ' +
+                     'para poder comparar.</p>';
+    return;
+  }
+
+  const th = cols.map(c => `<th class="${c.actual ? 'actual' : ''}">${esc(c.fecha_corta)}` +
+    (c.edad != null ? `<span class="p">${esc(c.edad)} años` +
+       (c.en_recambio ? ' ↻' : '') + '</span>' : '') + '</th>').join('');
+
+  const filas = (pr.filas || []).map(f => {
+    const celdas = f.celdas.map((c, n) => {
+      const p = (c.percentil != null) ? `<span class="p">p${esc(c.percentil)}</span>` : '';
+      return `<td class="${cols[n] && cols[n].actual ? 'actual' : ''}">` +
+             esc(c.texto || '·') + p + '</td>';
+    }).join('');
+    return `<tr><td class="izq">${esc(f.etiqueta)}</td>${celdas}
+              <td class="delta">${deltaHtml(f)}</td></tr>`;
+  }).join('');
+
+  caja.innerHTML = `<table class="prog">
+      <tr><th class="izq">Medición</th>${th}<th>Cambio</th></tr>${filas}</table>
+    <p class="nota" style="margin-top:8px">${esc(pr.nota || '')}</p>`;
+}
+
+/* El signo del cambio se pinta, pero SIN decir si es bueno: que el resalte baje
+   suele ser mejoria y que un ancho suba puede ser puro crecimiento. El color
+   marca la direccion, la nota al pie explica como leerla. */
+function deltaHtml(f){
+  const d = f.delta;
+  if (!d) return '<span class="nota">—</span>';
+  if (d.texto) return esc(d.texto);
+  const partes = [];
+  if (d.mm != null) partes.push(signo(d.mm) + ' mm');
+  if (d.percentil != null) partes.push('<span class="p">' + signo(d.percentil) + ' pct</span>');
+  return partes.join(' ');
+}
+
+function signo(v){
+  const cls = v > 0 ? 'sube' : (v < 0 ? 'baja' : '');
+  return `<span class="${cls}">${v > 0 ? '+' : ''}${esc(v)}</span>`;
 }
 
 function abrirInforme(id, modo){

@@ -1144,5 +1144,156 @@ class TestUnSoloBarrido(unittest.TestCase):
         fila = doc['mediciones']['transversales'][0]
         self.assertEqual(fila['mediciones_previas'], 1)
 
+
+class TestProgreso(unittest.TestCase):
+    """La tabla que compara las mediciones entre las visitas del paciente.
+
+    Un numero en una tabla se lee como un hecho, asi que lo que se protege aca
+    no es el formato sino las tres cosas que la tabla NO puede afirmar.
+    """
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def _tres_visitas(self):
+        for f, edad, ic, im in (('2025-03-12', 8, 30.5, 43.0),
+                                ('2025-11-20', 9, 31.4, 44.6),
+                                ('2026-09-10', 10, 32.8, 46.9)):
+            informe_pc.guardar(_base(rut='18777555-1', sexo='F', edad=edad, fecha=f,
+                                     mediciones={'intercanino_maxilar': ic,
+                                                 'intermolar_maxilar': im}))
+
+    def _fila(self, pr, clave):
+        return next(f for f in pr['filas'] if f['clave'] == clave)
+
+    def test_una_sola_visita_no_es_progreso(self):
+        """Con un punto no hay evolucion, y una tabla de una columna invita a
+        leer como progreso lo que es una foto."""
+        informe_pc.guardar(_base(rut='18777555-1', mediciones={'intermolar_maxilar': 44.0}))
+        pr = informe_pc.progreso('18777555-1')
+        self.assertEqual(pr['columnas'], [])
+        self.assertEqual(pr['filas'], [])
+
+    def test_columnas_del_mas_antiguo_al_mas_nuevo(self):
+        """Se lee de izquierda a derecha como una linea de tiempo."""
+        self._tres_visitas()
+        pr = informe_pc.progreso('18777555-1')
+        self.assertEqual([c['fecha'] for c in pr['columnas']],
+                         ['2025-03-12', '2025-11-20', '2026-09-10'])
+
+    def test_el_percentil_se_calcula_con_la_edad_de_ESE_informe(self):
+        """⚠️ La trampa central. Usar la edad de hoy para un informe de hace dos
+        anios da un percentil que ese paciente nunca tuvo. Se comprueba contra
+        transversal, que es el dueño del calculo."""
+        self._tres_visitas()
+        celdas = self._fila(informe_pc.progreso('18777555-1'), 'intermolar_maxilar')['celdas']
+        import transversal
+        for celda, (edad, mm) in zip(celdas, [(8, 43.0), (9, 44.6), (10, 46.9)]):
+            esperado = transversal.percentil('intermolar', 'maxilar', 'F', edad, mm)
+            self.assertAlmostEqual(celda['percentil'], esperado['percentil'], places=1)
+
+    def test_el_delta_trae_los_milimetros_Y_el_percentil(self):
+        """Nunca uno solo: el de mm sin el de percentil se lee como mejoria
+        cuando puede ser puro crecimiento. Este caso lo muestra: sube casi
+        4 mm y sigue bajo el percentil 15."""
+        self._tres_visitas()
+        d = self._fila(informe_pc.progreso('18777555-1'), 'intermolar_maxilar')['delta']
+        self.assertIn('mm', d)
+        self.assertIn('percentil', d)
+        self.assertGreater(d['mm'], 3)
+
+    def test_la_nota_advierte_que_los_milimetros_no_son_mejoria(self):
+        self._tres_visitas()
+        nota = informe_pc.progreso('18777555-1')['nota'].lower()
+        self.assertIn('no es por sí solo una mejoría', nota)
+        self.assertIn('crecen', nota)
+
+    def test_marca_las_columnas_en_recambio(self):
+        """El salto de intermolar entre los 5 y los 8 es la erupcion del primer
+        molar permanente, no expansion."""
+        self._tres_visitas()
+        pr = informe_pc.progreso('18777555-1')
+        self.assertTrue(any(c['en_recambio'] for c in pr['columnas']))
+
+    def test_marca_cual_es_el_informe_que_se_esta_mirando(self):
+        self._tres_visitas()
+        iid = informe_pc.listar(fecha='2026-09-10')[0]['id']
+        pr = informe_pc.progreso('18777555-1', excluir_id=iid)
+        actuales = [c for c in pr['columnas'] if c['actual']]
+        self.assertEqual(len(actuales), 1)
+        self.assertEqual(actuales[0]['fecha'], '2026-09-10')
+
+    def test_el_informe_actual_SI_entra_en_la_comparacion(self):
+        """A diferencia del bloque de informes previos: sin el, la tabla
+        mostraria la evolucion hasta la visita pasada."""
+        self._tres_visitas()
+        iid = informe_pc.listar(fecha='2026-09-10')[0]['id']
+        self.assertEqual(len(informe_pc.progreso('18777555-1', excluir_id=iid)['columnas']), 3)
+
+
+class TestProgresoLineaMedia(unittest.TestCase):
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def _dos(self, a, b):
+        for f, med in (('2025-01-01', a), ('2026-01-01', b)):
+            informe_pc.guardar(_base(rut='18777555-1', fecha=f, mediciones=med))
+        return next(f for f in informe_pc.progreso('18777555-1')['filas']
+                    if f['clave'] == 'linea_media')
+
+    def test_mismo_lado_da_delta_numerico(self):
+        fila = self._dos({'linea_media': 3.0, 'linea_media_lado': 'der'},
+                         {'linea_media': 1.0, 'linea_media_lado': 'der'})
+        self.assertEqual(fila['delta']['mm'], -2.0)
+
+    def test_si_cambio_de_lado_NO_hay_numero(self):
+        """De 2 mm a la derecha a 1 mm a la izquierda, restar daria 1 mm de
+        "cambio" cuando en realidad cruzo la linea: son 3 mm de recorrido y una
+        situacion distinta."""
+        fila = self._dos({'linea_media': 2.0, 'linea_media_lado': 'der'},
+                         {'linea_media': 1.0, 'linea_media_lado': 'izq'})
+        self.assertNotIn('mm', fila['delta'])
+        self.assertIn('lado', fila['delta']['texto'])
+
+
+class TestProgresoOclusion(unittest.TestCase):
+    """⚠️ Los cuartos de cuspide no estan en ningun indice validado ni tienen
+    datos de reproducibilidad entre examinadores. La tabla NO puede decir
+    "mejoro 3/4 de cuspide": seria aparentar una precision que la escala no
+    tiene."""
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def _dos(self, a, b):
+        for f, v in (('2025-01-01', a), ('2026-01-01', b)):
+            informe_pc.guardar(_base(rut='18777555-1', fecha=f,
+                                     mediciones={'clase_molar_der': v}))
+        return next(f for f in informe_pc.progreso('18777555-1')['filas']
+                    if f['clave'] == 'clase_molar_der')
+
+    def test_nunca_informa_cuartos(self):
+        fila = self._dos('II-completa', 'II-3/4')
+        self.assertNotIn('¼', fila['delta']['texto'])
+        self.assertNotIn('¾', fila['delta']['texto'])
+        self.assertNotIn('cuarto', fila['delta']['texto'].lower())
+
+    def test_cambiar_de_clase_si_se_informa(self):
+        self.assertIn('Clase I', self._dos('II-completa', 'I')['delta']['texto'])
+
+    def test_cruzar_media_cuspide_si_se_informa(self):
+        """Es el unico escalon con respaldo: ABO, PAR e ICON coinciden en el."""
+        fila = self._dos('II-completa', 'II-1/4')
+        self.assertIn('media cúspide', fila['delta']['texto'])
+
+    def test_no_registrable_no_produce_delta(self):
+        """Pieza ausente NO es Clase I: no hay relacion que comparar."""
+        fila = self._dos('no_registrable', 'no_registrable')
+        self.assertIsNone(fila['delta'])
+
+    def test_sin_cambios_lo_dice(self):
+        self.assertIn('sin cambios', self._dos('II-1/2', 'II-1/2')['delta']['texto'])
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

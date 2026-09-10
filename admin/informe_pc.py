@@ -1003,6 +1003,234 @@ def _serie_previa(items, clave):
     return sorted(puntos)
 
 
+
+# ── Tabla de progreso ────────────────────────────────────────────────────
+#
+# Comparar las mediciones del paciente entre sus visitas. Las curvas de la hoja
+# de Mediciones ya dibujan la trayectoria de los anchos, pero no dejan leer
+# CUANTO cambio cada cosa, y no dicen nada del resalte, la sobremordida, la
+# linea media ni las clases.
+#
+# ⚠️ DOS TRAMPAS CLINICAS QUE ESTA TABLA TIENE QUE EVITAR, porque un numero en
+# una tabla se lee como un hecho:
+#
+#   1. Un Δ en milimetros entre dos edades NO ES MEJORIA. El ancho de arcada
+#      crece solo: un nino que pasa de 43 a 46 mm de intermolar entre los 8 y
+#      los 10 puede haber crecido exactamente lo esperado. Lo que significa algo
+#      es el Δ del PERCENTIL, que ya esta ajustado por edad y sexo. Por eso se
+#      muestran los dos y la nota lo dice.
+#   2. El RECAMBIO. El salto de intermolar entre los 5 y los 8 anios es la
+#      erupcion del primer molar permanente, no expansion. Las columnas que caen
+#      ahi se marcan (transversal.en_recambio) y la nota lo explica.
+#
+# Y una tercera, de la escala de Angle: los CUARTOS de cuspide no estan en
+# ningun indice validado ni tienen datos de reproducibilidad entre examinadores
+# (ver la seccion de la escala de Angle en CLAUDE.md). Asi que la tabla NO dice
+# "mejoro 3/4 de cuspide": solo marca direccion cuando cambia la clase o cuando
+# cruza el escalon de media cuspide, que es el unico con respaldo publicado.
+
+NOTA_PROGRESO = (
+    'El cambio en milímetros no es por sí solo una mejoría: las arcadas crecen con la '
+    'edad. El percentil es el que está ajustado por edad y sexo, y es el que hay que '
+    'mirar. Las columnas marcadas con ↻ caen en el recambio dentario, donde el ancho '
+    'sube también porque erupciona un diente más grande.')
+
+# El unico escalon de la escala de Angle con respaldo publicado (ABO, PAR e
+# ICON coinciden): media cuspide = 2 cuartos.
+_ESCALON_ANGLE = 2
+
+
+def _fecha_corta(iso):
+    """'2025-03-12' -> '12-03-2025'."""
+    p = (iso or '')[:10].split('-')
+    return '%s-%s-%s' % (p[2], p[1], p[0]) if len(p) == 3 else (iso or '')
+
+
+def _fmt_mm(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return ''
+    return ('%g' % round(f, 1))
+
+
+def progreso(rut, excluir_id=None):
+    """Como cambiaron las mediciones de un paciente entre sus informes.
+
+    Columnas = informes, del MAS ANTIGUO al mas nuevo (se lee de izquierda a
+    derecha como una linea de tiempo). Filas = mediciones.
+
+    Devuelve {'columnas': [...], 'filas': [...], 'nota': str}. Con menos de dos
+    informes con mediciones devuelve columnas vacias: no hay progreso que
+    mostrar con un solo punto, y una tabla de una columna invita a leer como
+    evolucion lo que es una foto.
+    """
+    import transversal   # diferido, igual que en armar_documento()
+
+    # A diferencia del bloque de "informes previos", aca el informe actual SI
+    # entra: es el punto mas nuevo de la comparacion, y sin el la tabla mostraria
+    # la evolucion hasta la visita pasada. 'excluir_id' solo sirve para MARCARLO.
+    informes = [i for i in previos(rut) if (i.get('mediciones') or {})]
+    informes.sort(key=lambda i: (i.get('fecha') or '', i.get('creado') or ''))
+    if len(informes) < 2:
+        return {'columnas': [], 'filas': [], 'nota': NOTA_PROGRESO}
+
+    columnas = []
+    for i in informes:
+        edad = _edad_de(i)
+        columnas.append({
+            'id': i.get('id'), 'fecha': i.get('fecha'),
+            # Corto, no "12 de marzo de 2025": es un encabezado de columna y
+            # la tabla puede tener varias.
+            'fecha_corta': _fecha_corta(i.get('fecha')),
+            'edad': edad, 'actual': i.get('id') == excluir_id,
+            'en_recambio': any(transversal.en_recambio(m, edad)
+                               for _c, m, _a, _e in MEDICIONES_TRANSVERSALES)
+            if edad is not None else False,
+        })
+
+    filas = []
+
+    # ── Anchos transversales: mm Y percentil ──
+    for clave, medida, arcada, etiqueta in MEDICIONES_TRANSVERSALES:
+        celdas, hay = [], False
+        for i in informes:
+            mm = (i.get('mediciones') or {}).get(clave)
+            edad = _edad_de(i)
+            celda = {'texto': '', 'percentil': None}
+            if mm not in (None, ''):
+                hay = True
+                celda['texto'] = _fmt_mm(mm) + ' mm'
+                celda['mm'] = float(mm)
+                # ⚠️ El percentil se calcula con la edad y el sexo de ESE
+                # informe, no con los de hoy: usar la edad actual para un
+                # informe de hace dos anios da un percentil que nunca existio.
+                r = transversal.percentil(medida, arcada, i.get('sexo'), edad, mm)
+                if r.get('ok'):
+                    celda['percentil'] = r['percentil']
+            celdas.append(celda)
+        if hay:
+            filas.append({'clave': clave, 'etiqueta': etiqueta, 'tipo': 'ancho',
+                          'celdas': celdas, 'delta': _delta_ancho(celdas)})
+
+    # ── Resalte y sobremordida: comparables entre edades ──
+    for clave, etiqueta, unidad in MEDICIONES_SIMPLES:
+        celdas, hay = [], False
+        for i in informes:
+            v = (i.get('mediciones') or {}).get(clave)
+            if v in (None, ''):
+                celdas.append({'texto': ''})
+            else:
+                hay = True
+                celdas.append({'texto': _fmt_mm(v) + ' ' + unidad, 'mm': float(v)})
+        if hay:
+            filas.append({'clave': clave, 'etiqueta': etiqueta, 'tipo': 'simple',
+                          'celdas': celdas, 'delta': _delta_simple(celdas)})
+
+    # ── Linea media ──
+    celdas, hay = [], False
+    for i in informes:
+        med = i.get('mediciones') or {}
+        v, lado = med.get('linea_media'), med.get('linea_media_lado')
+        if v in (None, ''):
+            celdas.append({'texto': ''})
+        else:
+            hay = True
+            etq = dict(LADOS).get(lado or '', '')
+            celdas.append({'texto': _fmt_mm(v) + ' mm' + (' ' + etq if etq else ''),
+                           'mm': float(v), 'lado': lado or ''})
+    if hay:
+        filas.append({'clave': 'linea_media', 'etiqueta': 'Desviación de línea media',
+                      'tipo': 'linea_media', 'celdas': celdas,
+                      'delta': _delta_linea_media(celdas)})
+
+    # ── Clase molar y canina, por lado ──
+    valor_de = dict((c, v) for c, _e, v in RELACIONES)
+    etq_de = dict((c, e) for c, e, _v in RELACIONES)
+    for base, titulo in RELACIONES_OCLUSION:
+        for lado, lado_etq in LADOS:
+            celdas, hay = [], False
+            for i in informes:
+                v = (i.get('mediciones') or {}).get('%s_%s' % (base, lado))
+                if not v:
+                    celdas.append({'texto': ''})
+                else:
+                    hay = True
+                    celdas.append({'texto': etq_de.get(v, v), 'cuartos': valor_de.get(v)})
+            if hay:
+                filas.append({'clave': '%s_%s' % (base, lado),
+                              'etiqueta': '%s %s' % (titulo, lado_etq),
+                              'tipo': 'oclusion', 'celdas': celdas,
+                              'delta': _delta_oclusion(celdas)})
+
+    return {'columnas': columnas, 'filas': filas, 'nota': NOTA_PROGRESO}
+
+
+def _primera_y_ultima(celdas, campo):
+    """Los dos extremos que tienen dato. (None, None) si no hay dos."""
+    con = [c for c in celdas if c.get(campo) is not None]
+    return (con[0], con[-1]) if len(con) >= 2 else (None, None)
+
+
+def _delta_ancho(celdas):
+    """Δ en mm Y en percentil. Los dos, nunca uno solo: el de mm sin el de
+    percentil se lee como mejoria cuando puede ser puro crecimiento."""
+    a, b = _primera_y_ultima(celdas, 'mm')
+    if not a:
+        return None
+    out = {'mm': round(b['mm'] - a['mm'], 1)}
+    pa, pb = _primera_y_ultima(celdas, 'percentil')
+    if pa:
+        out['percentil'] = round(pb['percentil'] - pa['percentil'], 1)
+    return out
+
+
+def _delta_simple(celdas):
+    a, b = _primera_y_ultima(celdas, 'mm')
+    return {'mm': round(b['mm'] - a['mm'], 1)} if a else None
+
+
+def _delta_linea_media(celdas):
+    """Solo hay delta numerico si la desviacion NO cambio de lado.
+
+    Si paso de 2 mm a la derecha a 1 mm a la izquierda, restar daria 1 mm de
+    "cambio" cuando en realidad cruzo la linea: son 3 mm de recorrido y una
+    situacion distinta. En ese caso se devuelve el cambio como texto.
+    """
+    a, b = _primera_y_ultima(celdas, 'mm')
+    if not a:
+        return None
+    if (a.get('lado') or '') != (b.get('lado') or ''):
+        return {'texto': 'cambió de lado'}
+    return {'mm': round(b['mm'] - a['mm'], 1)}
+
+
+def _delta_oclusion(celdas):
+    """⚠️ NO se informa el cambio en cuartos de cuspide.
+
+    Los cuartos son vocabulario clinico legitimo pero no estan en ningun indice
+    validado y no hay datos de reproducibilidad entre examinadores para ellos
+    (ver la escala de Angle en CLAUDE.md). Decir "mejoro 3/4 de cuspide" seria
+    aparentar una precision que la escala no tiene.
+
+    Se informa solo lo que si tiene respaldo: si cambio de CLASE, o si cruzo el
+    escalon de MEDIA CUSPIDE, que es el que usan ABO, PAR e ICON por igual.
+    """
+    a, b = _primera_y_ultima(celdas, 'cuartos')
+    if not a:
+        return None
+    ca, cb = a['cuartos'], b['cuartos']
+    if ca == cb:
+        return {'texto': 'sin cambios'}
+    clase = lambda c: 'I' if c == 0 else ('II' if c > 0 else 'III')
+    if clase(ca) != clase(cb):
+        return {'texto': 'cambió a Clase ' + clase(cb)}
+    if abs(cb) <= _ESCALON_ANGLE < abs(ca):
+        return {'texto': 'mejoró más de media cúspide'}
+    if abs(ca) <= _ESCALON_ANGLE < abs(cb):
+        return {'texto': 'empeoró más de media cúspide'}
+    return {'texto': 'cambio menor a media cúspide'}
+
 def puntuar_tamizaje(item):
     """Puntúa el tamizaje de un informe SIN guardarlo, para que el formulario
     muestre el resultado mientras se llena.
