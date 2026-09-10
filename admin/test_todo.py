@@ -46,6 +46,7 @@ SUITES = [
     ('stopbang',     'test_stopbang.py',     'STOP-BANG: umbrales y el puntaje incompleto es un piso'),
     ('fairest',      'test_fairest.py',      'FAIREST 6/6+4: el item 6 con el P15 y las frases prohibidas'),
     ('informe_pc',   'test_informe_pc.py',   'informe de evaluacion: documento, seguimiento, oclusion y limites'),
+    ('informe_pc_api','test_informe_pc_api.py','buscar informes de cualquier dia y los previos de un paciente'),
     ('tamizaje_link','test_tamizaje_link.py','QR del cuestionario de sueno: token, que instrumento toca y el borrador'),
     ('genero',       'test_genero.py',       'regla nombre->sexo aprendida de la base: Maria Jose vs Jose Maria'),
     ('fotos_finales','test_fotos_finales.py','aviso de collage: el control post-retiro, no la urgencia'),

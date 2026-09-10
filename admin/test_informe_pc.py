@@ -124,11 +124,20 @@ class TestRegistro(unittest.TestCase):
         self.assertEqual(len(informe_pc.listar(fecha=FECHA)), 1)
         self.assertEqual(len(informe_pc.listar(fecha='2026-08-19')), 1)
 
-    def test_podar_saca_los_viejos(self):
+    def test_los_informes_no_se_podan(self):
+        """Existia podar(), que borraba los de mas de 365 dias. Se elimino el
+        2026-09-10: un tratamiento dura dos o tres anios, asi que borraba el
+        primer informe del paciente antes de que terminara -- y con el los
+        puntos mas antiguos de sus curvas.
+
+        Esta prueba existe para que no vuelva por descuido. Si algun dia se
+        acota el registro a proposito, hay que decidir primero que se hace con
+        las imagenes: podar() ni siquiera las borraba.
+        """
         informe_pc.guardar(_base(fecha='2000-01-01'))
         informe_pc.guardar(_base())
-        self.assertEqual(informe_pc.podar(dias=365), 1)
-        self.assertEqual(len(informe_pc._STORE.load()['informes']), 1)
+        self.assertFalse(hasattr(informe_pc, 'podar'))
+        self.assertEqual(len(informe_pc._STORE.load()['informes']), 2)
 
 
 class TestMenorVsAdulto(unittest.TestCase):
@@ -946,6 +955,194 @@ class TestRegistroDelPrestador(unittest.TestCase):
             self.assertIsNotNone(m, 'sin identifier de registro para %s' % quien)
             self.assertEqual(m.group(1), v['registro'],
                              'el schema de %s no coincide con js/main.js' % quien)
+
+
+class TestPrevios(unittest.TestCase):
+    """Los otros informes del mismo paciente. Es lo que convierte una hoja
+    suelta en una ficha: al abrir el informe de alguien que ya vino, el Dr. ve
+    lo que le dijo la vez anterior en vez de partir de cero."""
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def test_solo_del_mismo_paciente(self):
+        informe_pc.guardar(_base(rut='11111111-1'))
+        informe_pc.guardar(_base(rut='22222222-2'))
+        self.assertEqual(len(informe_pc.previos('11111111-1')), 1)
+
+    def test_el_rut_calza_en_cualquier_formato(self):
+        """La secretaria escribe con puntos, el F2 manda sin puntos, y en la
+        base quedo limpio. Los tres tienen que ser el mismo paciente."""
+        informe_pc.guardar(_base(rut='12.345.678-5'))
+        for forma in ('12.345.678-5', '12345678-5', '123456785', '12345678-5 '):
+            self.assertEqual(len(informe_pc.previos(forma)), 1, forma)
+
+    def test_excluye_el_informe_que_se_esta_mirando(self):
+        """Sin esto, el informe abierto se listaria a si mismo como previo."""
+        iid = informe_pc.guardar(_base(rut='11111111-1'))
+        informe_pc.guardar(_base(rut='11111111-1', fecha='2026-08-01'))
+        previos = informe_pc.previos('11111111-1', excluir_id=iid)
+        self.assertEqual(len(previos), 1)
+        self.assertNotIn(iid, [i['id'] for i in previos])
+
+    def test_del_mas_nuevo_al_mas_viejo(self):
+        for f in ('2026-08-01', '2026-08-20', '2026-08-10'):
+            informe_pc.guardar(_base(rut='11111111-1', fecha=f))
+        fechas_ = [i['fecha'] for i in informe_pc.previos('11111111-1')]
+        self.assertEqual(fechas_, ['2026-08-20', '2026-08-10', '2026-08-01'])
+
+    def test_paciente_sin_informes_devuelve_lista_vacia(self):
+        """Vacio NO es un error: "este paciente no tiene informes previos" es
+        una respuesta valida, y el endpoint responde 200 con ella."""
+        self.assertEqual(informe_pc.previos('99999999-9'), [])
+
+    def test_sin_rut_no_devuelve_el_registro_entero(self):
+        """Un rut vacio no puede significar "todos": seria mostrarle a un
+        paciente los informes de los demas."""
+        informe_pc.guardar(_base(rut='11111111-1'))
+        for vacio in ('', None, '   ', '-'):
+            self.assertEqual(informe_pc.previos(vacio), [], repr(vacio))
+
+    def test_respeta_el_limite(self):
+        for f in ('2026-08-01', '2026-08-02', '2026-08-03'):
+            informe_pc.guardar(_base(rut='11111111-1', fecha=f))
+        self.assertEqual(len(informe_pc.previos('11111111-1', limite=2)), 2)
+
+
+class TestBuscar(unittest.TestCase):
+    """El buscador de las tres pantallas."""
+
+    def setUp(self):
+        _limpiar_registro()
+        informe_pc.guardar(_base(nombre='Ana Núñez Soto', rut='11111111-1',
+                                 fecha='2026-08-01', doctor_texto='Dr. Alberto Del Real'))
+        informe_pc.guardar(_base(nombre='Bruno Pérez', rut='22222222-2',
+                                 fecha='2026-08-15', doctor_texto='Dr. Rodrigo Oyonarte'))
+        informe_pc.guardar(_base(nombre='Carla Soto', rut='33333333-3',
+                                 fecha='2026-08-30', doctor_texto=''))
+
+    def _nombres(self, **kw):
+        return sorted(i['nombre'] for i in informe_pc.buscar(**kw))
+
+    def test_sin_filtros_devuelve_todo(self):
+        self.assertEqual(len(informe_pc.buscar()), 3)
+
+    def test_rango_inclusivo_en_los_dos_extremos(self):
+        """Si 'desde' o 'hasta' fueran exclusivos, buscar un dia suelto
+        (desde=hasta) no devolveria nada -- que es justo lo que hace recepcion
+        todos los dias."""
+        self.assertEqual(self._nombres(desde='2026-08-01', hasta='2026-08-01'),
+                         ['Ana Núñez Soto'])
+        self.assertEqual(len(informe_pc.buscar(desde='2026-08-01', hasta='2026-08-30')), 3)
+        self.assertEqual(len(informe_pc.buscar(desde='2026-08-16')), 1)
+
+    def test_busca_por_nombre_sin_tildes(self):
+        """Nadie teclea tildes en un buscador."""
+        self.assertEqual(self._nombres(ftexto='nunez'), ['Ana Núñez Soto'])
+        self.assertEqual(self._nombres(ftexto='NÚÑEZ'), ['Ana Núñez Soto'])
+
+    def test_busca_por_nombre_parcial(self):
+        self.assertEqual(self._nombres(ftexto='soto'), ['Ana Núñez Soto', 'Carla Soto'])
+
+    def test_busca_por_rut_en_cualquier_formato(self):
+        for forma in ('22222222-2', '22.222.222-2', '222222222', '2222'):
+            self.assertEqual(self._nombres(ftexto=forma), ['Bruno Pérez'], forma)
+
+    def test_un_texto_sin_digitos_no_devuelve_todo(self):
+        """limpiar_rut('zzz') es '', y '' es prefijo de cualquier cosa. Sin la
+        guarda, buscar un nombre que no existe devolveria el registro entero."""
+        self.assertEqual(informe_pc.buscar(ftexto='zzzz'), [])
+
+    def test_filtra_por_doctor(self):
+        self.assertEqual(self._nombres(doctor='alberto'), ['Ana Núñez Soto'])
+        self.assertEqual(self._nombres(doctor='Oyonarte'), ['Bruno Pérez'])
+
+    def test_ordena_del_mas_nuevo_al_mas_viejo(self):
+        self.assertEqual([i['fecha'] for i in informe_pc.buscar()],
+                         ['2026-08-30', '2026-08-15', '2026-08-01'])
+
+    def test_offset_y_limite(self):
+        self.assertEqual([i['fecha'] for i in informe_pc.buscar(limite=2)],
+                         ['2026-08-30', '2026-08-15'])
+        self.assertEqual([i['fecha'] for i in informe_pc.buscar(offset=2)],
+                         ['2026-08-01'])
+
+
+class TestListarSigueIgual(unittest.TestCase):
+    """listar() paso a ser un envoltorio de buscar(). Su contrato NO cambia:
+    recepcion y el barrido de pendientes dependen de el."""
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def test_sin_argumentos_son_los_de_hoy(self):
+        hoy = informe_pc.fechas.hoy_chile().isoformat()
+        informe_pc.guardar(_base(fecha=hoy))
+        informe_pc.guardar(_base(fecha='2020-01-01'))
+        self.assertEqual([i['fecha'] for i in informe_pc.listar()], [hoy])
+
+    def test_solo_pendientes_esconde_el_borrador(self):
+        """Un informe sin impresion diagnostica es el borrador que queda al
+        mostrar el QR del cuestionario. Recepcion no puede verlo como listo."""
+        hoy = informe_pc.fechas.hoy_chile().isoformat()
+        d = _base(fecha=hoy)
+        d.pop('conclusion')
+        informe_pc.guardar(d)
+        self.assertEqual(len(informe_pc.listar(fecha=hoy)), 1)
+        self.assertEqual(informe_pc.listar(fecha=hoy, solo_pendientes=True), [])
+
+    def test_solo_pendientes_esconde_el_ya_impreso(self):
+        hoy = informe_pc.fechas.hoy_chile().isoformat()
+        iid = informe_pc.guardar(_base(fecha=hoy))
+        self.assertEqual(len(informe_pc.listar(fecha=hoy, solo_pendientes=True)), 1)
+        informe_pc.marcar_impreso(iid)
+        self.assertEqual(informe_pc.listar(fecha=hoy, solo_pendientes=True), [])
+
+
+class TestUnSoloBarrido(unittest.TestCase):
+    """armar_documento() llamaba a mediciones_previas() una vez por cada ancho
+    transversal, y cada llamada parseaba el registro ENTERO: cuatro barridos
+    completos por documento. Con los informes guardados para siempre eso
+    empeora sin techo.
+
+    Esta prueba es la que protege el arreglo: cuenta las lecturas del registro.
+    """
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def test_armar_el_documento_lee_el_registro_una_sola_vez(self):
+        item = _base(mediciones={'intercanino_maxilar': 33.0, 'intermolar_maxilar': 45.0,
+                                 'intercanino_mandibular': 26.0, 'intermolar_mandibular': 40.0})
+        iid = informe_pc.guardar(item)
+        guardado = informe_pc.obtener(iid)
+
+        real = informe_pc._STORE.load
+        cuenta = {'n': 0}
+
+        def contar():
+            cuenta['n'] += 1
+            return real()
+
+        informe_pc._STORE.load = contar
+        try:
+            doc = informe_pc.armar_documento(guardado)
+        finally:
+            informe_pc._STORE.load = real
+
+        self.assertEqual(len(doc['mediciones']['transversales']), 4)
+        self.assertEqual(cuenta['n'], 1,
+                         'el registro se leyo %d veces; tiene que ser 1' % cuenta['n'])
+
+    def test_el_historico_sigue_llegando_a_las_curvas(self):
+        """El arreglo de eficiencia no puede costar el seguimiento."""
+        informe_pc.guardar(_base(rut='11111111-1', edad=9, fecha='2026-01-10',
+                                 mediciones={'intermolar_maxilar': 44.0}))
+        iid = informe_pc.guardar(_base(rut='11111111-1', edad=10, fecha='2026-08-10',
+                                       mediciones={'intermolar_maxilar': 46.0}))
+        doc = informe_pc.armar_documento(informe_pc.obtener(iid))
+        fila = doc['mediciones']['transversales'][0]
+        self.assertEqual(fila['mediciones_previas'], 1)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

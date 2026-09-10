@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es-CL">
+<head>
+<meta charset="utf-8">
+<title>Carpeta paciente · exterior · versión B «Clara»</title>
+<link rel="stylesheet" href="assets/base.css">
+<link rel="stylesheet" href="assets/fuentes.css">
+<style>
+/* ============================================================
+   VERSIÓN B — «Clara»
+   Fondo claro con pie navy a sangre que cruza el doblez. El logo va
+   en su celeste original: es la única versión donde se ve el color
+   propio de la marca. Mucha menos tinta que la A y no se marcan las
+   huellas dactilares.
+   La geometría (corte, doblez, márgenes) está en assets/base.css
+   ============================================================ */
+:root{
+  --navy:#1A2E4A;
+  --claro:#F0F5FB;          /* el mismo fondo claro del sitio */
+  --gold:#C9A84C;
+  --gold-oscuro:#8F7124;    /* el dorado de marca no contrasta sobre claro */
+  --tinta:#1A2E4A;
+  --tinta-tenue:#5A6B82;
+  --banda:66mm;             /* alto del pie navy, medido desde el borde del pliego */
+}
+.hoja{ background:var(--claro); color:var(--tinta); font-family:'Inter',Arial,sans-serif }
+
+/* pie navy: un solo bloque a sangre que cruza el doblez */
+.banda{position:absolute; left:0; right:0; bottom:0; height:var(--banda); background:var(--navy)}
+.banda-filete{position:absolute; left:0; right:0; bottom:var(--banda); height:.6mm;
+  background:var(--gold)}
+
+/* =========================  TAPA  ========================= */
+.tapa .contenido{ align-items:center; padding-bottom:calc(var(--banda) + 14mm) }
+.tapa .bloque-central{
+  flex:1; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+}
+.logo-tapa{width:118mm;display:block}
+.regla-oro{width:26mm;height:.7mm;background:var(--gold);margin:15mm 0 0}
+.lema{
+  margin-top:11mm; font-family:'Playfair Display',Georgia,serif;
+  font-weight:400; font-size:7.4mm; letter-spacing:.012em;
+  color:var(--navy); text-align:center; white-space:nowrap;
+}
+
+/* contenido dentro del pie navy */
+.pie-banda{position:absolute; left:0; right:0; bottom:0; height:var(--banda);
+  display:flex; align-items:center; color:#fff}
+.tapa .pie-banda{justify-content:center}
+.tapa .pie-banda span{font-size:4.6mm; letter-spacing:.2em; color:rgba(255,255,255,.75)}
+
+/* ======================  CONTRATAPA  ====================== */
+.contratapa .contenido{ padding-bottom:calc(var(--banda) + 18mm) }
+.logo-contratapa{width:62mm;display:block}
+.datos{ margin-top:auto; max-width:142mm }
+.datos .regla-oro{margin:0 0 18mm}
+
+.grupo{margin-bottom:15mm}
+.grupo h3{
+  font-size:3.2mm; font-weight:600; letter-spacing:.3em; text-transform:uppercase;
+  color:var(--gold-oscuro); margin-bottom:3.4mm;
+}
+.grupo p{ font-size:4.9mm; font-weight:300; line-height:1.5; color:var(--tinta) }
+.tenue{ color:var(--tinta-tenue) }
+
+.membresias{
+  border-top:.3mm solid rgba(26,46,74,.22); padding-top:6mm;
+  font-size:3.35mm; font-weight:300; line-height:1.6; color:var(--tinta-tenue);
+}
+.membresias strong{
+  display:block; font-weight:600; font-size:3.05mm; letter-spacing:.28em;
+  text-transform:uppercase; color:rgba(26,46,74,.55); margin-bottom:2mm;
+}
+
+/* el QR vive dentro del pie navy */
+.contratapa .pie-banda{padding-left:calc(var(--margen-exterior) + var(--sangrado)); gap:8mm}
+.pie-banda .qr{width:30mm;height:30mm;background:#fff;border-radius:2mm;padding:1.6mm;flex:none}
+.pie-banda .qr img{width:100%;height:100%;display:block}
+.pie-banda .txt h3{font-size:3.2mm;font-weight:500;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--gold);margin-bottom:2.6mm}
+.pie-banda .txt p{font-size:4.6mm;font-weight:300;line-height:1.45;color:rgba(255,255,255,.9)}
+.pie-banda .txt .tenue{color:rgba(255,255,255,.62)}
+</style>
+</head>
+<body>
+
+<div class="hoja">
+  <div class="banda"></div>
+  <div class="banda-filete"></div>
+
+  <!-- ================== CONTRATAPA (panel izquierdo) ================== -->
+  <div class="panel contratapa">
+    <div class="contenido">
+
+      <img class="logo-contratapa" src="assets/logo-celeste.png"
+           alt="Clínica de Ortodoncia C. Richard Ltda.">
+
+      <div class="datos">
+        <div class="regla-oro"></div>
+
+        <div class="grupo">
+          <h3>Visítanos</h3>
+          <p>Paul Harris 10.349, oficina 305 &middot; Piso 3<br>
+             <span class="tenue">Las Condes, Santiago</span></p>
+        </div>
+
+        <div class="grupo">
+          <h3>Contáctanos</h3>
+          <p>+56 2 2217 3499<br>
+             WhatsApp +56 9 3355 8189<br>
+             recepcion@ortodonciarichard.cl</p>
+        </div>
+
+        <div class="grupo">
+          <h3>Horario</h3>
+          <p>Lunes a viernes &middot; 9:00 a 19:30 h</p>
+        </div>
+
+        <div class="membresias">
+          <strong>Miembros de</strong>
+          American Association of Orthodontists &middot; World Federation of Orthodontists
+          &middot; Sociedad de Ortodoncia y Ortopedia Dentomaxilofacial de Chile
+        </div>
+      </div>
+
+    </div>
+
+    <div class="pie-banda">
+      <div class="qr"><img src="assets/qr-agenda.png" alt="Codigo QR para agendar hora"></div>
+      <div class="txt">
+        <h3>Agenda tu hora</h3>
+        <p>ortodonciarichard.cl<br>
+           <span class="tenue">Instagram y Facebook &middot; @ortodonciarichard</span></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== TAPA (panel derecho) ================== -->
+  <div class="panel tapa">
+    <div class="contenido">
+      <div class="bloque-central">
+        <img class="logo-tapa" src="assets/logo-celeste.png"
+             alt="Clínica de Ortodoncia C. Richard Ltda.">
+        <div class="regla-oro"></div>
+        <div class="lema">Experiencia y Excelencia en Ortodoncia</div>
+      </div>
+    </div>
+    <div class="pie-banda"><span>ortodonciarichard.cl</span></div>
+  </div>
+
+  <div class="guias">
+    <div class="g-corte"></div>
+    <div class="g-seguridad"></div>
+    <div class="g-doblez"></div>
+    <div class="g-tag" style="left:6mm;top:6mm;color:#FF2FB0">Corte final 473 &times; 323 mm</div>
+    <div class="g-tag" style="left:6mm;top:14mm;color:#35D07F">Zona segura (24 mm desde el corte)</div>
+    <div class="g-tag" style="left:243mm;top:6mm;color:#24C7E0">Doblez</div>
+    <div class="g-tag" style="left:6mm;bottom:6mm">CONTRATAPA &middot; 236,5 &times; 323 mm</div>
+    <div class="g-tag" style="right:6mm;bottom:6mm">TAPA &middot; 236,5 &times; 323 mm</div>
+    <div class="g-tag" style="right:6mm;top:6mm">B &laquo;Clara&raquo; &middot; pliego con sangrado 479 &times; 329 mm</div>
+  </div>
+
+</div>
+
+<script>
+  if (location.search.indexOf('guias') >= 0) document.body.classList.add('con-guias');
+</script>
+</body>
+</html>

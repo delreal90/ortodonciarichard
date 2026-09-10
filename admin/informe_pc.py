@@ -51,6 +51,8 @@ from pathlib import Path
 
 import fechas       # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
 import jsonstore    # guardado atomico con lock. Ver jsonstore.py.
+import texto        # sin_tildes(): buscar "nunez" y encontrar "Núñez". Ver texto.py.
+from scheduling import limpiar_rut   # el MISMO con que server.py guarda el rut
 
 _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 Path(__file__).parent / 'patient_index.json')).parent
@@ -352,20 +354,96 @@ def obtener(iid):
     return _STORE.load().get('informes', {}).get(iid)
 
 
+def buscar(desde=None, hasta=None, ftexto='', doctor='', solo_pendientes=False,
+           limite=None, offset=0):
+    """Los informes que calzan con los filtros, del mas nuevo al mas viejo.
+
+    Un SOLO barrido del registro para todos los criterios. Todos los filtros son
+    opcionales; sin ninguno devuelve el registro entero.
+
+      desde / hasta   fechas ISO, ambas INCLUSIVAS (comparacion de strings, que
+                      en ISO ordena igual que la fecha).
+      ftexto          nombre o RUT. Se prueban LOS DOS criterios, no se elige
+                      uno: quien escribe "12345678" quiere el RUT y quien
+                      escribe "nunez" quiere el apellido, y el buscador no
+                      tiene por que hacerle adivinar cual entiende.
+      doctor          subcadena del texto del doctor.
+      solo_pendientes mismo criterio que usa recepcion (ver listar()).
+
+    'offset' y 'limite' se aplican AL FINAL, sobre el resultado ya ordenado, y
+    'total' lo cuenta quien llama con len() antes de cortar -- por eso esta
+    funcion no pagina sola: el endpoint necesita el total para saber si ofrece
+    "ver mas".
+    """
+    clave_rut = limpiar_rut(ftexto)
+    t = texto.sin_tildes(ftexto)
+    doc = texto.sin_tildes(doctor)
+
+    out = []
+    for item in _STORE.load().get('informes', {}).values():
+        fecha_i = item.get('fecha') or ''
+        if desde and fecha_i < desde:
+            continue
+        if hasta and fecha_i > hasta:
+            continue
+        if solo_pendientes and (item.get('impreso') or not item.get('conclusion')):
+            continue
+        if doc and doc not in texto.sin_tildes(item.get('doctor_texto')):
+            continue
+        if t:
+            por_nombre = t in texto.sin_tildes(item.get('nombre'))
+            # El RUT solo se prueba si lo tecleado TIENE digitos: si no,
+            # limpiar_rut('ana') es '' y '' esta en cualquier cosa, asi que
+            # cualquier busqueda por nombre devolveria el registro entero.
+            por_rut = bool(clave_rut) and limpiar_rut(item.get('rut')).startswith(clave_rut)
+            if not (por_nombre or por_rut):
+                continue
+        out.append(item)
+
+    out.sort(key=lambda i: (i.get('fecha') or '', i.get('creado') or ''), reverse=True)
+    if offset:
+        out = out[offset:]
+    if limite:
+        out = out[:limite]
+    return out
+
+
 def listar(fecha=None, solo_pendientes=False):
     """Informes de una fecha (por defecto hoy). Ordenados del mas nuevo al mas
-    viejo, que es como los quiere ver recepcion."""
+    viejo, que es como los quiere ver recepcion.
+
+    Envoltorio de buscar(). Se conserva con su firma porque su contrato --"sin
+    argumentos = hoy"-- lo usan recepcion y el barrido de pendientes, y meterle
+    un rango de fechas volveria ambiguo justo ese caso por defecto.
+
+    solo_pendientes: un informe sin impresion diagnostica NO esta listo. Es el
+    borrador que queda al mostrarle el QR del cuestionario al paciente apenas
+    empieza la consulta; sin este filtro recepcion lo veria como pendiente de
+    imprimir y podria entregarle al paciente un informe a medio llenar. Se
+    deriva del contenido en vez de llevar un flag aparte: en cuanto el Dr.
+    elige la impresion diagnostica y guarda, aparece solo.
+    """
     fecha = fecha or fechas.hoy_chile().isoformat()
-    items = [i for i in _STORE.load().get('informes', {}).values() if i.get('fecha') == fecha]
-    if solo_pendientes:
-        # Un informe sin impresion diagnostica NO esta listo: es el borrador que
-        # queda al mostrarle el QR del cuestionario al paciente apenas empieza
-        # la consulta. Sin esto recepcion lo veria como pendiente de imprimir y
-        # podria entregarle al paciente un informe a medio llenar.
-        # Se deriva del contenido en vez de llevar un flag aparte: en cuanto el
-        # Dr. elige la impresion diagnostica y guarda, aparece solo.
-        items = [i for i in items if not i.get('impreso') and i.get('conclusion')]
-    return sorted(items, key=lambda i: i.get('creado') or '', reverse=True)
+    return buscar(desde=fecha, hasta=fecha, solo_pendientes=solo_pendientes)
+
+
+def previos(rut, excluir_id=None, limite=None):
+    """Los OTROS informes de este paciente, del mas nuevo al mas viejo.
+
+    Es lo que convierte una hoja suelta en una ficha: al abrir el informe de
+    alguien que ya vino, el Dr. ve lo que le dijo la vez anterior en vez de
+    partir de cero.
+
+    'excluir_id' saca el informe que se esta viendo o editando -- si no,
+    aparecería listandose a si mismo como "previo".
+    """
+    clave = limpiar_rut(rut)
+    if not clave:
+        return []
+    out = [i for i in _STORE.load().get('informes', {}).values()
+           if limpiar_rut(i.get('rut')) == clave and i.get('id') != excluir_id]
+    out.sort(key=lambda i: (i.get('fecha') or '', i.get('creado') or ''), reverse=True)
+    return out[:limite] if limite else out
 
 
 def todos():
@@ -394,21 +472,24 @@ def marcar_impreso(iid, quien=''):
     return encontrado['ok']
 
 
-def podar(dias=None):
-    """Saca del registro los informes mas viejos que N dias. Se llama desde el
-    scheduler; el registro no tiene por que crecer para siempre."""
-    dias = dias or 365
-    limite = (fechas.hoy_chile() - timedelta(days=dias)).isoformat()
-    borrados = {'n': 0}
-
-    def _fn(reg):
-        for iid in [k for k, v in reg['informes'].items() if (v.get('fecha') or '') < limite]:
-            del reg['informes'][iid]
-            borrados['n'] += 1
-        return reg
-
-    _STORE.actualizar(_fn)
-    return borrados['n']
+# ⚠️ ACA VIVIA podar(), que borraba los informes de mas de 365 dias.
+#
+# Se ELIMINO el 2026-09-10, por decision del usuario: los informes se guardan
+# PARA SIEMPRE. Tres razones, y la primera basta:
+#
+#   1. Un tratamiento de ortodoncia dura dos o tres anios. Podar a 365 dias
+#      borraba el primer informe del paciente ANTES de que terminara su
+#      tratamiento, y con el los puntos mas antiguos de sus curvas de
+#      crecimiento -- justo el seguimiento que este modulo existe para mostrar.
+#   2. Su docstring afirmaba "Se llama desde el scheduler" y NADIE la llamaba.
+#      Dejarla desconectada era dejar un arma cargada: el siguiente que leyera
+#      ese comentario la cablearia, y el dato se perderia en silencio.
+#   3. Ni siquiera borraba las imagenes de IMAGENES_DIR: habria dejado archivos
+#      huerfanos en el disco persistente.
+#
+# Este registro es la ficha clinica del paciente y la fuente de la base de datos
+# clinica. Si algun dia hace falta acotarlo, git tiene la version vieja -- pero
+# la conversacion tiene que empezar por que se hace con las imagenes.
 
 
 
@@ -896,17 +977,18 @@ def mediciones_previas(rut, clave, tramo=None, excluir_id=None):   # tramo: sin 
 
     Si descarta los informes sin edad registrada: un punto sin eje X no se puede
     dibujar, y suponerle una edad seria inventar.
+
+    Se conserva con esta firma porque es la puerta publica; el trabajo lo hace
+    _serie_previa() sobre una lista YA cargada, para que armar_documento pueda
+    barrer el registro una sola vez en vez de una por cada ancho.
     """
-    clave_rut = (rut or '').replace('.', '').replace('-', '').strip().lower()
-    if not clave_rut:
-        return []
+    return _serie_previa(previos(rut, excluir_id=excluir_id), clave)
+
+
+def _serie_previa(items, clave):
+    """[(edad, mm), ...] de una medicion, sobre informes ya cargados."""
     puntos = []
-    for item in _STORE.load().get('informes', {}).values():
-        if item.get('id') == excluir_id:
-            continue
-        otro = (item.get('rut') or '').replace('.', '').replace('-', '').strip().lower()
-        if otro != clave_rut:
-            continue
+    for item in items:
         med = item.get('mediciones') or {}
         mm = med.get(clave)
         if mm in (None, ''):
@@ -977,6 +1059,11 @@ def armar_documento(item, doctor=None, clinica=None):
     # ── Mediciones ──
     med = item.get('mediciones') or {}
     tramo = med.get('tramo_intermolar') or None
+    # El historico del paciente se carga UNA vez para las cuatro curvas. Antes
+    # cada ancho llamaba a mediciones_previas(), y cada llamada parseaba el
+    # registro entero: cuatro barridos completos por documento. Con los informes
+    # guardados para siempre eso empeora sin techo.
+    _previos_doc = previos(item.get('rut'), excluir_id=item.get('id'))
     transversales = []
     for clave, medida, arcada, etiqueta in MEDICIONES_TRANSVERSALES:
         mm = med.get(clave)
@@ -987,8 +1074,7 @@ def armar_documento(item, doctor=None, clinica=None):
         tramo_de_esta = tramo if medida == 'intermolar' else None
         r = transversal.percentil(medida, arcada, sexo, edad, mm, tramo_de_esta)
         if r.get('ok'):
-            previas = mediciones_previas(item.get('rut'), clave, tramo_de_esta,
-                                         excluir_id=item.get('id'))
+            previas = _serie_previa(_previos_doc, clave)
             fila.update({'percentil': r['percentil'], 'media': r['media'], 'de': r['de'],
                          'lectura': transversal.etiqueta_percentil(r['percentil']),
                          'interpolado': r['interpolado'], 'sospechoso': r.get('sospechoso'),

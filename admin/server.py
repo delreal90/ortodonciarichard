@@ -4081,6 +4081,44 @@ def informe_pc_guardar():
     return jsonify({'ok': True, 'id': iid})
 
 
+def _proyectar_informes(items):
+    """La fila de un informe en una lista: lo justo para decidir si abrirlo.
+
+    Devuelve lo mismo para recepcion, para el buscador y para el bloque de
+    informes previos -- una sola proyeccion, para que las tres pantallas no
+    muestren campos distintos del mismo informe.
+
+    ⚠️ 'sin_firma' se memoiza POR LLAMADA y no entre requests. Resolverlo cuesta
+    leer el config, resolver el doctor y base64-ear su firma desde el disco, y
+    antes se pagaba UNA VEZ POR FILA: con los diez informes de un dia pasaba,
+    con el historial completo de un paciente no. Memoizarlo entre requests seria
+    peor de otra forma: un doctor que acaba de subir su firma tiene que verlo al
+    instante, no cuando expire un cache.
+    """
+    cache = {}
+
+    def sin_firma(txt):
+        if txt not in cache:
+            cache[txt] = _doctor_informe(txt).get('sin_firma', True)
+        return cache[txt]
+
+    out = []
+    for i in items:
+        conc = informe_pc.CONCLUSIONES_MAP.get(i.get('conclusion') or '')
+        out.append({
+            'id': i.get('id'), 'nombre': i.get('nombre'), 'rut_fmt': i.get('rut_fmt'),
+            'fecha': i.get('fecha'), 'edad': i.get('edad'),
+            'creado': i.get('creado'), 'impreso': i.get('impreso'),
+            'editado_tras_imprimir': i.get('editado_tras_imprimir'),
+            'doctor_texto': i.get('doctor_texto') or '',
+            'conclusion_label': (conc or {}).get('etiqueta', ''),
+            'ordenes_labels': [informe_pc.ORDENES[c]['etiqueta']
+                               for c in (i.get('ordenes') or []) if c in informe_pc.ORDENES],
+            'sin_firma': sin_firma(i.get('doctor_texto') or ''),
+        })
+    return out
+
+
 @app.route('/api/informe-pc/pendientes', methods=['GET'])
 def informe_pc_pendientes():
     """Lo que ve recepción: los informes del día, con las órdenes ya resueltas
@@ -4089,17 +4127,51 @@ def informe_pc_pendientes():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     fecha = request.args.get('fecha') or fechas.hoy_chile().isoformat()
     solo = request.args.get('solo_pendientes') == '1'
-    items = []
-    for i in informe_pc.listar(fecha=fecha, solo_pendientes=solo):
-        items.append({
-            'id': i.get('id'), 'nombre': i.get('nombre'), 'rut_fmt': i.get('rut_fmt'),
-            'creado': i.get('creado'), 'impreso': i.get('impreso'),
-            'editado_tras_imprimir': i.get('editado_tras_imprimir'),
-            'ordenes_labels': [informe_pc.ORDENES[c]['etiqueta']
-                               for c in (i.get('ordenes') or []) if c in informe_pc.ORDENES],
-            'sin_firma': _doctor_informe(i.get('doctor_texto') or '').get('sin_firma', True),
-        })
+    items = _proyectar_informes(informe_pc.listar(fecha=fecha, solo_pendientes=solo))
     return jsonify({'ok': True, 'fecha': fecha, 'informes': items})
+
+
+@app.route('/api/informe-pc/buscar', methods=['GET'])
+def informe_pc_buscar():
+    """Busca en TODOS los informes, no solo en los de hoy.
+
+    Hasta ahora un informe era inalcanzable al dia siguiente: recepcion pedia
+    los del dia y no habia otra puerta. Esto es esa puerta, y la usan las tres
+    pantallas (recepcion, el buscador y la pestania del panel).
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    limite = arg_int('limite', 50, minimo=1, maximo=200)
+    offset = arg_int('offset', 0, minimo=0)
+    encontrados = informe_pc.buscar(
+        desde=(request.args.get('desde') or '').strip() or None,
+        hasta=(request.args.get('hasta') or '').strip() or None,
+        ftexto=(request.args.get('texto') or '').strip(),
+        doctor=(request.args.get('doctor') or '').strip(),
+        solo_pendientes=request.args.get('solo_pendientes') == '1')
+    # El total se cuenta ANTES de cortar: es lo que le dice al panel si ofrece
+    # "ver mas" o si ya mostro todo.
+    return jsonify({'ok': True, 'total': len(encontrados),
+                    'informes': _proyectar_informes(encontrados[offset:offset + limite])})
+
+
+@app.route('/api/informe-pc/previos', methods=['GET'])
+def informe_pc_previos():
+    """Los otros informes de este paciente.
+
+    Va en endpoint propio y NO dentro de /precarga aunque esa ya reciba el rut:
+    reabrir un informe para editarlo no pasa por /precarga, y el bloque tambien
+    tiene que refrescarse cuando el Dr. corrige el RUT a mano en el formulario.
+
+    Un paciente sin informes previos devuelve 200 con lista vacia, nunca 404:
+    "es su primera vez" es una respuesta valida, no un error.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    items = informe_pc.previos((request.args.get('rut') or '').strip(),
+                               excluir_id=(request.args.get('excluir') or '').strip() or None,
+                               limite=arg_int('limite', 20, minimo=1, maximo=100))
+    return jsonify({'ok': True, 'informes': _proyectar_informes(items)})
 
 
 @app.route('/api/informe-pc/link-estudio', methods=['POST'])
