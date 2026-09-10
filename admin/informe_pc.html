@@ -223,6 +223,23 @@
 
   .caja { border: 1px solid var(--line); border-radius: 5px; padding: 8px 11px; }
   .caja.destaca { border-left: 3px solid var(--gold); }
+  /* Barra de filtros del buscador y de recepcion. */
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end;
+             margin-bottom: 12px; }
+  .filtros label.f { display: block; }
+  .filtros input, .filtros select { padding: 7px 9px; }
+  .filtros input[type=date] { width: 150px; }
+  .filtros .txt { width: 220px; }
+
+  /* Informes previos del paciente, dentro del formulario de captura. */
+  .previos { border: 1px solid var(--gold); border-radius: 6px;
+             background: #fffdf7; padding: 10px 12px; margin-bottom: 14px; }
+  .previos h3 { font-size: 10pt; text-transform: uppercase; letter-spacing: 1px;
+                color: var(--navy); margin-bottom: 8px; }
+  .previos table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  .previos td { padding: 5px 4px; border-bottom: 1px solid #eee; }
+  .previos tr:last-child td { border-bottom: 0; }
+
   .pie { position: absolute; bottom: 1.1cm; left: 1.6cm; right: 1.6cm;
          font-size: 7.5pt; color: var(--text-mid); line-height: 1.4;
          border-top: 1px solid var(--line); padding-top: 6px; }
@@ -293,6 +310,11 @@
 
   <!-- ── Captura ──────────────────────────────────────────────────── -->
   <div id="vCaptura" style="display:none">
+    <!-- Los informes que este paciente ya tiene. Oculto mientras no haya. -->
+    <div class="previos" id="cardPrevios" style="display:none">
+      <h3 id="previosTitulo"></h3>
+      <table><tbody id="listaPrevios"></tbody></table>
+    </div>
     <div class="grid2">
     <div class="card">
       <h2>Paciente</h2>
@@ -435,11 +457,44 @@
   <!-- ── Recepción ────────────────────────────────────────────────── -->
   <div id="vRecepcion" style="display:none">
     <div class="card">
-      <h2>Informes de hoy <small id="fechaRec"></small></h2>
+      <h2>Informes del día <small id="fechaRec"></small></h2>
+      <div class="filtros">
+        <div><label class="f">Día</label>
+          <input type="date" id="recFecha" onchange="irRecepcion()"></div>
+        <div><label class="f">Buscar paciente</label>
+          <input type="text" class="txt" id="recTexto" placeholder="nombre o RUT"></div>
+        <button class="btn sec sm" onclick="irRecepcion()">Buscar</button>
+        <button class="btn sec sm" onclick="irBuscar()">Buscar en todos los días →</button>
+      </div>
       <table class="lista"><thead><tr><th>Hora</th><th>Paciente</th><th>Estado</th>
         <th>Órdenes solicitadas</th><th></th></tr></thead>
         <tbody id="listaRec"></tbody></table>
       <p class="nota" id="vacioRec" style="margin-top:10px"></p>
+    </div>
+  </div>
+
+  <!-- ── Buscador de todos los informes ───────────────────────────── -->
+  <div id="vBuscar" style="display:none">
+    <div class="card">
+      <h2>Buscar informes</h2>
+      <p class="nota" style="margin-bottom:10px">Todos los informes, de cualquier día.
+        Sin filtros salen los más recientes primero.</p>
+      <div class="filtros">
+        <div><label class="f">Paciente</label>
+          <input type="text" class="txt" id="bTexto" placeholder="nombre o RUT"></div>
+        <div><label class="f">Desde</label><input type="date" id="bDesde"></div>
+        <div><label class="f">Hasta</label><input type="date" id="bHasta"></div>
+        <div><label class="f">Doctor</label>
+          <input type="text" id="bDoctor" placeholder="apellido"></div>
+        <button class="btn" onclick="buscarInformes(0)">Buscar</button>
+        <button class="btn sec sm" onclick="limpiarBusqueda()">Limpiar</button>
+      </div>
+      <table class="lista"><thead><tr><th>Fecha</th><th>Paciente</th><th>Doctor</th>
+        <th>Impresión diagnóstica</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="listaBus"></tbody></table>
+      <p class="nota" id="vacioBus" style="margin-top:10px"></p>
+      <div style="margin-top:10px"><button class="btn sec sm" id="btnMas"
+        style="display:none" onclick="buscarInformes(BUS_OFFSET + BUS_PAGINA)">Ver más</button></div>
     </div>
   </div>
 
@@ -451,6 +506,7 @@
   <span class="aviso" id="aviso"></span>
   <div class="sp"></div>
   <button class="btn sec" id="btnRec" onclick="irRecepcion()">Ver los de hoy</button>
+  <button class="btn sec" id="btnBus" onclick="irBuscar()">Buscar informes</button>
   <button class="btn sec" id="btnMarcar" style="display:none" onclick="marcarImpreso()">✔ Marcar como impreso</button>
   <button class="btn" id="btnGuardar" onclick="guardar()">Guardar y ver el documento</button>
 </div>
@@ -487,8 +543,23 @@ async function api(path, options){
   return r.json();
 }
 function pedirClave(){
-  $('#vLogin').style.display = ''; $('#vCaptura').style.display = 'none';
-  $('#vRecepcion').style.display = 'none'; $('#barra').style.display = 'none';
+  // ⚠️ Tiene que tapar TAMBIEN el documento. Antes no lo hacia: un 403 a mitad
+  // de flujo dejaba el informe de un paciente a la vista debajo de la tarjeta
+  // de la clave, que es exactamente lo contrario de pedir una clave.
+  ['#vCaptura', '#vRecepcion', '#vBuscar', '#doc', '#barra']
+    .forEach(sel => { const e = $(sel); if (e) e.style.display = 'none'; });
+  $('#vLogin').style.display = '';
+}
+
+/* La barra es compartida entre el formulario y el documento, y verDocumento()
+   la MUTA (cambia Guardar por Imprimir y muestra "marcar impreso"). Mientras
+   recepcion -> documento era un camino de ida no se notaba; con "volver a la
+   busqueda" el boton de imprimir quedaba pegado sobre una lista. */
+function restaurarBarra(){
+  const g = $('#btnGuardar');
+  g.textContent = 'Guardar y ver el documento';
+  g.onclick = guardar;
+  $('#btnMarcar').style.display = 'none';
 }
 
 /* ── Arranque ──────────────────────────────────────────────────── */
@@ -498,6 +569,7 @@ async function iniciar(){
   if (MODO === 'imprimir' && ID) return verDocumento(ID, true);
   if (MODO === 'ver' && ID)      return verDocumento(ID, false);
   if (MODO === 'recepcion')      return irRecepcion();
+  if (MODO === 'buscar')         return irBuscar();
 
   let r;
   try { r = await api('/api/informe-pc/catalogo'); } catch(e){ return; }
@@ -525,6 +597,9 @@ async function iniciar(){
     } catch(e){}
   }
   refrescarCabecera();
+  // Aunque la precarga falle (paciente que no esta en la base de DentiDesk),
+  // sus informes previos SI pueden existir: se piden igual.
+  cargarPrevios();
 }
 
 function cargarEnFormulario(it){
@@ -608,6 +683,7 @@ function cargarEnFormulario(it){
   set('#sbPeso', sb.peso); set('#sbTalla', sb.talla); set('#sbCuello', sb.cuello);
   pintarImagenes();
   refrescarCabecera();
+  cargarPrevios();
   avisar('Editando el informe del ' + esc(it.fecha || '') +
          (it.impreso ? ' — ya fue impreso: si lo cambias, hay que reimprimirlo.' : ''), !!it.impreso);
 }
@@ -644,6 +720,66 @@ function precargar(p){
       + 'Sin edad no se pueden calcular los percentiles: escríbela a mano.';
   }
   cambioEdad();
+  cargarPrevios();
+}
+
+/* ── Los informes que este paciente YA tiene ───────────────────────
+   Es lo que convierte una hoja suelta en una ficha: el F2 siempre abre un
+   informe en blanco, asi que sin esto el Dr. no ve lo que le dijo al paciente
+   la vez anterior aunque tenga tres informes.
+
+   Se pide en TRES momentos --informe nuevo, informe reabierto para editar, y
+   cuando el Dr. corrige el RUT a mano-- porque reabrir para editar no pasa por
+   /precarga y el RUT tecleado puede no ser el que llego por la URL. */
+async function cargarPrevios(){
+  const rut = ($('#pRut').value || '').trim();
+  const caja = $('#cardPrevios');
+  if (!rut) { caja.style.display = 'none'; return; }
+  let r;
+  try {
+    r = await api('/api/informe-pc/previos?rut=' + encodeURIComponent(rut) +
+                  (ID ? '&excluir=' + encodeURIComponent(ID) : ''));
+  } catch(e){ return; }
+  const items = (r && r.informes) || [];
+  if (!items.length) { caja.style.display = 'none'; return; }
+
+  $('#previosTitulo').textContent = items.length === 1
+    ? 'Este paciente tiene 1 informe anterior'
+    : 'Este paciente tiene ' + items.length + ' informes anteriores';
+  $('#listaPrevios').innerHTML = items.map(i => {
+    // ⚠️ Los dos botones abren en PESTAÑA NUEVA. Con location.href el Dr.
+    // perderia el informe a medio llenar que tiene en pantalla.
+    const id = (i.id || '').replace(/[^a-zA-Z0-9]/g, '');
+    return `<tr>
+      <td style="white-space:nowrap"><b>${esc(fechaCorta(i.fecha))}</b></td>
+      <td class="nota">${i.edad != null ? esc(i.edad) + ' años' : ''}</td>
+      <td>${esc(i.conclusion_label || '—')}</td>
+      <td class="nota">${i.impreso ? 'impreso' : 'sin imprimir'}</td>
+      <td style="white-space:nowrap;text-align:right">
+        <button class="btn sec sm" onclick="abrirInforme('${id}','ver')">Ver</button>
+        <button class="btn sec sm" onclick="abrirInforme('${id}','editar')">Editar</button>
+      </td></tr>`;
+  }).join('');
+  caja.style.display = '';
+}
+
+function abrirInforme(id, modo){
+  const url = modo === 'editar' ? '/informe-pc?id=' + encodeURIComponent(id)
+                                : '/informe-pc?modo=ver&id=' + encodeURIComponent(id);
+  window.open(url, '_blank');
+}
+
+// El RUT tecleado puede no ser el que llego por la URL (o puede no haber
+// llegado ninguno): al salir del campo se vuelve a preguntar.
+document.addEventListener('DOMContentLoaded', () => {
+  const c = $('#pRut');
+  if (c) c.addEventListener('blur', cargarPrevios);
+});
+
+function fechaCorta(iso){
+  if (!iso) return '';
+  const p = String(iso).slice(0, 10).split('-');
+  return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : iso;
 }
 
 /* ── Formulario ────────────────────────────────────────────────── */
@@ -1256,8 +1392,8 @@ async function verDocumento(id, autoImprimir){
   try { r = await api('/api/informe-pc/documento?id=' + encodeURIComponent(id)); } catch(e){ return; }
   if (!r.ok) return avisar(r.error || 'No se encontró el informe.', true);
   DOC = r.documento;
-  $('#vCaptura').style.display = 'none'; $('#vRecepcion').style.display = 'none';
-  $('#doc').style.display = ''; $('#doc').innerHTML = pintarDocumento(DOC);
+  mostrarVista('#doc');
+  $('#doc').innerHTML = pintarDocumento(DOC);
   $('#tituloVista').textContent = 'Documento — ' + (DOC.paciente.nombre || '');
   $('#barra').style.display = '';
   $('#btnGuardar').textContent = 'Imprimir';
@@ -1467,27 +1603,121 @@ function pintarDocumento(d){
 }
 
 /* ── Recepción ─────────────────────────────────────────────────── */
+/* ── Recepcion ─────────────────────────────────────────────────────
+   Pasa por /buscar con desde=hasta=el dia elegido: un solo camino de codigo
+   para "hoy" y para "cualquier otro dia". El selector de fecha es lo que
+   permite reimprimir el informe que un paciente perdio. */
 async function irRecepcion(){
+  restaurarBarra();
+  const hoy = new Date().toISOString().slice(0, 10);
+  if (!$('#recFecha').value) $('#recFecha').value = hoy;
+  const dia = $('#recFecha').value || hoy;
+  const txt = ($('#recTexto').value || '').trim();
+
   let r;
-  try { r = await api('/api/informe-pc/pendientes'); } catch(e){ return; }
-  $('#vCaptura').style.display = 'none'; $('#doc').style.display = 'none';
-  $('#vRecepcion').style.display = ''; $('#barra').style.display = 'none';
-  $('#tituloVista').textContent = 'Informes de hoy';
-  $('#fechaRec').textContent = r.fecha || '';
+  try {
+    r = await api('/api/informe-pc/buscar?desde=' + dia + '&hasta=' + dia +
+                  '&texto=' + encodeURIComponent(txt) + '&limite=200');
+  } catch(e){ return; }
+
+  mostrarVista('#vRecepcion');
+  $('#tituloVista').textContent = 'Informes del día';
+  $('#fechaRec').textContent = fechaCorta(dia) + (dia === hoy ? ' (hoy)' : '');
   const items = r.informes || [];
-  $('#vacioRec').textContent = items.length ? '' : 'No hay informes registrados hoy.';
-  $('#listaRec').innerHTML = items.map(i => `
-    <tr><td>${esc((i.creado||'').slice(11,16))}</td>
-      <td><b>${esc(i.nombre)}</b><br><span class="nota">${esc(i.rut_fmt || i.rut || '')}</span></td>
-      <td>${i.impreso ? '<span style="color:var(--green)">impreso ' + esc(i.impreso.slice(11,16)) + '</span>'
-                      : '<b style="color:var(--amber)">por imprimir</b>'}
-          ${i.editado_tras_imprimir ? '<br><b style="color:var(--red)">editado después: reimprimir</b>' : ''}
-          ${i.sin_firma ? '<br><span class="nota" style="color:var(--amber)">sin firma cargada</span>' : ''}</td>
+  $('#vacioRec').textContent = items.length ? ''
+    : (txt ? 'Ningún informe de ese día calza con la búsqueda.'
+           : 'No hay informes registrados ese día.');
+  $('#listaRec').innerHTML = items.map(i => {
+    const id = (i.id || '').replace(/[^a-zA-Z0-9]/g, '');
+    return `<tr><td>${esc((i.creado||'').slice(11,16))}</td>
+      <td><b>${esc(i.nombre)}</b><br><span class="nota">${esc(i.rut_fmt || '')}</span></td>
+      <td>${estadoHtml(i)}</td>
       <td class="nota">${esc((i.ordenes_labels || []).join(' · ') || '—')}</td>
-      <td><button class="btn sec sm" onclick="location.href='/informe-pc?id=${esc(i.id)}'">Editar</button>
-          <button class="btn sec sm" onclick="verDocumento('${esc(i.id)}', false)">Ver</button>
-          <button class="btn sm" onclick="verDocumento('${esc(i.id)}', true)">Imprimir</button></td>
-    </tr>`).join('');
+      <td style="white-space:nowrap">
+        <button class="btn sec sm" onclick="location.href='/informe-pc?id=${id}'">Editar</button>
+        <button class="btn sec sm" onclick="verDocumento('${id}', false)">Ver</button>
+        <button class="btn sm" onclick="verDocumento('${id}', true)">Imprimir</button></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── Buscador de todos los informes ───────────────────────────────── */
+let BUS_OFFSET = 0;
+const BUS_PAGINA = 50;
+
+function irBuscar(){
+  restaurarBarra();
+  mostrarVista('#vBuscar');
+  $('#tituloVista').textContent = 'Buscar informes';
+  // Si se llega con ?rut= (es lo que abre el F2), se parte filtrado por el
+  // paciente de la cita.
+  const rut = qs.get('rut_fmt') || qs.get('rut') || '';
+  if (rut && !$('#bTexto').value) $('#bTexto').value = rut;
+  buscarInformes(0);
+}
+
+async function buscarInformes(offset){
+  BUS_OFFSET = offset || 0;
+  const params = new URLSearchParams({
+    texto: ($('#bTexto').value || '').trim(),
+    desde: $('#bDesde').value || '',
+    hasta: $('#bHasta').value || '',
+    doctor: ($('#bDoctor').value || '').trim(),
+    limite: BUS_PAGINA, offset: BUS_OFFSET,
+  });
+  let r;
+  try { r = await api('/api/informe-pc/buscar?' + params.toString()); }
+  catch(e){ return; }
+
+  const items = r.informes || [];
+  const filas = items.map(i => {
+    const id = (i.id || '').replace(/[^a-zA-Z0-9]/g, '');
+    return `<tr>
+      <td style="white-space:nowrap"><b>${esc(fechaCorta(i.fecha))}</b></td>
+      <td><b>${esc(i.nombre)}</b><br><span class="nota">${esc(i.rut_fmt || '')}</span></td>
+      <td class="nota">${esc(i.doctor_texto || 'sin doctor registrado')}</td>
+      <td class="nota">${esc(i.conclusion_label || '—')}</td>
+      <td>${estadoHtml(i)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sec sm" onclick="location.href='/informe-pc?id=${id}'">Editar</button>
+        <button class="btn sec sm" onclick="verDocumento('${id}', false)">Ver</button>
+        <button class="btn sm" onclick="verDocumento('${id}', true)">Imprimir</button></td>
+    </tr>`;
+  }).join('');
+
+  // offset 0 reemplaza; "ver mas" agrega debajo.
+  if (BUS_OFFSET === 0) $('#listaBus').innerHTML = filas;
+  else                  $('#listaBus').insertAdjacentHTML('beforeend', filas);
+
+  const mostrados = BUS_OFFSET + items.length;
+  $('#vacioBus').textContent = r.total
+    ? 'Mostrando ' + mostrados + ' de ' + r.total + '.'
+    : 'Ningún informe calza con esa búsqueda.';
+  $('#btnMas').style.display = mostrados < (r.total || 0) ? '' : 'none';
+}
+
+function limpiarBusqueda(){
+  ['#bTexto', '#bDesde', '#bHasta', '#bDoctor'].forEach(sel => { $(sel).value = ''; });
+  buscarInformes(0);
+}
+
+/* El estado de un informe se pinta igual en las dos listas. */
+function estadoHtml(i){
+  return (i.impreso
+      ? '<span style="color:var(--green)">impreso ' + esc(String(i.impreso).slice(11,16)) + '</span>'
+      : '<b style="color:var(--amber)">por imprimir</b>')
+    + (i.editado_tras_imprimir ? '<br><b style="color:var(--red)">editado después: reimprimir</b>' : '')
+    + (i.sin_firma ? '<br><span class="nota" style="color:var(--amber)">sin firma cargada</span>' : '');
+}
+
+/* Las vistas son excluyentes. Tenerlas en una sola funcion evita el bug de
+   mostrar una sin ocultar otra, que es como el documento quedaba visible
+   debajo de la tarjeta de la clave. */
+function mostrarVista(sel){
+  ['#vLogin', '#vCaptura', '#vRecepcion', '#vBuscar', '#doc'].forEach(s => {
+    const e = $(s); if (e) e.style.display = (s === sel ? '' : 'none');
+  });
+  $('#barra').style.display = 'none';
 }
 
 if (!getToken()) { pedirClave(); } else { iniciar(); }

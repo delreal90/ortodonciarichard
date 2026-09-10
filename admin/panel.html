@@ -112,6 +112,7 @@
     <a onclick="show('controldental')" id="nav-controldental"><i class="fa fa-tooth"></i> Control dental</a>
     <a onclick="show('satisfaccion')" id="nav-satisfaccion"><i class="fas fa-star"></i> Satisfacción</a>
     <a onclick="show('suenio')" id="nav-suenio"><i class="fa fa-bed"></i> Tamizaje de sueño</a>
+    <a onclick="show('informes')" id="nav-informes"><i class="fa fa-file-lines"></i> Informes</a>
     <a onclick="show('collages')" id="nav-collages"><i class="fa fa-images"></i> Collages</a>
     <hr style="margin:16px 24px;border-color:#e2e8f0">
     <a onclick="show('publicar')" id="nav-publicar"><i class="fa fa-upload"></i> Publicar</a>
@@ -229,6 +230,60 @@
         </div>
         <div id="pe-resumen" style="margin-bottom:16px"></div>
         <div id="pe-motivos">Carga la conexión para ver los motivos pendientes.</div>
+      </div>
+    </div>
+
+    <!-- ── Informes de evaluación ────────────────────────────── -->
+    <div class="section" id="sec-informes">
+      <h2>Informes de evaluación</h2>
+      <p class="desc">Todos los informes, de cualquier día. Hasta ahora solo se veían los del
+        día en que se hicieron: pasado ese día un informe existía pero no había forma de
+        llegar a él. Sirve para <strong>reimprimir</strong> uno que el paciente perdió y para
+        ver <strong>qué se le dijo</strong> en visitas anteriores.</p>
+
+      <div class="card" id="informes-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="informes-url" value="https://ortodonciarichard.onrender.com"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="informes-token" type="password" placeholder="ADMIN_TOKEN"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <button class="btn" onclick="loadInformes(0)">Cargar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:12px">Buscar</h3>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div><label style="font-size:.8rem;color:#4A5568">Paciente</label><br>
+            <input id="informes-texto" placeholder="nombre o RUT"
+                   style="width:200px;padding:8px;border:1px solid #e2e8f0;border-radius:8px"></div>
+          <div><label style="font-size:.8rem;color:#4A5568">Desde</label><br>
+            <input type="date" id="informes-desde"
+                   style="padding:8px;border:1px solid #e2e8f0;border-radius:8px"></div>
+          <div><label style="font-size:.8rem;color:#4A5568">Hasta</label><br>
+            <input type="date" id="informes-hasta"
+                   style="padding:8px;border:1px solid #e2e8f0;border-radius:8px"></div>
+          <div><label style="font-size:.8rem;color:#4A5568">Doctor</label><br>
+            <input id="informes-doctor" placeholder="apellido"
+                   style="width:140px;padding:8px;border:1px solid #e2e8f0;border-radius:8px"></div>
+          <button class="btn" onclick="loadInformes(0)">Buscar</button>
+          <button class="btn btn-sm" onclick="informesRango(1)">Este mes</button>
+          <button class="btn btn-sm" onclick="informesRango(12)">Últimos 12 meses</button>
+          <button class="btn btn-sm" onclick="informesRango(0)">Todo</button>
+        </div>
+        <label style="font-size:.85rem;color:#4A5568;display:block;margin-bottom:12px">
+          <input type="checkbox" id="informes-pendientes" onchange="loadInformes(0)">
+          Solo los que están por imprimir</label>
+        <div id="informes-lista"><p style="font-size:.85rem;color:#718096">Sin cargar.</p></div>
+        <div style="margin-top:12px"><button class="btn btn-sm" id="informes-mas"
+          style="display:none" onclick="loadInformes(INFORMES_OFFSET + INFORMES_PAGINA)">Ver más</button></div>
       </div>
     </div>
 
@@ -1269,6 +1324,121 @@ let equipoData = [], casosData = [], faqData = [];
 let currentFaqTab = '', currentEquipoTab = '';
 
 // ────────────────────────────────────────────────────────────────
+// INFORMES DE EVALUACIÓN
+//
+// Hasta el 2026-09-10 un informe era inalcanzable al día siguiente: la única
+// lista era "los de hoy". Acá se busca en todos.
+//
+// A diferencia de la pestaña de Tamizaje —que carga todo y filtra en el
+// navegador— acá el filtrado es DEL SERVIDOR: el conjunto crece para siempre,
+// así que traerlo entero para filtrarlo en el cliente deja de funcionar solo.
+// ────────────────────────────────────────────────────────────────
+let INFORMES_OFFSET = 0;
+const INFORMES_PAGINA = 50;
+
+function initInformes() {
+  remotoInit('informes-url', 'informes-token', () => loadInformes(0));
+}
+
+function informesRango(meses) {
+  const hoy = new Date();
+  const iso = d => d.toISOString().slice(0, 10);
+  if (!meses) {
+    document.getElementById('informes-desde').value = '';
+    document.getElementById('informes-hasta').value = '';
+  } else if (meses === 1) {
+    document.getElementById('informes-desde').value =
+      iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+    document.getElementById('informes-hasta').value = iso(hoy);
+  } else {
+    const d = new Date(hoy); d.setMonth(d.getMonth() - meses);
+    document.getElementById('informes-desde').value = iso(d);
+    document.getElementById('informes-hasta').value = iso(hoy);
+  }
+  loadInformes(0);
+}
+
+async function loadInformes(offset) {
+  INFORMES_OFFSET = offset || 0;
+  const el = document.getElementById('informes-lista');
+  if (!INFORMES_OFFSET) el.innerHTML = '<p style="font-size:.85rem;color:#718096">Cargando…</p>';
+  const params = new URLSearchParams({
+    texto: document.getElementById('informes-texto').value.trim(),
+    desde: document.getElementById('informes-desde').value,
+    hasta: document.getElementById('informes-hasta').value,
+    doctor: document.getElementById('informes-doctor').value.trim(),
+    solo_pendientes: document.getElementById('informes-pendientes').checked ? '1' : '',
+    limite: INFORMES_PAGINA, offset: INFORMES_OFFSET,
+  });
+  try {
+    const r = await remotoFetch('informes-url', 'informes-token',
+                                '/api/informe-pc/buscar?' + params.toString());
+    if (r.status === 403) {
+      el.innerHTML = '<p style="font-size:.85rem;color:#e53e3e">Token incorrecto.</p>'; return;
+    }
+    pintarInformes(await r.json());
+  } catch (e) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#e53e3e">No se pudo conectar con el backend.</p>';
+  }
+}
+
+function pintarInformes(d) {
+  const el = document.getElementById('informes-lista');
+  const items = d.informes || [];
+  if (!items.length && !INFORMES_OFFSET) {
+    el.innerHTML = '<p style="font-size:.85rem;color:#718096">Ningún informe calza con esa búsqueda.</p>';
+    document.getElementById('informes-mas').style.display = 'none';
+    return;
+  }
+
+  const filas = items.map(x => {
+    const id = (x.id || '').replace(/[^a-zA-Z0-9]/g, '');
+    const estado = x.impreso
+      ? '<span style="color:#38a169">impreso</span>'
+      : '<strong style="color:#d69e2e">por imprimir</strong>';
+    const alerta = (x.editado_tras_imprimir
+        ? '<br><strong style="color:#e53e3e">editado: reimprimir</strong>' : '')
+      + (x.sin_firma ? '<br><span style="color:#d69e2e">sin firma</span>' : '');
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:7px 6px;white-space:nowrap">${_esc(_fechaCorta(x.fecha))}</td>
+      <td><strong>${_esc(x.nombre)}</strong><br>
+          <span style="color:#718096">${_esc(x.rut_fmt || '')}</span></td>
+      <td style="color:#718096">${_esc(x.doctor_texto || 'sin doctor registrado')}</td>
+      <td style="color:#4A5568">${_esc(x.conclusion_label || '—')}</td>
+      <td style="white-space:nowrap">${estado}${alerta}</td>
+      <td style="white-space:nowrap">
+        <a href="#" onclick="verInformePc('${id}');return false" style="color:#1A2E4A">ver</a>
+        &nbsp;·&nbsp;
+        <a href="#" onclick="imprimirInformePc('${id}');return false" style="color:#1A2E4A">imprimir</a></td>
+    </tr>`;
+  }).join('');
+
+  const cabecera = `<p style="font-size:.85rem;color:#4A5568;margin-bottom:10px">
+      Mostrando ${INFORMES_OFFSET + items.length} de <strong>${d.total || 0}</strong>.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+      <tr style="text-align:left;color:#4A5568;border-bottom:1px solid #e2e8f0">
+        <th style="padding:7px 6px">Fecha</th><th>Paciente</th><th>Doctor</th>
+        <th>Impresión diagnóstica</th><th>Estado</th><th></th></tr>`;
+
+  if (!INFORMES_OFFSET) el.innerHTML = cabecera + filas + '</table>';
+  else el.querySelector('table').insertAdjacentHTML('beforeend', filas);
+
+  const mostrados = INFORMES_OFFSET + items.length;
+  document.getElementById('informes-mas').style.display =
+    mostrados < (d.total || 0) ? '' : 'none';
+}
+
+function verInformePc(id) {
+  window.open(remotoUrl('informes-url') + '/informe-pc?modo=ver&id=' +
+              encodeURIComponent(id), '_blank');
+}
+
+function imprimirInformePc(id) {
+  window.open(remotoUrl('informes-url') + '/informe-pc?modo=imprimir&id=' +
+              encodeURIComponent(id), '_blank');
+}
+
+// ────────────────────────────────────────────────────────────────
 // TAMIZAJE DE SUEÑO  (PSQ-CL en menores, STOP-BANG en adultos)
 //
 // Los dos instrumentos viven en registros distintos y el backend los junta
@@ -1536,6 +1706,7 @@ function show(sec) {
   if (sec === 'controldental') initControlDental();
   if (sec === 'satisfaccion') initSatisfaccion();
   if (sec === 'suenio') initSuenio();
+  if (sec === 'informes') initInformes();
   if (sec === 'collages') initCollages();
 }
 
