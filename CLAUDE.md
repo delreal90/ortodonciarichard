@@ -2940,7 +2940,12 @@ los criterios de Bishara y un n de tres dígitos, que hoy no existe. El diseño 
 - **Sacar las preguntas de sueño del Google Form** de primera consulta (edición del
   formulario, fuera de este repo): hoy le hacen el STOP-BANG de adultos a pacientes
   pediátricos y esas respuestas no alimentan nada.
-- Protocolo de escaneo con la asistente: qué se escanea y **qué puntos se miden en Medit**.
+- **Protocolo de MEDICIÓN escrito** (2026-09-10: el Dr. Alberto **no escanea** en la primera
+  consulta — mide los anchos, el resalte y la sobremordida **directo en boca con pie de
+  metro**). El punto de referencia sigue siendo el mismo problema: Bishara mide sobre la
+  **cúspide mesiovestibular**, y medir otro punto da un número que se ve razonable y está
+  equivocado. Por eso `escaneo` se sacó de `EVALUACION_POR_DEFECTO`: venía marcado y cada
+  informe afirmaba por escrito un escaneo 3D que no se hacía.
 - Copiar la extensión actualizada al PC del box y al de recepción (los cambios de
   `content.js` **no viajan por Render**). Ahora incluye el botón «🗂 Informes anteriores»;
   la funcionalidad está completa sin la extensión (pestaña del panel y `?modo=buscar`), el

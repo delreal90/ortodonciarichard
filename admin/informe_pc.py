@@ -85,10 +85,20 @@ CATALOGO_EVALUACION = (
 
 EVALUACION_MAP = dict(CATALOGO_EVALUACION)
 
-# Las que vienen marcadas al abrir un informe nuevo. 'radiografias' y
-# 'fotografias' NO: dependen de que el paciente haya traido algo o de que se
-# hayan tomado, y darlas por hechas seria afirmar de mas.
-EVALUACION_POR_DEFECTO = ('escaneo', 'examen', 'facial', 'mediciones',
+# Las que vienen marcadas al abrir un informe nuevo. Las que NO vienen marcadas
+# dependen de algo que puede no haber pasado, y darlas por hechas seria afirmar
+# de mas en un papel que va firmado:
+#
+#   radiografias  - solo si el paciente trajo alguna.
+#   fotografias   - solo si se tomaron.
+#   escaneo       - ⚠️ QUITADO DE LOS DEFAULTS el 2026-09-10. El Dr. Alberto NO
+#                   escanea en la primera consulta: mide los anchos, el resalte
+#                   y la sobremordida DIRECTO EN BOCA con pie de metro. Venia
+#                   marcado por defecto, asi que cada informe afirmaba por
+#                   escrito un escaneo digital 3D que no se habia hecho. La
+#                   opcion se conserva en el catalogo porque el escaner existe
+#                   y algun dia puede usarse; lo que no puede es venir sola.
+EVALUACION_POR_DEFECTO = ('examen', 'facial', 'mediciones',
                           'tamizaje', 'antecedentes')
 
 

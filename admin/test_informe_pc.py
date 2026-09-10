@@ -1295,5 +1295,33 @@ class TestProgresoOclusion(unittest.TestCase):
     def test_sin_cambios_lo_dice(self):
         self.assertIn('sin cambios', self._dos('II-1/2', 'II-1/2')['delta']['texto'])
 
+
+class TestEvaluacionPorDefecto(unittest.TestCase):
+    """Lo que viene marcado al abrir un informe nuevo se IMPRIME bajo la firma
+    del doctor. Marcar de mas es afirmar por escrito algo que no paso."""
+
+    def test_el_escaneo_no_viene_marcado(self):
+        """El Dr. Alberto NO escanea en la primera consulta: mide directo en
+        boca con pie de metro. Venia marcado por defecto, asi que cada informe
+        afirmaba un escaneo digital 3D que no se hizo."""
+        self.assertNotIn('escaneo', informe_pc.EVALUACION_POR_DEFECTO)
+
+    def test_pero_la_opcion_sigue_existiendo(self):
+        """El escaner existe y algun dia puede usarse: lo que no puede es venir
+        marcado solo."""
+        self.assertIn('escaneo', dict(informe_pc.CATALOGO_EVALUACION))
+
+    def test_tampoco_vienen_radiografias_ni_fotografias(self):
+        """Dependen de que el paciente haya traido algo o de que se hayan
+        tomado."""
+        for c in ('radiografias', 'fotografias'):
+            self.assertNotIn(c, informe_pc.EVALUACION_POR_DEFECTO)
+
+    def test_las_mediciones_si_vienen_marcadas(self):
+        """Se hacen siempre, con pie de metro o con escaner: el texto impreso
+        no nombra el metodo, dice que se midio y contra que se comparo."""
+        self.assertIn('mediciones', informe_pc.EVALUACION_POR_DEFECTO)
+        self.assertNotIn('escane', dict(informe_pc.CATALOGO_EVALUACION)['mediciones'].lower())
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

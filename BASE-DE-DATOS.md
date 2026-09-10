@@ -198,9 +198,13 @@ cuántos KB pesa hoy y cuánto crece por informe.
 
 ⚠️ Esto puede bloquear el uso de los datos aunque la base esté perfecta:
 
-1. **Protocolo de escaneo escrito.** Bishara mide la cúspide mesiovestibular y la lámina
-   del FAIREST la mesiolingual — **~15 mm de diferencia**. Sin un protocolo que diga qué
-   punto se mide en el Medit, el n acumulado no vale para nada publicable.
+1. **Protocolo de MEDICIÓN escrito.** ⚠️ Corregido el 2026-09-10: **no se escanea** en la
+   primera consulta — se mide **directo en boca con pie de metro** (anchos transversales,
+   resalte y sobremordida). El problema del punto de referencia es el mismo: Bishara mide
+   sobre la **cúspide mesiovestibular** y la lámina del FAIREST usa la mesiolingual, ~15 mm
+   más adentro. Sin un protocolo escrito que fije el punto, el n acumulado no vale para nada
+   publicable — y con pie de metro se suma la reproducibilidad entre operadores, que con un
+   STL no existía.
 2. **Consentimiento para investigación.** La atención clínica cubre el uso asistencial;
    **el uso para estudios es otra finalidad**. Con la Ley 21.719 en plena vigencia el
    **1-dic-2026** y los datos de salud como categoría sensible, hace falta una línea en el
