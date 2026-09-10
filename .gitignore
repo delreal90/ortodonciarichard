@@ -135,3 +135,7 @@ admin/informe_pc_imagenes/
 # En Render vive en el disco persistente (junto a patient_index.json).
 admin/fotos_finales_config.json
 admin/fotos_finales_registro.json
+
+# Diseño de la carpeta del paciente: PDFs listos para imprenta y sus fuentes.
+# Vive en el disco, no en el repo (decisión del usuario 2026-09-10).
+carpeta/
