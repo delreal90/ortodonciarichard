@@ -9,14 +9,14 @@ Contexto completo del proyecto para retomar en cualquier sesión futura.
 
 ---
 
-## ⚠️ LEE ESTO ANTES DE ESCRIBIR CÓDIGO (revisión del 2026-07-28)
+## ⚠️ LEE ESTO ANTES DE ESCRIBIR CÓDIGO (revisión del 2026-07-28 · regla 9 el 2026-09-10)
 
 El proyecto creció 3 meses copiando y pegando: cada sistema nuevo se escribió "con el
 molde" del anterior. Eso dejó el mismo helper reimplementado 4, 5 y hasta 9 veces, y
 —lo caro— **copias que divergieron**: un arreglo aplicado en ocho de nueve lugares.
 
 En julio de 2026 se hizo una revisión completa y se extrajeron las piezas comunes. **Si
-vas a trabajar en cualquier sistema de este repo, estas 8 reglas te aplican**, sin
+vas a trabajar en cualquier sistema de este repo, estas 9 reglas te aplican**, sin
 importar si tocas seguros, compras, consentimientos, NPS o el sitio.
 
 ### 1. 🕐 Nunca `datetime.now()` ni `date.today()` → usa `admin/fechas.py`
@@ -78,6 +78,53 @@ compartidas `stats_token` / `stats_url`**.
 pueden correr con producción andando. (Este número queda viejo cada vez que se suma una
 suite; el que manda es el que imprime `test_todo.py` al terminar.) Recuerda que **`git push` ES el deploy**: Render
 redespliega solo.
+
+### 9. 🗄️ El proyecto TIENE una base de datos: `clinica.db`. Todo dato nuevo tiene que llegar a ella
+Desde el 2026-09-10 existe **una sola base analítica** (`admin/basedatos.py` es su dueño;
+`admin/kpi.py` y `admin/clinico.py` viven encima). Tiene la **agenda completa de 5 años**
+(61.342 citas), el **registro clínico** (informes, mediciones, oclusión, hallazgos,
+órdenes, tamizajes), los **pacientes** y una tabla **`eventos`** con el rastro de los otros
+ocho sistemas. Ahí se cruza cualquier dato con cualquier otro sin salir de SQL.
+
+⚠️ **"Usar la base" NO significa escribirle directo.** Es la confusión fácil y sería un
+error. El contrato es:
+
+| Qué | Dónde vive | Cómo llega a la base |
+|---|---|---|
+| **Estado operativo** de tu sistema (qué se envió, qué está pendiente) | su propio JSON, con `jsonstore` (**regla 2**) | un **adaptador de 10 líneas** en `clinico.ADAPTADORES` |
+| **Datos con relaciones reales** y `GROUP BY` | tabla tipada en `clinica.db` | directo (molde de `kpi.py`) |
+
+**Por qué los operativos siguen separados:** hoy, si el registro de seguros se corrompe,
+los recordatorios de WhatsApp siguen funcionando. Con todo escribiendo al mismo archivo,
+cada una de las decenas de escrituras diarias pasa a ser un riesgo para todo lo demás. Y
+`jsonstore` ya da escritura atómica, lock, y **aparta** un archivo corrupto en vez de
+pisarlo.
+
+**Entonces, si agregas un sistema nuevo:** guarda su estado con `jsonstore` **y** súmale su
+adaptador en `clinico.py` (`ADAPTADORES`), que reusa la función de listado que ya tienes.
+Sin ese adaptador el sistema queda mudo para cualquier análisis futuro, que es exactamente
+el problema que esta base vino a resolver.
+
+**Para leer**, en cambio, la base es la fuente: `clinico.muestra()`, `clinico.filas_export()`
+y todo `kpi.*`. No vuelvas a barrer DentiDesk ni a parsear JSON para responder una pregunta
+que la base ya contesta.
+
+> **Ejemplos, porque la pregunta salió sola:** *seguros complementarios* y *agenda online*
+> ya están en la base **para leer y cruzar** — los seguros por su adaptador, la agenda por
+> el barrido diario de DentiDesk (`BookedBy = 'Agendado via web'` marca las del sitio). Pero
+> ninguno de los dos le **escribe**: `seguros.py` sigue guardando su JSON y el sitio sigue
+> creando la cita en DentiDesk. Eso es el diseño, no una etapa pendiente.
+
+⚠️ **La base NO es desechable.** Casi todo es una proyección reconstruible, pero
+`disponibilidad` no se puede recuperar de ninguna parte (`getAvailableHours` solo responde
+por días **futuros**). Está en `backup.py`, que lista los archivos **por nombre escrito a
+mano**: si alguna base cambia de nombre y no se agrega ahí, deja de respaldarse en silencio.
+
+⚠️ **Lo que esta base nunca va a tener:** la ficha clínica real vive en DentiDesk, que solo
+expone 6 endpoints de agenda. **No** hay odontograma, **no** evoluciones, **no**
+radiografías. Una consulta que asuma un dato que no está da un resultado sesgado sin avisar.
+
+El detalle completo está en *Base de datos clínica — CONSTRUIDA*, más abajo en este archivo.
 
 ### 🔒 Y lo de siempre: este repo es PÚBLICO
 Ningún RUT, celular, email ni ID de Meta/Drive en archivos versionados. Los valores reales

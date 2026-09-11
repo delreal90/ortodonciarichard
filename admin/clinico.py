@@ -487,9 +487,13 @@ def _ev_fotos_finales():
 def _ev_seguros():
     import seguros
     for it in seguros.listar_registros():
+        # `folio` es el de la boleta DTE, o sea la llave con la tabla `ingresos`:
+        # permite preguntar cuanto se facturo de lo que se reembolso.
         yield (it.get('id'), it.get('rut'), it.get('creado'), 'formulario',
                it.get('estado'), {'aseguradora': it.get('aseguradora'),
-                                  'origen': it.get('origen')})
+                                  'origen': it.get('origen'),
+                                  'doctor': it.get('doctor'),
+                                  'folio': it.get('folio')})
 
 
 def _ev_reactivacion():

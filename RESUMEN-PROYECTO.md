@@ -31,7 +31,15 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
   En local viven en `admin/scheduling_secrets.json` (gitignored). Nunca en git.
 - **Persistencia:** JSON en disco persistente de Render, rutas derivadas de
   `PATIENT_INDEX_PATH` (patrón: cada módulo define sus paths con `os.environ.get`).
-  **Excepción:** Compras usa SQLite. Los `*.json` de runtime están gitignored.
+  Los `*.json` de runtime están gitignored. **Excepciones (SQLite):** Compras
+  (`compras.db`) y la base analítica del proyecto (`clinica.db`).
+- 🗄️ **El proyecto TIENE una base de datos: `clinica.db`** (desde el 2026-09-10;
+  `admin/basedatos.py` es su dueño, con `kpi.py` y `clinico.py` encima). Agenda completa de
+  5 años + registro clínico + pacientes + tabla `eventos` con el rastro de los otros ocho
+  sistemas. Es donde se cruza cualquier dato con cualquier otro.
+  ⚠️ **"Usarla" no es escribirle directo:** el estado operativo de cada sistema sigue en su
+  JSON (regla 2) y llega a la base por un **adaptador** en `clinico.ADAPTADORES`. Un sistema
+  nuevo necesita las dos cosas. Ver la **regla 9** del `CLAUDE.md`.
 - **Auth del backend:** header `X-Admin-Token` vs env `ADMIN_TOKEN`
   (`_check_admin_token()` en server.py; sin token seteado = dev local permite todo).
   Hay tokens de menor alcance: `KIOSK_TOKEN` (tablet), `PRINT_TOKEN` (agente de
