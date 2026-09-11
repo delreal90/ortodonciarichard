@@ -2896,41 +2896,219 @@ aparte, cada una toca código probado en producción.
   recepción → documento era un camino de ida no se notaba; al poder volver a la búsqueda, el
   botón de imprimir quedaba pegado sobre una lista. `restaurarBarra()`.
 
-#### Base de datos clínica — DISEÑADA, no construida
+#### Base de datos clínica — CONSTRUIDA (2026-09-10)
 
-El usuario quiere que estos datos se acumulen como base para estadística y estudios, lo que
-conecta con la oportunidad ya anotada arriba: una **normativa chilena de anchos de arcada** con
-los criterios de Bishara y un n de tres dígitos, que hoy no existe. El diseño acordado
-(2026-09-10), **pendiente de aprobar y construir**:
+> ⚠️ Esta sección **reemplaza** al diseño que estuvo acá como "DISEÑADA, no construida".
+> Tres de sus decisiones cambiaron al construirla (ver abajo). El inventario completo de
+> dónde vive cada dato está en [`BASE-DE-DATOS.md`](BASE-DE-DATOS.md).
 
-- `admin/clinica_db.py` + SQLite `clinica.db` (env `CLINICA_DB_PATH`, gitignored junto a
-  `kpi.db`). Molde `kpi.py`/`compras.py`, **incluido el orden `CREATE TABLE` → `_migrar()` →
-  índices en un `executescript` separado**.
-- ⚠️ **El JSON sigue siendo la fuente de verdad; SQLite es una PROYECCIÓN** derivada,
-  desechable y reconstruible con `proyectar_todo()`. Respeta la regla 2 y usa la excepción
-  documentada solo donde corresponde. Es también lo que permite **corregir 5 años de
-  percentiles** si un día cambia la tabla normativa, sin volver a escribir nada a mano.
-- Tablas: `pacientes` · `informes` · `mediciones` (**formato largo**, con `medidor` en la clave
-  para admitir un segundo operador sin `ALTER TABLE` — hace falta para reportar ICC) ·
-  `oclusion` · `hallazgos` · `ordenes` · `tamizajes` · `meta`.
-- **`pid` = seudónimo estable** `HMAC-SHA256(rut_limpio, salt)`. El RUT vive **solo** en
-  `pacientes`; todo lo demás lleva `pid`. Consecuencia que vale el diseño entero: *el export
-  para un estudio es "todo menos `pacientes`" y ya sale seudonimizado*.
-- ⚠️ **El texto libre no se proyecta** (`motivo_consulta`, `evaluacion_otros`, descripciones de
-  hallazgos propios): son los campos con más chance de traer datos identificantes y no son
-  analizables igual.
-- **Ya se empezó a acumular el dato que faltaba:** la casilla **«Sin tratamiento de ortodoncia
-  previo»** (`sin_tratamiento_previo`) está en el formulario desde hoy. Es criterio de
-  inclusión de Bishara y no se registraba; agregarla ahora evita tener que preguntarlo
-  retroactivamente.
-- **Falta además**, y no es código: el **protocolo de escaneo escrito** (Bishara mide la
-  cúspide MV y el FAIREST la mesiolingual, ~15 mm de diferencia — sin protocolo el n no vale)
-  y reproducibilidad entre examinadores con ICC.
+El Dr. Alberto quiere que estos datos se acumulen para estadística, estudios y referencia
+futura, y puso el listón: *"una buena base de datos permitiría después poder cruzar cualquier
+dato con cualquier dato"*. Conecta con la oportunidad anotada arriba: una **normativa chilena
+de anchos de arcada** con criterios de Bishara y un n de tres dígitos, que hoy no existe.
+
+**`admin/clinico.py` + `admin/basedatos.py`, sobre la MISMA base que la agenda.**
+
+##### El archivo: `kpi.db` → `clinica.db`
+
+`admin/basedatos.py` es el dueño del archivo (`DB_PATH`, `conectar()` y el renombre). Antes
+`kpi.py` tenía su `_conn()` privado y cualquier módulo nuevo habría escrito otro igual: dos
+módulos que *casualmente* abren el mismo archivo. Ahora es **una base con dos módulos encima**,
+que es lo que hace que un `JOIN` cruce un ancho de arcada con el destino de la primera consulta
+sin salir de SQL.
+
+El nombre no es cosmético: el archivo guarda el registro clínico, las mediciones y 5 años de
+agenda. `kpi.db` se lee como *"métricas, derivado, desechable"*, y eso invita a borrarlo.
+
+```
+CLINICA_DB_PATH  →  KPI_DB_PATH (compatibilidad)  →  <disco>/clinica.db
+```
+
+Con cualquiera de las dos variables seteada **no se renombra nada** (eso mantiene andando un
+Render que ya tenga `KPI_DB_PATH`, y `test_kpi.py`, que la fija antes de importar). Sin
+variable, al arrancar se renombra una vez.
+
+- ⚠️ **El `PRAGMA wal_checkpoint(TRUNCATE)` antes de mover NO es opcional.** En modo WAL los
+  cambios recientes viven en `kpi.db-wal` y SQLite solo los consolida al cerrar limpio; si
+  Render reinició a mitad de una escritura, mover solo el `.db` los deja atrás — y son los
+  últimos capturados. Hay una prueba que mata un proceso hijo para reproducirlo.
+- ⚠️ **Si el renombre falla se SIGUE USANDO EL ARCHIVO VIEJO.** Insistir con el nombre nuevo
+  crearía una base vacía al lado de los datos reales y el sistema arrancaría como si nunca
+  hubiera habido nada.
+- ⚠️ **`backup.py` lista los archivos por nombre, escrito a mano.** Se agregó `clinica.db*`
+  **conservando** `kpi.db*`. Sin eso la base dejaba de respaldarse **en silencio** — y es la
+  que tiene `disponibilidad`, la única tabla irrecuperable.
+- ⚠️ **`.gitignore`**: los dos nombres. El repo es PÚBLICO y el archivo tiene RUT.
+
+##### Tres decisiones que cambiaron respecto del diseño
+
+1. ⚠️ **No hay seudónimo `pid` ni salt: el RUT es la llave en todas las tablas.** Decisión
+   textual del usuario: *"no me molesta que rut esté en varios lados… el anonimizado lo hago
+   después, no me interesa que la base de datos sea anónima"*. No cierra la puerta: anonimizar
+   es una transformación **de salida**, no requiere guardar el seudónimo.
+2. **"El JSON es la fuente de verdad" era verdad a medias.** Es una **proyección** para todo lo
+   que tiene un JSON o una API detrás (informes, pacientes, agenda, tamizajes) y el **almacén
+   primario** para lo que no (`disponibilidad`, `snapshots`). Decir "es desechable" a secas
+   invita a borrarla, y es falso.
+3. **El alcance se amplió a todos los sistemas**, no solo al registro clínico (ver `eventos`).
+
+##### Las tres capas
+
+```
+pacientes     ← LA ESPINA: una fila por RUT visto en CUALQUIER fuente, aunque no
+                esté en patient_index.json (`en_indice=0`). Si solo se proyectara el
+                índice, cada cruce perdería en silencio a los pacientes que una
+                fuente conoce y la otra no — justo los casos raros que uno va a mirar.
+
+TIPADAS       citas · disponibilidad · ingresos · snapshots   (kpi.py, ya existían)
+              informes · mediciones · oclusion · hallazgos · ordenes · tamizajes
+
+ABIERTA       eventos: sistema · ref · rut · fecha · tipo · estado · datos (JSON)
+```
+
+**`eventos`** recibe los ocho sistemas que le hablan al paciente (consentimientos, NPS, control
+dental, recaptación, seguimiento de primeras consultas, fotos finales, seguros, reactivación),
+cada uno con un **adaptador de diez líneas** que reusa su función de listado. Así *"¿los que no
+firmaron consentimiento faltan más a sus citas?"* es un `JOIN` con `citas` por RUT, y
+`json_extract()` alcanza hasta el contenido de `datos`.
+
+- ⚠️ **Es deliberadamente laxa y tiene un límite honesto:** contesta bien *"¿le pasó esto a este
+  paciente, cuándo?"*. **No** es el lugar para analizar un sistema a fondo. Cuando uno lo
+  amerite, se le hacen tablas tipadas. Escribirlo evita que alguien construya un análisis serio
+  sobre `json_extract`.
+- ⚠️ Cada adaptador va en su **propio `try/except`**: un registro corrupto no puede dejar sin
+  proyección a los otros siete. Los errores se reportan en el panel, no se tragan.
+- ⚠️ **`ref` tiene que ser único por sistema.** Cuando el sistema no trae un id propio se usa un
+  correlativo; sin eso, dos avisos al mismo paciente colisionan en la PK y uno **desaparece en
+  silencio**. Hay una prueba.
+
+##### Ocho trampas del mapeo (cada una con su prueba)
+
+1. ⚠️ **`sin_tratamiento_previo` ausente ≠ `False`.** Se proyecta `NULL`. El campo se agregó
+   cuando ya había informes; proyectar 0 afirmaría que esos pacientes **sí** tuvieron
+   tratamiento previo — el criterio de inclusión de Bishara, invertido. **Por eso el formulario
+   pasó de casilla a tres opciones** (Sí / No / no consignado): una casilla desmarcada no
+   distingue "no tuvo" de "nadie preguntó", y la nota incluso decía *"si no se sabe, dejar sin
+   marcar"*.
+2. ⚠️ **`evaluacion` ausente ≠ lista vacía**: `informe_pc` la sustituye por
+   `EVALUACION_POR_DEFECTO`. Proyectar `[]` afirmaría que no se hizo nada en esa consulta.
+3. ⚠️ **Un ítem de tamizaje sin registrar no es negativo.** El puntaje se **traslada** desde
+   `stopbang.py`, no se recalcula: repetir el umbral en dos lados es como el panel y el papel
+   firmado terminan mostrando números distintos.
+4. ⚠️ **El percentil se calcula con la edad y el sexo DE ESE informe.** Usar los de hoy para un
+   informe de hace dos años da un percentil que ese paciente nunca tuvo.
+5. ⚠️ **La curva de Bishara es una sola y atraviesa el recambio**: `tramo` no filtra.
+6. ⚠️ **`imagenes` no viene del formulario**: solo se proyecta el conteo.
+7. ⚠️ **El PSQ del informe está congelado a propósito**: se proyecta tal cual, sin resolverlo
+   contra el registro vivo.
+8. ⚠️ **El informe casi nunca sabe de qué cita vino**: `id_agenda` está en **2 de 16** informes
+   reales. **El cruce informe ↔ agenda va por RUT y fecha.** Asumir lo contrario devuelve casi
+   nada y hace parecer que la base está vacía sin estarlo.
+
+##### Dos huecos de calidad que se registran, no se tapan
+
+- ⚠️ **El `sexo` puede ser una sugerencia que nadie confirmó**: el formulario lo pre-marca desde
+  el nombre (`genero.py`, 94,3 %) y el doctor puede no tocarlo. Como el percentil sale de una
+  tabla **distinta según el sexo**, un sexo errado da un número que se ve razonable y está mal.
+  El formulario marca `sexo_origen` = `declarado` (venía de la ficha) · `sugerido` (lo adivinó
+  la regla y nadie lo tocó) · `confirmado` (una persona eligió en el selector), y el filtro
+  «Solo sexo confirmado» acepta los dos primeros.
+  > 🔧 **Corregido en la revisión del mismo día.** La primera versión guardaba siempre el mismo
+  > valor —o sea la columna no informaba nada— y el filtro solo comprobaba que el campo no
+  > estuviera **vacío**. Un sexo sugerido está lleno, así que pasaba el filtro: el rótulo
+  > prometía justo la garantía que no daba. Un informe anterior al campo queda en
+  > `desconocido`, **nunca en `confirmado`**: suponer que alguien lo revisó es el error que el
+  > campo existe para evitar.
+- ⚠️ **`medidor` puede venir vacío** (informe abierto sin cita). El medidor **es el doctor de la
+  cita**, decisión del usuario: *"el doctor que lo mide es con quien tiene la cita el
+  paciente"*. Se proyecta vacío, nunca se adivina.
+
+##### Cómo se alimenta
+
+- **Reconstrucción completa diaria** (`proyectar_todo()`) en `_loop_kpi_cosecha`, a las 03:20,
+  ⚠️ **FUERA del `if cfg['dentidesk']['enabled']`**: la proyección se alimenta solo de archivos
+  locales y colgarla de esa condición la dejaría sin correr —en silencio— por una razón ajena.
+  > 🔧 **Y casi no corre por otra razón.** La bandera `ya_proyecto = None` quedó, por un
+  > reemplazo mal apuntado, dentro de **otra función**. Python la trataba como local de
+  > `_loop_kpi_cosecha` (se le asigna ahí), así que leerla lanzaba `UnboundLocalError`… que el
+  > `except Exception` del loop —correcto, para que un fallo no mate el hilo— se tragaba
+  > imprimiendo una línea. La proyección **no habría corrido nunca** y nada se habría visto
+  > roto. Por eso existe ahora **`test_loops.py`**: recorre las 16 funciones `_loop_*` con AST
+  > y falla si alguna lee una variable local antes de asignarla. Ninguna de las 986 pruebas lo
+  > detectaba, porque ninguna ejecuta los hilos del scheduler.
+- **Todo el rebuild en UNA transacción**, para que nadie alcance a ver las tablas a medio llenar.
+- **Frescura donde se mira**: `/estado` y `/muestra` comparan un sello (cuántos informes y el
+  `actualizado` más nuevo) contra `meta`; si el registro cambió, proyectan antes de responder.
+- ⚠️ **NO se proyecta desde el endpoint que guarda el informe**: sería meter una escritura a
+  SQLite dentro del guardado de datos clínicos, con el paciente en el sillón, para adelantar
+  algo que las dos vías de arriba ya cubren.
+- ⚠️ **Los `INSERT` nombran sus columnas.** Un `INSERT INTO t VALUES (?,?)` posicional se rompe
+  el día que `_migrar()` agregue una columna — y `_migrar()` existe para eso. El error
+  ("table has N columns but M values were supplied") **no se manifiesta en una base nueva**,
+  solo en la de producción. Es la misma trampa que el orden `CREATE INDEX` / migraciones.
+
+##### El contador de muestra
+
+`clinico.muestra(filtros)` — cuánto hay acumulado para la normativa propia. **No lleva el
+criterio de Bishara cableado**: pedido textual del usuario, *"guarda todo, pero para después se
+pueda elegir criterios de normalidad con filtros"*. Filtros combinables: tratamiento previo
+(4 estados) · clase molar y canina (selección múltiple I/II/III) · sexo · edad · medida ·
+arcada · solo sexo confirmado · solo con medidor.
+
+- ⚠️ **La celda se agrupa por MEDICIÓN además de sexo y edad.**
+  > 🔧 **Corregido en la revisión del mismo día.** Sin la medición en la llave, un ancho
+  > intermolar (45 mm) y un resalte (3 mm) del mismo paciente caían en la misma celda y su
+  > promedio daba **24 mm**: un número que se ve como un ancho de arcada plausible y no
+  > significa nada. La tabla normativa de Bishara también está indexada por medida × arcada ×
+  > sexo × edad. La tabla del panel muestra la columna «Medición» por lo mismo: una media sin
+  > decir de qué es, no se puede leer.
+- ⚠️ **Dos conteos, no uno: mediciones y pacientes distintos.** Un paciente con tres informes
+  aporta tres mediciones de la **misma boca**. Bishara midió a los mismos 30 sujetos
+  repetidamente, así que repetir es legítimo — pero un solo total infla la muestra.
+- ⚠️ **No se emite media ni DE bajo `MIN_CASOS_CELDA` (5) pacientes por celda.** Una media de
+  dos pacientes presentada igual que una de treinta se ve sólida y no lo es.
+- ⚠️ **El filtro de clase exige AMBOS lados** (con opción de "algún lado"). Un caso Clase I a la
+  derecha y Clase II a la izquierda **no es Clase I**: Angle lo llama subdivisión, y meterlo en
+  la muestra la contamina. Verificado en vivo con los datos reales: Clase I "ambos lados" da 0
+  y "algún lado" da 5.
+- ⚠️ **Los cuartos de cúspide no se informan como medición**: no están en ningún índice validado
+  ni tienen datos de reproducibilidad entre examinadores.
+
+##### Endpoints y panel
+
+`GET /api/clinico/estado` · `POST /api/clinico/proyectar` · `GET /api/clinico/muestra` ·
+`GET /api/clinico/export.csv` — todos con `ADMIN_TOKEN` (regla 4). Panel: pestaña
+**"🔬 Investigación"** (patrón remoto, claves compartidas `stats_url`/`stats_token`, regla 7),
+con el estado, la calidad del dato dicha de frente, el contador con filtros y el CSV.
+
+⚠️ **El export NO trae opción "anónimo", y es deliberado.** Cambiar el RUT por un hash dejaría
+igual la fecha, la edad, la comuna y el sexo: en una clínica de 4.000 pacientes esa combinación
+identifica a una persona. Un botón rotulado "anónimo" que no lo es invita a mandar el archivo
+por correo. Anonimizar de verdad es trabajo propio, para cuando haya un estudio concreto.
+
+**Pruebas:** `test_clinico.py` (33) + `test_basedatos.py` (11) + `test_loops.py` (3), cero
+red. ⚠️ Entre ellas, una que siembra los **ocho registros con su forma real**: en el
+entorno de desarrollo ninguno existe, así que la proyección daba `eventos: 0` con
+`errores: {}` y eso parecía correcto sin probar nada — un adaptador que leyera la clave
+equivocada habría dado el mismo resultado.
+
+##### Lo que esta base NUNCA va a tener
+
+La ficha clínica real vive en DentiDesk, que solo expone 6 endpoints de agenda. Acá hay agenda,
+informes, tamizajes y el rastro de los avisos. **No** el odontograma, **no** las evoluciones,
+**no** las radiografías. Decirlo importa: una consulta que asume un dato que no está da un
+resultado sesgado sin avisar.
+
+##### Falta, y no es código
+
+- El **protocolo de medición escrito**: Bishara mide sobre la **cúspide mesiovestibular** y la
+  lámina del FAIREST usa la mesiolingual, ~15 mm más adentro. Sin protocolo el n no vale para
+  nada publicable. Y desde el 2026-09-10 se mide **con pie de metro directo en boca**, no con
+  escáner, así que se suma la reproducibilidad entre operadores (ICC).
 - ⚠️ **Ley 21.719** (plena vigencia 1-dic-2026): los datos de salud son sensibles y el uso para
   **investigación es otra finalidad** que la asistencial. Hacen falta una línea en el
-  consentimiento que cubra el uso anonimizado para investigación, y `privacidad.html`
-  declarando la base y su finalidad. **Seudonimizado no es anónimo**: para publicar hay que
-  agregar o re-etiquetar sin guardar el mapeo.
+  consentimiento y declararlo en `privacidad.html`. **Seudonimizado no es anónimo**: para
+  publicar hay que agregar, o re-etiquetar sin guardar el mapeo.
 
 ### Pendientes
 
@@ -2950,7 +3128,8 @@ los criterios de Bishara y un n de tres dígitos, que hoy no existe. El diseño 
   `content.js` **no viajan por Render**). Ahora incluye el botón «🗂 Informes anteriores»;
   la funcionalidad está completa sin la extensión (pestaña del panel y `?modo=buscar`), el
   botón es un atajo.
-- Aprobar y construir la **base de datos clínica** diseñada más arriba.
+- ~~Aprobar y construir la **base de datos clínica**~~ — **hecha el 2026-09-10**, ver la
+  sección *Base de datos clínica — CONSTRUIDA* más arriba.
 - Fase 2: fotos intraorales al registro, reverso educativo fijo.
 - Fase 3: encuesta NPS para primeras consultas (`nps.clasificar_disparo()` hoy devuelve
   `None` para ese motivo) y comparar contra la línea base a los 3 meses.
@@ -3160,7 +3339,9 @@ pasado. El informe de julio midió cosas importantes (pipeline de nuevos cayendo
 conversión plana en 39,2%) y quedaron **congeladas en un .md**. `admin/kpi.py` es el
 almacén que faltaba: una copia local de la agenda que se alimenta sola.
 
-**Módulo:** `admin/kpi.py` + **SQLite** `kpi.db` (env `KPI_DB_PATH`, disco persistente,
+**Módulo:** `admin/kpi.py` + **SQLite `clinica.db`** (se llamaba `kpi.db` hasta el
+2026-09-10; la ruta la resuelve `admin/basedatos.py` y `KPI_DB_PATH` se sigue
+respetando — ver *Base de datos clínica — CONSTRUIDA*. Disco persistente,
 **gitignored** — tiene RUT). Es la misma excepción a la regla 2 que `compras.py`: son
 ~90.000 filas con `GROUP BY` por mes/doctor/motivo, no un documento JSON.
 Molde de `compras.py`, incluidos los `CREATE INDEX` **después** de `_migrar()`.

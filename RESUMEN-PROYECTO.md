@@ -154,7 +154,12 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
 - `consentimientos.py` (+ `consentimiento.html`, `drive_backup.py`) — firma digital.
 - `seguros.py` (+ `seguros_secretaria.html`, `seguros_seed/`) — formularios de reembolso.
 - `compras.py` (+ `compras.html/js`, `print_agent.py`) — compras/stock (SQLite).
-- `kpi.py` — **datamart de KPIs** (SQLite `kpi.db`, gitignored: tiene RUT). Copia local de
+- `basedatos.py` — dueño del archivo **`clinica.db`** (gitignored: tiene RUT y datos de
+  salud). Se llamaba `kpi.db` hasta el 2026-09-10 y el renombre es automático.
+- `clinico.py` — **capa clínica y de eventos** sobre esa misma base: proyecta los informes
+  de evaluación, las mediciones y los otros 8 sistemas, para poder cruzar cualquier dato
+  con cualquier otro. Trae el contador de muestra de la normativa propia de Bishara.
+- `kpi.py` — **datamart de KPIs** (sobre `clinica.db`). Copia local de
   la agenda + las consultas que la convierten en indicadores. Cero red al consultar.
   Segunda excepción legítima a la regla del JSON, igual que `compras.py`.
 - `panel.html` — panel admin (pestañas; las "remotas" hablan directo a Render con ADMIN_TOKEN).

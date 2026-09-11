@@ -58,6 +58,7 @@ from pathlib import Path
 from datetime import date, timedelta
 
 import fechas            # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
+import basedatos         # dueno del archivo de base de datos (clinica.db) y de su renombre.
 import control_dental    # clasificar_motivo / _normalizar — no se duplica la tabla de motivos.
 
 log = logging.getLogger(__name__)
@@ -68,9 +69,11 @@ def ahora_cl():
     return fechas.ahora_chile_aware()
 
 
-_BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
-                                Path(__file__).parent / 'patient_index.json')).parent
-DB_PATH = Path(os.environ.get('KPI_DB_PATH', _BASE_DIR / 'kpi.db'))
+# La ruta del archivo la resuelve basedatos.py, que ademas renombra el antiguo
+# kpi.db a clinica.db la primera vez (ver su docstring). Este modulo conserva
+# DB_PATH como global propia porque _conn() la lee en cada llamada y las pruebas
+# la reasignan en caliente para apuntar a una base virgen.
+DB_PATH = basedatos.DB_PATH
 
 _normalizar = control_dental._normalizar
 

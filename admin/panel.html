@@ -105,6 +105,7 @@
     <a onclick="show('faq')" id="nav-faq"><i class="fa fa-question-circle"></i> FAQ</a>
     <a onclick="show('agenda')" id="nav-agenda"><i class="fa fa-calendar-check"></i> Agenda online</a>
     <a onclick="show('kpi')" id="nav-kpi"><i class="fa fa-gauge-high"></i> KPIs</a>
+    <a onclick="show('clinico')" id="nav-clinico"><i class="fa fa-microscope"></i> Investigación</a>
     <a onclick="show('estadisticas')" id="nav-estadisticas"><i class="fa fa-chart-column"></i> Estadísticas</a>
     <a onclick="show('consentimientos')" id="nav-consentimientos"><i class="fa fa-file-signature"></i> Consentimientos</a>
     <a onclick="show('whatsapp')" id="nav-whatsapp"><i class="fab fa-whatsapp"></i> WhatsApp</a>
@@ -499,6 +500,124 @@
           </div>
         </div>
         <div id="kpi-mant-msg" style="margin-top:12px;font-size:.82rem"></div>
+      </div>
+    </div>
+
+    <!-- ── INVESTIGACIÓN / BASE CLÍNICA ─────────────────────── -->
+    <div class="section" id="sec-clinico">
+      <h2>Base clínica e investigación</h2>
+      <p class="desc">Los informes de evaluación proyectados sobre la <strong>misma base que la
+        agenda</strong>, para poder cruzar cualquier dato con cualquier otro. El contador de
+        muestra dice cuánto hay acumulado para construir una <strong>normativa chilena propia
+        de anchos de arcada</strong>, que hoy no existe.</p>
+
+      <div class="card" id="clinico-config" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="clinico-url" value="https://ortodonciarichard.onrender.com"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="clinico-token" type="password" placeholder="ADMIN_TOKEN"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <button class="btn btn-primary" onclick="loadClinico()">Conectar</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Estado de la base</h3>
+        <div id="clinico-estado">Conecta para ver el estado.</div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="clinicoProyectar()">🔄 Proyectar ahora</button>
+        </div>
+        <div id="clinico-msg" style="margin-top:10px;font-size:.82rem"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:6px">Contador de muestra</h3>
+        <p class="desc" style="margin-bottom:12px">Filtra por los criterios que quieras usar el
+          día que haya que publicar. No hay ningún criterio fijo en el sistema: se guarda todo
+          y se elige acá.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:.82rem;color:#4A5568">Medida</label><br>
+            <select id="cl-medida" onchange="clinicoMuestra()"
+                    style="padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+              <option value="">Todas</option>
+              <option value="intercanino">Intercanino</option>
+              <option value="intermolar" selected>Intermolar</option></select></div>
+          <div><label style="font-size:.82rem;color:#4A5568">Arcada</label><br>
+            <select id="cl-arcada" onchange="clinicoMuestra()"
+                    style="padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+              <option value="">Ambas</option>
+              <option value="maxilar" selected>Maxilar</option>
+              <option value="mandibular">Mandibular</option></select></div>
+          <div><label style="font-size:.82rem;color:#4A5568">Tratamiento previo</label><br>
+            <select id="cl-trat" onchange="clinicoMuestra()"
+                    style="padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+              <option value="todos">Todos</option>
+              <option value="sin">Sin tratamiento previo</option>
+              <option value="con">Con tratamiento previo</option>
+              <option value="sin_dato">No consignado</option></select></div>
+          <div><label style="font-size:.82rem;color:#4A5568">Sexo</label><br>
+            <select id="cl-sexo" onchange="clinicoMuestra()"
+                    style="padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+              <option value="">Ambos</option>
+              <option value="F">Femenino</option>
+              <option value="M">Masculino</option></select></div>
+          <div><label style="font-size:.82rem;color:#4A5568">Edad</label><br>
+            <input type="number" id="cl-edad-min" placeholder="min" onchange="clinicoMuestra()"
+                   style="width:70px;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+            <input type="number" id="cl-edad-max" placeholder="max" onchange="clinicoMuestra()"
+                   style="width:70px;padding:9px;border:1px solid #e2e8f0;border-radius:8px"></div>
+        </div>
+
+        <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:22px">
+          <div>
+            <label style="font-size:.82rem;color:#4A5568;display:block">Clase molar</label>
+            <label class="nota"><input type="checkbox" class="cl-molar" value="I"
+                   onchange="clinicoMuestra()"> I</label>
+            <label class="nota"><input type="checkbox" class="cl-molar" value="II"
+                   onchange="clinicoMuestra()"> II</label>
+            <label class="nota"><input type="checkbox" class="cl-molar" value="III"
+                   onchange="clinicoMuestra()"> III</label>
+          </div>
+          <div>
+            <label style="font-size:.82rem;color:#4A5568;display:block">Clase canina</label>
+            <label class="nota"><input type="checkbox" class="cl-canina" value="I"
+                   onchange="clinicoMuestra()"> I</label>
+            <label class="nota"><input type="checkbox" class="cl-canina" value="II"
+                   onchange="clinicoMuestra()"> II</label>
+            <label class="nota"><input type="checkbox" class="cl-canina" value="III"
+                   onchange="clinicoMuestra()"> III</label>
+          </div>
+          <div>
+            <label style="font-size:.82rem;color:#4A5568;display:block">Exigir la clase en</label>
+            <select id="cl-lados" onchange="clinicoMuestra()"
+                    style="padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+              <option value="ambos">Los dos lados</option>
+              <option value="alguno">Algún lado</option></select>
+          </div>
+          <div>
+            <label style="font-size:.82rem;color:#4A5568;display:block">Calidad del dato</label>
+            <label class="nota" title="Excluye el sexo que adivinó la regla del nombre y que nadie revisó, y los informes anteriores a que se registrara su origen."><input type="checkbox" id="cl-sexo-conf"
+                   onchange="clinicoMuestra()"> Solo sexo confirmado</label><br>
+            <label class="nota"><input type="checkbox" id="cl-medidor"
+                   onchange="clinicoMuestra()"> Solo con medidor conocido</label>
+          </div>
+        </div>
+
+        <div id="clinico-muestra" style="margin-top:16px">Conecta para ver la muestra.</div>
+
+        <div style="margin-top:14px">
+          <button class="btn btn-sm" onclick="clinicoExport()">⬇️ Descargar CSV</button>
+          <span class="nota" style="font-size:8pt;margin-left:8px">⚠️ El archivo lleva RUT:
+            son datos de pacientes. No hay versión «anónima» porque no lo sería — la fecha, la
+            edad y la comuna juntas identifican a una persona en una clínica de este tamaño.</span>
+        </div>
       </div>
     </div>
 
@@ -1699,6 +1818,7 @@ function show(sec) {
   if (sec === 'cv') loadCV();
   if (sec === 'agenda') { loadAgenda(); initPacienteEstado(); }
   if (sec === 'kpi') initKpi();
+  if (sec === 'clinico') initClinico();
   if (sec === 'estadisticas') initStats();
   if (sec === 'consentimientos') initConsentimientos();
   if (sec === 'whatsapp') initWhatsapp();
@@ -1889,6 +2009,163 @@ async function pePonerMotivo(i, btn) {
 function initKpi() {
   if (!document.getElementById('kpi-desde').value) kpiRango(12);
   remotoInit('kpi-url', 'kpi-token', loadKpi);
+}
+
+// ══════════════════════════════════════════════════════
+// INVESTIGACIÓN / BASE CLÍNICA (clinico.py)
+// ══════════════════════════════════════════════════════
+// Patrón remoto de siempre y las claves COMPARTIDAS stats_url/stats_token:
+// una pestaña con sus propias claves hace que cambiar el token en Estadísticas
+// no surta efecto acá, y parece que el token no sirve.
+
+function initClinico() { remotoInit('clinico-url', 'clinico-token', loadClinico); }
+
+async function _clFetch(path, opciones) {
+  const r = await remotoFetch('clinico-url', 'clinico-token', path, opciones);
+  if (r.status === 403) throw new Error('Token inválido (403)');
+  const txt = await r.text();
+  try { return JSON.parse(txt); }
+  catch (e) { throw new Error(`${path} respondió ${r.status} y no fue JSON.`); }
+}
+
+function _clFiltros() {
+  const marcadas = (clase) => [...document.querySelectorAll('.' + clase)]
+    .filter(c => c.checked).map(c => c.value);
+  const p = new URLSearchParams();
+  const set = (k, v) => { if (v) p.set(k, v); };
+  set('medida', document.getElementById('cl-medida').value);
+  set('arcada', document.getElementById('cl-arcada').value);
+  set('tratamiento_previo', document.getElementById('cl-trat').value);
+  set('sexo', document.getElementById('cl-sexo').value);
+  set('edad_min', document.getElementById('cl-edad-min').value);
+  set('edad_max', document.getElementById('cl-edad-max').value);
+  set('lados', document.getElementById('cl-lados').value);
+  const mol = marcadas('cl-molar'), can = marcadas('cl-canina');
+  if (mol.length) p.set('clase_molar', mol.join(','));
+  if (can.length) p.set('clase_canina', can.join(','));
+  if (document.getElementById('cl-sexo-conf').checked) p.set('solo_sexo_confirmado', '1');
+  if (document.getElementById('cl-medidor').checked) p.set('solo_con_medidor', '1');
+  return p.toString();
+}
+
+async function loadClinico() {
+  localStorage.setItem('stats_token', remotoToken('clinico-token'));
+  localStorage.setItem('stats_url', remotoUrl('clinico-url'));
+  const caja = document.getElementById('clinico-estado');
+  caja.textContent = 'Cargando…';
+  try {
+    const d = await _clFetch('/api/clinico/estado');
+    caja.innerHTML = _clinicoEstadoHtml(d.estado);
+    clinicoMuestra();
+  } catch (e) {
+    caja.innerHTML = `<span style="color:#c53030">${_esc(e.message)}</span>`;
+  }
+}
+
+function _clinicoEstadoHtml(e) {
+  const c = e.conteos, q = e.calidad;
+  const tile = (n, l) => `<div style="min-width:104px"><div style="font-size:1.4rem;
+      font-weight:700;color:#1A2E4A">${n}</div>
+      <div style="font-size:.76rem;color:#4A5568">${l}</div></div>`;
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:12px">
+    ${tile(c.informes, 'informes')}${tile(c.mediciones, 'mediciones')}
+    ${tile(c.oclusion, 'relaciones')}${tile(c.hallazgos, 'hallazgos')}
+    ${tile(c.tamizajes, 'tamizajes')}${tile(c.eventos, 'eventos')}
+    ${tile(c.pacientes, 'pacientes')}</div>`;
+  html += `<p class="nota">Última proyección: ${_esc(e.ultima_proyeccion || '—')}
+      ${e.al_dia ? '· al día' : '· <strong>hay informes sin proyectar</strong>'}</p>`;
+
+  // La calidad se muestra de frente: es lo que limita lo que se puede preguntar.
+  // Un dato que falta y se sabe cuál es, se puede completar; uno que falta en
+  // silencio sesga el resultado sin avisar.
+  const lim = [];
+  if (q.informes_sin_edad) lim.push(`${q.informes_sin_edad} sin edad (no tienen percentil)`);
+  if (q.informes_sin_sexo) lim.push(`${q.informes_sin_sexo} sin sexo (no tienen percentil)`);
+  if (q.informes_sin_medidor) lim.push(`${q.informes_sin_medidor} sin medidor`);
+  if (q.informes_sin_tratamiento_previo)
+    lim.push(`${q.informes_sin_tratamiento_previo} sin consignar tratamiento previo`);
+  if (lim.length) html += `<p class="nota" style="color:#975a16">⚠️ ${_esc(lim.join(' · '))}</p>`;
+  html += `<p class="nota">${q.pacientes_que_cruzan_con_la_agenda} de
+      ${q.pacientes_con_informe} pacientes con informe cruzan con la agenda por RUT.</p>`;
+  if (Object.keys(e.errores_adaptadores || {}).length) {
+    html += `<p class="nota" style="color:#c53030">⚠️ Sistemas que no se pudieron leer:
+      ${_esc(Object.keys(e.errores_adaptadores).join(', '))}</p>`;
+  }
+  return html;
+}
+
+async function clinicoMuestra() {
+  const caja = document.getElementById('clinico-muestra');
+  if (!remotoToken('clinico-token')) return;
+  caja.textContent = 'Cargando…';
+  try {
+    const d = await _clFetch('/api/clinico/muestra?' + _clFiltros());
+    const m = d.muestra;
+    let html = `<div style="display:flex;gap:26px;margin-bottom:10px">
+      <div><div style="font-size:1.6rem;font-weight:700;color:#1A2E4A">${m.mediciones}</div>
+        <div style="font-size:.76rem;color:#4A5568">mediciones</div></div>
+      <div><div style="font-size:1.6rem;font-weight:700;color:#C9A84C">${m.pacientes}</div>
+        <div style="font-size:.76rem;color:#4A5568">pacientes distintos</div></div></div>`;
+    if (!m.celdas.length) {
+      html += '<p class="nota">Ninguna medición calza con estos filtros.</p>';
+    } else {
+      html += `<table style="width:100%;border-collapse:collapse;font-size:.84rem">
+        <tr style="text-align:left;border-bottom:1px solid #e2e8f0">
+          <th style="padding:6px 4px">Medición</th><th>Sexo</th><th>Edad</th>
+          <th>Mediciones</th><th>Pacientes</th><th>Media (mm)</th><th>DE</th></tr>`;
+      for (const c of m.celdas) {
+        const falta = !c.suficiente;
+        html += `<tr style="border-bottom:1px solid #f1f5f9${falta ? ';color:#718096' : ''}">
+          <td style="padding:6px 4px">${_esc(c.etiqueta || c.clave)}</td>
+          <td>${_esc(c.sexo || '—')}</td>
+          <td>${c.edad_desde}–${c.edad_hasta}</td>
+          <td>${c.mediciones}</td><td>${c.pacientes}</td>
+          <td>${c.media == null ? '—' : c.media}</td>
+          <td>${c.de == null ? '—' : c.de}</td></tr>`;
+      }
+      html += '</table>';
+    }
+    html += `<p class="nota" style="margin-top:8px">${_esc(m.nota)}</p>`;
+    caja.innerHTML = html;
+  } catch (e) {
+    caja.innerHTML = `<span style="color:#c53030">${_esc(e.message)}</span>`;
+  }
+}
+
+async function clinicoProyectar() {
+  const msg = document.getElementById('clinico-msg');
+  msg.textContent = 'Proyectando…';
+  try {
+    const d = await _clFetch('/api/clinico/proyectar', { method: 'POST' });
+    msg.innerHTML = d.ok
+      ? `<span style="color:#2f855a">✅ ${d.informes} informes, ${d.mediciones} mediciones,
+         ${d.eventos} eventos.</span>`
+      : `<span style="color:#c53030">${_esc(d.error || 'falló')}</span>`;
+    loadClinico();
+  } catch (e) {
+    msg.innerHTML = `<span style="color:#c53030">${_esc(e.message)}</span>`;
+  }
+}
+
+// El CSV necesita el header del token, así que no sirve un <a href>: se baja
+// con fetch y se entrega como blob.
+async function clinicoExport() {
+  const msg = document.getElementById('clinico-msg');
+  msg.textContent = 'Generando CSV…';
+  try {
+    const r = await remotoFetch('clinico-url', 'clinico-token',
+                                '/api/clinico/export.csv?' + _clFiltros());
+    if (!r.ok) throw new Error('El backend respondió ' + r.status);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'mediciones.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    msg.innerHTML = '<span style="color:#2f855a">✅ CSV descargado.</span>';
+  } catch (e) {
+    msg.innerHTML = `<span style="color:#c53030">${_esc(e.message)}</span>`;
+  }
 }
 function _kpiUrl()   { return remotoUrl('kpi-url'); }
 async function _kpiFetch(path) {

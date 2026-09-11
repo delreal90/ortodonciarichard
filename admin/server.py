@@ -718,6 +718,7 @@ import seguimiento_pc
 import reactivacion
 import reporte_semanal
 import kpi              # datamart de KPIs (copia local de la agenda), ver kpi.py
+import clinico          # capa clinica y de eventos sobre la MISMA base, ver clinico.py
 import backup
 from datetime import date, datetime, timedelta
 
@@ -5991,6 +5992,14 @@ try:
 except Exception as _e:
     print('[kpi] init_db error:', _e)
 
+# Las tablas clinicas viven en el MISMO archivo que las de kpi (clinica.db): es
+# lo que permite que un JOIN cruce un ancho de arcada con el destino de la
+# primera consulta sin salir de SQL. Idempotente, igual que la de arriba.
+try:
+    clinico.init_db()
+except Exception as _e:
+    print('[clinico] init_db error:', _e)
+
 
 def _kpi_rango():
     """(desde, hasta, doctor) de los query params. Sin fechas: el mes en curso.
@@ -6190,6 +6199,124 @@ def kpi_reclasificar():
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     return jsonify(kpi.reclasificar(scheduling.load_config()))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BASE CLINICA / INVESTIGACION  (modulo clinico.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# La proyeccion del registro clinico y del resto de los sistemas sobre la misma
+# base que la agenda, para poder cruzar cualquier dato con cualquier otro.
+#
+# Todo lo que sirven estas rutas es DERIVADO: la fuente de verdad sigue siendo
+# el JSON de cada modulo. Por eso `proyectar` se puede correr las veces que sea.
+
+def _clinico_filtros():
+    """Los filtros del contador de muestra, desde la query string.
+
+    Las clases vienen como lista repetida o separadas por coma
+    (?clase_molar=I&clase_molar=II  o  ?clase_molar=I,II).
+    """
+    def _lista(nombre):
+        crudo = request.args.getlist(nombre) or []
+        vals = []
+        for c in crudo:
+            vals += [x.strip().upper() for x in c.split(',') if x.strip()]
+        return [v for v in vals if v in clinico.CLASES]
+
+    def _num(nombre):
+        v = (request.args.get(nombre) or '').strip()
+        if not v:
+            return None
+        try:
+            return float(v)
+        except ValueError:
+            return None
+
+    trat = (request.args.get('tratamiento_previo') or 'todos').strip()
+    return {
+        'tratamiento_previo': trat if trat in clinico.TRAT_PREVIO else 'todos',
+        'clase_molar': _lista('clase_molar'),
+        'clase_canina': _lista('clase_canina'),
+        'lados': 'alguno' if (request.args.get('lados') == 'alguno') else 'ambos',
+        'sexo': (request.args.get('sexo') or '').strip().upper()[:1],
+        'edad_min': _num('edad_min'),
+        'edad_max': _num('edad_max'),
+        'medida': (request.args.get('medida') or '').strip(),
+        'arcada': (request.args.get('arcada') or '').strip(),
+        'solo_sexo_confirmado': request.args.get('solo_sexo_confirmado') == '1',
+        'solo_con_medidor': request.args.get('solo_con_medidor') == '1',
+    }
+
+
+@app.route('/api/clinico/estado', methods=['GET'])
+def clinico_estado():
+    """Que hay proyectado, cuando fue la ultima vez y que limita los datos."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    # Reproyecta solo si el registro cambio, para que el panel muestre al
+    # paciente de hoy. No se hace al guardar el informe: ahi no puede haber una
+    # escritura a SQLite de por medio.
+    try:
+        clinico.proyectar_si_hace_falta()
+    except Exception as e:
+        log.warning('[clinico] proyeccion al vuelo fallo: %r', e)
+    return jsonify({'ok': True, 'estado': clinico.estado()})
+
+
+@app.route('/api/clinico/proyectar', methods=['POST'])
+def clinico_proyectar():
+    """Reconstruye las tablas clinicas desde los JSON. Cero red, idempotente."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        return jsonify(clinico.proyectar_todo())
+    except Exception as e:
+        log.warning('[clinico] proyectar fallo: %r', e)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/clinico/muestra', methods=['GET'])
+def clinico_muestra():
+    """El contador de muestra para la normativa propia de anchos de arcada."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        clinico.proyectar_si_hace_falta()
+    except Exception as e:
+        log.warning('[clinico] proyeccion al vuelo fallo: %r', e)
+    return jsonify({'ok': True, 'muestra': clinico.muestra(_clinico_filtros())})
+
+
+@app.route('/api/clinico/export.csv', methods=['GET'])
+def clinico_export():
+    """Las mediciones en filas planas, para analizarlas fuera.
+
+    ⚠️ El archivo LLEVA RUT y no existe un modo "anonimo" a proposito: cambiar
+    el RUT por un hash dejaria igual la fecha, la edad, la comuna y el sexo, y
+    en una clinica de 4.000 pacientes esa combinacion identifica a una persona.
+    Un boton rotulado "anonimo" que no lo es invita a mandar el archivo por
+    correo. Anonimizar de verdad (agregar, o re-etiquetar sin guardar el mapeo)
+    es un trabajo propio, para cuando haya un estudio concreto.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import csv
+    import io as _io
+    try:
+        clinico.proyectar_si_hace_falta()
+    except Exception as e:
+        log.warning('[clinico] proyeccion al vuelo fallo: %r', e)
+    filas = clinico.filas_export(_clinico_filtros())
+    buf = _io.StringIO()
+    campos = list(filas[0].keys()) if filas else ['rut', 'fecha', 'clave', 'valor_mm']
+    w = csv.DictWriter(buf, fieldnames=campos, extrasaction='ignore')
+    w.writeheader()
+    w.writerows(filas)
+    return app.response_class(
+        buf.getvalue(), mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition':
+                 'attachment; filename="mediciones-%s.csv"' % fechas.hoy_chile()})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -7554,6 +7681,9 @@ def _loop_seguimiento_pc():
 # con igualdad exacta ese dia no se cosecharia nada y nadie se enteraria.
 _KPI_HORA = '03:00'
 _KPI_LIMITE = '17:00'
+# La proyeccion clinica va unos minutos despues de la cosecha, para que el
+# barrido del dia ya este guardado cuando se reconstruyan las tablas.
+_CLINICO_HORA = '03:20'
 
 
 def _loop_kpi_cosecha():
@@ -7570,6 +7700,8 @@ def _loop_kpi_cosecha():
     si no se captura hoy, se pierde para siempre."""
     import time
     ya_corrio = None
+    ya_proyecto = None      # ⚠️ sin esto, la linea que la compara lanza
+                            # UnboundLocalError y la proyeccion NO corre nunca.
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
@@ -7588,6 +7720,17 @@ def _loop_kpi_cosecha():
                     # La disponibilidad es un extra: si falla, la cosecha de citas
                     # (que es lo importante) ya quedo guardada.
                     print('[kpi-disponibilidad] error:', e)
+
+            # ⚠️ FUERA del `if dentidesk.enabled` de arriba, y no es un detalle:
+            # la proyeccion clinica se alimenta SOLO de los JSON locales y no
+            # toca la red. Colgarla de esa condicion la dejaria sin correr —en
+            # silencio— por una razon que no tiene nada que ver con ella.
+            if _CLINICO_HORA <= slot < _KPI_LIMITE and ya_proyecto != ahora.date():
+                ya_proyecto = ahora.date()
+                try:
+                    print('[clinico-proyeccion]', slot, clinico.proyectar_todo())
+                except Exception as e:
+                    print('[clinico-proyeccion] error:', e)
         except Exception as e:
             print('[kpi-cosecha] error:', e)
         time.sleep(40)

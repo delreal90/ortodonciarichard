@@ -80,12 +80,19 @@ def archivos_a_respaldar(base_dir=None):
             out.append((p, p.name))
     # Bases SQLite (+ WAL/SHM si estan).
     #
-    # kpi.db no es solo un cache reconstruible: las citas se pueden volver a barrer
-    # de DentiDesk con kpi.backfill(), pero la tabla `disponibilidad` NO —
+    # clinica.db no es solo un cache reconstruible: las citas se pueden volver a
+    # barrer de DentiDesk con kpi.backfill(), pero la tabla `disponibilidad` NO —
     # getAvailableHours solo responde por dias FUTUROS, asi que los minutos libres de
     # un dia que ya paso no se pueden recuperar de ninguna parte. Sin este respaldo,
     # perder el disco de Render borra para siempre el denominador de la ocupacion.
+    #
+    # ⚠️ Esta lista va escrita a mano, asi que un archivo que cambie de nombre y no
+    # se agregue aca deja de respaldarse EN SILENCIO. `kpi.db` se renombro a
+    # `clinica.db` (ver basedatos.py) y los dos nombres se mantienen: si un disco
+    # quedo a medio migrar —o alguien tiene KPI_DB_PATH seteada, que impide el
+    # renombre— igual se respalda lo que haya.
     for nombre in ('compras.db', 'compras.db-wal', 'compras.db-shm',
+                   'clinica.db', 'clinica.db-wal', 'clinica.db-shm',
                    'kpi.db', 'kpi.db-wal', 'kpi.db-shm'):
         p = base / nombre
         if p.exists():

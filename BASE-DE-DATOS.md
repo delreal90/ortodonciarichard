@@ -1,9 +1,13 @@
-# Base de datos de Ortodoncia Richard — documento de traspaso
+# Base de datos de Ortodoncia Richard — inventario
 
-> **Para qué existe este archivo:** el Dr. Alberto quiere abrir una sesión dedicada a
-> ordenar los datos del proyecto. Esto es el punto de partida, para que esa sesión **no
-> tenga que redescubrir dónde vive cada cosa** — el inventario de abajo tomó su rato de
-> medir y no estaba escrito en ninguna parte.
+> ✅ **CONSTRUIDA el 2026-09-10.** Este archivo nació como documento de traspaso para la
+> sesión que iba a ordenar los datos; esa sesión ya ocurrió. **El qué se construyó y por
+> qué vive en `CLAUDE.md` → *Base de datos clínica — CONSTRUIDA***. Acá queda el
+> **inventario de dónde vive cada dato**, que es lo que sigue siendo útil y no estaba
+> escrito en ninguna otra parte.
+>
+> ⚠️ Lo que este archivo decía sobre el seudónimo `pid`, el salt y el alcance **quedó
+> obsoleto**: ver "Lo que cambió al construirla", más abajo.
 >
 > Escrito el 2026-09-10. Los volúmenes son de producción, medidos ese día.
 > ⚠️ **El repo es PÚBLICO.** Acá no va ningún RUT, nombre ni cifra de un paciente.
@@ -30,7 +34,7 @@ y está **gitignored**. Nada de esto se versiona.
 
 | Base | Módulo | Qué guarda | Volumen (2026-09-10) |
 |---|---|---|---|
-| `kpi.db` | `kpi.py` | La **agenda completa**, una fila por cita: estado, motivo, doctor, quién agendó, cuándo se creó | **61.342 citas**, 2021-01-04 → hoy |
+| `clinica.db` (era `kpi.db`) | `kpi.py` + `clinico.py` | La **agenda completa**, una fila por cita: estado, motivo, doctor, quién agendó, cuándo se creó | **61.342 citas**, 2021-01-04 → hoy |
 | `compras.db` | `compras.py` | Compras, gastos, stock, proveedores, usuarios propios | ~950 compras, 866 productos, 157 proveedores |
 
 Las dos son la **excepción documentada a la regla 2**: hay relaciones reales y `GROUP BY`,
@@ -235,35 +239,52 @@ Detalle en `CLAUDE.md` → sección *Evaluación transversal*.
 
 ---
 
-## 8. Preguntas abiertas para esa sesión
+## 8. Lo que cambió al construirla (2026-09-10)
 
-1. ~~¿Alcance?~~ **DECIDIDO el 2026-09-10: el más amplio.** Ver la sección 3-bis.
-2. ~~¿Una base o dos?~~ **DECIDIDO: una sola**, `kpi.db` extendida. Ver la sección 3-bis.
-3. **¿Migrar los registros JSON operativos** (recordatorios, confirmaciones, links) o
-   dejarlos donde están? Son de operación, no de análisis: probablemente se quedan.
-4. **¿Dónde vive el salt del seudónimo?** Dentro de la base (sobrevive un redeploy, pero
-   se pierde con ella) o en variable de entorno.
-5. **¿Se toca el parquet de analytics** o se declara superado por `kpi.db`?
+Las preguntas abiertas que tenía este documento se contestaron, y **tres de ellas
+cambiaron el diseño**. El detalle está en `CLAUDE.md`; acá queda lo que contradice lo que
+se lee más arriba, para que nadie siga una decisión que ya no rige.
 
----
+1. ⚠️ **No hay seudónimo `pid` ni salt.** El RUT es la llave en todas las tablas.
+   Decisión textual del usuario: *"no me molesta que rut esté en varios lados… el
+   anonimizado lo hago después, no me interesa que la base de datos sea anónima"*. Esto
+   **anula** el punto 3 de la sección 3, el punto ⚠️ de la sección 3-bis sobre `pid` en
+   `citas`, y las preguntas 3 y 4 de la lista original.
+   > Tenía además una contradicción de origen: *"`pacientes` es la ÚNICA tabla con RUT"*
+   > chocaba con que `citas` ya lo guardaba en 61.205 filas, indexado, y con que
+   > `destino_primeras_consultas()` lo devuelve a propósito para contactar a los perdidos.
+2. **El nombre del archivo cambió: `kpi.db` → `clinica.db`.** Un archivo llamado `kpi.db`
+   se lee como *"métricas, derivado, desechable"*, y ahora guarda el registro clínico y
+   5 años de agenda. Lo resuelve `admin/basedatos.py`, respetando `KPI_DB_PATH` si está
+   seteada. ⚠️ `backup.py` lista los archivos **por nombre escrito a mano**: sin agregar
+   el nombre nuevo, la base dejaba de respaldarse en silencio.
+3. **El alcance se amplió.** No solo el registro clínico: los **ocho** sistemas que le
+   hablan al paciente entran por una tabla `eventos` con un adaptador chico cada uno, que
+   es lo que permite cruzar cualquier dato con cualquier otro. **Compras queda afuera**
+   (decisión del usuario, "no por ahora") y el **parquet de analytics se declara
+   superado**: no se toca, queda como verificación cruzada independiente.
+4. **El medidor es el doctor de la cita** (*"el doctor que lo mide es con quien tiene la
+   cita el paciente"*), así que no hizo falta campo nuevo en el formulario.
+5. **El criterio de la muestra no va cableado**: *"guarda todo, pero para después se pueda
+   elegir criterios de normalidad con filtros"*. El contador filtra por tratamiento
+   previo, clase molar, clase canina, sexo y edad.
 
-## 9. Cómo empezar esa sesión
+### Lo que se midió y corrigió la prioridad
 
-Este es el prompt sugerido:
+El "costo de escala" de la sección 4 **no era urgente**: `informe_pc_registro.json` pesa
+38 KB con 16 informes, y **el 43 % de ese peso son códigos QR en base64** que
+`informe_pc.qr_data_uri()` sabe regenerar desde la `url` que ya se guarda. Así que la base
+se hizo **para poder cruzar**, no porque algo estuviera lento — que es una razón mejor.
 
-```
-Quiero ordenar los datos de ortodonciarichard como una base de datos coherente,
-para poder hacer estadística clínica, estudios y tener referencia futura.
+### Lo que sigue pendiente
 
-Lee primero BASE-DE-DATOS.md en la raíz del repo: tiene el inventario de dónde
-vive cada dato hoy, las decisiones ya tomadas y las preguntas abiertas.
-Después CLAUDE.md, sobre todo las 8 reglas del inicio y la sección
-"Base de datos clínica — DISEÑADA, no construida".
-
-Antes de escribir código, hazme las preguntas de la sección 8 de ese documento
-y cualquier otra que necesites. Quiero decidir el alcance contigo antes de que
-construyas nada.
-```
-
-⚠️ **Que esa sesión no empiece a construir sin decidir el alcance.** La pregunta 1 cambia
-casi todo el diseño.
+- **Dejar de guardar el QR** en el registro de informes y regenerarlo al armar el
+  documento. Commit aparte, bajo riesgo, y le saca casi la mitad del peso al archivo.
+- ⚠️ **Verificar en producción que `disponibilidad` se esté poblando.** En local está
+  vacía, y es la **única tabla irrecuperable**: `getAvailableHours` solo responde por días
+  futuros, así que lo que no se capture hoy no se reconstruye nunca.
+- **Los otros sistemas pueden ganar tablas tipadas** cuando alguno amerite análisis a
+  fondo; hoy entran por `eventos`, que es deliberadamente laxa.
+- **Compras**: entra después sin rehacer nada, por `eventos` o por una tabla de agregados.
+- Y lo que **no es código** (sección 5): el protocolo de medición escrito y la línea de
+  consentimiento para investigación, con la Ley 21.719 en plena vigencia el 1-dic-2026.

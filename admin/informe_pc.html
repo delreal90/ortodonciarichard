@@ -342,12 +342,18 @@
             <option value="F">Femenino</option></select>
           <span class="nota" id="notaSexo" style="display:none"></span></div>
       </div>
-      <label class="nota" style="display:block;margin-top:8px">
-        <input type="checkbox" id="pSinTrat">
-        Sin tratamiento de ortodoncia previo</label>
+      <div class="campo" style="margin-top:8px">
+        <label for="pSinTrat">Tratamiento de ortodoncia previo</label>
+        <select id="pSinTrat">
+          <option value="">No consignado</option>
+          <option value="1">Sin tratamiento previo</option>
+          <option value="0">Con tratamiento previo</option>
+        </select></div>
       <p class="nota" style="font-size:8pt;margin-top:2px">Es uno de los criterios de
         inclusión de Bishara: sirve para que estas mediciones puedan usarse algún día como
-        muestra de referencia. Si no se sabe, dejar sin marcar.</p>
+        muestra de referencia. <strong>«No consignado» no es lo mismo que «con tratamiento
+        previo»</strong> — si no se preguntó, dejarlo así: un dato supuesto contamina la
+        muestra, uno que falta solo la achica.</p>
       <div class="alerta" id="avisoEdad" style="display:none"></div>
     </div>
 
@@ -542,6 +548,11 @@ let DOC = null;
 // y se recupera del propio informe al reabrirlo. Si esto se pierde, el
 // documento queda sin doctor y por lo tanto sin firma.
 let CTX = {doctor_texto: qs.get('doctor') || '', id_agenda: qs.get('id_agenda') || ''};
+// De donde salio el sexo que se ve en el formulario: 'declarado' (venia de la
+// ficha), 'sugerido' (lo adivino genero.py por el nombre y nadie lo toco) o
+// 'confirmado' (una persona lo eligio). Importa porque el percentil de los
+// anchos se calcula contra una tabla DISTINTA segun el sexo.
+let SEXO_ORIGEN = '';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s == null ? '' : s)
@@ -630,7 +641,11 @@ function cargarEnFormulario(it){
   const set = (id, v) => { const e = $(id); if (e && v != null && v !== '') e.value = v; };
   set('#pNombre', it.nombre); set('#pRut', it.rut_fmt || it.rut);
   set('#pEdad', it.edad); set('#pSexo', it.sexo);
-  $('#pSinTrat').checked = !!it.sin_tratamiento_previo;
+  SEXO_ORIGEN = it.sexo_origen || (it.sexo ? 'declarado' : '');
+  // Tres estados: '' = no consignado, '1' = sin tratamiento previo,
+  // '0' = con tratamiento previo. La ausencia NO es 'no'.
+  $('#pSinTrat').value = (it.sin_tratamiento_previo === true ? '1'
+                        : it.sin_tratamiento_previo === false ? '0' : '');
   set('#motivo', it.motivo_consulta);
 
   const med = it.mediciones || {};
@@ -718,12 +733,22 @@ async function cargarMiniaturas(){
   } catch(e){}
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('pSexo');
+  if (sel) sel.addEventListener('change', () => {
+    SEXO_ORIGEN = sel.value ? 'confirmado' : '';
+    const nota = document.getElementById('notaSexo');
+    if (nota) nota.style.display = 'none';   // ya no es una sugerencia
+  });
+});
+
 function precargar(p){
   if (p.nombre)  $('#pNombre').value = p.nombre;
   if (p.rut_fmt) $('#pRut').value    = p.rut_fmt;
   if (p.edad != null) $('#pEdad').value = p.edad;
   if (p.sexo) {
     $('#pSexo').value = p.sexo;
+    SEXO_ORIGEN = 'declarado';      // venia de la ficha del paciente
   } else if (p.sexo_sugerido) {
     // El sexo declarado solo entra por el export del panel, asi que al paciente
     // nuevo le falta. Se prellena con la sugerencia por nombre, pero DICIENDO
@@ -734,6 +759,11 @@ function precargar(p){
     $('#notaSexo').style.display = '';
     $('#notaSexo').textContent = 'Sugerido por el nombre (' + (d.casos || 0)
       + ' pacientes de la base se llaman así). Confírmalo.';
+    // ⚠️ Queda marcado como SUGERIDO hasta que alguien lo toque. Sin esta
+    // distincion, la base no puede separar un sexo que un doctor miro de uno
+    // que adivino una regla — y el percentil sale de una tabla distinta segun
+    // el sexo, asi que un error ahi da un numero plausible y equivocado.
+    SEXO_ORIGEN = 'sugerido';
   }
   if (p.psq)     window.PSQ_PREV = p.psq;
   if (!p.edad && !p.fecha_nacimiento) {
@@ -1414,8 +1444,9 @@ function recolectar(){
   return {
     id: ID,
     rut: $('#pRut').value, rut_fmt: $('#pRut').value, nombre: $('#pNombre').value,
-    edad: num('pEdad'), sexo: $('#pSexo').value,
-    sin_tratamiento_previo: $('#pSinTrat').checked,
+    edad: num('pEdad'), sexo: $('#pSexo').value, sexo_origen: SEXO_ORIGEN,
+    sin_tratamiento_previo: ($('#pSinTrat').value === '1' ? true
+                          : $('#pSinTrat').value === '0' ? false : null),
     id_agenda: CTX.id_agenda, doctor_texto: CTX.doctor_texto,
     motivo_consulta: $('#motivo').value.trim(),
     mediciones: {

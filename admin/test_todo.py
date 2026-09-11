@@ -51,6 +51,9 @@ SUITES = [
     ('genero',       'test_genero.py',       'regla nombre->sexo aprendida de la base: Maria Jose vs Jose Maria'),
     ('fotos_finales','test_fotos_finales.py','aviso de collage: el control post-retiro, no la urgencia'),
     ('kpi',          'test_kpi.py',          'datamart de KPIs: destino de la primera consulta, fugas y ocupacion'),
+    ('basedatos',    'test_basedatos.py',    'el archivo de la base: el renombre a clinica.db no pierde datos'),
+    ('clinico',      'test_clinico.py',      'proyeccion clinica: percentiles, clases por lado y el contador de muestra'),
+    ('loops',        'test_loops.py',        'los hilos del scheduler: ninguna variable se lee antes de existir'),
 ]
 
 AQUI = Path(__file__).parent

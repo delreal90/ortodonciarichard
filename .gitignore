@@ -76,8 +76,15 @@ admin/compras.db-wal
 admin/compras.db-shm
 admin/compras.db.backup*
 
-# Datamart de KPIs (kpi.py): copia local de la agenda. Tiene RUT de pacientes y
-# montos facturados -> NUNCA al repo, que es PUBLICO.
+# La base de datos del proyecto (basedatos.py + kpi.py + clinico.py): la agenda
+# completa de 5 anos, el registro clinico, las mediciones y los tamizajes. Tiene
+# RUT de pacientes, datos de salud y montos facturados -> NUNCA al repo, que es
+# PUBLICO. Se llamaba kpi.db hasta el 2026-09-10; los dos nombres quedan
+# ignorados porque un disco a medio migrar puede tener el viejo.
+admin/clinica.db
+admin/clinica.db-wal
+admin/clinica.db-shm
+admin/clinica.db.backup*
 admin/kpi.db
 admin/kpi.db-wal
 admin/kpi.db-shm
