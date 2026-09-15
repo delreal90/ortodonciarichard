@@ -127,6 +127,51 @@ def imc(peso_kg, talla_cm):
     return round(peso / (talla * talla), 1)
 
 
+def completar(sb):
+    """Deja listo un STOP-BANG recolectado para `evaluar()`: deriva el IMC del
+    peso y la talla, y resuelve de donde salen los centimetros de cuello.
+
+    Existe para que esa preparacion viva en UN solo lugar. La hacian por
+    separado el armado del informe y la proyeccion a la base clinica, que es
+    exactamente como dos copias del mismo umbral terminan dando puntajes
+    distintos para el mismo paciente.
+    """
+    sb = dict(sb or {})
+    if sb.get('imc') in (None, '') and sb.get('peso') and sb.get('talla'):
+        sb['imc'] = imc(sb['peso'], sb['talla'])
+    return _resolver_cuello(sb)
+
+
+def _resolver_cuello(sb):
+    """Fija `cuello` y declara en `cuello_origen` de donde vino.
+
+    El cuello llega de dos formas que NO valen lo mismo: medido con huincha en
+    la clinica --que es como lo define el instrumento publicado-- o referido por
+    el paciente a traves de su talla de camisa, que se corta con holgura. La
+    medicion SIEMPRE gana, y la hoja declara cual de las dos fue: el item se
+    decide por un umbral en centimetros, asi que de donde viene el numero cambia
+    cuanto pesa.
+    """
+    medido = sb.get('cuello') if sb.get('cuello_origen') != 'camisa' else None
+    if medido not in (None, ''):
+        sb['cuello_origen'] = 'huincha'
+        return sb
+
+    cm = cuello_desde_camisa(sb.get('cuello_camisa'))
+    if cm is not None:
+        sb['cuello'] = cm
+        sb['cuello_origen'] = 'camisa'
+        return sb
+
+    # Ni huincha ni talla: el item queda SIN REGISTRAR, que no es negativo. Se
+    # limpia un centimetraje derivado de una talla que ya no esta, para que el
+    # puntaje no siga apoyandose en un dato que se borro.
+    if sb.get('cuello_origen') == 'camisa':
+        sb.pop('cuello', None)
+        sb.pop('cuello_origen', None)
+    return sb
+
+
 def _positivo(clave, r):
     v = r.get(clave)
     if v is None or v == '':

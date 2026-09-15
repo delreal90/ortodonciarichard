@@ -293,6 +293,11 @@ TEXTO_ORDEN = ('Se solicitan los exámenes marcados con el fin de completar el e
 
 # ── Catalogo que consume el frontend ─────────────────────────────────────
 
+def _stopbang():
+    import stopbang
+    return stopbang
+
+
 def catalogo():
     """Todo lo que la pagina necesita para dibujar el formulario. Se sirve por
     endpoint para poder ajustar textos sin tocar el frontend."""
@@ -309,6 +314,10 @@ def catalogo():
                     for c, e, d, p in CATALOGO_ORDENES],
         'evaluacion': [{'clave': c, 'texto': t} for c, t in CATALOGO_EVALUACION],
         'evaluacion_defecto': list(EVALUACION_POR_DEFECTO),
+        # Solo las etiquetas: los centimetros los calcula stopbang. Si el
+        # navegador tuviera la tabla de pulgadas, el dia que cambie un valor
+        # habria dos verdades sobre el mismo umbral de 40 cm.
+        'tallas_camisa': [t for t, _pulgadas in _stopbang().TALLAS_CAMISA],
         'textos': {
                    'que_aporta_estudio': QUE_APORTA_ESTUDIO,
                    'disclaimer': DISCLAIMER,
@@ -1371,12 +1380,11 @@ def armar_documento(item, doctor=None, clinica=None):
 
     cuestionario_alto = False
     if adulto:
-        sb_datos = dict(tam.get('stopbang') or {})
-        # El formulario del box pide peso y talla (que el paciente sabe) en vez
-        # del IMC (que no). Se calcula aca y no en el navegador para que la
-        # formula viva en un solo lugar, con sus guardas contra datos absurdos.
-        if sb_datos.get('imc') in (None, '') and sb_datos.get('peso') and sb_datos.get('talla'):
-            sb_datos['imc'] = stopbang.imc(sb_datos['peso'], sb_datos['talla'])
+        # El formulario pide peso y talla (que el paciente sabe) en vez del IMC,
+        # y la talla de camisa en vez de los centimetros de cuello. Las dos
+        # derivaciones las hace stopbang, no el navegador: la formula y la
+        # precedencia huincha > camisa viven en un solo lugar.
+        sb_datos = stopbang.completar(tam.get('stopbang') or {})
         res_sb = stopbang.evaluar(sb_datos)
         deriva_sb, motivo_sb = stopbang.sugiere_derivacion(res_sb)
         cuestionario_alto = deriva_sb

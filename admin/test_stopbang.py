@@ -238,5 +238,73 @@ class TestCuelloPorTallaDeCamisa(unittest.TestCase):
             self.assertAlmostEqual(stopbang.cuello_desde_camisa(etiqueta),
                                    round(pulgadas * stopbang.PULGADA_CM, 1), places=1)
 
+
+class TestCompletar(unittest.TestCase):
+    """`completar()` es la preparacion comun antes de `evaluar()`: deriva el IMC
+    y decide de donde salen los centimetros de cuello.
+
+    Lo que se protege aca no es la comodidad de no repetir dos lineas, sino que
+    el informe impreso, el puntaje en vivo del formulario y la proyeccion a la
+    base clinica partan del MISMO dato preparado.
+    """
+
+    def test_deriva_el_imc_del_peso_y_la_talla(self):
+        r = stopbang.completar({'peso': 80, 'talla': 180})
+        self.assertAlmostEqual(r['imc'], 24.7, places=1)
+
+    def test_no_pisa_un_imc_ya_calculado(self):
+        self.assertEqual(stopbang.completar({'imc': 31, 'peso': 80, 'talla': 180})['imc'], 31)
+
+    def test_deriva_el_cuello_de_la_talla_de_camisa(self):
+        r = stopbang.completar({'cuello_camisa': '17'})
+        self.assertAlmostEqual(r['cuello'], 43.2, places=1)
+        self.assertEqual(r['cuello_origen'], 'camisa')
+
+    def test_la_huincha_le_gana_a_la_talla(self):
+        """El instrumento publicado mide con huincha. La talla de camisa se
+        corta con holgura sobre el cuello real, asi que cuando existen las dos
+        no se promedian ni se elige la mayor: manda la medicion."""
+        r = stopbang.completar({'cuello': 38.0, 'cuello_camisa': '17'})
+        self.assertEqual(r['cuello'], 38.0)
+        self.assertEqual(r['cuello_origen'], 'huincha')
+
+    def test_una_medicion_queda_declarada_como_tal(self):
+        """Sin `cuello_origen` la hoja no podria decir de donde vino el numero,
+        y el item se decide por un umbral en centimetros."""
+        self.assertEqual(stopbang.completar({'cuello': 41.0})['cuello_origen'], 'huincha')
+
+    def test_no_se_no_deja_cuello(self):
+        """Sin registrar NO es negativo: el puntaje sale incompleto y la hoja lo
+        declara como piso."""
+        r = stopbang.completar({'cuello_camisa': 'no_se'})
+        self.assertNotIn('cuello', r)
+
+    def test_borrar_la_talla_borra_el_cuello_que_venia_de_ella(self):
+        """Si la talla se corrige a vacio, el puntaje no puede seguir apoyandose
+        en los centimetros que ella habia derivado."""
+        r = stopbang.completar({'cuello': 43.2, 'cuello_origen': 'camisa', 'cuello_camisa': ''})
+        self.assertNotIn('cuello', r)
+        self.assertNotIn('cuello_origen', r)
+
+    def test_es_idempotente(self):
+        """Se llama desde el armado del documento, que corre muchas veces sobre
+        el mismo informe guardado."""
+        una = stopbang.completar({'peso': 80, 'talla': 180, 'cuello_camisa': '17'})
+        self.assertEqual(stopbang.completar(una), una)
+
+    def test_no_muta_lo_que_recibe(self):
+        original = {'cuello_camisa': '17'}
+        stopbang.completar(original)
+        self.assertEqual(original, {'cuello_camisa': '17'})
+
+    def test_el_corte_de_40_cm_cae_entre_la_15_y_media_y_la_16(self):
+        """Es el unico lugar donde la talla cambia el resultado del item, asi
+        que se fija: 15 1/2 son 39,4 cm (negativo) y 16 son 40,6 (positivo)."""
+        bajo = stopbang.evaluar(stopbang.completar({'cuello_camisa': '15 1/2'}))
+        alto = stopbang.evaluar(stopbang.completar({'cuello_camisa': '16'}))
+        pos = lambda r: next(i['positivo'] for i in r['items'] if i['clave'] == 'cuello')
+        self.assertFalse(pos(bajo))
+        self.assertTrue(pos(alto))
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

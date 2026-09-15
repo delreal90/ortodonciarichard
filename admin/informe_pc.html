@@ -702,8 +702,8 @@ function cargarEnFormulario(it){
     if (v === true) v = 'si'; else if (v === false) v = 'no';
     if (v != null && v !== '') FAI[k] = String(v);
   });
-  Object.entries(tam.stopbang || {}).forEach(([k, v]) => {
-    if (['edad', 'sexo', 'peso', 'talla', 'cuello', 'imc'].includes(k)) return;
+  SB_PREGUNTAS.forEach(k => {
+    let v = (tam.stopbang || {})[k];
     if (v === true) v = 'si'; else if (v === false) v = 'no';
     if (v != null && v !== '') FAI['sb_' + k] = String(v);
   });
@@ -717,7 +717,13 @@ function cargarEnFormulario(it){
   cargarMiniaturas();
   cambioEdad();                       // repinta el tamizaje y las lecturas
   const sb = tam.stopbang || {};
-  set('#sbPeso', sb.peso); set('#sbTalla', sb.talla); set('#sbCuello', sb.cuello);
+  set('#sbPeso', sb.peso); set('#sbTalla', sb.talla);
+  // ⚠️ Un cuello derivado de la talla de camisa NO se muestra en el campo de
+  // centímetros: ahí quedaría indistinguible de una medición con huincha y, al
+  // volver a guardar, la hoja pasaría a afirmar que se midió en la clínica.
+  if (sb.cuello_origen !== 'camisa') set('#sbCuello', sb.cuello);
+  window.SB_CAMISA = sb.cuello_camisa || '';
+  if ($('#sbCamisa')) $('#sbCamisa').value = window.SB_CAMISA;
   pintarImagenes();
   refrescarCabecera();
   cargarPrevios();
@@ -997,6 +1003,13 @@ function cambioEdad(){
 // (si / no / no evaluado) y un checkbox solo sabe dos.
 let FAI = {};
 
+/* Del STOP-BANG solo estas cuatro son preguntas con botón; el resto de lo que
+   vive en `stopbang` son datos derivados o de contexto (edad, sexo, peso,
+   talla, IMC, cuello y de dónde salió). Se enumeran las preguntas en vez de
+   excluir el resto: una clave nueva en el registro se colaba como si fuera una
+   respuesta, y volvía al servidor convertida en un "sí" que nadie contestó. */
+const SB_PREGUNTAS = ['ronquido', 'cansancio', 'apneas', 'presion'];
+
 const ITEMS_FAI_6 = [
   ['respiracion_bucal',  'Respiración bucal',      '¿Dificultad para respirar solo por nariz 3+ min?'],
   ['tension_mentoniano', 'Tensión del mentoniano', '¿Se ve esfuerzo perioral al cerrar labios?'],
@@ -1048,35 +1061,52 @@ function pintarTamizaje(adulto){
     <button class="btn sec sm" style="margin-top:8px" onclick="marcarTodoNormal()">
       Marcar los no evaluados como normales</button>`;
   $('#fairestBox').innerHTML = h;
+  pintarCuestionario(adulto);   // el STOP-BANG usa los MISMOS controles de tres estados
 
-  // Re-pintar borra los controles: hay que devolverles su estado.
+  /* Re-pintar borra los controles: hay que devolverles su estado y volver a
+     engancharlos.
+
+     ⚠️ Se recorren LOS DOS contenedores. Los cuatro ítems del STOP-BANG los
+     dibuja pintarCuestionario() dentro de #cuestBox, y mientras esto miraba
+     solo #fairestBox esos botones Sí/No se veían perfectos y no respondían al
+     clic: nunca recibían el listener. Por lo mismo pintarCuestionario() tiene
+     que correr ANTES de enganchar, no después. */
   Object.entries(FAI).forEach(([k, v]) => aplicarTri(k, v));
-  $('#fairestBox').querySelectorAll('.tri button').forEach(b => {
-    b.addEventListener('click', () => {
-      const k = b.closest('.tri').dataset.k, v = b.dataset.v;
-      FAI[k] = (FAI[k] === v) ? undefined : v;   // volver a tocarlo lo deja sin evaluar
-      aplicarTri(k, FAI[k]);
-      refrescarTamizaje();
+  cajasTamizaje().forEach(caja => {
+    caja.querySelectorAll('.tri button').forEach(b => {
+      b.addEventListener('click', () => {
+        const k = b.closest('.tri').dataset.k, v = b.dataset.v;
+        FAI[k] = (FAI[k] === v) ? undefined : v;   // volver a tocarlo lo deja sin evaluar
+        aplicarTri(k, FAI[k]);
+        refrescarTamizaje();
+      });
     });
-  });
-  $('#fairestBox').querySelectorAll('.faSel').forEach(sel => {
-    if (FAI[sel.dataset.k] != null) sel.value = FAI[sel.dataset.k];
-    sel.addEventListener('change', () => {
-      FAI[sel.dataset.k] = sel.value || undefined;
-      refrescarTamizaje();
+    caja.querySelectorAll('.faSel').forEach(sel => {
+      if (FAI[sel.dataset.k] != null) sel.value = FAI[sel.dataset.k];
+      sel.addEventListener('change', () => {
+        FAI[sel.dataset.k] = sel.value || undefined;
+        refrescarTamizaje();
+      });
     });
   });
 
-  pintarCuestionario(adulto);
   refrescarTamizaje();
 }
 
+// Los controles del tamizaje viven en dos cajas: el examen del FAIREST y el
+// cuestionario que contesta el paciente. Comparten el control de tres estados.
+function cajasTamizaje(){
+  return [$('#fairestBox'), $('#cuestBox')].filter(Boolean);
+}
+
 function aplicarTri(clave, valor){
-  const cont = $(`#fairestBox .tri[data-k="${clave}"]`);
-  if (!cont) return;
-  cont.querySelectorAll('button').forEach(b => {
-    b.classList.toggle('on', b.dataset.v === valor);
-    b.classList.toggle('si', b.dataset.v === 'si');
+  cajasTamizaje().forEach(caja => {
+    const cont = caja.querySelector(`.tri[data-k="${clave}"]`);
+    if (!cont) return;
+    cont.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('on', b.dataset.v === valor);
+      b.classList.toggle('si', b.dataset.v === 'si');
+    });
   });
 }
 
@@ -1143,11 +1173,9 @@ function arrancarPulso(){
       if (!llego) return;
       detenerPulso();
       if (tam.psq) window.PSQ_PREV = tam.psq;
-      Object.entries(tam.stopbang || {}).forEach(([k, v]) => {
-        if (['edad','sexo','peso','talla','cuello','imc','respondido_por_el_paciente'].includes(k)) return;
-        FAI['sb_' + k] = String(v);
-      });
       const sb = tam.stopbang || {};
+      SB_PREGUNTAS.forEach(k => { if (sb[k] != null) FAI['sb_' + k] = String(sb[k]); });
+      window.SB_CAMISA = sb.cuello_camisa || window.SB_CAMISA || '';
       pintarTamizaje(esAdulto());
       if (sb.peso) $('#sbPeso') && ($('#sbPeso').value = sb.peso);
       if (sb.talla) $('#sbTalla') && ($('#sbTalla').value = sb.talla);
@@ -1158,6 +1186,15 @@ function arrancarPulso(){
 }
 
 function detenerPulso(){ if (PULSO) { clearInterval(PULSO); PULSO = null; } }
+
+/* Las etiquetas de talla vienen del backend (catálogo). La conversión a
+   centímetros NO viaja al navegador a propósito: si la tabla de pulgadas
+   estuviera acá, el día que cambie un valor habría dos verdades sobre el mismo
+   umbral de 40 cm, y la que se imprime firmada sería la otra. */
+function tallasCamisa(){
+  return ((CAT && CAT.tallas_camisa) || []).map(t =>
+    `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+}
 
 function pintarCuestionario(adulto){
   const b = $('#cuestBox');
@@ -1174,14 +1211,21 @@ function pintarCuestionario(adulto){
         <div><label class="f">Peso (kg)</label><input type="number" step="0.1" id="sbPeso"></div>
         <div><label class="f">Talla (cm)</label><input type="number" step="1" id="sbTalla"></div>
         <div><label class="f">Cuello (cm)</label><input type="number" step="0.5" id="sbCuello"></div>
+        <div><label class="f">…o talla de camisa</label>
+          <select id="sbCamisa"><option value="">—</option>${tallasCamisa()}</select></div>
       </div>
-      <p class="nota" style="margin:6px 0 12px">Edad y sexo salen de arriba. El cuello se mide
-        con huincha: son cinco segundos, y sin ese dato el puntaje queda incompleto.</p>
+      <p class="nota" style="margin:6px 0 12px">Edad y sexo salen de arriba. Si el cuello no se
+        midió con huincha, la talla de camisa sirve: <b>es la medida del cuello en pulgadas</b>,
+        y es un número que el paciente sí sabe. La hoja declara de cuál de las dos salió — el
+        ítem se decide por un umbral en centímetros, así que no son lo mismo. Si se llenan las
+        dos, manda la huincha.</p>
       <div id="qrTamizaje"></div>
       <button class="btn sec sm" onclick="mostrarQrTamizaje()">
         📱 Que lo conteste el paciente en su teléfono</button>`;
-    ['#sbPeso', '#sbTalla', '#sbCuello'].forEach(sel =>
+    ['#sbPeso', '#sbTalla', '#sbCuello', '#sbCamisa'].forEach(sel =>
       $(sel).addEventListener('change', refrescarTamizaje));
+    // Re-pintar borra el <select>: se le devuelve lo que ya estaba guardado.
+    if (window.SB_CAMISA) $('#sbCamisa').value = window.SB_CAMISA;
   } else {
     const psq = window.PSQ_PREV;
     b.innerHTML = psq
@@ -1429,7 +1473,12 @@ function recolectar(){
     sb.edad = num('pEdad'); sb.sexo = $('#pSexo').value;
     const peso = num('sbPeso'), talla = num('sbTalla'), cuello = num('sbCuello');
     if (peso && talla) { sb.peso = peso; sb.talla = talla; }
+    // Lo escrito en centímetros es SIEMPRE una medición: el campo de la talla
+    // de camisa es otro. Los centímetros de una talla los deriva el servidor
+    // (stopbang.completar), que también resuelve cuál de las dos manda.
     if (cuello) sb.cuello = cuello;
+    const camisa = $('#sbCamisa') ? $('#sbCamisa').value : (window.SB_CAMISA || '');
+    if (camisa) sb.cuello_camisa = camisa;
     tam.stopbang = sb;
   } else if (window.PSQ_PREV) {
     tam.psq = window.PSQ_PREV;

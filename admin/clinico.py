@@ -410,10 +410,9 @@ def _puntaje_stopbang(sb):
     """
     try:
         import stopbang
-        datos = dict(sb)
-        if datos.get('imc') in (None, '') and datos.get('peso') and datos.get('talla'):
-            datos['imc'] = stopbang.imc(datos['peso'], datos['talla'])
-        r = stopbang.evaluar(datos)
+        # completar() deriva el IMC y resuelve el cuello (huincha le gana a la
+        # talla de camisa) con el mismo codigo que usa el informe impreso.
+        r = stopbang.evaluar(stopbang.completar(sb))
         return float(r['puntaje']), (1 if r.get('banda') == 'alto' else 0)
     except Exception as e:
         log.warning('[clinico] stopbang no evaluable: %r', e)

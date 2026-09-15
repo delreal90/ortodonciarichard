@@ -2642,6 +2642,20 @@ El **puntaje se muestra en vivo** y lo calcula el backend
 los umbrales del FAIREST en el navegador es exactamente cómo el formulario y el papel firmado
 terminan mostrando números distintos.
 
+> 🐛 **Los botones Sí/No del STOP-BANG no respondían al clic (arreglado el 2026-09-15).**
+> Se dibujaban perfectos y no pasaba nada: `pintarTamizaje()` enganchaba los listeners con
+> `$('#fairestBox').querySelectorAll('.tri button')`, pero los cuatro ítems del cuestionario
+> los pinta `pintarCuestionario()` dentro de **`#cuestBox`**, que es otro contenedor — y
+> además corría *después* del enganche. `aplicarTri()` tenía el mismo alcance, así que una
+> respuesta llegada por el QR tampoco se pintaba. Ahora `cajasTamizaje()` recorre los dos y
+> `pintarCuestionario()` va antes. **Si se agrega una tercera caja con controles `.tri`, va
+> en esa lista.**
+>
+> De paso: la carga de un informe guardado copiaba a `FAI` **todas** las claves de `stopbang`
+> salvo una lista de exclusiones, así que cada clave nueva del registro se colaba como si
+> fuera una respuesta. Ahora hay una lista blanca, `SB_PREGUNTAS`, con las cuatro que de
+> verdad se preguntan.
+
 ⚠️ **El formulario crece:** con los campos nuevos quedó en ~2 pantallas de alto. La regla
 original ("una pantalla sin scroll") no se cumple; se prefirió eso antes que esconder
 secciones detrás de desplegables, porque en un flujo de dos minutos un clic cuesta más que
@@ -2821,6 +2835,23 @@ huincha, y un cuello de camisa se corta con holgura. Por eso:
 Con esto un adulto llega a **8 de 8 ítems registrados** contestando 6 preguntas, así que el
 puntaje ya no sale declarado como piso. Si elige *"No sé"* en la talla, ese ítem queda **sin
 registrar** — que no es negativo — y vuelve a ser un piso.
+
+**La talla de camisa también está en el formulario del box (2026-09-15).** Estaba solo en el
+teléfono del paciente, y el Dr. Alberto **no mide el cuello con huincha**: el campo "Cuello
+(cm)" quedaba vacío y ese ítem salía sin registrar en todos los informes de adulto. Ahora al
+lado hay un selector de talla y se pregunta en la consulta.
+
+⚠️ **La conversión NO viajó al navegador.** El formulario manda la talla tal cual y
+`stopbang.completar()` la resuelve en el servidor — junto con el IMC, que ya se derivaba ahí.
+Esa función es nueva y **existe para que la preparación viva en un solo lugar**: la hacían por
+separado `armar_documento()` y `clinico._puntaje_stopbang()`, que es exactamente como dos
+copias del mismo umbral de 40 cm terminan dando puntajes distintos para el mismo paciente.
+La precedencia **huincha > camisa** también vive ahí, y con ella la garantía de que
+`cuello_origen` siempre diga cuál de las dos fue.
+
+⚠️ **Un cuello derivado de la talla NO se muestra en el campo de centímetros.** Ahí quedaría
+indistinguible de una medición, y al volver a guardar la hoja pasaría a afirmar *"medido en la
+clínica"* un número que nadie midió.
 
 #### Pestaña «Tamizaje de sueño» en el panel
 
