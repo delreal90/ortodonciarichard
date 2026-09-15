@@ -2804,8 +2804,15 @@ nunca llegaban a ningún lado: `fichas.py` importa **solo** contacto y demograf�
 
 Decisión del usuario: **el tamizaje se hace en la consulta con el QR**, que ya elige el
 instrumento por edad. Las preguntas de sueño del Google Form quedan obsoletas.
-⚠️ **Sacarlas es una edición del Google Form, que vive fuera de este repo** — no la hace el
-código. Mientras sigan ahí, siguen produciendo respuestas con la escala equivocada.
+
+✅ **El Dr. Alberto las sacó del formulario el 2026-09-15.** Era una edición del Google Form,
+que vive fuera de este repo — no la hacía el código. Desde esa fecha no se generan más
+respuestas con la escala equivocada.
+
+⚠️ **Las respuestas viejas siguen en el Sheet y eso está bien:** `fichas.py` identifica cada
+columna **por su título** y solo lee diez campos de contacto/demografía más el de seguro, así
+que nunca las importó y quitar columnas no puede romperle nada. Ese diseño —mapear por título
+y no por posición— es justo lo que permite editar el formulario sin desplegar código.
 
 #### Los 8 ítems del STOP-BANG con solo 6 preguntas
 
@@ -3193,9 +3200,6 @@ resultado sesgado sin avisar.
 - Revisión visual de la maqueta impresa con datos reales (no se pudo verificar a ojo).
 - Validar con el Dr. el catálogo de 24 hallazgos, las 5 impresiones diagnósticas y los 9
   exámenes de la orden.
-- **Sacar las preguntas de sueño del Google Form** de primera consulta (edición del
-  formulario, fuera de este repo): hoy le hacen el STOP-BANG de adultos a pacientes
-  pediátricos y esas respuestas no alimentan nada.
 - **Protocolo de MEDICIÓN escrito** (2026-09-10: el Dr. Alberto **no escanea** en la primera
   consulta — mide los anchos, el resalte y la sobremordida **directo en boca con pie de
   metro**). El punto de referencia sigue siendo el mismo problema: Bishara mide sobre la
