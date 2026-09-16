@@ -2,7 +2,206 @@
   "euroamerica": {
     "nombre": "Euroamérica",
     "activa": true,
-    "mapeo_campos": {}
+    "mapeo_campos": {
+      "paciente_nombre_completo": {
+        "pagina": 1,
+        "x": 145,
+        "y": 601,
+        "fontsize": 9
+      },
+      "paciente_edad": {
+        "pagina": 1,
+        "x": 562,
+        "y": 601,
+        "fontsize": 9
+      },
+      "total": [
+        {
+          "pagina": 1,
+          "x": 122,
+          "y": 556,
+          "fontsize": 9
+        },
+        {
+          "pagina": 1,
+          "x": 500,
+          "y": 244,
+          "fontsize": 10
+        }
+      ],
+      "fecha_emision_dia": {
+        "pagina": 1,
+        "x": 412,
+        "y": 556,
+        "fontsize": 9
+      },
+      "fecha_emision_mes": {
+        "pagina": 1,
+        "x": 438,
+        "y": 556,
+        "fontsize": 9
+      },
+      "fecha_emision_anio": {
+        "pagina": 1,
+        "x": 464,
+        "y": 556,
+        "fontsize": 9
+      },
+      "doctor_rut": {
+        "pagina": 1,
+        "x": 45,
+        "y": 455,
+        "fontsize": 9
+      },
+      "doctor_nombre": {
+        "pagina": 1,
+        "x": 190,
+        "y": 455,
+        "fontsize": 9
+      },
+      "clinica_direccion": {
+        "pagina": 1,
+        "x": 43,
+        "y": 420,
+        "fontsize": 8.5
+      },
+      "clinica_ciudad": {
+        "pagina": 1,
+        "x": 366,
+        "y": 420,
+        "fontsize": 8.5
+      },
+      "clinica_telefono": {
+        "pagina": 1,
+        "x": 483,
+        "y": 420,
+        "fontsize": 8.5
+      },
+      "orto_tipo_aparatos": {
+        "pagina": 1,
+        "x": 40,
+        "y": 191,
+        "fontsize": 8
+      },
+      "orto_fecha_instalacion": {
+        "pagina": 1,
+        "x": 348,
+        "y": 191,
+        "fontsize": 8
+      },
+      "orto_fecha_primer_control": {
+        "pagina": 1,
+        "x": 482,
+        "y": 191,
+        "fontsize": 8
+      },
+      "orto_duracion": {
+        "pagina": 1,
+        "x": 40,
+        "y": 156,
+        "fontsize": 8
+      },
+      "orto_valor_aparatos": {
+        "pagina": 1,
+        "x": 228,
+        "y": 156,
+        "fontsize": 8
+      },
+      "orto_valor_controles": {
+        "pagina": 1,
+        "x": 416,
+        "y": 156,
+        "fontsize": 8
+      },
+      "firma_doctor": {
+        "pagina": 1,
+        "x": 445,
+        "y": 104,
+        "ancho": 125,
+        "alto": 38
+      }
+    },
+    "plantilla_pdf": "euroamerica.pdf",
+    "tipo_plantilla": "overlay",
+    "max_prestaciones_por_form": 8,
+    "tapar": [
+      {
+        "pagina": 1,
+        "x0": 43.0,
+        "y0": 321.0,
+        "x1": 137.0,
+        "y1": 340.0
+      },
+      {
+        "pagina": 1,
+        "x0": 188.0,
+        "y0": 321.0,
+        "x1": 435.0,
+        "y1": 342.0
+      },
+      {
+        "pagina": 1,
+        "x0": 41.0,
+        "y0": 357.0,
+        "x1": 222.0,
+        "y1": 376.0
+      },
+      {
+        "pagina": 1,
+        "x0": 364.0,
+        "y0": 357.0,
+        "x1": 426.0,
+        "y1": 376.0
+      },
+      {
+        "pagina": 1,
+        "x0": 481.0,
+        "y0": 357.0,
+        "x1": 556.0,
+        "y1": 376.0
+      }
+    ],
+    "tabla_prestaciones": {
+      "pagina": 1,
+      "y0": 442.4,
+      "y1": 538.4,
+      "columnas": [
+        {
+          "x0": 23.0,
+          "x1": 198.7,
+          "campo": "descripcion",
+          "align": "left"
+        },
+        {
+          "x0": 198.7,
+          "x1": 270.1
+        },
+        {
+          "x0": 270.1,
+          "x1": 377.8,
+          "campo": "fecha",
+          "align": "center"
+        },
+        {
+          "x0": 377.8,
+          "x1": 488.9,
+          "campo": "valor",
+          "align": "right"
+        },
+        {
+          "x0": 488.9,
+          "x1": 592.3,
+          "campo": "valor_total",
+          "align": "right"
+        }
+      ],
+      "capacidad": 8,
+      "filas_min": 8,
+      "fontsize_max": 9,
+      "fontsize_min": 6.5,
+      "nota": "y1 incluye la banda GASTOS LABORATORIO (526.4-538.4) para llegar a 8 filas; la clinica no usa ese campo aparte."
+    },
+    "seed_rev": 1
   },
   "zurich": {
     "nombre": "Zurich",
