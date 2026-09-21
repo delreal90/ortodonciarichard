@@ -341,7 +341,10 @@
           <select id="pSexo"><option value="">—</option><option value="M">Masculino</option>
             <option value="F">Femenino</option></select>
           <span class="nota" id="notaSexo" style="display:none"></span></div>
+        <div><label class="f">Fecha del informe</label>
+          <input type="date" id="pFecha"></div>
       </div>
+      <div class="alerta" id="avisoFecha" style="display:none"></div>
       <div class="campo" style="margin-top:8px">
         <label for="pSinTrat">Tratamiento de ortodoncia previo</label>
         <select id="pSinTrat">
@@ -606,6 +609,9 @@ async function iniciar(){
   let r;
   try { r = await api('/api/informe-pc/catalogo'); } catch(e){ return; }
   CAT = r.catalogo;
+  // El "hoy" viene del servidor (hora Chile), no del reloj del PC.
+  HOY = r.hoy || '';
+  if (HOY) { $('#pFecha').value = HOY; $('#pFecha').max = HOY; }
   pintarFormulario();
   $('#vCaptura').style.display = ''; $('#barra').style.display = '';
 
@@ -641,6 +647,8 @@ function cargarEnFormulario(it){
   const set = (id, v) => { const e = $(id); if (e && v != null && v !== '') e.value = v; };
   set('#pNombre', it.nombre); set('#pRut', it.rut_fmt || it.rut);
   set('#pEdad', it.edad); set('#pSexo', it.sexo);
+  set('#pFecha', it.fecha);
+  avisarFecha();
   SEXO_ORIGEN = it.sexo_origen || (it.sexo ? 'declarado' : '');
   // Tres estados: '' = no consignado, '1' = sin tratamiento previo,
   // '0' = con tratamiento previo. La ausencia NO es 'no'.
@@ -779,6 +787,49 @@ function precargar(p){
   }
   cambioEdad();
   cargarPrevios();
+}
+
+/* ── La fecha del informe ──────────────────────────────────────────
+   Por defecto hoy, pero se puede mover hacia atrás para cargar las mediciones
+   de una visita anterior y que la curva de crecimiento del paciente tenga sus
+   puntos donde corresponde.
+
+   ⚠️ Cambiar la fecha OBLIGA a recalcular la edad. El percentil de los anchos
+   sale de la tabla de Bishara indexada por edad y sexo, así que un informe
+   fechado en 2023 comparado con la edad de hoy da un número que se ve
+   razonable y está equivocado. Lo calcula el SERVIDOR desde la fecha de
+   nacimiento de la ficha (pacientes.edad_a_fecha), no el navegador: es la
+   misma función que usa el resto del proyecto.
+
+   De la respuesta se lee SOLO la edad. Traer de nuevo el sexo, el PSQ o el
+   nombre pisaría lo que el Dr. acaba de escribir. */
+async function cambioFecha(){
+  avisarFecha();
+  const rut = ($('#pRut').value || '').trim();
+  if (!rut) return;
+  let r;
+  try {
+    r = await api('/api/informe-pc/precarga?rut=' + encodeURIComponent(rut)
+                  + '&fecha=' + encodeURIComponent($('#pFecha').value));
+  } catch(e){ return; }
+  // Sin fecha de nacimiento en la base la edad viene nula: NO se toca el
+  // campo, porque ahí el número lo escribió una persona a mano.
+  if (!r || r.edad == null) return;
+  $('#pEdad').value = r.edad;
+  cambioEdad();          // el instrumento del tamizaje depende de la edad
+}
+
+/* Un informe con fecha de otro día no es un error, pero sí es algo que el Dr.
+   tiene que ver: NO va a aparecer en la lista de "pendientes de imprimir" de
+   recepción, que pide los del día. */
+function avisarFecha(){
+  const caja = $('#avisoFecha'), f = $('#pFecha').value;
+  if (!caja) return;
+  if (!f || !HOY || f === HOY) { caja.style.display = 'none'; return; }
+  caja.style.display = '';
+  caja.textContent = 'Informe fechado el ' + f + ', no hoy. La edad y los percentiles '
+    + 'se calculan con la edad que el paciente tenía ese día, y el informe NO va a '
+    + 'aparecer en la lista de recepción de hoy.';
 }
 
 /* ── Los informes que este paciente YA tiene ───────────────────────
@@ -986,6 +1037,7 @@ function pintarFormulario(){
     if (l) l.classList.toggle('on', e.target.checked);
   });
   ['#pEdad','#pSexo'].forEach(s => $(s).addEventListener('change', cambioEdad));
+  $('#pFecha').addEventListener('change', cambioFecha);
   ['#m_intercanino_maxilar','#m_intermolar_maxilar','#m_intercanino_mandibular',
    '#m_intermolar_mandibular','#m_tramo_intermolar'].forEach(s =>
     $(s).addEventListener('change', () => { lecturaPercentiles(); refrescarTamizaje(); }));
@@ -1001,6 +1053,7 @@ function cambioEdad(){
 
 // Las respuestas del FAIREST viven aca y no en el DOM: son tres estados
 // (si / no / no evaluado) y un checkbox solo sabe dos.
+let HOY = '';          // fecha de hoy en Chile, la manda el servidor
 let FAI = {};
 
 /* Del STOP-BANG solo estas cuatro son preguntas con botón; el resto de lo que
@@ -1494,6 +1547,7 @@ function recolectar(){
     id: ID,
     rut: $('#pRut').value, rut_fmt: $('#pRut').value, nombre: $('#pNombre').value,
     edad: num('pEdad'), sexo: $('#pSexo').value, sexo_origen: SEXO_ORIGEN,
+    fecha: $('#pFecha').value,
     sin_tratamiento_previo: ($('#pSinTrat').value === '1' ? true
                           : $('#pSinTrat').value === '0' ? false : null),
     id_agenda: CTX.id_agenda, doctor_texto: CTX.doctor_texto,

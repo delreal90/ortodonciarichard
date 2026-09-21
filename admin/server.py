@@ -3992,11 +3992,27 @@ def informe_pc_logo():
     return send_from_directory('.', 'logo_informe.png')
 
 
+def _fecha_iso(valor):
+    """Un YYYY-MM-DD de la query como date, o None si no se puede leer.
+
+    None significa "usa el default", nunca una fecha inventada: quien lo recibe
+    (pacientes.edad_a_fecha) ya sabe caer a hoy.
+    """
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat((valor or '').strip()[:10])
+    except ValueError:
+        return None
+
+
 @app.route('/api/informe-pc/catalogo', methods=['GET'])
 def informe_pc_catalogo():
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    return jsonify({'ok': True, 'catalogo': informe_pc.catalogo()})
+    # `hoy` lo manda el servidor y no lo pone el navegador: es la fecha por
+    # defecto de un dato clinico, y el reloj de un PC puede estar corrido.
+    return jsonify({'ok': True, 'catalogo': informe_pc.catalogo(),
+                    'hoy': fechas.hoy_chile().isoformat()})
 
 
 @app.route('/api/informe-pc/precarga', methods=['GET'])
@@ -4011,7 +4027,12 @@ def informe_pc_precarga():
     import pacientes as _pac
     rec = _pac.lookup(rut) or {}
     fnac = rec.get('fecha_nacimiento') or ''
-    edad = _pac.edad_a_fecha(fnac) if fnac else -1
+    # ⚠️ La edad va referida a la FECHA DEL INFORME, no a hoy. Un informe
+    # fechado hacia atras se compara contra la fila de Bishara de la edad que el
+    # paciente tenia ese dia; con la de hoy el percentil sale plausible y
+    # equivocado, que es justo el error que nadie nota mirando el papel.
+    # Sin `fecha` (el caso normal, informe de hoy) se comporta como siempre.
+    edad = _pac.edad_a_fecha(fnac, _fecha_iso(request.args.get('fecha'))) if fnac else -1
     nombre = ' '.join(x for x in [rec.get('nombres'), rec.get('apellidos')] if x).strip()
 
     # El sexo declarado tiene UNA fuente (el export del panel), asi que al

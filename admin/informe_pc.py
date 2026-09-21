@@ -46,7 +46,7 @@ REGLAS DE REDACCION QUE NO SE NEGOCIAN
 
 import os
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import fechas       # hoy_chile()/ahora_chile(): Render corre en UTC. Ver fechas.py.
@@ -332,6 +332,35 @@ def _nuevo_id():
     return secrets.token_hex(8)
 
 
+def _fecha_informe(pedida, previa):
+    """La fecha CLINICA del informe: a que dia corresponden estos datos.
+
+    Por defecto hoy, pero el Dr. puede fecharlo hacia atras para cargar
+    mediciones de visitas anteriores del paciente y que su curva de crecimiento
+    tenga los puntos donde corresponde. Es distinta de `creado`, que registra
+    cuando se escribio de verdad y NO se toca nunca: son dos hechos distintos y
+    mezclarlos borraria el rastro de que el informe se escribio despues.
+
+    ⚠️ Lo pedido gana sobre lo previo. Antes era al reves, y con el campo en el
+    formulario eso significaria que un informe jamas podria corregir su fecha.
+
+    ⚠️ Una fecha FUTURA se descarta. No existe el dia en que ocurrio, y ademas
+    se quedaria arriba de todas las listas --incluida la de pendientes de
+    imprimir-- hasta que llegara esa fecha. Lo ilegible tambien se descarta: es
+    preferible la fecha que ya tenia antes que un informe sin fecha, que
+    desaparece de la busqueda por rango.
+    """
+    hoy = fechas.hoy_chile()
+    f = (pedida or '').strip()[:10]
+    if f:
+        try:
+            if date.fromisoformat(f) <= hoy:
+                return f
+        except ValueError:
+            pass
+    return previa or hoy.isoformat()
+
+
 def guardar(datos):
     """Guarda un informe y devuelve su id. Si viene 'id', actualiza el existente
     conservando lo que ya tenia (asi reeditar no borra el sello de impresion)."""
@@ -343,7 +372,7 @@ def guardar(datos):
         item = dict(previo)
         item.update(datos)
         item['id'] = iid
-        item['fecha'] = previo.get('fecha') or datos.get('fecha') or fechas.hoy_chile().isoformat()
+        item['fecha'] = _fecha_informe(datos.get('fecha'), previo.get('fecha'))
         item['creado'] = previo.get('creado') or ahora
         item['actualizado'] = ahora
         # Si se edita algo que YA se imprimio, el papel que tiene el paciente

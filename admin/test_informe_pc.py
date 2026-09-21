@@ -30,6 +30,7 @@ import re
 import sys
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 
 _TMP = Path(tempfile.mkdtemp(prefix='informe_pc_test_'))
@@ -38,6 +39,7 @@ os.environ['INFORME_PC_REGISTRO_PATH'] = str(_TMP / 'informe_pc_registro.json')
 sys.path.insert(0, str(Path(__file__).parent))
 
 import fairest      # noqa: E402
+import fechas       # noqa: E402
 import informe_pc   # noqa: E402
 
 
@@ -1322,6 +1324,81 @@ class TestEvaluacionPorDefecto(unittest.TestCase):
         no nombra el metodo, dice que se midio y contra que se comparo."""
         self.assertIn('mediciones', informe_pc.EVALUACION_POR_DEFECTO)
         self.assertNotIn('escane', dict(informe_pc.CATALOGO_EVALUACION)['mediciones'].lower())
+
+
+class TestFechaDelInforme(unittest.TestCase):
+    """La fecha CLINICA del informe: a que dia corresponden estos datos.
+
+    Se puede mover hacia atras para cargar mediciones de visitas anteriores y
+    que la curva de crecimiento del paciente tenga sus puntos donde
+    corresponde. Lo que se protege aca es que esa libertad no ensucie el
+    registro ni borre cuando se escribio de verdad.
+    """
+
+    def setUp(self):
+        _limpiar_registro()
+
+    def test_sin_fecha_es_hoy(self):
+        iid = informe_pc.guardar({k: v for k, v in _base().items() if k != 'fecha'})
+        self.assertEqual(informe_pc.obtener(iid)['fecha'], fechas.hoy_chile().isoformat())
+
+    def test_se_puede_fechar_hacia_atras(self):
+        iid = informe_pc.guardar(_base(fecha='2024-03-12'))
+        self.assertEqual(informe_pc.obtener(iid)['fecha'], '2024-03-12')
+
+    def test_reeditar_SI_puede_corregir_la_fecha(self):
+        """Antes la fecha previa ganaba siempre, asi que un informe nunca habria
+        podido corregir la suya desde el formulario."""
+        iid = informe_pc.guardar(_base(fecha='2024-03-12'))
+        informe_pc.guardar(_base(id=iid, fecha='2024-05-20'))
+        self.assertEqual(informe_pc.obtener(iid)['fecha'], '2024-05-20')
+
+    def test_un_guardado_que_no_manda_fecha_conserva_la_que_tenia(self):
+        """El guardado silencioso (el QR del tamizaje, anexar una imagen) no
+        puede devolverle al informe la fecha de hoy por omision."""
+        iid = informe_pc.guardar(_base(fecha='2024-03-12'))
+        informe_pc.guardar({'id': iid, 'nombre': 'Paciente De Prueba'})
+        self.assertEqual(informe_pc.obtener(iid)['fecha'], '2024-03-12')
+
+    def test_una_fecha_FUTURA_se_descarta(self):
+        """No existe el dia en que ocurrio, y ademas se quedaria arriba de todas
+        las listas --incluida la de pendientes de imprimir-- hasta esa fecha."""
+        manana = (fechas.hoy_chile() + timedelta(days=1)).isoformat()
+        iid = informe_pc.guardar(_base(fecha=manana))
+        self.assertEqual(informe_pc.obtener(iid)['fecha'], fechas.hoy_chile().isoformat())
+
+    def test_una_fecha_ilegible_no_deja_el_informe_sin_fecha(self):
+        """Un informe sin fecha desaparece de la busqueda por rango."""
+        iid = informe_pc.guardar(_base(fecha='el martes'))
+        self.assertEqual(informe_pc.obtener(iid)['fecha'], fechas.hoy_chile().isoformat())
+
+    def test_una_fecha_ilegible_al_reeditar_conserva_la_anterior(self):
+        iid = informe_pc.guardar(_base(fecha='2024-03-12'))
+        informe_pc.guardar(_base(id=iid, fecha='//'))
+        self.assertEqual(informe_pc.obtener(iid)['fecha'], '2024-03-12')
+
+    def test_creado_NO_se_mueve_con_la_fecha(self):
+        """Son dos hechos distintos: cuando ocurrio la visita y cuando se
+        escribio el informe. Mezclarlos borraria el rastro de que este se
+        escribio despues."""
+        iid = informe_pc.guardar(_base(fecha='2024-03-12'))
+        creado = informe_pc.obtener(iid)['creado']
+        self.assertTrue(creado.startswith(fechas.hoy_chile().isoformat()))
+
+    def test_el_informe_atrasado_entra_en_su_lugar_del_historial(self):
+        """Es para lo que existe el campo: que la curva tenga sus puntos
+        ordenados por la fecha de la visita, no por la de escritura."""
+        for f in ('2026-09-21', '2024-03-12', '2025-06-30'):
+            informe_pc.guardar(_base(rut='18777555-1', fecha=f,
+                                     mediciones={'intermolar_maxilar': 44.0}))
+        fechas_prev = [i['fecha'] for i in informe_pc.previos('18777555-1')]
+        self.assertEqual(fechas_prev, sorted(fechas_prev, reverse=True))
+
+    def test_NO_aparece_entre_los_pendientes_de_hoy(self):
+        """Consecuencia real de fechar hacia atras, y por eso el formulario lo
+        avisa: recepcion pide los informes del dia."""
+        informe_pc.guardar(_base(fecha='2024-03-12'))
+        self.assertEqual(informe_pc.listar(solo_pendientes=True), [])
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
