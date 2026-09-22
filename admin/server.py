@@ -2659,6 +2659,24 @@ def get_whatsapp_estado():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     return jsonify({'ok': True, **recordatorios_wa.estado()})
 
+@app.route('/api/whatsapp/boton-llamar', methods=['POST'])
+def post_whatsapp_boton_llamar():
+    """Muestra o esconde el boton de llamar del WhatsApp de la clinica.
+
+    Body: {"mostrar": true|false}. Se hace por API y no por el Administrador de
+    WhatsApp porque la pestana 'Llamadas' no aparece en cuentas bajo el limite
+    de mensajeria que exige la Calling API (la de la clinica esta en TIER_250).
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    datos = request.get_json(silent=True) or {}
+    mostrar = bool(datos.get('mostrar'))
+    try:
+        r = wa_cloud.mostrar_boton_llamar(mostrar)
+    except wa_cloud.WhatsAppCloudError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+    return jsonify({'ok': True, 'mostrar': mostrar, 'respuesta': r.get('raw', r)})
+
 @app.route('/api/whatsapp/diagnostico-llamadas', methods=['GET'])
 def get_whatsapp_diagnostico_llamadas():
     """Por que NO aparece la pestana 'Llamadas' en el Administrador de WhatsApp.

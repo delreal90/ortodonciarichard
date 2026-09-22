@@ -349,6 +349,31 @@ def rechazar_llamada(call_id):
 
 # ── Estado / salud ────────────────────────────────────────────────────────
 
+def mostrar_boton_llamar(mostrar):
+    """Muestra o esconde el boton de llamar del chat y del perfil de la clinica.
+
+    `mostrar=False` -> call_icon_visibility = DISABLE_ALL.
+
+    ⚠️ SIEMPRE manda `status: ENABLED` junto con la visibilidad, y no es
+    redundante: apagar la funcion de llamadas probablemente corta el webhook
+    'calls', y sin ese webhook la llamada vuelve a no dejar rastro en ninguna
+    parte -- que es exactamente el problema que este sistema vino a resolver.
+    Mandarlo explicito evita que un merge del lado de Meta lo deje en otra cosa.
+
+    ⚠️ Esconder el boton NO impide del todo las llamadas: Meta documenta que
+    un usuario igual puede llamar sin solicitud. Por eso esto baja el volumen y
+    el que igual llame lo atiende `webhook_wa._procesar_llamada`.
+    """
+    payload = {
+        'messaging_product': 'whatsapp',
+        'calling': {
+            'status': 'ENABLED',
+            'call_icon_visibility': 'DEFAULT' if mostrar else 'DISABLE_ALL',
+        },
+    }
+    return _post(payload, endpoint='settings')
+
+
 def _get_graph(ruta, params=None):
     """GET crudo a la Graph API del numero. Devuelve (ok, datos_o_error)."""
     cfg = _config()

@@ -276,5 +276,29 @@ class TestRegistroYBaseDeDatos(_Base):
         self.assertTrue(llamadas_perdidas.debe_responder(TEL))
 
 
+class TestBotonDeLlamar(unittest.TestCase):
+    """El interruptor va por API porque la pestana 'Llamadas' no aparece en
+    cuentas bajo el limite de mensajeria que exige Meta."""
+
+    def test_esconder_no_apaga_las_llamadas(self):
+        """⚠️ La garantia central: apagar la funcion cortaria el webhook y la
+        llamada volveria a no dejar rastro. Esconder el boton NO es apagarla."""
+        with mock.patch.object(wa_cloud, '_post') as post:
+            wa_cloud.mostrar_boton_llamar(False)
+
+        payload, = post.call_args[0]
+        self.assertEqual(payload['calling']['status'], 'ENABLED')
+        self.assertEqual(payload['calling']['call_icon_visibility'], 'DISABLE_ALL')
+        self.assertEqual(post.call_args[1]['endpoint'], 'settings')
+
+    def test_volver_a_mostrarlo(self):
+        with mock.patch.object(wa_cloud, '_post') as post:
+            wa_cloud.mostrar_boton_llamar(True)
+
+        payload, = post.call_args[0]
+        self.assertEqual(payload['calling']['call_icon_visibility'], 'DEFAULT')
+        self.assertEqual(payload['calling']['status'], 'ENABLED')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
