@@ -2133,6 +2133,106 @@ NO hacer: "Conviértete en proveedor de tecnología" (Tech Provider) — es para
 
 ---
 
+## Llamadas de WhatsApp que nadie puede contestar (`llamadas_perdidas.py`, 2026-09-22)
+
+El número de la clínica (+56 9 3355 8189) vive en la **Cloud API**, no en la app de WhatsApp
+Business. Eso es lo que permite automatizar confirmaciones, recordatorios y NPS, pero tiene un
+costo que nadie había mirado: **un número en la Cloud API no tiene teléfono donde suene la
+llamada**. Contestar de verdad exigiría montar una central por software (SIP/WebRTC) y, sobre
+todo, alguien sentado esperando que suene.
+
+Los pacientes igual llamaban. Escuchaban tono, cortaban con un "no contestaron", y **la llamada
+no dejaba rastro en ninguna parte**. Esa era la pérdida real: no que no les contestaran, sino
+que nadie en la clínica se enteraba de que habían llamado.
+
+### Qué hace ahora, en orden
+
+1. **Rechaza la llamada al tiro** (`wa_cloud.rechazar_llamada` → `POST <PHONE_NUMBER_ID>/calls`
+   con `action: reject`). Cortar de inmediato es mejor trato que 30-60 segundos de tono para
+   nada, que es lo que pasa si nadie responde el webhook.
+2. **Le contesta por escrito** con las dos salidas reales: escribir por el mismo chat, o el
+   fijo de la clínica. Saludo por género vía `notify._saludo_nombre`.
+3. **Le avisa a recepción por correo**, que es lo único que hace que una persona lo devuelva.
+
+### ⚠️ El ajuste de Meta que hay que dejar como está
+
+En WhatsApp Manager → Herramientas de la cuenta → Números → Llamadas hay dos cosas distintas:
+
+| Ajuste | Qué hace | Cómo debe quedar |
+|---|---|---|
+| **Estado de las llamadas** | `DISABLED` apaga la función entera | **ACTIVADO** |
+| **Mostrar botones de llamada** (`call_icon_visibility`) | esconde el ícono del teléfono | **APAGADO** (`DISABLE_ALL`) |
+
+**Parece al revés y no lo es.** Meta documenta que esconder el botón *"no deshabilita la
+capacidad de un usuario de hacer llamadas no solicitadas"* — o sea igual entran. Y si se apaga
+la función entera, **es muy probable que Meta deje de mandar el webhook**, con lo que la llamada
+vuelve a no dejar rastro: exactamente el problema original, pero ahora en silencio. Dejar la
+función encendida con el botón escondido es lo que baja el volumen **y** conserva el aviso.
+
+⚠️ **Hay que suscribir el campo `calls`** en el webhook de la app de Meta (junto a `messages`).
+Sin eso el evento nunca llega y este sistema queda mudo sin dar ningún error. Es el mismo tipo
+de trampa que la causa #3 de la Fase 6 (la app suscrita a la WABA): todo configurado, nada
+pasando.
+
+### Detalles que tienen su prueba
+
+- **Solo el evento `connect`.** El `terminate` describe la MISMA llamada y llega justo después:
+  atenderlo le mandaría el texto dos veces.
+- **El que llama sale de `calls[].from`, o de `contacts[].wa_id` si no viene** — y del contacto
+  **solo si hay uno**: con varios no se sabe cuál llamó.
+- **Ventana anti-repetición de 30 min** (`VENTANA_MINUTOS`). Quien no entiende por qué no le
+  contestan llama 2 o 3 veces; se le responde una vez. Las demás **igual se rechazan y se
+  registran** — cuánto insistió es la señal de urgencia y no se pierde.
+- **`insistio()` es otra cosa que la ventana**: marca que ya había llamado en las últimas 24 h y
+  solo cambia el texto del aviso a recepción.
+- **Si el rechazo falla, igual contesta y avisa.** Cortar es lo cosmético.
+- **Una fecha ilegible en el registro se trata como "hace mucho"**: ante la duda es mejor un
+  mensaje de más que dejar a alguien esperando.
+- **Texto libre primero, plantilla `conversacion_general` de respaldo.** No está documentado que
+  una llamada abra la ventana de 24 h; mismo fallback que `recordatorio_control`.
+
+### `pacientes.buscar_por_telefono()` (nueva)
+
+Una llamada trae **solo el número**: de ahí hay que llegar al nombre (para saludarlo) y al RUT
+(para que el evento entre a `clinica.db`). Compara los **últimos 8 dígitos**, porque la base
+tiene el teléfono escrito de mil formas (`+56 9 1234 5678`, `912345678`, `12345678`).
+
+⚠️ **Si DOS fichas comparten el teléfono devuelve `None` a propósito** (pasa: madre e hijo,
+matrimonios). Saludar con el nombre equivocado es peor que no saludar, y recepción ve el número
+igual.
+
+### Por qué NO pasa por `avisos.py` (regla 3)
+
+La regla 3 es para los sistemas que **inician** el contacto. Acá el paciente acaba de llamar a
+la clínica: contestarle no es molestarlo, y quedarse mudo con alguien que te está buscando
+sería el peor resultado posible. Es el mismo criterio con que ya operan `_confirmar` y
+`_agendar_por_whatsapp` en el webhook, que responden libre sin consultar avisos.
+
+### Archivos
+
+```
+admin/llamadas_perdidas.py   ← registro (jsonstore), ventana e insistencia. Cero red
+admin/test_llamadas.py       ← 20 pruebas, cero red / cero WhatsApp / cero correo
+admin/webhook_wa.py          ← rama `calls` + _procesar_llamada()
+admin/wa_cloud.py            ← rechazar_llamada() + _post(endpoint=)
+admin/notify.py              ← responder_llamada_perdida() + avisar_recepcion_llamada_perdida()
+admin/pacientes.py           ← buscar_por_telefono()
+admin/clinico.py             ← adaptador `llamada_perdida` (regla 9)
+```
+
+Registro en `llamadas_registro.json` (gitignored, disco persistente vía `PATIENT_INDEX_PATH`) —
+lleva RUT y teléfono, y este repo es PÚBLICO. **No toca `server.py`**: el endpoint del webhook
+ya entrega el payload completo a `webhook_wa.procesar_evento`, así que no hay ruta nueva
+(regla 4 no aplica).
+
+**Pendiente:** apagar el botón de llamar y suscribir el campo `calls` en el panel de Meta (las
+dos cosas las hace el usuario en su cuenta, no el código); y confirmar en vivo, con una llamada
+real, que el webhook `calls` llega — hasta que eso ocurra el sistema está probado pero no
+verificado contra Meta. No hay pestaña en el panel para el historial (lo cubre el adaptador de
+`clinica.db`).
+
+---
+
 ## NPS / Encuesta de satisfacción por WhatsApp (2026-07-24)
 
 > 🔧 **Tras la revisión de 2026-07-28:** mismo `admin/avisos.py` compartido que Recaptación

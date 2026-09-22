@@ -154,3 +154,12 @@ carpeta/
 admin/carpeta_elegidas.json
 admin/carpeta_token.txt
 admin/carpeta_agent.log
+
+# Artefactos de correr `carpeta_agent.py` desde el repo (en un PC de la clinica
+# viven en %LOCALAPPDATA%). `dentidesk-assistant/` dentro del repo SIEMPRE es un
+# artefacto: la extension de verdad vive fuera, en Claude Code Playground.
+admin/carpeta_ext_sello.txt
+dentidesk-assistant/
+
+# Llamadas de WhatsApp que nadie pudo contestar: lleva RUT y telefono.
+admin/llamadas_registro.json

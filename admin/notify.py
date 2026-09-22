@@ -344,6 +344,61 @@ def avisar_recepcion_interes_control(nombre, telefono):
     return _enviar_email_recepcion(f'Interés en agendar control — {nombre or telefono}', html)
 
 
+def responder_llamada_perdida(telefono, nombre='', rut=''):
+    """Le contesta por escrito al paciente que intento llamar por WhatsApp.
+
+    El numero de la clinica vive en la Cloud API: no hay donde contestar (ver
+    llamadas_perdidas.py). Este texto es lo unico que evita que el paciente
+    quede creyendo que lo ignoraron, asi que le da las DOS salidas reales:
+    escribir por el mismo chat, o el fijo de la clinica.
+
+    Intenta texto libre primero; si Meta lo rechaza (la ventana de 24h se abre
+    con un mensaje, y no esta documentado que una llamada la abra) cae a la
+    plantilla `conversacion_general`, que si se puede mandar en frio. Mismo
+    fallback que ya usan recordatorio_control y consentimiento_informado.
+    """
+    if not telefono:
+        return {'ok': False, 'error': 'Sin telefono'}
+    saludo = _saludo_nombre(rut, nombre)
+    texto = (
+        f"Estimad{saludo}, vimos que nos llamó por WhatsApp. Por este número "
+        f"no podemos recibir llamadas, pero sí leemos todos los mensajes: "
+        f"escríbanos por aquí y le respondemos a la brevedad."
+        f"\n\nSi prefiere hablar con alguien ahora, llámenos al {CLINICA_TELEFONO}."
+    )
+    try:
+        r = wa_cloud.enviar_texto_libre(telefono, texto)
+        return {'ok': bool(r.get('ok')), 'via': 'texto'}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.warning('Texto libre rechazado tras llamada perdida (%s); voy a la plantilla', e)
+    motivo = ('nos llamó por WhatsApp y por este número no podemos recibir '
+              f'llamadas. Escríbanos por aquí o al {CLINICA_TELEFONO}')
+    try:
+        r = wa_cloud.enviar_conversacion_general(telefono, saludo, motivo)
+        return {'ok': bool(r.get('ok')), 'via': 'plantilla'}
+    except wa_cloud.WhatsAppCloudError as e:
+        log.error('WhatsApp Cloud API error (llamada perdida, fallback): %s', e)
+        return {'ok': False, 'error': str(e)}
+
+
+def avisar_recepcion_llamada_perdida(nombre, telefono, repeticion=False):
+    """El paciente intento llamar y nadie pudo contestar -- avisar para que
+    recepcion lo devuelva. Esto es lo que convierte una llamada perdida
+    invisible en un contacto que alguien retoma.
+
+    `repeticion=True` cuando ya se le habia respondido hace poco: insistir es
+    justamente la senial de que es urgente, asi que el aviso igual sale y lo
+    dice en el asunto."""
+    filas = _fila('Paciente', nombre or 'No identificado') + _fila('Teléfono', telefono)
+    if repeticion:
+        filas += _fila('Atención', 'Volvió a llamar (ya se le había respondido)')
+    titulo = ('Un paciente INSISTE llamando por WhatsApp' if repeticion
+              else 'Un paciente intentó llamar por WhatsApp')
+    html = _aviso_recepcion_html(titulo, filas)
+    prefijo = 'Insiste llamando' if repeticion else 'Llamada perdida'
+    return _enviar_email_recepcion(f'{prefijo} por WhatsApp — {nombre or telefono}', html)
+
+
 def enviar_inasistencia(cita):
     """cita: nombre, telefono, fecha_legible, id_agenda, fecha."""
     if not cita.get('telefono'):

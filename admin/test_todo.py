@@ -55,6 +55,7 @@ SUITES = [
     ('clinico',      'test_clinico.py',      'proyeccion clinica: percentiles, clases por lado y el contador de muestra'),
     ('loops',        'test_loops.py',        'los hilos del scheduler: ninguna variable se lee antes de existir'),
     ('carpetas',     'test_carpetas.py',     'carpeta de fotos del paciente: la inicial suelta no es un comodin'),
+    ('llamadas',     'test_llamadas.py',     'llamadas de WhatsApp que nadie puede contestar: rechazar, responder, avisar'),
 ]
 
 AQUI = Path(__file__).parent

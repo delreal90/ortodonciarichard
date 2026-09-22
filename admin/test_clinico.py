@@ -407,7 +407,7 @@ class TestPacientes(Base):
 class TestEventos(Base):
     """La capa que permite cruzar cualquier sistema con cualquier otro."""
 
-    def test_los_ocho_adaptadores_reales_producen_filas(self):
+    def test_todos_los_adaptadores_reales_producen_filas(self):
         """⚠️ El hueco que destapó la revisión del 2026-09-10.
 
         Hasta acá los adaptadores solo se probaban con uno falso, y en el entorno
@@ -444,6 +444,10 @@ class TestEventos(Base):
         (reg / 'reactivacion_registro.json').write_text(json.dumps({'candidatos': {
             '444444444': {'rut': '444444444', 'estado': 'pendiente',
                           'proxima_fecha': '2026-04-01'}}}), encoding='utf-8')
+        (reg / 'llamadas_registro.json').write_text(json.dumps({'llamadas': [
+            {'id': 'wacid.1', 'rut': '111111111', 'telefono': '56912345678',
+             'nombre': 'X', 'cuando': '2026-05-01T10:00:00',
+             'respondido': True}]}), encoding='utf-8')
 
         # Los registros sembrados los leen TODOS los módulos, así que hay que
         # retirarlos: si no, las pruebas que corren después proyectan eventos que
@@ -454,7 +458,7 @@ class TestEventos(Base):
             self.assertEqual(r['errores'], {}, 'ningún adaptador debe fallar')
             sistemas = {f['sistema'] for f in _filas('SELECT DISTINCT sistema FROM eventos')}
             self.assertEqual(sistemas, {s for s, _fn in clinico.ADAPTADORES},
-                             'los ocho sistemas tienen que aportar filas')
+                             'todos los sistemas registrados tienen que aportar filas')
             # Y el RUT tiene que quedar utilizable para cruzar, no vacío.
             sin_rut = _filas("SELECT COUNT(*) n FROM eventos WHERE rut = ''")[0]['n']
             self.assertEqual(sin_rut, 0)

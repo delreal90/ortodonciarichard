@@ -42,10 +42,13 @@ import logging
 from datetime import datetime
 
 import dentidesk
+import llamadas_perdidas
 import notify
 import nps
+import pacientes
 import reagenda_pendientes
 import recaptacion
+import wa_cloud
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +99,71 @@ def procesar_evento(payload, cfg):
                         procesados += 1
                 except Exception as e:
                     log.error('Error procesando mensaje de webhook: %s', e)
+            # Llamadas entrantes (field 'calls'). Van en su propio try/except y
+            # DESPUES de los mensajes: una llamada mal formada no puede dejar
+            # sin procesar la confirmacion de cita que venia en el mismo POST.
+            for llamada in valor.get('calls', []) or []:
+                try:
+                    if _procesar_llamada(llamada, cfg, contactos):
+                        procesados += 1
+                except Exception as e:
+                    log.error('Error procesando llamada de webhook: %s', e)
     return {'ok': True, 'procesados': procesados}
+
+
+def _procesar_llamada(llamada, cfg, contactos=None):
+    """Un paciente llamo por WhatsApp y no hay donde contestar.
+
+    El numero de la clinica vive en la Cloud API: no existe telefono que suene
+    (ver llamadas_perdidas.py). Antes esa llamada no dejaba rastro en ninguna
+    parte -- el paciente creia que lo ignoraron y nadie en la clinica se
+    enteraba. Aca se hace lo unico util que se puede hacer: cortar al tiro,
+    contestarle por escrito y avisarle a recepcion para que lo devuelva.
+
+    Solo actua sobre el evento 'connect' (la llamada entrando). El 'terminate'
+    llega despues por la misma via y describe la MISMA llamada: atenderlo
+    tambien le mandaria el texto dos veces.
+    """
+    if (llamada.get('event') or '').lower() != 'connect':
+        return False
+
+    telefono = llamada.get('from') or ''
+    if not telefono and len(contactos or {}) == 1:
+        # El payload de Meta trae al que llama en `contacts[].wa_id`; `from`
+        # aparece en algunas versiones y en otras no. Solo se usa el contacto
+        # cuando hay UNO: con varios no se sabe cual llamo.
+        telefono = next(iter(contactos))
+    if not telefono:
+        log.warning('Llamada sin telefono identificable: %r', llamada.get('id'))
+        return False
+
+    # Cortar primero: el paciente deja de escuchar tono al instante. Si falla
+    # (token vencido, llamada ya cortada) se sigue igual -- lo que de verdad
+    # importa es el texto y el aviso a recepcion.
+    try:
+        wa_cloud.rechazar_llamada(llamada.get('id') or '')
+    except wa_cloud.WhatsAppCloudError as e:
+        log.warning('No se pudo rechazar la llamada %s: %s', llamada.get('id'), e)
+
+    paciente = pacientes.buscar_por_telefono(telefono) or {}
+    nombre = paciente.get('nombres') or (contactos or {}).get(telefono, '')
+    rut = paciente.get('rut', '')
+
+    decision = llamadas_perdidas.registrar(
+        telefono, call_id=llamada.get('id') or '', nombre=nombre, rut=rut)
+
+    if decision.get('responder'):
+        notify.responder_llamada_perdida(telefono, nombre=nombre, rut=rut)
+        notify.avisar_recepcion_llamada_perdida(
+            paciente.get('nombre') or nombre, telefono,
+            repeticion=decision.get('repeticion', False))
+    else:
+        # Insistio dentro de la ventana: ya se le respondio y recepcion ya tiene
+        # su correo. Queda registrado igual (el historial muestra cuanto
+        # insistio), pero no se le manda el mismo texto de nuevo.
+        log.info('Llamada repetida de %s dentro de la ventana: solo registrada',
+                 telefono[-4:] if telefono else '?')
+    return True
 
 
 def _procesar_mensaje(msg, cfg, contactos=None):

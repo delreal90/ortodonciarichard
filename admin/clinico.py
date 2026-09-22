@@ -502,6 +502,18 @@ def _ev_reactivacion():
                it.get('estado'), {'doctor': it.get('doctor')})
 
 
+def _ev_llamadas_perdidas():
+    import llamadas_perdidas
+    for it in llamadas_perdidas.historial(limite=_LIMITE_EVENTOS):
+        # El telefono va en `datos` porque cuando el que llama no esta en la
+        # base el RUT queda vacio y el numero es el UNICO identificador que
+        # queda de ese contacto.
+        yield (it.get('id'), it.get('rut'), it.get('cuando'),
+               'llamada_perdida',
+               'respondido' if it.get('respondido') else 'registrada',
+               {'telefono': it.get('telefono'), 'nombre': it.get('nombre')})
+
+
 ADAPTADORES = (
     ('consentimiento', _ev_consentimientos),
     ('nps', _ev_nps),
@@ -511,6 +523,7 @@ ADAPTADORES = (
     ('fotos_finales', _ev_fotos_finales),
     ('seguro', _ev_seguros),
     ('reactivacion', _ev_reactivacion),
+    ('llamada_perdida', _ev_llamadas_perdidas),
 )
 
 

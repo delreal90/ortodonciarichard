@@ -147,6 +147,47 @@ def buscar_por_nombre(texto, limite=10):
     return salida[:limite]
 
 
+def _tel_clave(tel):
+    """Ultimos 8 digitos del telefono -- la clave con que se comparan dos
+    numeros. El movil chileno es 9 digitos (parte con 9) y Meta lo manda como
+    56912345678, pero la base lo tiene escrito de mil formas ('+56 9 1234 5678',
+    '912345678', '12345678'). Comparar los ultimos 8 hace que todas esas
+    variantes calcen sin tener que normalizar la base entera.
+    """
+    digits = ''.join(c for c in (tel or '') if c.isdigit())
+    return digits[-8:] if len(digits) >= 8 else ''
+
+
+def buscar_por_telefono(tel):
+    """Busca UN paciente por su telefono. Devuelve {rut, nombres, apellidos,
+    nombre, telefono, genero} o None.
+
+    Lo usa el webhook cuando entra una llamada perdida: ahi solo se tiene el
+    numero del que llama, y hay que llegar al nombre para saludarlo y al RUT
+    para que el evento quede en la base (regla 9).
+
+    Si DOS fichas comparten el telefono (pasa: madre e hijo, matrimonios)
+    devuelve None a proposito. Saludar con el nombre equivocado es peor que no
+    saludar, y quien contesta en recepcion va a ver el numero igual.
+    """
+    clave = _tel_clave(tel)
+    if not clave:
+        return None
+    encontrados = []
+    for rut, rec in _load_index().items():
+        if _tel_clave(rec.get('telefono')) == clave:
+            nombre = f"{rec.get('nombres', '')} {rec.get('apellidos', '')}".strip()
+            encontrados.append({'rut': rut,
+                                'nombres': rec.get('nombres', ''),
+                                'apellidos': rec.get('apellidos', ''),
+                                'nombre': nombre,
+                                'telefono': rec.get('telefono', ''),
+                                'genero': rec.get('genero', '')})
+            if len(encontrados) > 1:
+                return None
+    return encontrados[0] if encontrados else None
+
+
 def total():
     return len(_load_index())
 

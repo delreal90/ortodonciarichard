@@ -93,19 +93,20 @@ def _normalizar_telefono(tel):
     return digits
 
 
-def _post(payload):
-    """POST de bajo nivel a /messages. Modo mock si WA_ENABLED no esta activo."""
+def _post(payload, endpoint='messages'):
+    """POST de bajo nivel al numero (/messages por defecto, /calls para
+    aceptar o rechazar una llamada). Modo mock si WA_ENABLED no esta activo."""
     cfg = _config()
     if not cfg['enabled']:
-        log.info('wa_cloud MOCK -> %s', payload)
-        return {'ok': True, 'mock': True, 'payload': payload}
+        log.info('wa_cloud MOCK %s -> %s', endpoint, payload)
+        return {'ok': True, 'mock': True, 'payload': payload, 'endpoint': endpoint}
 
     if requests is None:
         raise WhatsAppCloudError("Falta 'requests' (pip install requests)")
     if not cfg['token'] or not cfg['phone_number_id']:
         raise WhatsAppCloudError('Faltan WA_TOKEN / WA_PHONE_NUMBER_ID')
 
-    url = f"https://graph.facebook.com/{cfg['api_version']}/{cfg['phone_number_id']}/messages"
+    url = f"https://graph.facebook.com/{cfg['api_version']}/{cfg['phone_number_id']}/{endpoint}"
     headers = {
         'Authorization': f"Bearer {cfg['token']}",
         'Content-Type': 'application/json',
@@ -323,6 +324,27 @@ def enviar_texto_libre(telefono, texto):
         'text': {'body': texto},
     }
     return _post(payload)
+
+
+# ── Llamadas entrantes ─────────────────────────────────────────────────────
+
+def rechazar_llamada(call_id):
+    """Rechaza una llamada entrante de WhatsApp.
+
+    El numero de la clinica vive en la Cloud API: no hay telefono donde suene,
+    asi que NADIE puede contestar. Sin esto el paciente escucha 30-60 segundos
+    de tono y corta con un "no contestaron". Rechazando de inmediato le cae el
+    corte al tiro y enseguida le llega el texto que le dice que hacer.
+
+    `call_id` es el `id` (wacid...) que trae el webhook 'calls' en el evento
+    'connect'.
+    """
+    payload = {
+        'messaging_product': 'whatsapp',
+        'call_id': call_id,
+        'action': 'reject',
+    }
+    return _post(payload, endpoint='calls')
 
 
 # ── Estado / salud ────────────────────────────────────────────────────────
