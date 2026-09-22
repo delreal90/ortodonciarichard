@@ -54,6 +54,7 @@ SUITES = [
     ('basedatos',    'test_basedatos.py',    'el archivo de la base: el renombre a clinica.db no pierde datos'),
     ('clinico',      'test_clinico.py',      'proyeccion clinica: percentiles, clases por lado y el contador de muestra'),
     ('loops',        'test_loops.py',        'los hilos del scheduler: ninguna variable se lee antes de existir'),
+    ('carpetas',     'test_carpetas.py',     'carpeta de fotos del paciente: la inicial suelta no es un comodin'),
 ]
 
 AQUI = Path(__file__).parent

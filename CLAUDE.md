@@ -74,7 +74,7 @@ compartidas `stats_token` / `stats_url`**.
 > propósito robaba el ADMIN_TOKEN del `localStorage`).
 
 ### 8. 🧪 Antes de cada `git push`: `cd admin && python test_todo.py`
-**890 pruebas, 33 suites, cero red / cero correo / cero WhatsApp / cero DentiDesk.** Se
+**1.040 pruebas, 38 suites, cero red / cero correo / cero WhatsApp / cero DentiDesk.** Se
 pueden correr con producción andando. (Este número queda viejo cada vez que se suma una
 suite; el que manda es el que imprime `test_todo.py` al terminar.) Recuerda que **`git push` ES el deploy**: Render
 redespliega solo.
@@ -2520,7 +2520,8 @@ dentidesk-assistant/content.js                   ← botón "📄 Informe de pri
 Endpoints (`server.py`, bloque "INFORME DE PRIMERA CONSULTA"), todos con `ADMIN_TOKEN`
 salvo `GET /informe-pc`, que sirve la página y pide la clave al cargar (criterio de
 `/seguro`): `/api/informe-pc/catalogo|precarga|percentil|guardar|pendientes|documento|
-marcar-impreso|buscar|previos|progreso`.
+marcar-impreso|buscar|previos|progreso`. `precarga` acepta `&fecha=` (la edad a esa
+fecha) y `catalogo` devuelve el `hoy` de Chile.
 
 El botón del F2 **solo aparece cuando el motivo de la cita es Primera Consulta**, y abre la
 página con el paciente en la query string — **sin token en la URL** (quedan en el
@@ -2912,6 +2913,53 @@ y cuando el Dr. corrige el RUT a mano.
 ⚠️ Sus botones Ver y Editar abren en **pestaña nueva**, nunca con `location.href`: con
 `location.href` el Dr. perdería el informe a medio llenar que tiene en pantalla.
 
+#### La fecha del informe se elige (2026-09-21)
+
+El informe se fechaba **siempre con el día en que se guardaba**, así que la única forma de
+que un paciente tuviera puntos en su curva de crecimiento era haberle hecho un informe cada
+vez. Los datos de sus visitas anteriores existían en la ficha y no había cómo cargarlos.
+
+Ahora la tarjeta del paciente trae **«Fecha del informe»**, con hoy por defecto. Es la fecha
+**clínica** — a qué día corresponden estos datos — y es distinta de `creado`, que registra
+cuándo se escribió de verdad y **no se toca nunca**: mezclarlas borraría el rastro de que el
+informe se escribió después.
+
+⚠️ **Cambiar la fecha recalcula la edad, y eso es el punto entero.** El percentil sale de la
+tabla de Bishara indexada por **edad y sexo**: un informe fechado en 2024 comparado con la
+edad de hoy da un número que se ve razonable y está equivocado — la trampa 4 de la lista de
+más abajo, ahora alcanzable desde el formulario. `GET /api/informe-pc/precarga` acepta
+**`&fecha=`** y devuelve la edad **a esa fecha** (`pacientes.edad_a_fecha`, que siempre supo
+recibir una referencia). Se calcula en el servidor, con la misma función que el resto del
+proyecto, y de la respuesta el formulario lee **solo la edad**: traer de nuevo el sexo, el
+PSQ o el nombre pisaría lo que el Dr. acaba de escribir.
+- Sin fecha de nacimiento en la base la edad **no se toca**: ahí el número lo escribió una
+  persona a mano.
+- Como el tamizaje elige instrumento por edad, un informe atrasado puede pasar de STOP-BANG
+  a PSQ. Es correcto: a los 17 el instrumento validado era el PSQ.
+
+⚠️ **`_fecha_informe()` descarta una fecha FUTURA** (no existe el día en que ocurrió, y se
+quedaría arriba de todas las listas —incluida la de pendientes de imprimir— hasta llegar a
+ella) y una **ilegible** (un informe sin fecha desaparece de la búsqueda por rango: se
+conserva la que tenía). El `<input type="date">` además lleva `max` = hoy.
+
+⚠️ **Lo pedido gana sobre lo previo.** Hasta ahora era al revés (`previo.get('fecha') or …`),
+lo que con el campo en el formulario significaría que un informe **jamás** podría corregir su
+fecha. Un guardado que no manda fecha —el silencioso del QR, anexar una imagen— sigue
+conservando la suya.
+
+⚠️ **Un informe atrasado NO aparece en la lista de recepción**, que pide los del día. Es
+correcto (no es para imprimir hoy) pero invisible, así que el formulario lo avisa en cuanto
+la fecha deja de ser hoy.
+
+**El `hoy` por defecto lo manda el servidor** (`/api/informe-pc/catalogo` devuelve
+`hoy: fechas.hoy_chile()`), no el reloj del navegador: es la fecha de un dato clínico y el
+reloj de un PC puede estar corrido (regla 1).
+
+Verificado end-to-end con un paciente ficticio de tres visitas: 43,0 mm a los 8 · 44,6 a los
+10 · 46,9 a los 11, cada percentil contra su propia edad (p0,4 · p0,2 · p1,5) y la curva
+impresa con los tres puntos. El caso vuelve a ilustrar lo de siempre: **+3,9 mm son +1,1
+puntos de percentil**.
+
 #### La tabla de progreso — tres cosas que NO puede afirmar
 
 `informe_pc.progreso(rut)`, desplegable desde ese mismo bloque. **Solo en pantalla: no se
@@ -3215,6 +3263,266 @@ resultado sesgado sin avisar.
 - Fase 2: fotos intraorales al registro, reverso educativo fijo.
 - Fase 3: encuesta NPS para primeras consultas (`nps.clasificar_disparo()` hoy devuelve
   `None` para ese motivo) y comparar contra la línea base a los 3 meses.
+
+---
+
+## Carpeta de fotos del paciente desde el F2 (`admin/carpetas.py`, 2026-09-15/16)
+
+> **Estado:** funcionando. El código y el paquete de instalación están listos; falta
+> terminar de repartirlo en los PC de la clínica. Ver *Estado del despliegue* al final de
+> esta sección.
+
+Las fotos y registros de cada paciente viven en `\\DIGITAL1\Registros Pacientes`, una
+carpeta por paciente. Con la cita abierta en DentiDesk había que salir al Explorador y
+buscarla a mano entre **7.745 carpetas**. Ahora el F2 tiene **"📁 Carpeta del paciente"**.
+
+### ⚠️ Por qué hay un programa corriendo en cada PC y no un endpoint en Render
+
+Dos límites duros, no preferencias:
+
+1. **Una extensión de Chrome no puede abrir el Explorador de Windows.** Algo nativo tiene
+   que correr en el PC, sí o sí.
+2. **La ventana tiene que abrirse en el PC donde alguien apretó F2.** Una cola en Render
+   (el patrón de `print_agent.py`) la abriría en el PC equivocado.
+
+Por eso `admin/carpeta_agent.py` escucha en **127.0.0.1:8777** y la extensión le habla
+directo. **Este sistema no toca `server.py`**, así que no le aplican la regla 4
+(`test_seguridad.py` no ve rutas nuevas) ni la 2/9: **no crea estado en el backend**. Lo
+único que persiste es `carpeta_elegidas.json` (`rut → carpeta que una persona eligió`) y
+vive **local a cada PC a propósito** — son nombres de pacientes y el repo es público.
+*Si algún día se quieren compartir esas elecciones entre los PC* (tendría valor: delatan
+las carpetas duplicadas), ahí sí pasa a ser dato del backend y entra por la regla 9.
+
+### Cómo están archivadas las carpetas (medido, no supuesto)
+
+`letra <inicial del APELLIDO PATERNO>`, con **cuatro grupos que no son una sola letra**:
+`CH`, `N - Ñ`, `Q - R`, `X - Y`. Dentro, el patrón es
+`Apellido1 Apellido2(o inicial) Nombre(s) [ficha] [código]`:
+
+```
+Carvallo Mendoza Santiago    Azocar R Alfonso        Solis Maximiliano
+Ferrada S. Daniela           Bahamondes Kevin 4110I  Miranda A Isidora 3858 F
+Pinto De Lama P Ignacio      Larenas Bravo Ma Angelica
+```
+
+> 🔒 **Todos los nombres de esta sección (y los de `test_carpetas.py`) son INVENTADOS.**
+> Copian la *forma* real —abreviaturas, fichas, tildes, apellidos compuestos—, que es lo
+> único que el código ejercita. Las **mediciones** sí son reales. Este repo es público y que
+> alguien sea paciente de esta clínica es un dato personal de salud (Ley 21.719).
+> Verificado contra el servidor el 2026-09-21: ninguno de esos nombres corresponde a un
+> paciente, ni siquiera coincide el par de apellidos con una familia real.
+> ⚠️ Si se agregan ejemplos nuevos, inventarlos también — y **no escribir que son reales**:
+> un comentario que decía "recorte real" hizo que una revisión concluyera que había datos
+> de pacientes en el repo y frenara un `git push`.
+
+844 carpetas (10,9 %) traen la ficha en el nombre; 387 traen una abreviatura con punto; y
+hay tildes de verdad (`Alcántara`, `Peñaloza`), así que se compara con **`texto.sin_tildes()`**.
+
+### ⚠️ Los empates NO son un defecto del algoritmo: son carpetas DUPLICADAS
+
+El caso es este (con nombres inventados, ver el aviso de arriba): `Arrieta R. Ignacia` y
+`Arrieta Rosales Ignacia` son **la misma paciente** en dos carpetas, igual que
+`Alvear C Vicente` y `Alvear Cuevas Vicente`. Ningún puntaje puede resolver eso. Por eso
+`carpetas.rankear()` **devuelve una lista y marca `confiable`** en vez de elegir, y el F2
+advierte que pueden ser dos carpetas del mismo paciente. Es también la razón por la que se
+descartó el mecanismo sin proceso (un atajo `ortoficha://` no puede responderle al F2).
+
+⚠️ `_MARGEN_CONFIABLE = 2.0` **no se baja a 1.5**: 1.5 es exactamente la distancia entre
+esas dos carpetas de Ignacia, y con ese margen el sistema abriría una sin avisar de la otra.
+
+### ⚠️ La trampa del comodín (solo se ve midiendo)
+
+Con un prefijo bidireccional ingenuo, **una inicial suelta calza con cualquier cosa**: la
+`A` de `Abarza A Andrea` hacía que esa carpeta saliera como candidata de
+`Abundio Aniceto Alexsandra` — **12 candidatas para un paciente**. Tres reglas lo impiden,
+y cada una tiene su prueba:
+
+1. `_calza_paterno()` exige **≥3 caracteres por lado** en el apellido paterno.
+2. En `_asignar()`, cada token de la carpeta **se consume una sola vez**.
+3. Tiene que calzar **al menos un nombre de pila, y entero** (`_CALCE_ENTERO`). Una inicial
+   *corrobora*, no *identifica*: el `Ma` de `Miranda C.Ma Veronica` (por María) calza con
+   cualquier nombre que empiece en "ma", y buscando a "Matías Miranda Araya" salían cinco
+   Verónicas y Teresas de acompañantes.
+
+**Medido sobre las 7.745 carpetas reales** (4.379 consultas simuladas): la correcta sale
+primera el **99,9 %**, se abre sola y correcta el **99,1 %**, **0 casos** en que se abra
+sola y equivocada, 1,20 candidatas promedio. Una búsqueda cuesta **~200 ms** contra la red.
+
+### ⚠️ Nunca recursivo
+
+La raíz tiene **`.tmp.driveupload` con 272.417 archivos** (resto de la app vieja de Google
+Drive, la que reemplazó `respaldo-digital1`). `_subcarpetas()` lee **un solo nivel** con
+`os.scandir`: un barrido recursivo deja el ayudante colgado sin que nadie entienda por qué.
+Se miran solo la 1-2 carpetas `letra *` que corresponden más el primer nivel de la raíz
+(55 entradas — ahí hay algún paciente suelto, como `Peñaloza Manzano Martina`).
+
+### Seguridad del ayudante
+
+- Escucha en **127.0.0.1**, nunca `0.0.0.0`: no se asoma a la red de la clínica.
+- **Llave propia** en el header `X-Carpeta-Token`, generada sola por PC. ⚠️ **No es el
+  ADMIN_TOKEN de Render**, y por eso `background.js` tiene un handler `CARPETA_API`
+  aparte en vez de reusar `ASISTENTE_API`: reusarlo le entregaría el token de Render a un
+  programa local.
+- **No responde `Access-Control-Allow-Origin`**, a propósito: así ninguna página web puede
+  leerlo. La extensión sí puede, porque con `host_permissions` se salta CORS.
+- `_dentro_de_raiz()` (molde de `informe_pc._dentro_de_imagenes()`) exige que la ruta quede
+  dentro de la raíz. Verificado: Windows **clampea** el `..` dentro de un recurso UNC, y el
+  `+ os.sep` de la comparación rechaza un hermano con prefijo (`Registros PacientesEXTRA`).
+- `subprocess.Popen(['explorer', ruta])` — **lista de argumentos**, nunca una línea armada
+  por texto. (`explorer.exe` devuelve 1 aunque funcione: no se mira su código de salida.)
+
+### ⚠️ La ventana se abría DETRÁS en unos PC y al frente en otros
+
+Mismo código, comportamiento distinto: en unos PC la carpeta saltaba al frente y en otros
+solo parpadeaba el botón de la barra de tareas. No es aleatorio y no es un fallo del
+código — es el **bloqueo de foco de Windows**: el ayudante arranca con el PC y nunca recibe
+un clic, así que Windows lo trata como proceso de fondo y **no le deja robarle el foco** a
+lo que la persona está usando. El permiso lo gobierna `ForegroundLockTimeout` (HKCU\Control
+Panel\Desktop), que **viene con valores distintos en cada PC** (en el de desarrollo estaba
+en 2.147.483.647, o sea "nunca").
+
+Lo resuelve `_al_frente()` con **`AttachThreadInput`**: enganchándose a la cola de entrada
+del hilo que sí tiene el foco, Windows trata la petición como si viniera de él. Verificado
+en el PC con el bloqueo al máximo, en los dos casos que importan: ventana nueva, y ventana
+ya abierta pero **minimizada** (por eso `IsIconic` + `SW_RESTORE`).
+
+⚠️ **No se toca `ForegroundLockTimeout`.** Ponerlo en 0 arreglaría lo mismo en una línea,
+pero le sacaría la protección contra robo de foco a **todos** los programas de ese PC para
+resolver un problema de uno solo.
+
+⚠️ **Subir la ventana NUNCA puede impedir que la carpeta se abra.** Todo el bloque va en un
+hilo aparte (para contestarle al F2 al instante) y dentro de un `try/except` amplio: si
+falla, la ventana ya está abierta y lo único que se pierde es que salte al frente.
+
+⚠️ **El Explorador reusa la ventana** si esa carpeta ya estaba abierta, así que no siempre
+aparece una ventana nueva que subir. Por eso, si tras ~3 s no hay ninguna nueva, se busca
+por el **nombre de la carpeta en el título**.
+- En `content.js` los botones se arman con `createElement` + `textContent`, **no**
+  `innerHTML`: esos nombres vienen del disco de DIGITAL1, no del backend.
+
+### Archivos
+
+```
+admin/carpetas.py                  ← cerebro: recibe una LISTA de nombres, cero red
+admin/test_carpetas.py             ← 28 pruebas, cero red (nombres inventados, forma real)
+admin/carpeta_agent.py             ← el ayudante local (biblioteca estándar, sin dependencias)
+admin/carpeta_agent_instalar.bat   ← instala en un PC que YA tiene Python y el F2
+admin/carpeta_agent_instalar.ps1
+dentidesk-assistant/               ← botón "📁 Carpeta del paciente" + handler CARPETA_API
+```
+
+`python carpeta_agent.py --probar "Apellidos" "Nombres"` busca e imprime sin extensión.
+
+### Cómo llega a los PC de la clínica: `../instalar-carpeta-paciente/`
+
+Varios PC no tienen **ni el F2 ni Python**, así que el reparto va por un **paquete de 22 MB
+fuera del repo** (`Claude Code Playground\instalar-carpeta-paciente\`) con un solo
+`INSTALAR-EN-ESTE-PC.bat`. Trae **Python 3.12.10 embebido** (el oficial de python.org, que
+no se instala: se copia), así que no pide administrador ni toca el sistema. El instalador
+de `admin/` de arriba sirve solo para un PC que ya tenga Python.
+
+El instalador copia el ayudante y la extensión a `%LOCALAPPDATA%\OrtodonciaRichard\`,
+**genera la llave de ese PC y la escribe solo en `config.js`** (nadie copia llaves a mano),
+lo deja en el arranque y abre `chrome://extensions` con la ruta ya en el portapapeles.
+Quedan 3 clics manuales — cargar la extensión descomprimida no lo puede hacer un programa
+de afuera sin políticas de Chrome.
+
+⚠️ **Tres cosas que no se negocian, cada una por un fallo real medido al probarlo:**
+
+1. **El `config.js` del paquete va con `carpetaToken: ''`.** Si viajara con la llave de un
+   PC, el segundo quedaría con la equivocada y el F2 diría "la llave no coincide" sin que
+   se entienda por qué. `actualizar-paquete.ps1` la vacía en cada refresco.
+2. **La extensión viaja COMPRIMIDA (`extension-f2.zip`) y se instala en
+   `%LOCALAPPDATA%`.** Chrome recuerda de qué carpeta cargó una extensión descomprimida y
+   la relee de ahí cada vez: si esa carpeta era el pendrive, al sacarlo se rompe. Iba
+   suelta y **pasó en el primer PC de la clínica** (ver abajo). Un `.zip` no se puede
+   cargar en Chrome, así que el error dejó de ser posible en vez de quedar advertido.
+3. **El Python embebido solo se copia si FALTA.** Sus `.dll` quedan **bloqueados** mientras
+   el ayudante corre, así que recopiarlos hacía fallar la reinstalación entera con "el
+   archivo está siendo utilizado por otro proceso". Los `.py` sí se copian siempre, y
+   `carpeta_token.txt` / `carpeta_elegidas.json` **sobreviven** (se copian archivos, no se
+   borra la carpeta).
+
+⚠️ **El paquete es una COPIA y no avisa cuando queda viejo.** Tras tocar `admin/carpetas.py`,
+`admin/carpeta_agent.py` o cualquier archivo de `dentidesk-assistant/`, correr
+**`ACTUALIZAR-PAQUETE.bat`** — si no, los PC de la clínica siguen con la versión anterior.
+Y **no versionar esa carpeta**: su `config.js` lleva el ADMIN_TOKEN en texto plano.
+
+### ⚠️ Los tres fallos que solo aparecieron instalando en la clínica (2026-09-16)
+
+Ninguno se veía en desarrollo, y los tres tienen la **misma raíz**: en el PC de desarrollo
+el ayudante ya estaba instalado, así que la ruta de *primera instalación* no se ejecutaba
+nunca. **Si se toca el instalador, hay que probarlo borrando `carpeta_token.txt`** — es lo
+único que reproduce un PC virgen.
+
+1. **La llave llegaba con basura pegada y rompía `config.js` entero.** Al generarla por
+   primera vez, el ayudante avisaba `"Llave nueva generada en ..."` por la **misma salida**
+   por donde entrega la llave, y el instalador metía ese texto completo en `config.js`.
+   Con saltos de línea y barras invertidas adentro, el archivo dejaba de ser JavaScript
+   válido y el navegador lo **ignoraba entero**: la extensión se quedaba sin *ninguna*
+   configuración, ni siquiera el `adminToken` del backend. O sea, el F2 completo caído, no
+   solo el botón de carpetas.
+   > 🔧 Arreglado en `carpeta_agent.log(msg, consola=False)` y leyendo la llave **del
+   > archivo** `carpeta_token.txt`, no de lo que el programa imprime.
+
+2. **El primer arreglo introdujo otro peor.** Mandar ese aviso a **stderr** hacía que
+   PowerShell, con `$ErrorActionPreference = 'Stop'`, convirtiera la salida de error de un
+   `.exe` en excepción: el instalador **moría** en la primera instalación. Por eso en modo
+   `--token` el ayudante es **mudo por los dos canales** y el aviso queda solo en
+   `carpeta_agent.log`.
+
+3. **La extensión se cargó desde la carpeta del paquete**, cuyo `config.js` va sin llave a
+   propósito. De ahí el `.zip` (punto 2 de la lista de arriba). Además `content.js` ahora
+   distingue los dos casos con **`CFG_ROTO`** (`!window.DDASIS_CONFIG` = el archivo no se
+   pudo leer, vs. la llave vacía = se cargó del paquete) y dice qué arreglar en cada uno:
+   el mensaje genérico *"falta la llave"* mandaba a buscar algo que ya existía en ese PC.
+
+⚠️ **El instalador exige que la llave tenga forma de llave** (32 dígitos hexadecimales) y
+se detiene con un mensaje claro si no la tiene. Escribir basura en `config.js` rompe todo
+en silencio, así que vale más caerse ruidosamente.
+
+### Estado del despliegue (al 2026-09-16)
+
+| Dónde | Estado |
+|---|---|
+| Código, pruebas y paquete | ✅ Listos. 28 pruebas propias; el paquete está regenerado con los arreglos de arriba **y** el del foco de la ventana |
+| PC de desarrollo (ESTUDIO3D) | ✅ Andando. Su Chrome carga la extensión desde `Claude Code Playground\dentidesk-assistant` (la copia de trabajo), no desde `%LOCALAPPDATA%` |
+| Primer PC de la clínica | ⚠️ **A medias.** Quedó con la extensión cargada desde la carpeta del paquete (sin llave). Se arregla reinstalando con el paquete nuevo y cargándola desde `%LOCALAPPDATA%` |
+| Otros PC ya instalados | ✅ Andando. Tuvieron el fallo 1 y se corrigió a mano borrando la basura de `carpetaToken`; la llave que quedó es la correcta |
+| PC restantes | ⏳ Pendientes |
+
+⚠️ **Nada de esto se despliega con `git push`**: no corre en Render. Cada PC se actualiza
+copiándole el paquete y corriendo `INSTALAR-EN-ESTE-PC.bat` de nuevo.
+
+### ⚠️ Deuda abierta: este sistema rompió cómo se propagaba el F2
+
+Hasta ahora, `dentidesk-assistant` era una **carpeta compartida de red** del PC de
+desarrollo y los demás PC cargaban la extensión **apuntando a ella**: editar un archivo acá
+los actualizaba a todos, sin copiar nada (está en la memoria `asistente-f2-dentidesk`).
+
+Este sistema no cabe en ese modelo: **cada PC necesita su propia llave** para hablarle a su
+ayudante local, y esa llave vive en `config.js`. Un `config.js` compartido no puede tener
+una llave distinta por PC. Por eso el instalador **copia** la extensión a `%LOCALAPPDATA%`.
+
+**Conviven los dos modelos, y eso es deuda, no diseño.** Antes de tocar la extensión, mirar
+de dónde la carga ese PC (`chrome://extensions` con Modo de desarrollador muestra la ruta).
+
+**Salida evaluada y no tomada:** usar **una sola llave compartida** para el ayudante en vez
+de una por PC. No debilita nada real — la llave protege contra que una página web cualquiera
+maneje el ayudante, no contra otro PC de la clínica, y el ADMIN_TOKEN ya viaja compartido en
+ese mismo archivo. Con eso `config.js` vuelve a ser uno solo, la extensión vuelve a la
+carpeta compartida y se recupera el "editar acá actualiza a todos"; el instalador quedaría
+solo para el ayudante. **Decidirlo con el usuario antes de repartir a los PC que faltan.**
+
+⚠️ **Si un PC tuvo el fallo 1, conviene revisar el resto del F2 ahí** (confirmaciones,
+seguros, consentimientos): mientras el `config.js` estuvo roto, esas funciones también se
+quedaron sin el `adminToken` y fallaban.
+
+**Medido el 2026-09-16, por si alguien sospecha de lentitud:** buscar la carpeta son ~250 ms
+la primera vez y ~6 ms después (caché de 60 s); el botón de abrir responde en ~55 ms, de los
+cuales el código que sube la ventana al frente aporta **0,4 ms** y encima corre en otro hilo.
+Lo que sí se demora es el **Explorador generando miniaturas** de las fotos por la red, y eso
+no lo toca este sistema — antes no se notaba porque la ventana se abría por detrás.
 
 ---
 

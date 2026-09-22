@@ -51,11 +51,10 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
   faltaba: la agenda online **le escondía horas válidas al paciente** todos los días.
   Los módulos con nombre propio (`consentimientos.ahora_chile`, `seguros.ahora_chile`,
   `stats._ahora_cl`, `compras.ahora_cl`, `cumpleanos.ahora_chile`) ahora delegan en él.
-- 🧪 **Pruebas:** `cd admin && python test_todo.py` → 162 pruebas, 8 suites, **cero red,
-  cero correo, cero WhatsApp, cero DentiDesk**. Se puede correr en cualquier momento, aun
-  con producción andando. Correrlas antes de cada push. Cubren: hora de Chile, cobertura
-  de auth de las 162 rutas, el webhook que cancela citas, las guardas de los 3 sistemas de
-  avisos, compras (recurrentes/stock/migraciones), cumpleaños y el registro de reservas.
+- 🧪 **Pruebas:** `cd admin && python test_todo.py` → **1.040 pruebas, 38 suites**, cero red,
+  cero correo, cero WhatsApp, cero DentiDesk. Se puede correr en cualquier momento, aun con
+  producción andando. Correrlas antes de cada push. El número que manda es el que imprime
+  `test_todo.py` al terminar, no el que diga un `.md`.
 - 🔑 **Auth — no se olvide:** el control de acceso se escribe a mano en cada handler
   (121 copias de `if not _check_admin_token()`). `test_seguridad.py` recorre TODAS las
   rutas y **falla si agregas una sin llave** y sin declararla pública con su razón. Si
@@ -149,8 +148,10 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
   `ListaNoMolestar`, `bloqueo()` y `primera_guarda()`. **`no_molestar` se evalúa
   siempre primero y nunca es forzable** — es el opt-out del paciente, ningún override
   del F2 lo salta. Los opt-out son independientes entre sistemas a propósito.
-- `test_todo.py` — corre las 7 suites de pruebas. `test_fechas`, `test_seguridad`,
-  `test_stats`, `test_cumpleanos`, `test_webhook_wa`, `test_avisos`, `test_compras`.
+- `test_todo.py` — corre TODAS las suites de una vez: **1.040 pruebas en 38 suites**, cero
+  red / correo / WhatsApp / DentiDesk (se pueden correr con producción andando). El número
+  que manda es el que imprime al terminar, no el que diga un `.md`. **Obligatorio antes de
+  cada `git push`**, que en este proyecto ES el deploy.
 - `server.py` — todas las rutas Flask + schedulers en hilos (`_loop_*`). ~5.4k líneas,
   162 rutas.
 - `scheduling.py` + `scheduling_config.json` — reglas de negocio, motivos, IDs,
@@ -162,6 +163,13 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
 - `consentimientos.py` (+ `consentimiento.html`, `drive_backup.py`) — firma digital.
 - `seguros.py` (+ `seguros_secretaria.html`, `seguros_seed/`) — formularios de reembolso.
 - `compras.py` (+ `compras.html/js`, `print_agent.py`) — compras/stock (SQLite).
+- `texto.py` — **quitar tildes para buscar y comparar** (`sin_tildes`). ⚠️ Es la casa donde
+  tienen que llegar las **7 copias** que siguen repartidas por el repo (`control_dental`,
+  `cumpleanos`, `dentidesk`, `fairest`, `fichas` ×2, `genero`); migrarlas es un commit aparte.
+- `carpetas.py` + `carpeta_agent.py` — encontrar y abrir la carpeta de fotos del paciente en
+  `\\DIGITAL1`. ⚠️ **El único código de `admin/` que NO corre en Render**: `carpeta_agent.py`
+  es un programa local que se instala en cada PC de la clínica (ver el paquete
+  `../instalar-carpeta-paciente/`). `carpetas.py` sí es cerebro puro y se prueba sin red.
 - `basedatos.py` — dueño del archivo **`clinica.db`** (gitignored: tiene RUT y datos de
   salud). Se llamaba `kpi.db` hasta el 2026-09-10 y el renombre es automático.
 - `clinico.py` — **capa clínica y de eventos** sobre esa misma base: proyecta los informes
@@ -233,6 +241,16 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
   encender: **39,2% de conversión primera consulta → estudio**, plana en 5 años.
   Desde el segundo informe las curvas muestran la trayectoria del paciente.
   → "Informe de evaluación".
+- **Carpeta de fotos del paciente** (2026-09-15/16) — botón en el F2 que abre el Explorador
+  directo en la carpeta del paciente dentro de `\\DIGITAL1\Registros Pacientes` (7.745
+  carpetas). ⚠️ **Es el único sistema que NO pasa por Render**: una extensión de Chrome no
+  puede abrir el Explorador, y la ventana tiene que abrirse en el PC donde se apretó F2, así
+  que hay un **ayudante local** (`admin/carpeta_agent.py`) escuchando en `127.0.0.1:8777`.
+  No crea estado en el backend. Se reparte con un **paquete fuera del repo**
+  (`../instalar-carpeta-paciente/`, 22 MB, trae Python embebido) — ⚠️ es una COPIA: tras
+  tocar el código hay que correr su `ACTUALIZAR-PAQUETE.bat` y reinstalar PC por PC, nada
+  viaja por `git push`. **Estado: código listo, despliegue a medias.**
+  → "Carpeta de fotos del paciente desde el F2".
 
 ## Memorias (contexto que no está en el código)
 En `C:\Users\ESTUDIO3D\.claude\projects\...\memory\`: índice en `MEMORY.md`. Relevantes:

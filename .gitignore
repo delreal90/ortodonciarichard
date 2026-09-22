@@ -146,3 +146,11 @@ admin/fotos_finales_registro.json
 # Diseño de la carpeta del paciente: PDFs listos para imprenta y sus fuentes.
 # Vive en el disco, no en el repo (decisión del usuario 2026-09-10).
 carpeta/
+
+# Ayudante de carpetas (carpeta_agent.py): corre en el PC de la clinica, no en
+# Render. `carpeta_elegidas.json` guarda que carpeta eligio una persona para cada
+# RUT -- son nombres de pacientes y este repo es PUBLICO. La llave y el log
+# tampoco se versionan.
+admin/carpeta_elegidas.json
+admin/carpeta_token.txt
+admin/carpeta_agent.log
