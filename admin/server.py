@@ -2659,6 +2659,18 @@ def get_whatsapp_estado():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     return jsonify({'ok': True, **recordatorios_wa.estado()})
 
+@app.route('/api/whatsapp/diagnostico-llamadas', methods=['GET'])
+def get_whatsapp_diagnostico_llamadas():
+    """Por que NO aparece la pestana 'Llamadas' en el Administrador de WhatsApp.
+
+    Meta la esconde si el numero no esta CONNECTED o si la cuenta no llega al
+    limite de mensajeria que exige la Calling API. Nada de eso se ve en el panel
+    justamente cuando la pestana falta, asi que se pregunta por API.
+    """
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, **wa_cloud.diagnostico_llamadas()})
+
 @app.route('/api/whatsapp/recordatorios/run', methods=['POST'])
 def whatsapp_recordatorios_run():
     """Dispara manualmente una pasada de los 3 recordatorios (protegido por

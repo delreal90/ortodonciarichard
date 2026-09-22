@@ -349,6 +349,53 @@ def rechazar_llamada(call_id):
 
 # ── Estado / salud ────────────────────────────────────────────────────────
 
+def _get_graph(ruta, params=None):
+    """GET crudo a la Graph API del numero. Devuelve (ok, datos_o_error)."""
+    cfg = _config()
+    if not cfg['enabled'] or not cfg['token'] or not cfg['phone_number_id']:
+        return False, 'WA_ENABLED / WA_TOKEN / WA_PHONE_NUMBER_ID incompletos'
+    if requests is None:
+        return False, "Falta 'requests'"
+    url = f"https://graph.facebook.com/{cfg['api_version']}/{cfg['phone_number_id']}{ruta}"
+    try:
+        resp = requests.get(url, params=params or {},
+                            headers={'Authorization': f"Bearer {cfg['token']}"}, timeout=15)
+    except requests.exceptions.RequestException as e:
+        return False, f'Error de red al llamar a Meta: {e}'
+    try:
+        data = resp.json()
+    except ValueError:
+        return False, f'Respuesta invalida de Meta: {resp.text[:200]}'
+    if resp.status_code >= 400:
+        return False, data.get('error', data)
+    return True, data
+
+
+def diagnostico_llamadas():
+    """Por que NO aparece la pestana 'Llamadas' en el Administrador de WhatsApp.
+
+    Meta exige, para habilitar la Calling API, que el numero este CONNECTED y
+    que la cuenta tenga un limite de mensajeria de al menos 2.000 conversaciones
+    iniciadas por la empresa en 24h. Ninguna de las dos cosas se ve desde el
+    panel cuando la pestana no esta, asi que se preguntan por API.
+
+    NUNCA devuelve el token: solo el estado del numero y su configuracion de
+    llamadas (que puede no existir, y eso es justamente el diagnostico).
+    """
+    salida = {}
+
+    ok, datos = _get_graph('', {'fields': 'display_phone_number,verified_name,status,'
+                                          'quality_rating,messaging_limit_tier,platform_type'})
+    salida['numero'] = datos if ok else {'error': datos}
+
+    # /settings trae la config de llamadas. Si la funcion no esta disponible
+    # para esta cuenta, Meta responde error o simplemente no trae 'calling'.
+    ok2, datos2 = _get_graph('/settings', {'fields': 'calling'})
+    salida['llamadas'] = datos2 if ok2 else {'error': datos2}
+
+    return salida
+
+
 def verificar_estado():
     """Chequeo liviano (sin enviar ningun mensaje): confirma que WA_TOKEN y
     WA_PHONE_NUMBER_ID son validos haciendo un GET al propio numero. Detecta
