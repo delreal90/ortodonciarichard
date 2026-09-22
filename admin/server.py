@@ -2672,7 +2672,8 @@ def post_whatsapp_boton_llamar():
     datos = request.get_json(silent=True) or {}
     mostrar = bool(datos.get('mostrar'))
     try:
-        r = wa_cloud.mostrar_boton_llamar(mostrar)
+        r = wa_cloud.mostrar_boton_llamar(
+            mostrar, api_version=(datos.get('api_version') or '').strip() or None)
     except wa_cloud.WhatsAppCloudError as e:
         return jsonify({'ok': False, 'error': str(e)}), 502
     return jsonify({'ok': True, 'mostrar': mostrar, 'respuesta': r.get('raw', r)})

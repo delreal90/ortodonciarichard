@@ -93,7 +93,7 @@ def _normalizar_telefono(tel):
     return digits
 
 
-def _post(payload, endpoint='messages'):
+def _post(payload, endpoint='messages', api_version=None):
     """POST de bajo nivel al numero (/messages por defecto, /calls para
     aceptar o rechazar una llamada). Modo mock si WA_ENABLED no esta activo."""
     cfg = _config()
@@ -106,7 +106,8 @@ def _post(payload, endpoint='messages'):
     if not cfg['token'] or not cfg['phone_number_id']:
         raise WhatsAppCloudError('Faltan WA_TOKEN / WA_PHONE_NUMBER_ID')
 
-    url = f"https://graph.facebook.com/{cfg['api_version']}/{cfg['phone_number_id']}/{endpoint}"
+    ver = api_version or cfg['api_version']
+    url = f"https://graph.facebook.com/{ver}/{cfg['phone_number_id']}/{endpoint}"
     headers = {
         'Authorization': f"Bearer {cfg['token']}",
         'Content-Type': 'application/json',
@@ -349,7 +350,15 @@ def rechazar_llamada(call_id):
 
 # ── Estado / salud ────────────────────────────────────────────────────────
 
-def mostrar_boton_llamar(mostrar):
+# La Calling API es MAS NUEVA que la version con que se mandan los mensajes.
+# Con v21.0, POST /settings responde "(#141000) The phone number is not a valid
+# Cloud API number" -- un error que despista, porque el numero SI es valido: lo
+# que no existe en esa version es la funcion de llamadas. Va aparte a proposito:
+# subir WA_API_VERSION global tocaria los envios, que estan probados hace meses.
+VERSION_LLAMADAS = os.getenv('WA_API_VERSION_LLAMADAS', 'v23.0').strip()
+
+
+def mostrar_boton_llamar(mostrar, api_version=None):
     """Muestra o esconde el boton de llamar del chat y del perfil de la clinica.
 
     `mostrar=False` -> call_icon_visibility = DISABLE_ALL.
@@ -371,17 +380,19 @@ def mostrar_boton_llamar(mostrar):
             'call_icon_visibility': 'DEFAULT' if mostrar else 'DISABLE_ALL',
         },
     }
-    return _post(payload, endpoint='settings')
+    return _post(payload, endpoint='settings',
+                 api_version=api_version or VERSION_LLAMADAS)
 
 
-def _get_graph(ruta, params=None):
+def _get_graph(ruta, params=None, api_version=None):
     """GET crudo a la Graph API del numero. Devuelve (ok, datos_o_error)."""
     cfg = _config()
     if not cfg['enabled'] or not cfg['token'] or not cfg['phone_number_id']:
         return False, 'WA_ENABLED / WA_TOKEN / WA_PHONE_NUMBER_ID incompletos'
     if requests is None:
         return False, "Falta 'requests'"
-    url = f"https://graph.facebook.com/{cfg['api_version']}/{cfg['phone_number_id']}{ruta}"
+    ver = api_version or cfg['api_version']
+    url = f"https://graph.facebook.com/{ver}/{cfg['phone_number_id']}{ruta}"
     try:
         resp = requests.get(url, params=params or {},
                             headers={'Authorization': f"Bearer {cfg['token']}"}, timeout=15)

@@ -291,6 +291,16 @@ class TestBotonDeLlamar(unittest.TestCase):
         self.assertEqual(payload['calling']['call_icon_visibility'], 'DISABLE_ALL')
         self.assertEqual(post.call_args[1]['endpoint'], 'settings')
 
+    def test_usa_la_version_de_la_calling_api_no_la_de_mensajes(self):
+        """Con la version de los mensajes (v21.0) Meta responde "the phone
+        number is not a valid Cloud API number", que despista: el numero es
+        valido, la funcion de llamadas es la que no existe en esa version."""
+        with mock.patch.object(wa_cloud, '_post') as post:
+            wa_cloud.mostrar_boton_llamar(False)
+
+        self.assertEqual(post.call_args[1]['api_version'], wa_cloud.VERSION_LLAMADAS)
+        self.assertNotEqual(wa_cloud.VERSION_LLAMADAS, 'v21.0')
+
     def test_volver_a_mostrarlo(self):
         with mock.patch.object(wa_cloud, '_post') as post:
             wa_cloud.mostrar_boton_llamar(True)
