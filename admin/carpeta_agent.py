@@ -40,9 +40,12 @@ Para que arranque solo con Windows: `carpeta_agent_instalar.bat`.
 --------------------------------------------------------------------------------
 """
 
+import hashlib
 import json
 import os
+import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -63,6 +66,14 @@ PUERTO = int(os.environ.get('CARPETA_PUERTO', '8777'))
 ARCHIVO_TOKEN = AQUI / 'carpeta_token.txt'
 ARCHIVO_ELEGIDAS = AQUI / 'carpeta_elegidas.json'
 ARCHIVO_LOG = AQUI / 'carpeta_agent.log'
+ARCHIVO_SELLO = AQUI / 'carpeta_ext_sello.txt'
+
+# ── Sincronizacion de la extension F2 ────────────────────────────────────────
+# De donde se traen los cambios del F2, y a donde van en ESTE PC.
+EXT_ORIGEN = os.environ.get('CARPETA_EXT_ORIGEN', r'\\ESTUDIO3D\dentidesk-assistant')
+EXT_DESTINO = os.environ.get('CARPETA_EXT_DESTINO', str(AQUI.parent / 'dentidesk-assistant'))
+EXT_ARCHIVOS = ('manifest.json', 'config.js', 'content.js', 'background.js')
+_SYNC_CADA = 3600        # cada hora; al arrancar siempre se revisa
 
 # Los nombres de carpeta cambian poco; la red cuesta ~200 ms por carpeta `letra *`.
 _CACHE_TTL = 60
@@ -154,6 +165,113 @@ def recordar(rut, ruta):
             json.dump(datos, fh, ensure_ascii=False, indent=1)
     except OSError as e:
         log('No se pudo recordar la eleccion: %s' % e)
+
+
+# ── Sincronizacion de la extension F2 ────────────────────────────────────────
+#
+# POR QUE EXISTE: la extension se instala COPIADA en cada PC, asi que un arreglo
+# hecho en el PC de desarrollo no llegaba a ninguna parte -- habia que ir PC por
+# PC con un pendrive. Este ayudante ya arranca con Windows en todos, asi que es
+# el que puede traer los cambios solo.
+#
+# Se conserva la copia LOCAL a proposito (en vez de que Chrome lea la carpeta
+# compartida directo): asi el F2 sigue funcionando aunque el PC de desarrollo
+# este apagado o la red falle. Lo unico que viaja por la red es la revision.
+
+def _sello_origen():
+    """Huella del contenido de la extension en la carpeta compartida."""
+    h = hashlib.sha256()
+    for nombre in EXT_ARCHIVOS:
+        with open(os.path.join(EXT_ORIGEN, nombre), 'rb') as fh:
+            h.update(nombre.encode('utf-8'))
+            h.update(fh.read())
+    return h.hexdigest()
+
+
+def sello_local():
+    """La huella de lo que este PC tiene instalado ahora."""
+    try:
+        return ARCHIVO_SELLO.read_text(encoding='utf-8').strip()
+    except OSError:
+        return ''
+
+
+def _config_personalizado(texto, sello, llave):
+    """El config.js del origen, con lo que es PROPIO de este PC metido adentro.
+
+    ⚠️ Sin esto la sincronizacion ROMPE el F2 en vez de actualizarlo: el
+    `config.js` compartido trae la llave de otro PC (o ninguna), y la llave del
+    ayudante es distinta en cada maquina. Se devuelve texto y no se escribe
+    nada: si algo no calza, quien llama aborta ANTES de tocar la instalacion
+    que hoy funciona.
+
+    Recibe la llave en vez de leerla: asi esta funcion --que es la que hay que
+    proteger con pruebas-- no toca disco.
+    """
+    nuevo, n = re.subn(r"carpetaToken:\s*'[^']*'",
+                       "carpetaToken: '%s'" % llave, texto)
+    if n != 1:
+        raise ValueError('el config.js del origen no tiene un carpetaToken unico')
+    # La version la pone el ayudante, no una persona: es la huella de lo que
+    # acaba de instalar. Asi el F2 puede darse cuenta solo de que Chrome sigue
+    # corriendo los archivos viejos. Si el campo no existe, no se inventa.
+    nuevo = re.sub(r"extVersion:\s*'[^']*'",
+                   "extVersion: '%s'" % sello[:8], nuevo)
+    return nuevo
+
+
+def sincronizar_extension():
+    """Trae la extension desde la carpeta compartida si cambio.
+
+    Devuelve (cambio, detalle). NUNCA lanza: si el origen no se alcanza, este
+    PC se queda con lo que ya tenia, que es lo correcto.
+    """
+    if not EXT_ORIGEN:
+        return False, 'sin origen configurado'
+    try:
+        sello = _sello_origen()
+    except OSError as e:
+        return False, 'no se alcanza %s (%s)' % (EXT_ORIGEN, e.__class__.__name__)
+
+    if sello == sello_local() and os.path.isdir(EXT_DESTINO):
+        return False, 'sin cambios'
+
+    # Se prepara el config.js ANTES de copiar nada. Si la llave no se puede
+    # inyectar, no se toca la instalacion que hoy anda.
+    try:
+        origen_cfg = open(os.path.join(EXT_ORIGEN, 'config.js'),
+                          encoding='utf-8').read()
+        cfg_final = _config_personalizado(origen_cfg, sello, token())
+    except (OSError, ValueError) as e:
+        return False, 'no se pudo preparar config.js: %s' % e
+
+    try:
+        os.makedirs(EXT_DESTINO, exist_ok=True)
+        for nombre in EXT_ARCHIVOS:
+            if nombre == 'config.js':
+                continue                      # va al final, ya personalizado
+            shutil.copy2(os.path.join(EXT_ORIGEN, nombre),
+                         os.path.join(EXT_DESTINO, nombre))
+        with open(os.path.join(EXT_DESTINO, 'config.js'), 'w',
+                  encoding='utf-8', newline='') as fh:
+            fh.write(cfg_final)
+        ARCHIVO_SELLO.write_text(sello, encoding='utf-8')
+    except OSError as e:
+        return False, 'no se pudo copiar: %s' % e
+
+    log('Extension F2 actualizada desde %s (version %s). Toma efecto al '
+        'reiniciar Chrome o recargar la extension.' % (EXT_ORIGEN, sello[:8]))
+    return True, 'actualizada'
+
+
+def _loop_sincronizar():
+    """Revisa al arrancar y despues cada hora. Un fallo nunca mata el hilo."""
+    while True:
+        try:
+            sincronizar_extension()
+        except Exception as e:                      # noqa: BLE001
+            log('Fallo la sincronizacion de la extension: %s' % e)
+        time.sleep(_SYNC_CADA)
 
 
 # ── Lectura del servidor ─────────────────────────────────────────────────────
@@ -407,8 +525,12 @@ class Handler(BaseHTTPRequestHandler):
         uno = lambda k: (q.get(k) or [''])[0]
 
         if partes.path == '/estado':
+            # `ext_version` es la huella de la extension que este ayudante dejo
+            # instalada. El F2 la compara con la suya: si difieren, Chrome sigue
+            # corriendo los archivos viejos y hay que recargarlo.
             self._responder(200, {'ok': True, 'raiz': RAIZ,
-                                  'alcanzable': alcanzable()})
+                                  'alcanzable': alcanzable(),
+                                  'ext_version': sello_local()[:8]})
         elif partes.path == '/buscar':
             if not alcanzable():
                 self._responder(200, {'ok': False, 'error': 'no_alcanzable',
@@ -446,6 +568,9 @@ def servir():
     log('Ayudante de carpetas en http://127.0.0.1:%d  (raiz: %s)' % (PUERTO, RAIZ))
     if not alcanzable():
         log('AVISO: no se alcanza la raiz. El F2 lo va a decir en pantalla.')
+    # En un hilo aparte: que no se alcance la carpeta compartida no puede
+    # retrasar ni un segundo el arranque del servicio que usa el F2.
+    threading.Thread(target=_loop_sincronizar, daemon=True).start()
     # ⚠️ 127.0.0.1, nunca 0.0.0.0: esto no se asoma a la red de la clinica.
     ThreadingHTTPServer(('127.0.0.1', PUERTO), Handler).serve_forever()
 
@@ -454,6 +579,13 @@ def main():
     args = sys.argv[1:]
     if args and args[0] == '--token':
         print(token())
+        return
+    if args and args[0] == '--sincronizar':
+        cambio, detalle = sincronizar_extension()
+        print('origen : %s' % EXT_ORIGEN)
+        print('destino: %s' % EXT_DESTINO)
+        print('%s -> %s' % ('CAMBIO' if cambio else 'sin cambio', detalle))
+        print('version instalada: %s' % (sello_local()[:8] or '(ninguna)'))
         return
     if args and args[0] == '--probar':
         if len(args) < 3:

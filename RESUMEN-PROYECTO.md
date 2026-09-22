@@ -51,7 +51,7 @@ Clínica de ortodoncia en Las Condes, Santiago. El proyecto tiene 4 piezas:
   faltaba: la agenda online **le escondía horas válidas al paciente** todos los días.
   Los módulos con nombre propio (`consentimientos.ahora_chile`, `seguros.ahora_chile`,
   `stats._ahora_cl`, `compras.ahora_cl`, `cumpleanos.ahora_chile`) ahora delegan en él.
-- 🧪 **Pruebas:** `cd admin && python test_todo.py` → **1.040 pruebas, 38 suites**, cero red,
+- 🧪 **Pruebas:** `cd admin && python test_todo.py` → **1.065 pruebas, 39 suites**, cero red,
   cero correo, cero WhatsApp, cero DentiDesk. Se puede correr en cualquier momento, aun con
   producción andando. Correrlas antes de cada push. El número que manda es el que imprime
   `test_todo.py` al terminar, no el que diga un `.md`.
@@ -148,7 +148,7 @@ Hueco preexistente que NO se tocó: `_segFetch`/`_cdFetch`/`_satFetch` del panel
   `ListaNoMolestar`, `bloqueo()` y `primera_guarda()`. **`no_molestar` se evalúa
   siempre primero y nunca es forzable** — es el opt-out del paciente, ningún override
   del F2 lo salta. Los opt-out son independientes entre sistemas a propósito.
-- `test_todo.py` — corre TODAS las suites de una vez: **1.040 pruebas en 38 suites**, cero
+- `test_todo.py` — corre TODAS las suites de una vez: **1.065 pruebas en 39 suites**, cero
   red / correo / WhatsApp / DentiDesk (se pueden correr con producción andando). El número
   que manda es el que imprime al terminar, no el que diga un `.md`. **Obligatorio antes de
   cada `git push`**, que en este proyecto ES el deploy.

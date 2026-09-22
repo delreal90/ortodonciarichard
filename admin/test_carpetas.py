@@ -36,7 +36,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import carpetas   # noqa: E402
+import carpetas         # noqa: E402
+import carpeta_agent as agente   # noqa: E402  (solo funciones puras; no toca red)
 
 
 # Una `letra A` inventada, con la forma exacta de la real y los casos que importan.
@@ -218,6 +219,59 @@ class TestEntradasPobres(unittest.TestCase):
         r = carpetas.rankear('Martina', 'Peñaloza Manzano',
                              ['z- Varios', 'Peñaloza Manzano Martina'])
         self.assertEqual(_nombres(r), ['Peñaloza Manzano Martina'])
+
+
+class TestSincronizarExtension(unittest.TestCase):
+    """El ayudante se trae el F2 nuevo desde la carpeta compartida.
+
+    Solo se prueba `_config_personalizado`, que es donde esta el peligro: es lo
+    que decide si la sincronizacion ACTUALIZA el F2 o lo ROMPE. La copia de
+    archivos no se prueba acá (toca red y disco).
+    """
+
+    CFG = ("window.DDASIS_CONFIG = {\n"
+           "  apiBase: 'https://ortodonciarichard.onrender.com',\n"
+           "  adminToken: 'eltokendelbackend',\n"
+           "  carpetaUrl: 'http://127.0.0.1:8777',\n"
+           "  carpetaToken: 'LA-LLAVE-DE-OTRO-PC',\n"
+           "  extVersion: ''\n"
+           "};\n")
+
+    def test_la_llave_de_este_pc_pisa_la_del_origen(self):
+        """⚠️ Lo que impide que sincronizar rompa el F2 de todos los PC.
+
+        El config.js compartido trae la llave del PC donde se edita. Si viajara
+        tal cual, cada PC quedaria con una llave que su ayudante no reconoce.
+        """
+        r = agente._config_personalizado(self.CFG, 'abcdef1234', 'mi-llave-local')
+        self.assertIn("carpetaToken: 'mi-llave-local'", r)
+        self.assertNotIn('LA-LLAVE-DE-OTRO-PC', r)
+
+    def test_lo_demas_del_origen_si_viaja(self):
+        """El sentido de todo esto: lo central se actualiza desde un solo lugar."""
+        r = agente._config_personalizado(self.CFG, 'abcdef1234', 'mi-llave-local')
+        self.assertIn("adminToken: 'eltokendelbackend'", r)
+        self.assertIn("apiBase: 'https://ortodonciarichard.onrender.com'", r)
+
+    def test_la_version_es_la_huella_de_lo_instalado(self):
+        """La pone el ayudante, no una persona: por eso no se puede olvidar."""
+        r = agente._config_personalizado(self.CFG, 'abcdef1234567890', 'k')
+        self.assertIn("extVersion: 'abcdef12'", r)
+
+    def test_un_config_sin_llave_se_rechaza(self):
+        """⚠️ Se aborta ANTES de tocar la instalacion que hoy funciona.
+
+        Copiar primero y fallar despues dejaria el PC sin F2.
+        """
+        with self.assertRaises(ValueError):
+            agente._config_personalizado('window.DDASIS_CONFIG = {};', 'abc', 'k')
+
+    def test_no_se_inventa_el_campo_de_version(self):
+        """Un config.js viejo sin `extVersion` se sincroniza igual, sin avisos."""
+        viejo = "window.DDASIS_CONFIG = {\n  carpetaToken: 'x'\n};\n"
+        r = agente._config_personalizado(viejo, 'abcdef12', 'k')
+        self.assertIn("carpetaToken: 'k'", r)
+        self.assertNotIn('extVersion', r)
 
 
 if __name__ == '__main__':

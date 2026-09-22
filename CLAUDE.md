@@ -74,7 +74,7 @@ compartidas `stats_token` / `stats_url`**.
 > propósito robaba el ADMIN_TOKEN del `localStorage`).
 
 ### 8. 🧪 Antes de cada `git push`: `cd admin && python test_todo.py`
-**1.040 pruebas, 38 suites, cero red / cero correo / cero WhatsApp / cero DentiDesk.** Se
+**1.065 pruebas, 39 suites, cero red / cero correo / cero WhatsApp / cero DentiDesk.** Se
 pueden correr con producción andando. (Este número queda viejo cada vez que se suma una
 suite; el que manda es el que imprime `test_todo.py` al terminar.) Recuerda que **`git push` ES el deploy**: Render
 redespliega solo.
@@ -3594,25 +3594,48 @@ en silencio, así que vale más caerse ruidosamente.
 ⚠️ **Nada de esto se despliega con `git push`**: no corre en Render. Cada PC se actualiza
 copiándole el paquete y corriendo `INSTALAR-EN-ESTE-PC.bat` de nuevo.
 
-### ⚠️ Deuda abierta: este sistema rompió cómo se propagaba el F2
+### El ayudante trae solo las actualizaciones del F2 (2026-09-22)
 
-Hasta ahora, `dentidesk-assistant` era una **carpeta compartida de red** del PC de
-desarrollo y los demás PC cargaban la extensión **apuntando a ella**: editar un archivo acá
-los actualizaba a todos, sin copiar nada (está en la memoria `asistente-f2-dentidesk`).
+Al copiar la extensión a cada PC, este sistema **rompió cómo se propagaba el F2**: antes
+`dentidesk-assistant` era una carpeta compartida de red del PC de desarrollo y los demás PC
+cargaban la extensión **apuntando a ella**, así que editar un archivo acá los actualizaba a
+todos. Con copias locales, un arreglo no llegaba a ninguna parte sin ir PC por PC.
 
-Este sistema no cabe en ese modelo: **cada PC necesita su propia llave** para hablarle a su
-ayudante local, y esa llave vive en `config.js`. Un `config.js` compartido no puede tener
-una llave distinta por PC. Por eso el instalador **copia** la extensión a `%LOCALAPPDATA%`.
+No se pudo evitar la copia: **cada PC necesita su propia llave** para hablarle a su ayudante,
+y esa llave vive en `config.js`; un `config.js` compartido no puede tener una llave distinta
+por PC. Pero el ayudante **ya arranca con Windows en todos los PC**, así que es él quien trae
+los cambios: `sincronizar_extension()` compara una huella del contenido de
+`\\ESTUDIO3D\dentidesk-assistant` (env `CARPETA_EXT_ORIGEN`) contra la instalada y copia si
+cambió. Al arrancar y cada hora.
 
-**Conviven los dos modelos, y eso es deuda, no diseño.** Antes de tocar la extensión, mirar
-de dónde la carga ese PC (`chrome://extensions` con Modo de desarrollador muestra la ruta).
+**Se conserva la copia local a propósito** en vez de que Chrome lea la carpeta compartida
+directo: así el F2 sigue funcionando aunque el PC de desarrollo esté apagado o la red falle.
+Por la red solo viaja la revisión. Fue la decisión del usuario frente a "volver a la carpeta
+de red", que era más simple pero dejaba a **todos** los PC dependiendo de ESTUDIO3D.
 
-**Salida evaluada y no tomada:** usar **una sola llave compartida** para el ayudante en vez
-de una por PC. No debilita nada real — la llave protege contra que una página web cualquiera
-maneje el ayudante, no contra otro PC de la clínica, y el ADMIN_TOKEN ya viaja compartido en
-ese mismo archivo. Con eso `config.js` vuelve a ser uno solo, la extensión vuelve a la
-carpeta compartida y se recupera el "editar acá actualiza a todos"; el instalador quedaría
-solo para el ayudante. **Decidirlo con el usuario antes de repartir a los PC que faltan.**
+⚠️ **Lo que hace que esto ACTUALICE el F2 en vez de ROMPERLO** es
+`_config_personalizado()`: el `config.js` del origen trae la llave de otro PC (o ninguna), y
+antes de escribirlo se le inyecta **la llave de este PC**. Todo lo demás (`apiBase`,
+`adminToken`) sí viaja — ese es el punto. Recibe la llave por parámetro, así que es una
+función pura y **tiene pruebas**; el resto (copiar archivos) no se prueba porque toca red.
+
+⚠️ **Si algo no calza, NO se toca la instalación que funciona.** El `config.js` se prepara
+en memoria primero: un origen sin `carpetaToken`, o inalcanzable, aborta antes de copiar
+nada. Verificado con los tres casos (cambio real, origen caído, `config.js` malo).
+
+⚠️ **Chrome lee los archivos de la extensión al arrancar**, así que una sincronización no
+tiene efecto hasta que se reinicie el navegador. Eso ya era así antes y no lo cambia ningún
+modelo. Para que no quede **silenciosamente vieja** —que es el fallo que se repitió todo el
+despliegue—, el ayudante escribe la huella en `extVersion` del `config.js` que instala y la
+reporta en `/estado`; el F2 compara las dos al abrirse y avisa en pantalla si difieren.
+`extVersion` **no se edita a mano**: la pone el ayudante.
+
+**Migrar un PC es opcional y nadie se rompe mientras tanto:** los que aún cargan la extensión
+desde la carpeta de red también reciben los cambios (la leen directo), solo que sin la
+protección de la copia local. Para pasarlos, correr el instalador y cargar la extensión desde
+`%LOCALAPPDATA%`.
+
+`python carpeta_agent.py --sincronizar` revisa y reporta sin esperar la hora.
 
 ⚠️ **Si un PC tuvo el fallo 1, conviene revisar el resto del F2 ahí** (confirmaciones,
 seguros, consentimientos): mientras el `config.js` estuvo roto, esas funciones también se
