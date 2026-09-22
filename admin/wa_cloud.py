@@ -373,8 +373,9 @@ def mostrar_boton_llamar(mostrar, api_version=None):
     un usuario igual puede llamar sin solicitud. Por eso esto baja el volumen y
     el que igual llame lo atiende `webhook_wa._procesar_llamada`.
     """
+    # Sin 'messaging_product': /settings NO lo lleva (a diferencia de /messages
+    # y /calls). Mandarlo hace que Meta responda 141000, un error que despista.
     payload = {
-        'messaging_product': 'whatsapp',
         'calling': {
             'status': 'ENABLED',
             'call_icon_visibility': 'DEFAULT' if mostrar else 'DISABLE_ALL',
