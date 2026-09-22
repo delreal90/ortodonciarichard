@@ -2154,25 +2154,57 @@ que nadie en la clínica se enteraba de que habían llamado.
    fijo de la clínica. Saludo por género vía `notify._saludo_nombre`.
 3. **Le avisa a recepción por correo**, que es lo único que hace que una persona lo devuelva.
 
-### ⚠️ El ajuste de Meta que hay que dejar como está
+### ⚠️ El botón de llamar NO se puede esconder (verificado contra Meta, 2026-09-22)
 
-En WhatsApp Manager → Herramientas de la cuenta → Números → Llamadas hay dos cosas distintas:
+La primera versión de esta sección mandaba a WhatsApp Manager → Números → pestaña
+**Llamadas** a apagar "Mostrar botones de llamada". **Esa pestaña no existe en esta cuenta**,
+y el ajuste tampoco se puede cambiar por API. Lo que se midió preguntando a Meta
+(`GET /api/whatsapp/diagnostico-llamadas`):
 
-| Ajuste | Qué hace | Cómo debe quedar |
-|---|---|---|
-| **Estado de las llamadas** | `DISABLED` apaga la función entera | **ACTIVADO** |
-| **Mostrar botones de llamada** (`call_icon_visibility`) | esconde el ícono del teléfono | **APAGADO** (`DISABLE_ALL`) |
+```
+numero:   CONNECTED · quality GREEN · platform CLOUD_API
+          messaging_limit_tier: TIER_250
+llamadas: status ENABLED · call_icon_visibility NOT_SET
+```
 
-**Parece al revés y no lo es.** Meta documenta que esconder el botón *"no deshabilita la
-capacidad de un usuario de hacer llamadas no solicitadas"* — o sea igual entran. Y si se apaga
-la función entera, **es muy probable que Meta deje de mandar el webhook**, con lo que la llamada
-vuelve a no dejar rastro: exactamente el problema original, pero ahora en silencio. Dejar la
-función encendida con el botón escondido es lo que baja el volumen **y** conserva el aviso.
+**Las llamadas ya vienen ENCENDIDAS** — por eso los pacientes pueden llamar. Pero Meta
+documenta que para **configurar** la función hace falta *"un límite de mensajería de 2.000 o
+superior"*, y la clínica está en **250**. Por eso:
+
+- La pestaña **Llamadas** no aparece en el Administrador de WhatsApp.
+- `POST /<PHONE_NUMBER_ID>/settings` responde **`(#141000) The phone number is not a valid
+  Cloud API number`**, que es un error que despista: el número **sí** es válido y está
+  conectado; lo que no se puede es tocar esa configuración con este límite.
+
+⚠️ **Ese 141000 ya se persiguió y NO es lo que parece. No volver a gastar despliegues en
+estas dos hipótesis, las dos descartadas midiendo:**
+
+1. **No es la versión de Graph.** Se probó v22.0, v23.0 y v24.0: el mismo error en las tres.
+   (La separación `VERSION_LLAMADAS` se dejó igual, porque la Calling API sí es más nueva que
+   la `v21.0` de los envíos y subir la global tocaría el envío de plantillas.)
+2. **No era `messaging_product` en el cuerpo.** Sobraba — `/settings` no lo lleva, a diferencia
+   de `/messages` y `/calls` — y se sacó, pero el error es idéntico sin él.
+
+**El límite sube solo** con el uso y la calidad del número (hoy en verde). Cuando la cuenta
+llegue a TIER_2000, la pestaña aparece y `POST /api/whatsapp/boton-llamar {"mostrar": false}`
+debería funcionar — ya está escrito y probado esperando ese momento.
+
+**Consecuencia para el diseño: la respuesta automática no es un complemento, es TODA la
+solución.** No se puede bajar el volumen de llamadas; lo único que se puede hacer es
+atenderlas bien. Y la buena noticia es que `calling.status` ya está en `ENABLED`, que es la
+condición para que Meta entregue el webhook `calls`.
 
 ⚠️ **Hay que suscribir el campo `calls`** en el webhook de la app de Meta (junto a `messages`).
 Sin eso el evento nunca llega y este sistema queda mudo sin dar ningún error. Es el mismo tipo
 de trampa que la causa #3 de la Fase 6 (la app suscrita a la WABA): todo configurado, nada
 pasando.
+
+⚠️ **Si alguna vez se puede apagar, NO apagar la función entera** (`status: DISABLED`): solo
+esconder el botón (`call_icon_visibility: DISABLE_ALL`). Meta documenta que esconder el botón
+*"no deshabilita la capacidad de un usuario de hacer llamadas no solicitadas"*, así que apagar
+la función probablemente corta el webhook y la llamada vuelve a no dejar rastro — el problema
+original, pero en silencio. Por eso `mostrar_boton_llamar()` manda **siempre**
+`status: ENABLED` junto con la visibilidad, y hay una prueba que lo fija.
 
 ### Detalles que tienen su prueba
 
@@ -2225,10 +2257,10 @@ lleva RUT y teléfono, y este repo es PÚBLICO. **No toca `server.py`**: el endp
 ya entrega el payload completo a `webhook_wa.procesar_evento`, así que no hay ruta nueva
 (regla 4 no aplica).
 
-**Pendiente:** apagar el botón de llamar y suscribir el campo `calls` en el panel de Meta (las
-dos cosas las hace el usuario en su cuenta, no el código); y confirmar en vivo, con una llamada
-real, que el webhook `calls` llega — hasta que eso ocurra el sistema está probado pero no
-verificado contra Meta. No hay pestaña en el panel para el historial (lo cubre el adaptador de
+**Pendiente:** suscribir el campo `calls` en el webhook de la app de Meta (lo hace el usuario,
+no el código) y confirmar en vivo, con una llamada real, que el webhook llega — hasta que eso
+ocurra el sistema está probado pero no verificado contra Meta. Esconder el botón de llamar
+queda bloqueado por el límite de mensajería (ver arriba); el interruptor ya está escrito. No hay pestaña en el panel para el historial (lo cubre el adaptador de
 `clinica.db`).
 
 ---
