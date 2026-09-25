@@ -58,9 +58,13 @@ def importar(seed, usuario_id=None):
             k = _norm_key(nombre)
             if not k or k in cat_id:
                 continue
+            # El ámbito se asigna por nombre (sueldos/impuestos/seguros/otros →
+            # administración). Antes entraban todas como 'operacion' por defecto y
+            # el rol inventario veía, p. ej., los pagos de "Otros" (bug 2026-09-25).
+            ambito = compras.AMBITO_POR_DEFECTO.get(k, 'operacion')
             cur = con.execute(
-                'INSERT INTO categorias(nombre,archivada,creado) VALUES(?,0,?)',
-                (nombre.strip(), ahora[:10]))
+                'INSERT INTO categorias(nombre,ambito,archivada,creado) VALUES(?,?,0,?)',
+                (nombre.strip(), ambito, ahora[:10]))
             cat_id[k] = cur.lastrowid
             resumen['categorias_nuevas'] += 1
 

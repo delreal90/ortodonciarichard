@@ -236,5 +236,23 @@ class TestCapacidades(_Base):
         self.assertNotIn('registrar', compras.CAPS['solicitante'])
 
 
+class TestImportarHistorico(_Base):
+    """Bug real (2026-09-25): la carga del historico creaba las categorias sin
+    ambito -> todas 'operacion', y el rol inventario veia los pagos de "Otros"
+    (Banco de Chile, honorarios, arriendo)."""
+
+    def test_categorias_administrativas_entran_ocultas_para_inventario(self):
+        import importar_historico
+        importar_historico.importar({'categorias_gasto': [
+            'Insumos Generales', 'Sueldos y Leyes Sociales', 'Impuestos y Tesorería',
+            'Seguros', 'Gastos Comunes', 'Otros', 'Reparaciones']})
+        amb = {c['nombre']: c['ambito'] for c in compras.listar_categorias()}
+        for n in ('Sueldos y Leyes Sociales', 'Impuestos y Tesorería', 'Seguros',
+                  'Gastos Comunes', 'Otros'):
+            self.assertEqual(amb[n], 'administracion', n)
+        for n in ('Insumos Generales', 'Reparaciones'):
+            self.assertEqual(amb[n], 'operacion', n)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
