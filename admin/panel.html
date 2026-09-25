@@ -2317,6 +2317,79 @@ async function loadKpi() {
   }
 }
 
+// Gastos e ingresos. Los gastos vienen del sistema de compras (/compras) y se
+// muestran siempre; los ingresos solo existen desde que la extensión F2 empuja las
+// boletas. El margen lo calcula el backend (kpi.plata) SOLO sobre los meses con
+// boletas: acá no se resta nada, para no repetir esa regla en dos lados.
+function _kpiPlata(pla) {
+  const navy = '#1A2E4A', gold = '#C9A84C', rojo = '#e53e3e', verde = '#2f855a';
+  if (!pla || pla.gastos === null || pla.gastos === undefined) {
+    return `<div class="card"><h3>💰 Gastos e ingresos</h3>
+      <p style="font-size:.82rem;color:#718096">No se pudieron leer los gastos del sistema de compras.</p></div>`;
+  }
+  const amb = pla.gastos_por_ambito || {};
+  const prev = pla.gastos_ano_anterior;
+  let h = `<div class="card"><h3>💰 Gastos e ingresos</h3>
+    <p style="font-size:.8rem;color:#718096;margin-bottom:12px">
+      Gastos del sistema de compras (incluye compras en dólares convertidas e importación).
+      ${(pla.gastos_sin_comparar || []).map(x => `La comparación de <strong>${x.ambito === 'administracion' ? 'administración' : 'operación'}</strong>
+        con el año anterior no se muestra: ese tipo de gasto se registra desde ${_esc(x.desde)}, y compararlo contra un
+        período sin registro mostraría un alza que no existe.`).join(' ')}
+      ${pla.filtro_doctor ? '<strong>Con un doctor elegido, los gastos siguen siendo de toda la clínica</strong>: no se reparten por doctor, así que no se calcula margen ni costo por atención.' : ''}</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      ${_kpiTile('Gasto total', _clp(pla.gastos), '', pla.gastos_variacion_pct, false,
+          prev && prev.total !== null ? 'año anterior: ' + _clp(prev.total) : '')}
+      ${_kpiTile('🧰 Operación (insumos)', _clp(amb.operacion), '',
+          prev && prev.por_ambito.operacion > 0 ? Math.round((amb.operacion - prev.por_ambito.operacion) / prev.por_ambito.operacion * 1000) / 10 : null, false)}
+      ${_kpiTile('🏦 Administración', _clp(amb.administracion), '',
+          prev && prev.por_ambito.administracion > 0 ? Math.round((amb.administracion - prev.por_ambito.administracion) / prev.por_ambito.administracion * 1000) / 10 : null, false,
+          'sueldos, honorarios, impuestos')}
+    </div>`;
+  if (!pla.filtro_doctor) {
+    h += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      ${_kpiTile('Gasto por hora de sillón', _clp(pla.gasto_por_hora), '', null, false, _n(pla.horas_sillon) + ' h agendadas')}
+      ${_kpiTile('Gasto por atención', _clp(pla.gasto_por_atencion), '', null, false, pla.atendidos + ' atenciones')}
+      ${_kpiTile('Insumos por atención', _clp(pla.insumos_por_atencion), '', null, false, 'solo gasto de operación')}
+    </div>`;
+  }
+  if (pla.meses_con_ingresos) {
+    const parcial = pla.gastos_meses_con_ingresos !== null && pla.gastos_meses_con_ingresos !== pla.gastos;
+    h += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      ${_statCard('Ingresos (boletas)', _clp(pla.ingresos), verde)}
+      ${pla.margen !== null ? _statCard('Margen', _clp(pla.margen), pla.margen >= 0 ? verde : rojo) : ''}
+      ${pla.margen_pct !== null ? _statCard('Margen %', _n(pla.margen_pct) + '%', pla.margen_pct >= 0 ? verde : rojo) : ''}
+      ${_statCard('Ingreso por hora de sillón', _clp(pla.ingreso_por_hora), navy)}
+    </div>
+    <p style="font-size:.76rem;color:#718096;margin-bottom:10px">
+      ${pla.boletas} documentos emitidos en ${pla.meses_con_ingresos} mes(es); las notas de crédito ya vienen restadas.
+      ${parcial ? `<strong>El margen se calcula solo con los meses que tienen boletas cargadas</strong>
+        (gasto de esos meses: ${_clp(pla.gastos_meses_con_ingresos)}); los otros meses no tienen ingresos que comparar.` : ''}</p>`;
+  } else {
+    h += `<p style="font-size:.8rem;color:#718096;margin-bottom:10px">
+      <strong>Ingresos:</strong> todavía no hay boletas cargadas para este período. Las empuja la extensión F2
+      desde el PC de recepción (DentiDesk no las entrega por API). Sin ingresos no se muestra margen:
+      daría un número tan malo como falso.</p>`;
+  }
+  h += `<h4 style="margin:10px 0 4px;font-size:.85rem;color:#4A5568">Gasto por mes</h4>
+    ${_kpiSerie(pla.serie_mensual, 'gastos', gold, _clp)}`;
+  if (pla.meses_con_ingresos) {
+    h += `<h4 style="margin:10px 0 4px;font-size:.85rem;color:#4A5568">Ingresos por mes</h4>
+      ${_kpiSerie(pla.serie_mensual.filter(m => m.ingresos !== null), 'ingresos', verde, _clp)}`;
+  }
+  const top = pla.gastos_top_categorias || [];
+  if (top.length) {
+    const max = Math.max(...top.map(c => c.total), 1);
+    h += `<h4 style="margin:14px 0 6px;font-size:.85rem;color:#4A5568">En qué se gasta</h4>` + top.map(c => `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <div style="width:170px;font-size:.8rem;color:#2D3748;text-align:right;flex-shrink:0" title="${_esc(c.label)}">${_esc(c.label)}</div>
+        <div style="flex:1;background:#edf2f7;border-radius:4px;overflow:hidden">
+          <div style="width:${Math.round(c.total / max * 100)}%;background:${c.ambito === 'administracion' ? navy : gold};height:16px"></div></div>
+        <div style="width:110px;font-size:.8rem;color:#1A2E4A;font-weight:600;text-align:right">${_clp(c.total)}</div>
+      </div>`).join('');
+  }
+  return h + '</div>';
+}
+
 function _clp(n) {
   if (n === null || n === undefined) return '—';
   return '$' + Math.round(n).toLocaleString('es-CL');
@@ -2623,30 +2696,8 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
       El resto entró por mesón o teléfono.</p>
     ${_kpiSerie(o.serie, 'pct_web', gold, x => x + '%')}</div>`;
 
-  // ── E. Plata ──
-  // Se dibuja solo si hay boletas cargadas: sin ingresos el margen daría un número
-  // catastrófico y falso (todos los gastos contra cero), y eso es peor que no mostrarlo.
-  if (pla && pla.meses_con_ingresos) {
-    h += `<div class="card"><h3>💰 Ingresos, gastos y margen</h3>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-        ${_statCard('Ingresos', _clp(pla.ingresos), verde)}
-        ${_statCard('Gastos', _clp(pla.gastos), gold)}
-        ${_statCard('Margen', _clp(pla.margen), (pla.margen || 0) >= 0 ? verde : rojo)}
-        ${_statCard('Ingreso por hora de sillón', _clp(pla.ingreso_por_hora), navy)}
-      </div>
-      <p style="font-size:.78rem;color:#718096">
-        ${pla.boletas} documentos emitidos · ${_n(pla.horas_sillon)} h de sillón en el período.
-        Las notas de crédito ya vienen restadas.</p>
-      ${_kpiSerie(pla.serie, 'monto', verde, _clp)}</div>`;
-  } else {
-    h += `<div class="card"><h3>💰 Ingresos, gastos y margen</h3>
-      <p style="font-size:.82rem;color:#718096">
-        Todavía no hay boletas cargadas para este período. Los ingresos los empuja la
-        extensión F2 desde el PC de recepción (DentiDesk no expone las boletas por API y
-        su login tiene reCAPTCHA, así que no se pueden leer desde el servidor).
-        Mientras tanto no se muestra el margen: con los gastos cargados y los ingresos en
-        cero daría un número tan malo como falso.</p></div>`;
-  }
+  // ── E. Plata: gastos (sistema de compras) e ingresos (boletas) ──
+  h += _kpiPlata(pla);
 
   // ── Calidad de datos: el panel tiene que declarar sus límites ──
   const q = r.calidad;

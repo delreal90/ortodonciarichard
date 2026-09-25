@@ -254,5 +254,136 @@ class TestImportarHistorico(_Base):
             self.assertEqual(amb[n], 'operacion', n)
 
 
+class TestFusionarProductos(_Base):
+    """El catalogo quedo con el mismo insumo dos veces (dos Excel + altas a mano).
+    Fusionar tiene que juntar TODO el rastro en uno, sin perder nada."""
+
+    def _compra(self, pid, cant, precio, fecha='2026-07-01'):
+        return compras.crear_compra(
+            {'fecha': fecha, 'tipo_gasto': 'variable', 'moneda': 'CLP'},
+            [{'producto_id': pid, 'cantidad': cant, 'precio_unitario': precio}])
+
+    def _dos(self, unidad_b='unidad'):
+        a = compras.crear_producto('Mini tornillo 2.0 x 14 (BSS)', unidad='unidad')
+        b = compras.crear_producto('Mini tornillo 2.0 x 14 (BSS)', unidad=unidad_b)
+        return a, b
+
+    def test_el_stock_se_suma_y_el_duplicado_desaparece(self):
+        a, b = self._dos()
+        self._compra(a, 6, 1000)
+        compras.registrar_movimiento(b, 'entrada', 2, 'conteo')
+        compras.fusionar_productos(b, a)
+        self.assertIsNone(compras.obtener_producto(b))
+        self.assertEqual(compras.obtener_producto(a)['stock_actual'], 8)
+
+    def test_el_historial_de_compras_pasa_al_que_queda(self):
+        a, b = self._dos()
+        self._compra(a, 1, 1000, '2026-01-10')
+        self._compra(b, 1, 1200, '2026-06-10')
+        compras.fusionar_productos(b, a)
+        self.assertEqual(len(compras.historial_precios(a)), 2)
+        self.assertEqual(compras.ultima_compra_producto(a)['fecha'], '2026-06-10')
+
+    def test_los_codigos_siguen_resolviendo(self):
+        """El QR pegado en la caja del duplicado no puede quedar huerfano."""
+        a, b = self._dos()
+        compras.agregar_codigo(b, 'OR-X-1')
+        compras.fusionar_productos(b, a)
+        self.assertEqual(compras.producto_por_codigo('OR-X-1')['id'], a)
+
+    def test_el_consumo_del_duplicado_cuenta_para_las_sugerencias(self):
+        a, b = self._dos()
+        compras.registrar_movimiento(b, 'entrada', 10)
+        compras.registrar_movimiento(b, 'salida', 4)
+        compras.fusionar_productos(b, a)
+        self.assertEqual(compras.consumo_diario(a)['total'], 4)
+
+    def test_dos_solicitudes_pendientes_quedan_en_una(self):
+        a, b = self._dos()
+        compras.crear_solicitud([{'producto_id': a, 'cantidad': 2}])
+        compras.crear_solicitud([{'producto_id': b, 'cantidad': 5}])
+        compras.fusionar_productos(b, a)
+        pend = [p for p in compras.listar_pendientes() if p['producto_id'] == a]
+        self.assertEqual(len(pend), 1)
+        self.assertEqual(pend[0]['cantidad_sugerida'], 5)
+
+    def test_conserva_el_minimo_mayor_y_deja_el_nombre_viejo_en_notas(self):
+        a = compras.crear_producto('Guantes M', unidad='caja', stock_minimo=2)
+        b = compras.crear_producto('Guantes nitrilo talla M', unidad='caja', stock_minimo=5)
+        compras.fusionar_productos(b, a)
+        p = compras.obtener_producto(a)
+        self.assertEqual(p['stock_minimo'], 5)
+        self.assertIn('Guantes nitrilo talla M', p['notas'])
+
+    def test_deja_rastro_en_los_movimientos(self):
+        a, b = self._dos()
+        compras.registrar_movimiento(b, 'entrada', 2)
+        compras.fusionar_productos(b, a)
+        movs = compras.movimientos_producto(a)
+        self.assertTrue(any('Fusión' in (m['motivo'] or '') for m in movs))
+
+    def test_unidades_distintas_se_rechazan(self):
+        """3 cajas + 40 unidades no son 43 de nada."""
+        a, b = self._dos(unidad_b='caja')
+        with self.assertRaises(ValueError):
+            compras.fusionar_productos(b, a)
+        self.assertIsNotNone(compras.obtener_producto(b))
+        compras.fusionar_productos(b, a, forzar_unidad=True)
+        self.assertIsNone(compras.obtener_producto(b))
+
+    def test_consigo_mismo_se_rechaza(self):
+        a, _ = self._dos()
+        with self.assertRaises(ValueError):
+            compras.fusionar_productos(a, a)
+
+
+class TestPosiblesDuplicados(_Base):
+
+    def _ids(self, pares):
+        return {(p['a']['id'], p['b']['id']) for p in pares} | {(p['b']['id'], p['a']['id']) for p in pares}
+
+    def test_mismo_nombre_es_igual(self):
+        a = compras.crear_producto('Mini tornillo 2.0 x 14 (BSS)')
+        b = compras.crear_producto('mini  tornillo 2.0 x 14 (bss)')
+        pares = compras.posibles_duplicados()
+        self.assertIn((a, b), self._ids(pares))
+        self.assertEqual(pares[0]['tipo'], 'igual')
+
+    def test_tildes_y_orden_no_importan(self):
+        a = compras.crear_producto('Guantes nitrilo M')
+        b = compras.crear_producto('Guantes M nítrilo')
+        self.assertIn((a, b), self._ids(compras.posibles_duplicados()))
+
+    def test_medidas_distintas_no_son_duplicado(self):
+        """2.0 x 14 y 2.0 x 12 se parecen mucho y son tornillos distintos."""
+        compras.crear_producto('Mini tornillo 2.0 x 14 (BSS)')
+        compras.crear_producto('Mini tornillo 2.0 x 12 (BSS)')
+        self.assertEqual(compras.posibles_duplicados(), [])
+
+    def test_cuadrantes_distintos_no_son_duplicado(self):
+        """Notacion de Palmer: 6┘ y └6 son dientes distintos, no el mismo tubo."""
+        compras.crear_producto('Tubo Cemen. Directo T.0,18 6┘')
+        compras.crear_producto('Tubo Cemen. Directo T.0,18 └6')
+        compras.crear_producto('Tubo Cemen. Directo T.0,18 [_6')
+        self.assertEqual(compras.posibles_duplicados(), [])
+
+    def test_variantes_de_la_misma_familia_no_son_duplicado(self):
+        """Inf/Sup, tallas y Mini/Maxi son productos distintos."""
+        compras.crear_producto('Arco Acero 17x25 Dorado Inf')
+        compras.crear_producto('Arco Acero 17x25 Dorado Sup')
+        compras.crear_producto('Guantes Nitrilo L')
+        compras.crear_producto('Guantes Nitrilo M')
+        compras.crear_producto('Tornillo Expansion Mini')
+        compras.crear_producto('Tornillo Expansion Maxi')
+        self.assertEqual(compras.posibles_duplicados(), [])
+
+    def test_errores_de_tipeo_se_proponen_como_parecidos(self):
+        a = compras.crear_producto('Alginato Hydrogum 5')
+        b = compras.crear_producto('Alginato Hydrogun 5')
+        pares = compras.posibles_duplicados()
+        self.assertIn((a, b), self._ids(pares))
+        self.assertEqual(pares[0]['tipo'], 'parecido')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

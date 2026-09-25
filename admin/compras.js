@@ -646,6 +646,7 @@ RENDER.stock = async () => {
     <div class="card">
       <div class="flex" style="margin-bottom:12px"><h2>Productos y stock</h2><div class="spacer"></div>
         <input id="stBuscar" placeholder="Filtrar…" style="max-width:220px" value="${esc(stockFiltro)}">
+        ${puede('admin') ? `<button class="btn ghost sm" id="stDup" title="Productos que probablemente están dos veces">🔍 Duplicados</button>` : ''}
         ${puede('registrar') ? `<button class="btn gold sm" id="stNuevo">➕ Producto</button>` : ''}</div>
       <div class="tablewrap"><table id="stTabla"></table></div>
     </div>`;
@@ -672,6 +673,7 @@ RENDER.stock = async () => {
     $$('#stTabla [data-ajuste]').forEach(b => b.onclick = () => modalAjuste(prods.find(p => p.id == b.dataset.ajuste)));
   };
   $('#stBuscar').oninput = pintar;
+  if ($('#stDup')) $('#stDup').onclick = modalDuplicados;
   if ($('#stNuevo')) $('#stNuevo').onclick = async () => { const p = await modalNuevoProducto(''); if (p) { await recargarCaches(); RENDER.stock(); } };
   pintar();
 };
@@ -686,7 +688,8 @@ async function verProducto(id) {
     const m = modal(`
       <div class="flex"><h3 style="margin:0">${esc(p.nombre)}</h3><div class="spacer"></div>
         ${puede('registrar') ? `<button class="btn ghost sm" id="vpEditar">✏️ Editar</button>` : ''}
-        ${puede('admin') ? `<button class="btn danger sm" id="vpEliminar">🗑️ Eliminar</button>` : ''}</div>
+        ${puede('admin') ? `<button class="btn ghost sm" id="vpFusionar" title="Es el mismo producto que otro: juntarlos en uno">🔀 Fusionar</button>
+          <button class="btn danger sm" id="vpEliminar">🗑️ Eliminar</button>` : ''}</div>
       <p class="muted" style="margin:6px 0 10px">${esc(p.categoria_prod || 'sin categoría')} · ${esc(p.unidad)}${p.marca ? ' · última marca: ' + esc(p.marca) : ''} · stock <b>${p.stock_actual}</b> (mín. ${p.stock_minimo})</p>
       <div class="field"><label>Códigos asociados (barras/QR)</label><div>${codigos}</div>
         ${puede('registrar') ? `<div class="flex" style="margin-top:8px">
@@ -736,6 +739,7 @@ async function verProducto(id) {
     }
     if (puede('admin')) {
       m.querySelector('#vpEliminar').onclick = () => eliminarProducto(p);
+      m.querySelector('#vpFusionar').onclick = () => modalFusionar(p);
     }
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -782,6 +786,84 @@ function eliminarProducto(p) {
       closeModal(); toast('Producto eliminado ✓', 'ok'); await recargarCaches(); RENDER.stock();
     } catch (e) { toast(e.message, 'err'); }
   };
+}
+
+/* ── Fusionar productos duplicados ──
+   El catálogo nació de dos Excel y de altas a mano, así que un mismo insumo puede
+   estar dos veces con el stock y el historial partidos. Fusionar junta todo en uno. */
+function modalFusionar(a, b = null) {
+  let otro = b;
+  // <div> y no <label>: dentro de .field las <label> van en mayúsculas, y dos nombres
+  // que solo difieren en mayúsculas quedarían idénticos en pantalla.
+  const fila = (p, id) => `<div class="flex" style="gap:8px;align-items:flex-start;margin:6px 0;cursor:pointer" onclick="this.querySelector('input').checked=true">
+      <input type="radio" name="fuQueda" value="${id}" style="width:auto;margin-top:3px">
+      <span><b>${esc(p.nombre)}</b><br><span class="muted">${esc(p.unidad)} · stock ${p.stock_actual}${p.marca ? ' · ' + esc(p.marca) : ''}${p.categoria_prod ? ' · ' + esc(p.categoria_prod) : ''}</span></span></div>`;
+  const m = modal(`<h3>🔀 Fusionar productos</h3>
+    <p class="muted" style="margin-bottom:10px">Para cuando el mismo insumo quedó dos veces (o con nombres distintos).
+      Las compras, el historial de precios, los movimientos, los códigos QR y el stock pasan al que queda,
+      y el otro desaparece. El stock se <b>suma</b>.</p>
+    <div class="field"><label>Producto 1</label><div id="fuA"></div></div>
+    <div class="field"><label>Producto 2 — el que es igual</label><div id="fuBuscar"></div><div id="fuB"></div></div>
+    <div id="fuQueda" class="hidden" style="margin-top:6px"><div class="field"><label>¿Con qué nombre queda?</label><div id="fuOpciones"></div></div></div>
+    <div id="fuUnidad" class="hidden" style="background:var(--warn-bg);border:1px solid var(--warn);border-radius:8px;padding:10px;margin:8px 0">
+      ⚠️ Las unidades no coinciden: el stock se sumaría tal cual (ej. 3 cajas + 40 unidades = 43).
+      <label class="flex" style="gap:6px;margin-top:6px"><input type="checkbox" id="fuForzar" style="width:auto"> Entiendo, fusionar igual</label></div>
+    <div class="flex" style="margin-top:12px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="fuOk" disabled>Fusionar</button></div>`);
+  m.querySelector('#fuA').innerHTML = `<b>${esc(a.nombre)}</b> <span class="muted">${esc(a.unidad)} · stock ${a.stock_actual}</span>`;
+  const pintar = () => {
+    m.querySelector('#fuB').innerHTML = otro ? `<div style="margin-top:6px"><b>${esc(otro.nombre)}</b> <span class="muted">${esc(otro.unidad)} · stock ${otro.stock_actual}</span></div>` : '';
+    m.querySelector('#fuQueda').classList.toggle('hidden', !otro);
+    m.querySelector('#fuUnidad').classList.toggle('hidden', !otro || otro.unidad === a.unidad);
+    m.querySelector('#fuOk').disabled = !otro;
+    if (!otro) return;
+    // Por defecto queda el nombre más largo (suele ser el más descriptivo); si empatan,
+    // el que tiene más stock, que suele ser el que se ha estado usando.
+    const largo = p => (p.nombre || '').replace(/\s+/g, ' ').trim().length;
+    const quedaA = largo(a) !== largo(otro) ? largo(a) > largo(otro)
+      : Number(a.stock_actual) >= Number(otro.stock_actual);
+    m.querySelector('#fuOpciones').innerHTML = fila(a, a.id) + fila(otro, otro.id);
+    m.querySelector(`input[name=fuQueda][value="${quedaA ? a.id : otro.id}"]`).checked = true;
+  };
+  if (!b) {
+    const bs = buscador({ items: CACHE.productos.filter(x => x.id !== a.id), placeholder: 'Busca el otro producto…',
+      onPick: it => { otro = it; pintar(); } });
+    m.querySelector('#fuBuscar').appendChild(bs.wrap);
+  }
+  pintar();
+  m.querySelector('#fuOk').onclick = async () => {
+    const queda = Number(m.querySelector('input[name=fuQueda]:checked').value);
+    const sale = queda === a.id ? otro.id : a.id;
+    try {
+      const r = await api('/api/compras/productos/fusionar', { method: 'POST', body: {
+        origen_id: sale, destino_id: queda, forzar_unidad: m.querySelector('#fuForzar').checked } });
+      closeModal(); toast('Productos fusionados ✓ · stock ' + r.stock, 'ok');
+      await recargarCaches(); RENDER.stock(); verProducto(queda);
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+async function modalDuplicados() {
+  const m = modal(`<h3>🔍 Posibles duplicados</h3><div id="dupBody" class="muted">Buscando…</div>
+    <div class="flex" style="margin-top:12px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cerrar</button></div>`);
+  try {
+    const { pares } = await api('/api/compras/productos/duplicados');
+    const b = m.querySelector('#dupBody');
+    if (!pares.length) { b.innerHTML = 'No se encontraron productos repetidos. 🎉'; return; }
+    b.classList.remove('muted');
+    b.innerHTML = `<p class="muted" style="margin-bottom:8px"><b>Igual</b> = mismo nombre (casi seguro repetido).
+        <b>Parecido</b> = revisa antes: puede ser un error de tipeo o un producto distinto.</p>
+      <div class="tablewrap"><table>${pares.map((x, i) => `<tr>
+        <td><span class="pill ${x.tipo === 'igual' ? 'low' : 'fijo'}">${x.tipo}</span></td>
+        <td>${esc(x.a.nombre)} <span class="muted">· ${esc(x.a.unidad)} · stock ${x.a.stock_actual}</span><br>
+            ${esc(x.b.nombre)} <span class="muted">· ${esc(x.b.unidad)} · stock ${x.b.stock_actual}</span></td>
+        <td class="right"><button class="btn gold sm" data-par="${i}">Fusionar…</button></td></tr>`).join('')}</table></div>`;
+    b.querySelectorAll('[data-par]').forEach(btn => btn.onclick = () => {
+      const x = pares[Number(btn.dataset.par)]; modalFusionar(x.a, x.b);
+    });
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 function modalSalida(prod) {
@@ -1445,15 +1527,17 @@ RENDER.reportes = async () => {
           <option value="operacion">Solo operación (insumos)</option>
           <option value="administracion">Solo administración (sueldos, impuestos)</option>
         </select>
-        <input type="date" id="rDesde" style="max-width:160px"><input type="date" id="rHasta" style="max-width:160px">
+        <input type="date" id="repDesde" style="max-width:160px"><input type="date" id="repHasta" style="max-width:160px">
         <button class="btn ghost sm" id="rFiltrar">Filtrar</button>
         <button class="btn gold sm" id="rExport">⬇ Excel</button></div>
+      <div class="flex wrap" id="rPeriodos" style="gap:6px;margin-bottom:12px">
+        ${PERIODOS.map(([k, l]) => `<button class="btn ghost sm" data-per="${k}">${l}</button>`).join('')}</div>
       <div id="rBody"></div>
     </div>`;
   const cargar = async () => {
     const q = new URLSearchParams();
-    if ($('#rDesde').value) q.set('desde', $('#rDesde').value);
-    if ($('#rHasta').value) q.set('hasta', $('#rHasta').value);
+    if ($('#repDesde').value) q.set('desde', $('#repDesde').value);
+    if ($('#repHasta').value) q.set('hasta', $('#repHasta').value);
     if ($('#rAmbito').value) q.set('ambito', $('#rAmbito').value);
     try {
       const j = await api('/api/compras/reportes?' + q); const r = j.reporte;
@@ -1478,16 +1562,47 @@ RENDER.reportes = async () => {
         ${barras('Por proveedor', r.por_proveedor.slice(0, 12), 'label')}`;
     } catch (e) { toast(e.message, 'err'); }
   };
+  const marcar = k => $$('#rPeriodos [data-per]').forEach(b => {
+    b.classList.toggle('gold', b.dataset.per === k); b.classList.toggle('ghost', b.dataset.per !== k); });
+  const elegir = k => {
+    const [d, h] = rangoPeriodo(k);
+    $('#repDesde').value = d; $('#repHasta').value = h; marcar(k); cargar();
+  };
+  $$('#rPeriodos [data-per]').forEach(b => b.onclick = () => elegir(b.dataset.per));
   $('#rAmbito').onchange = cargar;
-  $('#rFiltrar').onclick = cargar;
+  $('#rFiltrar').onclick = () => { marcar(''); cargar(); };
   $('#rExport').onclick = () => {
     const q = new URLSearchParams();
-    if ($('#rDesde').value) q.set('desde', $('#rDesde').value);
-    if ($('#rHasta').value) q.set('hasta', $('#rHasta').value);
+    if ($('#repDesde').value) q.set('desde', $('#repDesde').value);
+    if ($('#repHasta').value) q.set('hasta', $('#repHasta').value);
     descargarXlsx('/api/compras/export.xlsx?' + q);
   };
-  cargar();
+  elegir('mes');     // por defecto: el mes en curso
 };
+
+// Períodos rápidos de Reportes. La fecha de "hoy" se toma en hora de Chile y no la
+// del reloj del PC, que puede estar corrido (misma razón que admin/fechas.py).
+const PERIODOS = [['mes', 'Este mes'], ['mes_ant', 'Mes anterior'], ['12m', 'Últimos 12 meses'],
+                  ['anio', 'Este año'], ['anio_ant', 'Año pasado'], ['todo', 'Todo']];
+function hoyChile() {
+  // 'en-CA' formatea como YYYY-MM-DD.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+}
+function rangoPeriodo(k) {
+  const hoy = hoyChile();
+  const [y, m] = hoy.split('-').map(Number);
+  const iso = (a, b, c) => `${a}-${String(b).padStart(2, '0')}-${String(c).padStart(2, '0')}`;
+  const finMes = (a, b) => new Date(Date.UTC(a, b, 0)).getUTCDate();   // b = mes 1-12
+  switch (k) {
+    case 'mes': return [iso(y, m, 1), hoy];
+    case 'mes_ant': { const a = m === 1 ? y - 1 : y, b = m === 1 ? 12 : m - 1; return [iso(a, b, 1), iso(a, b, finMes(a, b))]; }
+    // 12 meses COMPLETOS contando el actual: si hoy es sep-2026, desde oct-2025.
+    case '12m': { const a = m === 12 ? y : y - 1, b = m === 12 ? 1 : m + 1; return [iso(a, b, 1), hoy]; }
+    case 'anio': return [iso(y, 1, 1), hoy];
+    case 'anio_ant': return [iso(y - 1, 1, 1), iso(y - 1, 12, 31)];
+    default: return ['', ''];
+  }
+}
 function barras(titulo, data, key) {
   if (!data || !data.length) return '';
   const max = Math.max(1, ...data.map(d => d.total));

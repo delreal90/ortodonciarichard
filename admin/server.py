@@ -6899,6 +6899,30 @@ def compras_productos_eliminar():
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True})
 
+@app.route('/api/compras/productos/fusionar', methods=['POST'])
+def compras_productos_fusionar():
+    """Junta dos productos que son el mismo (compras, movimientos, códigos y stock
+    pasan al que queda; el otro desaparece). Rol admin: deshacerlo es a mano."""
+    u, err = _require_compras('admin')
+    if err:
+        return err
+    b = request.json or {}
+    try:
+        r = _compras.fusionar_productos(b.get('origen_id'), b.get('destino_id'),
+                                        usuario_id=u['id'],
+                                        forzar_unidad=bool(b.get('forzar_unidad')))
+    except (ValueError, TypeError) as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, **r})
+
+@app.route('/api/compras/productos/duplicados', methods=['GET'])
+def compras_productos_duplicados():
+    """Pares de productos que probablemente son el mismo, para revisar y fusionar."""
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    return jsonify({'ok': True, 'pares': _compras.posibles_duplicados()})
+
 @app.route('/api/compras/productos/codigo', methods=['POST'])
 def compras_producto_codigo():
     """Mapea un código (barras/QR) a un producto (mapeo-al-primer-escaneo)."""

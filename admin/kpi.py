@@ -1379,14 +1379,50 @@ def registrar_ingresos(dtes, cfg=None):
             'sin_doctor': sin_doctor}
 
 
+def _gastos(desde, hasta):
+    """El resumen de `compras.py` (ya suma CLP + dólares convertidos + importación), o
+    None si no se pudo leer. Nunca lanza: un problema en compras no tumba el panel."""
+    try:
+        import compras
+        return compras.resumen_gastos(desde=_iso(desde) if desde else None,
+                                      hasta=_iso(hasta) if hasta else None) or {}
+    except Exception as e:
+        log.warning('kpi.plata: no se pudieron leer los gastos: %r', e)
+        return None
+
+
+def _inicio_registro():
+    try:
+        import compras
+        return compras.inicio_registro()
+    except Exception as e:
+        log.warning('kpi.plata: no se pudo leer el inicio del registro de gastos: %r', e)
+        return {}
+
+
+def _por_ambito(g):
+    """{'operacion': N, 'administracion': N, 'sin_categoria': N} desde el resumen."""
+    d = {'operacion': 0, 'administracion': 0, 'sin_categoria': 0}
+    for r in (g or {}).get('por_ambito') or []:
+        d[r['label']] = round(r['total'] or 0)
+    return d
+
+
 def plata(desde=None, hasta=None, doctor=None):
     """Ingresos, gastos y margen. El ingreso por hora de sillón es el indicador que
     junta operación y precio en un número.
 
-    ⚠️ Los ingresos existen solo desde que la extensión empezó a empujar boletas; los
-    gastos vienen de `compras.py`, que tiene datos desde 2022. Comparar un margen de un
-    período sin boletas cargadas daría un número catastrófico y falso, por eso se
-    devuelve `meses_con_ingresos` para que el panel no dibuje lo que no tiene."""
+    Los GASTOS vienen de `compras.py` (datos desde 2022) y se muestran siempre, con su
+    comparación contra el mismo período del año anterior. Los INGRESOS existen solo
+    desde que la extensión F2 empezó a empujar boletas.
+
+    ⚠️ El margen se calcula SOLO sobre los meses que tienen boletas cargadas. Restar
+    los gastos de doce meses a los ingresos de uno daría un número catastrófico y
+    falso; `gastos_meses_con_ingresos` dice exactamente contra qué se comparó.
+
+    ⚠️ Con filtro de doctor NO hay margen ni indicadores por gasto: los gastos son de
+    toda la clínica, y restarlos a los ingresos de un solo doctor lo haría parecer en
+    pérdida."""
     cond, p = ['1=1'], []
     if desde:
         cond.append('fecha >= ?')
@@ -1398,6 +1434,7 @@ def plata(desde=None, hasta=None, doctor=None):
         cond.append('doctor = ?')
         p.append(doctor)
     w = 'WHERE ' + ' AND '.join(cond)
+    wc, pc = _rango(desde, hasta, doctor)
     con = _conn()
     try:
         tot = con.execute(f'SELECT COALESCE(SUM(monto),0) t, COUNT(*) n FROM ingresos {w}',
@@ -1406,32 +1443,99 @@ def plata(desde=None, hasta=None, doctor=None):
                             f"FROM ingresos {w} GROUP BY 1 ORDER BY 1", p)
         por_doc = _lista(con, f"SELECT doctor, SUM(monto) monto, COUNT(*) n "
                               f"FROM ingresos {w} GROUP BY 1 ORDER BY monto DESC", p)
+        atendidos = con.execute(f'SELECT COUNT(*) n FROM citas {wc} AND {_SQL_OCURRIO}',
+                                pc).fetchone()['n']
     finally:
         con.close()
 
     ingresos = tot['t'] or 0
-    # Gastos: los calcula compras.py, que ya suma CLP + dólares convertidos.
-    gastos = None
-    try:
-        import compras
-        gastos = (compras.resumen_gastos(desde=_iso(desde) if desde else None,
-                                         hasta=_iso(hasta) if hasta else None) or {}).get('total')
-    except Exception as e:
-        log.warning('kpi.plata: no se pudieron leer los gastos: %r', e)
+    g = _gastos(desde, hasta)
+    gastos = round(g.get('total') or 0) if g is not None else None
+
+    # El mismo período un año antes, para que el gasto tenga referencia. Igual que en
+    # `resumen()`: un rango de más de 18 meses se solapa consigo mismo y no se compara.
+    #
+    # ⚠️ Y solo si en ese período anterior YA se registraba ese tipo de gasto: los
+    # sueldos e impuestos se anotan en el sistema recién desde 2025, así que comparar
+    # contra 2024 mostraría un alza enorme que es solo el registro empezando. Por ámbito:
+    # la operación puede ser comparable aunque la administración no lo sea.
+    gastos_prev, sin_comparar = None, []
+    if g is not None and desde and hasta:
+        d0 = desde if hasattr(desde, 'isoformat') else date.fromisoformat(_iso(desde))
+        h0 = hasta if hasattr(hasta, 'isoformat') else date.fromisoformat(_iso(hasta))
+        if (h0.year - d0.year) * 12 + (h0.month - d0.month) <= 18:
+            gp = _gastos(_un_ano_antes(d0), _un_ano_antes(h0))
+            if gp is not None:
+                inicio = _inicio_registro()
+                prev_desde = _un_ano_antes(d0).isoformat()
+                pa = _por_ambito(gp)
+                comparable = {}
+                for amb in ('operacion', 'administracion'):
+                    ini = inicio.get(amb)
+                    comparable[amb] = bool(ini) and ini[:7] <= prev_desde[:7]
+                    if ini and not comparable[amb]:
+                        sin_comparar.append({'ambito': amb, 'desde': ini})
+                gastos_prev = {
+                    'total': (round(gp.get('total') or 0)
+                              if all(comparable.values()) else None),
+                    'por_ambito': {a: (pa[a] if comparable[a] else None)
+                                   for a in ('operacion', 'administracion')},
+                }
+
+    # Serie mensual combinada: el gasto de cada mes y, donde hay boletas, su ingreso y
+    # margen. Un mes sin boletas lleva ingresos=None (no 0): "no se cargó" no es
+    # "no se facturó".
+    gasto_mes = {r['mes']: round(r['total'] or 0) for r in ((g or {}).get('por_mes') or [])}
+    ingreso_mes = {r['mes']: r['monto'] or 0 for r in serie}
+    serie_mensual = []
+    for mes in sorted(set(gasto_mes) | set(ingreso_mes)):
+        ing = ingreso_mes.get(mes)
+        gas = gasto_mes.get(mes, 0)
+        serie_mensual.append({'mes': mes, 'gastos': gas, 'ingresos': ing,
+                              'margen': (ing - gas) if ing is not None and not doctor else None})
+
+    margen = margen_pct = gastos_cubiertos = None
+    if g is not None and ingreso_mes and not doctor:
+        gastos_cubiertos = sum(gasto_mes.get(m, 0) for m in ingreso_mes)
+        margen = ingresos - gastos_cubiertos
+        margen_pct = _pct(margen, ingresos) if ingresos > 0 else None
 
     oc = ocupacion(desde, hasta, doctor)
     minutos = sum(d['minutos'] or 0 for d in oc['por_doctor'])
     horas = minutos / 60
+    amb = _por_ambito(g)
+    toda_la_clinica = not doctor and gastos is not None
 
     return {
         'ingresos': ingresos,
         'boletas': tot['n'],
         'meses_con_ingresos': len(serie),
         'gastos': gastos,
-        'margen': (ingresos - gastos) if gastos is not None else None,
+        'gastos_por_ambito': amb,
+        'gastos_ano_anterior': gastos_prev,
+        'gastos_variacion_pct': (round((gastos - gastos_prev['total']) / gastos_prev['total'] * 100, 1)
+                                 if gastos_prev and (gastos_prev['total'] or 0) > 0 else None),
+        # Ámbitos que no se comparan porque el año anterior cae antes de que se
+        # empezaran a registrar ({'ambito', 'desde'}): el panel lo explica.
+        'gastos_sin_comparar': sin_comparar,
+        'gastos_top_categorias': [
+            {'label': r['label'], 'total': round(r['total'] or 0), 'ambito': r['ambito']}
+            for r in ((g or {}).get('por_categoria') or [])[:8]],
+        'gastos_meses_con_ingresos': gastos_cubiertos,
+        'margen': margen,
+        'margen_pct': margen_pct,
         'horas_sillon': round(horas, 1),
+        'atendidos': atendidos,
         'ingreso_por_hora': round(ingresos / horas) if horas else None,
+        # Cuánto cuesta abrir la clínica por cada hora vendida y por cada paciente
+        # atendido. Solo con la clínica completa: ver la nota de doctor arriba.
+        'gasto_por_hora': round(gastos / horas) if toda_la_clinica and horas else None,
+        'gasto_por_atencion': round(gastos / atendidos) if toda_la_clinica and atendidos else None,
+        'insumos_por_atencion': (round(amb['operacion'] / atendidos)
+                                 if toda_la_clinica and atendidos else None),
+        'filtro_doctor': bool(doctor),
         'serie': serie,
+        'serie_mensual': serie_mensual,
         'por_doctor': por_doc,
     }
 

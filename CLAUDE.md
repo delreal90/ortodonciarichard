@@ -1394,6 +1394,62 @@ El backend protege cada endpoint con `_require_compras(cap)`; el frontend muestr
 pestañas según `ME.caps` (mapa `TAB_CAP`). Login por usuario → token de sesión (30 días)
 en header `X-Compras-Token`. Contraseñas con PBKDF2-HMAC-SHA256 (200k iter, salt).
 
+### Fusionar productos duplicados + períodos en Reportes (2026-09-25)
+
+**Fusionar** (`compras.fusionar_productos(origen, destino)`, `POST /api/compras/productos/fusionar`,
+rol `admin`): el catálogo nació de dos Excel y de altas a mano, así que un mismo insumo quedó
+dos veces con el stock y el historial partidos. La fusión pasa **todo** al que queda —
+`compra_items` (historial de precios), `movimientos_stock` (el consumo que usan las
+sugerencias), `codigos_producto` (el QR pegado en la caja sigue resolviendo), `cola_impresion`
+y `pendientes_compra` (si quedan dos solicitudes pendientes, sobrevive la de mayor cantidad y
+la otra se cancela, no se borra) —, **suma el stock**, conserva el mínimo mayor, deja el
+nombre viejo en las notas y un movimiento `ajuste` "Fusión con «X»: a + b = c". Una sola
+transacción. ⚠️ Con **unidades distintas** (caja vs unidad) se rechaza salvo `forzar_unidad`:
+3 cajas + 40 unidades no son 43 de nada.
+
+**Detector** (`compras.posibles_duplicados()`, `GET /api/compras/productos/duplicados`, botón
+🔍 Duplicados en Stock): `igual` = mismo nombre ignorando mayúsculas, tildes, paréntesis y
+orden de palabras; `parecido` = difflib ≥ 0,88, solo para revisar, **nunca se fusiona solo**.
+Tres reglas que evitan falsos positivos, cada una con su prueba:
+- ⚠️ **La notación de cuadrante de Palmer se conserva** (`Tubo … 6┘` y `Tubo … └6` son el
+  molar derecho e izquierdo). La primera versión borraba esos símbolos y marcaba como
+  duplicados a decenas de tubos de dientes distintos.
+- Si los **números** difieren (`2.0 x 14` vs `2.0 x 12`) no es duplicado.
+- Si una palabra está **reemplazada** por otra distinta (`Inf`/`Sup`, talla `L`/`M`,
+  `Mini`/`Maxi`, `MBT`/`Roth`) es una variante de la familia, no un duplicado
+  (`_es_variante`). Un error de tipeo o una palabra agregada sí se proponen.
+
+**Reportes**: parte en **este mes** y trae botones Este mes · Mes anterior · Últimos 12 meses
+(completos, contando el actual) · Este año · Año pasado · Todo. El "hoy" se toma en hora de
+Chile (`Intl` con `America/Santiago`), no del reloj del PC.
+> 🐛 Arreglado de paso: el filtro **"hasta" de Reportes nunca funcionó**. Su `<input>` usaba
+> `id="rHasta"`, el mismo que el selector Indefinido/Hasta-fecha de los cargos recurrentes en
+> Nueva compra, y `$('#rHasta')` encontraba ese otro. Ahora son `repDesde`/`repHasta`.
+
+### Gastos en la pestaña KPIs del panel (2026-09-25)
+
+`kpi.plata()` ahora devuelve los gastos del sistema de compras **siempre** (antes la tarjeta
+se escondía entera si no había boletas cargadas): total, operación vs administración,
+comparación con el mismo período del año anterior, las 8 categorías con más gasto, la serie
+mensual, **gasto por hora de sillón**, **gasto por atención** e **insumos por atención**.
+Con boletas, además ingresos, margen y margen %.
+
+- ⚠️ **El margen se calcula solo con los meses que tienen boletas.** Restar doce meses de
+  gasto a un mes de ingresos daría una pérdida catastrófica y falsa;
+  `gastos_meses_con_ingresos` dice contra qué se comparó. Un mes sin boletas lleva
+  `ingresos: None`, no 0 ("no se cargó" no es "no se facturó").
+- ⚠️ **Con filtro de doctor no hay margen ni costo por atención**: los gastos son de toda la
+  clínica, y cargárselos a los ingresos de un doctor lo haría parecer en pérdida.
+- ⚠️ **No se compara contra un período sin registro.** Los gastos de administración (sueldos,
+  impuestos) se anotan en el sistema recién desde **abril de 2025**; antes no hay ninguno.
+  `compras.inicio_registro()` da la primera fecha por ámbito, y si el año anterior cae antes,
+  esa comparación (y la del total) no se muestra y el panel explica por qué
+  (`gastos_sin_comparar`). Sin esto, "últimos 12 meses" mostraba un alza de ~175% que era
+  solo el registro empezando.
+- `test_kpi.py` ahora fija `COMPRAS_DB_PATH` a un temporal: antes `plata()` leía la base de
+  compras real del PC donde se corrían las pruebas. ⚠️ Esa suite usa una **lista explícita
+  de clases** en `suite()`: una clase de prueba nueva que no se agregue ahí no corre.
+
 ### Etiquetas QR en hojas de stickers — reemplaza a la térmica (2026-09-25)
 
 Pestaña **🏷️ Etiquetas** (rol `registrar`). En vez de la etiquetadora térmica +

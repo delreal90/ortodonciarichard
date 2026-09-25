@@ -23,6 +23,9 @@ from pathlib import Path
 # ruta se resuelve al importar el módulo (mismo patrón que test_compras.py).
 _TMP = tempfile.mkdtemp(prefix='kpi_test_')
 os.environ['KPI_DB_PATH'] = os.path.join(_TMP, 'kpi_test.db')
+# kpi.plata() lee los gastos de compras.py: sin esto las pruebas leerían la base de
+# compras REAL del PC donde se corren y el resultado dependería de esa máquina.
+os.environ['COMPRAS_DB_PATH'] = os.path.join(_TMP, 'compras_test.db')
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -660,6 +663,98 @@ class TestIngresos(BaseKpi):
         self.assertEqual(kpi.plata()['meses_con_ingresos'], 0)
 
 
+class TestPlataGastos(BaseKpi):
+    """Los gastos del sistema de compras en la pestaña KPIs. Lo que no puede pasar:
+    un margen que resta gastos de meses sin boletas cargadas, o que le carga los
+    gastos de toda la clínica a un solo doctor."""
+
+    def setUp(self):
+        super().setUp()
+        import compras
+        self.compras = compras
+        compras.init_db()
+        con = compras._conn()
+        for t in ('compra_items', 'movimientos_stock', 'pendientes_compra', 'compras'):
+            con.execute(f'DELETE FROM {t}')
+        con.commit()
+        con.close()
+        cats = {c['nombre']: c['id'] for c in compras.listar_categorias()}
+        self.insumos = cats.get('Insumos') or compras.crear_categoria('Insumos', 'operacion')
+        self.sueldos = cats.get('Sueldos') or compras.crear_categoria('Sueldos', 'administracion')
+
+    def _gasto(self, fecha, monto, cat):
+        self.compras.crear_compra({'fecha': fecha, 'tipo_gasto': 'variable', 'moneda': 'CLP',
+                                   'categoria_id': cat, 'total': monto}, [])
+
+    def _dte(self, folio, fecha, monto):
+        return {'SII_FOLIO': folio, 'FECHA_EMISION': fecha, 'MONTO': monto,
+                'RUT': '111111111', 'TIPO_DOCUMENTO': 'Boleta'}
+
+    def test_gastos_se_ven_aunque_no_haya_boletas(self):
+        self._gasto('2026-03-10', 100000, self.insumos)
+        self._gasto('2026-03-12', 400000, self.sueldos)
+        r = kpi.plata('2026-03-01', '2026-03-31')
+        self.assertEqual(r['gastos'], 500000)
+        self.assertEqual(r['gastos_por_ambito']['operacion'], 100000)
+        self.assertEqual(r['gastos_por_ambito']['administracion'], 400000)
+        self.assertIsNone(r['margen'])
+
+    def test_compara_contra_el_mismo_periodo_del_ano_anterior(self):
+        self._gasto('2025-03-10', 400000, self.insumos)
+        self._gasto('2025-03-11', 0.01, self.sueldos)   # los dos ámbitos ya se anotaban
+        self._gasto('2026-03-10', 500000, self.insumos)
+        r = kpi.plata('2026-03-01', '2026-03-31')
+        self.assertEqual(r['gastos_ano_anterior']['total'], 400000)
+        self.assertEqual(r['gastos_variacion_pct'], 25.0)
+
+    def test_no_compara_contra_un_periodo_sin_registro(self):
+        """Los sueldos se anotan desde 2025: comparar contra 2024 mostraría un alza
+        que es solo el registro empezando."""
+        self._gasto('2025-03-10', 100000, self.insumos)        # operación sí se anotaba
+        self._gasto('2026-03-10', 150000, self.insumos)
+        self._gasto('2026-03-11', 900000, self.sueldos)        # administración, recién
+        r = kpi.plata('2026-03-01', '2026-03-31')
+        self.assertIsNone(r['gastos_ano_anterior']['total'])
+        self.assertIsNone(r['gastos_variacion_pct'])
+        self.assertEqual(r['gastos_ano_anterior']['por_ambito']['operacion'], 100000)
+        self.assertIsNone(r['gastos_ano_anterior']['por_ambito']['administracion'])
+        self.assertEqual(r['gastos_sin_comparar'][0]['ambito'], 'administracion')
+
+    def test_el_margen_usa_solo_los_meses_con_boletas(self):
+        """Doce meses de gasto contra un mes de ingresos daría una pérdida falsa."""
+        self._gasto('2026-02-10', 300000, self.insumos)   # mes SIN boletas
+        self._gasto('2026-03-10', 100000, self.insumos)
+        kpi.registrar_ingresos([self._dte('1', '2026-03-15', 250000)])
+        r = kpi.plata('2026-02-01', '2026-03-31')
+        self.assertEqual(r['gastos'], 400000)
+        self.assertEqual(r['gastos_meses_con_ingresos'], 100000)
+        self.assertEqual(r['margen'], 150000)
+        self.assertEqual(r['margen_pct'], 60.0)
+        feb = next(m for m in r['serie_mensual'] if m['mes'] == '2026-02')
+        self.assertIsNone(feb['ingresos'])        # "no se cargó" no es "no se facturó"
+        self.assertIsNone(feb['margen'])
+
+    def test_con_filtro_de_doctor_no_hay_margen(self):
+        """Los gastos son de toda la clínica: restárselos a un doctor lo hunde."""
+        self.guardar([_cita(1, '2026-03-15', rut='111111111', doctor='Rodrigo Oyonarte')])
+        self._gasto('2026-03-10', 900000, self.insumos)
+        kpi.registrar_ingresos([self._dte('1', '2026-03-15', 250000)])
+        r = kpi.plata('2026-03-01', '2026-03-31', doctor='rodrigo')
+        self.assertIsNone(r['margen'])
+        self.assertIsNone(r['gasto_por_atencion'])
+        self.assertTrue(r['filtro_doctor'])
+
+    def test_gasto_por_atencion_y_por_hora(self):
+        self.guardar([_cita(1, '2026-03-15', duracion=60), _cita(2, '2026-03-16', duracion=60)])
+        self._gasto('2026-03-10', 200000, self.insumos)
+        self._gasto('2026-03-11', 400000, self.sueldos)
+        r = kpi.plata('2026-03-01', '2026-03-31')
+        self.assertEqual(r['atendidos'], 2)
+        self.assertEqual(r['gasto_por_atencion'], 300000)
+        self.assertEqual(r['insumos_por_atencion'], 100000)
+        self.assertEqual(r['gasto_por_hora'], 300000)
+
+
 class TestResumenComparacion(BaseKpi):
     """Las dos formas en que la comparación interanual puede mentir."""
 
@@ -757,7 +852,7 @@ def suite():
     s = unittest.TestSuite()
     for cls in (TestEstados, TestDoctores, TestCategorias, TestIngesta, TestSerieMensual,
                 TestReclasificar, TestDestinoPrimeraConsulta, TestFugas,
-                TestOcupacion, TestCartera, TestPacientesNuevos, TestOrigen, TestIngresos, TestResumenComparacion,
+                TestOcupacion, TestCartera, TestPacientesNuevos, TestOrigen, TestIngresos, TestPlataGastos, TestResumenComparacion,
                 TestCalidadDatos, TestEsquema):
         s.addTests(loader.loadTestsFromTestCase(cls))
     return s

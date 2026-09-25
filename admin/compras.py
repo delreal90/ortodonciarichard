@@ -21,6 +21,7 @@ Fase 3 (futura): foto/PDF/XML → formulario (OCR enchufable), gastos fijos recu
 """
 
 import os
+import re
 import math
 import json
 import sqlite3
@@ -30,6 +31,7 @@ from pathlib import Path
 from datetime import datetime, date, timedelta
 
 import fechas
+from texto import sin_tildes
 
 
 def ahora_cl():
@@ -817,6 +819,189 @@ def eliminar_producto(prod_id):
         con.commit()
     finally:
         con.close()
+
+
+def fusionar_productos(origen_id, destino_id, usuario_id=None, forzar_unidad=False):
+    """Junta dos productos que son el mismo: `origen` desaparece y TODO su rastro pasa
+    a `destino` — compras (historial de precios), movimientos (el consumo que usan las
+    sugerencias de compra), códigos de barras/QR, solicitudes pendientes y etiquetas en
+    cola. El stock se SUMA.
+
+    Existe porque el catálogo se armó de dos Excel y de altas a mano: el mismo insumo
+    quedó dos veces (idéntico, o escrito distinto), con el stock y el historial
+    partidos en dos. Archivar el duplicado no sirve: su historial se pierde de vista.
+
+    Todo en UNA transacción: si algo falla, no queda un producto a medio mover.
+
+    ⚠️ Si las unidades difieren (caja vs unidad) sumar el stock sería un error — 3 cajas
+    + 40 unidades no son 43 de nada — así que se rechaza salvo `forzar_unidad=True`."""
+    origen_id, destino_id = int(origen_id), int(destino_id)
+    if origen_id == destino_id:
+        raise ValueError('Elige dos productos distintos')
+    con = _conn()
+    try:
+        o = con.execute('SELECT * FROM productos WHERE id=?', (origen_id,)).fetchone()
+        d = con.execute('SELECT * FROM productos WHERE id=?', (destino_id,)).fetchone()
+        if not o or not d:
+            raise ValueError('Producto no encontrado')
+        if o['unidad'] != d['unidad'] and not forzar_unidad:
+            raise ValueError(f'Las unidades no coinciden («{o["unidad"]}» y «{d["unidad"]}»): '
+                             f'el stock no se puede sumar tal cual. Revisa antes de fusionar.')
+
+        con.execute('UPDATE compra_items SET producto_id=? WHERE producto_id=?',
+                    (destino_id, origen_id))
+        con.execute('UPDATE movimientos_stock SET producto_id=? WHERE producto_id=?',
+                    (destino_id, origen_id))
+        con.execute('UPDATE codigos_producto SET producto_id=? WHERE producto_id=?',
+                    (destino_id, origen_id))
+        con.execute('UPDATE cola_impresion SET producto_id=? WHERE producto_id=?',
+                    (destino_id, origen_id))
+        con.execute('UPDATE pendientes_compra SET producto_id=? WHERE producto_id=?',
+                    (destino_id, origen_id))
+        # Dos solicitudes pendientes del mismo insumo quedarían duplicadas: se deja la
+        # de mayor cantidad y las demás se cancelan (no se borran: son historial).
+        pend = con.execute(
+            "SELECT id FROM pendientes_compra WHERE producto_id=? AND estado='pendiente' "
+            "ORDER BY cantidad_sugerida DESC, id", (destino_id,)).fetchall()
+        ahora = ahora_cl().isoformat(timespec='seconds')
+        for r in pend[1:]:
+            con.execute("UPDATE pendientes_compra SET estado='cancelado', resuelto=?, "
+                        "nota=COALESCE(nota,'') || ' (fusión de productos)' WHERE id=?",
+                        (ahora, r['id']))
+
+        stock = round(float(d['stock_actual'] or 0) + float(o['stock_actual'] or 0), 4)
+        notas = _norm(d['notas'])
+        # El nombre viejo queda en las notas: si alguien lo busca en una factura
+        # antigua, sabe a dónde fue a parar.
+        alias = f'Fusionado con «{o["nombre"]}» (#{origen_id}) el {ahora[:10]}.'
+        notas = (notas + '\n' + alias).strip() if notas else alias
+        if _norm(o['notas']):
+            notas += ' Notas del otro: ' + _norm(o['notas'])
+        con.execute(
+            'UPDATE productos SET stock_actual=?, stock_minimo=?, marca=?, categoria_prod=?, '
+            'notas=?, archivado=? WHERE id=?',
+            (stock, max(float(d['stock_minimo'] or 0), float(o['stock_minimo'] or 0)),
+             d['marca'] or o['marca'],
+             _norm(d['categoria_prod']) or _norm(o['categoria_prod']),
+             notas,
+             # Si cualquiera de los dos estaba en uso, el que queda está en uso.
+             0 if not (d['archivado'] and o['archivado']) else 1,
+             destino_id))
+        # Un 'ajuste' guarda el valor FIJADO: deja en el historial cuánto quedó y por qué.
+        con.execute(
+            'INSERT INTO movimientos_stock(producto_id,tipo,cantidad,motivo,usuario_id,creado) '
+            'VALUES(?,?,?,?,?,?)',
+            (destino_id, 'ajuste', stock,
+             f'Fusión con «{o["nombre"]}»: {_fmt_cant(d["stock_actual"] or 0)} + '
+             f'{_fmt_cant(o["stock_actual"] or 0)} = {_fmt_cant(stock)}',
+             usuario_id, ahora))
+        con.execute('DELETE FROM productos WHERE id=?', (origen_id,))
+        con.commit()
+        return {'destino_id': destino_id, 'stock': stock}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def _clave_producto(nombre):
+    """Nombre reducido para comparar: sin tildes, minúsculas, sin paréntesis ni
+    comillas y con las palabras ORDENADAS (así 'Guantes nitrilo M' y 'Nitrilo guantes
+    M' coinciden).
+
+    ⚠️ Los demás símbolos SE CONSERVAN: el catálogo usa la notación de cuadrante de
+    Palmer ('Tubo ... 6┘' y 'Tubo ... └6' son el primer molar derecho e izquierdo), y
+    borrarlos hacía ver como duplicados a tubos de dientes distintos."""
+    t = re.sub(r"""[()"'!?*;:]+""", ' ', sin_tildes(nombre or '').lower())
+    palabras = [p.rstrip('.') for p in t.split() if p.rstrip('.')]
+    return ' '.join(sorted(palabras))
+
+
+def _simbolos(clave):
+    """Los caracteres que no son letra, número, espacio, punto ni coma: la notación de
+    cuadrante y similares. Si difieren, dos nombres no son el mismo producto."""
+    return sorted(c for c in clave if not (c.isalnum() or c in ' .,'))
+
+
+def _es_variante(ka, kb):
+    """True si los nombres difieren en una palabra REEMPLAZADA por otra distinta:
+    'Inf' por 'Sup', talla 'L' por 'M', 'Mini' por 'Maxi', 'MBT' por 'Roth'. Eso es otro
+    producto de la misma familia, no un duplicado — y es la mayoría de los parecidos del
+    catálogo. Un error de tipeo ('Hydrogum'/'Hydrogun', 'Plano'/'Planos') o una palabra
+    AGREGADA ('Rojo'/'Rojo Claro') sí se propone, para que una persona lo mire."""
+    import difflib
+    ta, tb = set(ka.split()), set(kb.split())
+    solo_a, solo_b = ta - tb, tb - ta
+    if not solo_a or not solo_b:
+        return False
+    for x in solo_a:
+        if len(x) < 4 or not any(len(y) >= 4 and
+                                 difflib.SequenceMatcher(None, x, y).ratio() >= 0.8
+                                 for y in solo_b):
+            return True
+    return False
+
+
+def posibles_duplicados(umbral=0.88, limite=200):
+    """Pares de productos que probablemente son el mismo, para revisarlos y fusionar.
+
+    - 'igual': el nombre coincide al ignorar mayúsculas, tildes, puntuación y orden de
+      las palabras. Casi seguro duplicado.
+    - 'parecido': nombres muy similares (difflib ≥ umbral). Requiere mirarlo: 'Fresa
+      redonda 1' y 'Fresa redonda 2' se parecen y NO son lo mismo, por eso solo se
+      proponen, nunca se fusionan solos.
+
+    Para no comparar todo contra todo (~400.000 pares con 900 productos), solo se
+    comparan los que comparten la primera palabra del nombre."""
+    import difflib
+    prods = listar_productos(incluir_archivados=False)
+    info = []
+    for p in prods:
+        clave = _clave_producto(p['nombre'])
+        if clave:
+            info.append((p, clave))
+    por_primera = {}
+    for p, clave in info:
+        primera = (re.findall(r'[a-z0-9]+', sin_tildes(p['nombre']).lower()) or [''])[0]
+        por_primera.setdefault(primera, []).append((p, clave))
+
+    pares, vistos = [], set()
+    for grupo in por_primera.values():
+        for i in range(len(grupo)):
+            for j in range(i + 1, len(grupo)):
+                (a, ka), (b, kb) = grupo[i], grupo[j]
+                if _simbolos(ka) != _simbolos(kb):
+                    continue
+                if ka == kb:
+                    tipo, score = 'igual', 1.0
+                else:
+                    sm = difflib.SequenceMatcher(None, ka, kb)
+                    if sm.quick_ratio() < umbral:
+                        continue
+                    score = sm.ratio()
+                    if score < umbral:
+                        continue
+                    # Los números distinguen tamaños y medidas: '2.0 x 14' ≠ '2.0 x 12'.
+                    # Si difieren, no es un duplicado aunque el resto sea igual.
+                    if re.findall(r'\d+(?:\.\d+)?', ka) != re.findall(r'\d+(?:\.\d+)?', kb):
+                        continue
+                    if _es_variante(ka, kb):
+                        continue
+                    tipo = 'parecido'
+                k = (min(a['id'], b['id']), max(a['id'], b['id']))
+                if k in vistos:
+                    continue
+                vistos.add(k)
+                pares.append({'tipo': tipo, 'similitud': round(score, 3),
+                              'a': _resumen_prod(a), 'b': _resumen_prod(b)})
+    pares.sort(key=lambda x: (x['tipo'] != 'igual', -x['similitud'], x['a']['nombre']))
+    return pares[:limite]
+
+
+def _resumen_prod(p):
+    return {k: p.get(k) for k in ('id', 'nombre', 'unidad', 'marca', 'categoria_prod',
+                                  'stock_actual', 'stock_minimo')}
 
 
 def producto_por_codigo(codigo):
@@ -1942,6 +2127,22 @@ def resumen_gastos(desde=None, hasta=None, ambito=None):
             'por_tipo': por_tipo,
             'por_ambito': por_ambito,
         }
+    finally:
+        con.close()
+
+
+def inicio_registro():
+    """Primera fecha con gastos registrados, por ámbito: {'operacion': 'YYYY-MM-DD',
+    'administracion': ...}. Sirve para no comparar contra un período en que ese tipo de
+    gasto todavía no se anotaba: los sueldos e impuestos se registran recién desde 2025,
+    y comparar contra 2024 mostraría un alza que no existe."""
+    con = _conn()
+    try:
+        filas = con.execute(
+            "SELECT COALESCE(cat.ambito,'sin_categoria') AS a, MIN(c.fecha) AS f "
+            "FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id "
+            "GROUP BY a").fetchall()
+        return {r['a']: r['f'] for r in filas}
     finally:
         con.close()
 
