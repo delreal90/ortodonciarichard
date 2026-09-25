@@ -1057,6 +1057,128 @@ def _destinos_manuales_map():
         return {}
 
 
+# ── Controles programados: ¿vino en el mes que se le indicó? ─────────────────
+# "Control programado" era un cajón sin fondo: el doctor marcaba "vuelve en 6 meses" y
+# nada comprobaba después si el paciente de verdad volvió. El que no volvía quedaba
+# contado como desenlace OK para siempre, que es exactamente la fuga que el panel
+# existe para mostrar, solo que escondida.
+#
+# Ahora, al marcarlo, el doctor indica el MES en que le pidió volver, y esto lo
+# compara contra la agenda. Se calcula al vuelo en cada consulta, no se guarda: así
+# el paciente que llega tarde pasa solo de "pendiente" a "cumplido", sin que nadie
+# tenga que acordarse de desmarcarlo.
+
+# Quien viene unos días ANTES del mes indicado hizo su control igual (se le pidió
+# marzo y vino el 20 de febrero). Quince días cubre eso sin alcanzar a confundir una
+# urgencia de meses antes con el control.
+CONTROL_TOLERANCIA_ANTES_DIAS = 15
+
+ESTADOS_CONTROL = {
+    'pendiente': 'El mes pasó y no vino',
+    'esperando': 'Todavía no llega su mes',
+    'agendado':  'Tiene hora agendada',
+    'cumplido':  'Vino a su control',
+    'sin_mes':   'Falta indicar el mes',
+}
+
+
+def _controles_marcados():
+    """{rut: registro} de los pacientes que el doctor marcó 'control_programado'.
+    Mismo criterio que _destinos_manuales_map(): se lee el JSON operativo para que
+    el mes recién ingresado se vea al instante, y si falla no tumba el panel."""
+    try:
+        import seguimiento_pc
+        return {r: d for r, d in seguimiento_pc.destinos_manuales().items()
+                if d.get('destino') == 'control_programado'}
+    except Exception as e:
+        log.warning('kpi: no se pudieron leer los controles programados: %r', e)
+        return {}
+
+
+def _meses_entre(mes_a, mes_b):
+    """Meses completos de 'YYYY-MM' a 'YYYY-MM' (b - a)."""
+    ya, ma = int(mes_a[:4]), int(mes_a[5:7])
+    yb, mb = int(mes_b[:4]), int(mes_b[5:7])
+    return (yb - ya) * 12 + (mb - ma)
+
+
+def controles_programados(hoy=None):
+    """Estado de cada paciente en 'control programado', contra el mes indicado.
+
+      cumplido   — tuvo una cita que OCURRIÓ desde el mes indicado (con la tolerancia
+                   de arriba). Cualquier motivo cuenta: volvió, que es lo que importa.
+      agendado   — no ha venido, pero tiene una hora futura vigente.
+      esperando  — su mes todavía no termina.
+      pendiente  — ★ el mes terminó, no vino y no tiene hora. Es a quien hay que llamar.
+      sin_mes    — se marcó sin indicar el mes: no hay contra qué comparar.
+
+    ⚠️ "El mes terminó" significa que hoy ya es el mes SIGUIENTE: al que se le pidió
+    volver en marzo no se le llama pendiente el 10 de marzo.
+
+    ⚠️ Una hora futura solo se ve si cae dentro de lo que la cosecha diaria mira hacia
+    adelante (~45 días hábiles). Una agendada a 6 meses todavía no está en el datamart:
+    ese paciente sale 'esperando' (si su mes no llega) y pasa a 'agendado' o 'cumplido'
+    solo cuando la fecha entra en la ventana. No afecta a los pendientes: a esos ya se
+    les pasó el mes.
+    """
+    hoy = hoy or fechas.hoy_chile()
+    hoy_iso = hoy.isoformat()
+    mes_hoy = hoy_iso[:7]
+    marcados = _controles_marcados()
+    items = []
+    if marcados:
+        con = _conn()
+        try:
+            for rut, m in marcados.items():
+                mes = (m.get('mes_control') or '')[:7]
+                fecha_pc = (m.get('fecha_pc') or '')[:10]
+                filas = con.execute(
+                    f"SELECT fecha, estado_norm, doctor, motivo FROM citas "
+                    f"WHERE rut=? AND {_SQL_CUENTA} ORDER BY fecha", (rut,)).fetchall()
+                # La propia primera consulta (y lo anterior) nunca cuenta como el control.
+                filas = [f for f in filas if not fecha_pc or f['fecha'] > fecha_pc]
+                futuras = [f for f in filas if f['fecha'] > hoy_iso]
+                it = {'rut': rut, 'mes_control': mes, 'fecha_pc': fecha_pc,
+                      'motivo_marca': m.get('motivo', ''),
+                      'ultima_visita': '', 'proxima': '', 'meses_atraso': 0}
+                ocurridas = [f for f in filas
+                             if f['estado_norm'] in ESTADOS_OCURRIO and f['fecha'] <= hoy_iso]
+                if ocurridas:
+                    it['ultima_visita'] = ocurridas[-1]['fecha']
+                if futuras:
+                    it['proxima'] = futuras[0]['fecha']
+
+                if not mes:
+                    it['estado'] = 'agendado' if futuras else 'sin_mes'
+                else:
+                    desde = (date.fromisoformat(mes + '-01')
+                             - timedelta(days=CONTROL_TOLERANCIA_ANTES_DIAS)).isoformat()
+                    vino = [f for f in ocurridas if f['fecha'] >= desde]
+                    if vino:
+                        it['estado'] = 'cumplido'
+                        it['vino_el'] = vino[0]['fecha']
+                    elif futuras:
+                        it['estado'] = 'agendado'
+                    elif mes >= mes_hoy:
+                        it['estado'] = 'esperando'
+                    else:
+                        it['estado'] = 'pendiente'
+                        it['meses_atraso'] = _meses_entre(mes, mes_hoy)
+                items.append(it)
+        finally:
+            con.close()
+
+    orden = {'pendiente': 0, 'sin_mes': 1, 'esperando': 2, 'agendado': 3, 'cumplido': 4}
+    # Pendientes: el más atrasado primero. Los demás: el mes más próximo primero.
+    items.sort(key=lambda x: (orden.get(x['estado'], 9),
+                              -x['meses_atraso'] if x['estado'] == 'pendiente' else 0,
+                              x['mes_control'] or '9999'))
+    conteo = {k: sum(1 for x in items if x['estado'] == k) for k in ESTADOS_CONTROL}
+    return {'total': len(items), 'conteo': conteo, 'items': items,
+            'etiquetas': ESTADOS_CONTROL,
+            'tolerancia_antes_dias': CONTROL_TOLERANCIA_ANTES_DIAS}
+
+
 def _descartados_set():
     """RUTs de pacientes que AVISARON que no inician (`seguimiento_pc.descartados()`).
 

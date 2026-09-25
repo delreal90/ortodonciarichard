@@ -245,10 +245,33 @@ DESTINOS = {
 }
 
 
-def marcar_destino(rut, destino, motivo='', fecha_pc=''):
+def mes_valido(mes):
+    """'2027-03' (o '2027-3', o una fecha '2027-03-15') -> '2027-03'. Cualquier otra
+    cosa -> ''. Acotado a 2020..hoy+6 años: un mes fuera de eso es un error de tipeo
+    (2072 por 2027), y guardarlo dejaría al paciente "esperando" para siempre sin que
+    nadie lo note."""
+    t = str(mes or '').strip()[:7]
+    partes = t.split('-')
+    if len(partes) != 2:
+        return ''
+    try:
+        anio, m = int(partes[0]), int(partes[1])
+    except ValueError:
+        return ''
+    if not (1 <= m <= 12) or not (2020 <= anio <= fechas.hoy_chile().year + 6):
+        return ''
+    return f'{anio:04d}-{m:02d}'
+
+
+def marcar_destino(rut, destino, motivo='', fecha_pc='', mes_control=''):
     """El doctor fija el destino de una primera consulta. Devuelve False si el RUT o
     el destino no son válidos — nunca inventa un destino que no está en DESTINOS,
-    porque el panel de KPIs cuenta por esa clave y una desconocida se perdería."""
+    porque el panel de KPIs cuenta por esa clave y una desconocida se perdería.
+
+    `mes_control` ('YYYY-MM') solo aplica a 'control_programado': es el mes en que el
+    doctor le indicó volver. Con él, kpi.controles_programados() revisa si el paciente
+    vino y lo marca PENDIENTE si el mes pasó sin que viniera. Es opcional: sin mes el
+    destino igual queda registrado, pero no hay contra qué comparar."""
     clave = _rut_key(rut)
     if not clave or destino not in DESTINOS:
         return False
@@ -259,6 +282,7 @@ def marcar_destino(rut, destino, motivo='', fecha_pc=''):
             'destino': destino,
             'motivo': (motivo or '').strip()[:200],
             'fecha_pc': fecha_pc or '',
+            'mes_control': mes_valido(mes_control) if destino == 'control_programado' else '',
             'creado': fechas.ahora_chile().isoformat(timespec='seconds'),
         }
         # Cualquiera de los cuatro destinos significa que ya se sabe qué pasó, así
@@ -266,6 +290,26 @@ def marcar_destino(rut, destino, motivo='', fecha_pc=''):
         cand = (reg.get('candidatos') or {}).get(clave)
         if cand and cand.get('estado') == 'pendiente':
             cand['estado'] = 'resuelto'
+        _save_registro(reg)
+    return True
+
+
+def fijar_mes_control(rut, mes):
+    """Cambia SOLO el mes del control de un paciente que ya está en 'control
+    programado' (conserva la nota y la fecha de la marca). Devuelve False si el paciente
+    no tiene ese destino o el mes no es válido: fijarle un mes a alguien marcado "en
+    tratamiento" no significaría nada, y un mes inválido no se guarda."""
+    clave = _rut_key(rut)
+    m = mes_valido(mes)
+    if not clave or not m:
+        return False
+    with _LOCK:
+        reg = _load_registro()
+        d = (reg.get('destinos') or {}).get(clave)
+        if not d or d.get('destino') != 'control_programado':
+            return False
+        d['mes_control'] = m
+        d['mes_actualizado'] = fechas.ahora_chile().isoformat(timespec='seconds')
         _save_registro(reg)
     return True
 

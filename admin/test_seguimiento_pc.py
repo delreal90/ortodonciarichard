@@ -270,5 +270,53 @@ class TestDescartar(unittest.TestCase):
                          [p['rut'] for p in sp.pendientes(fecha='2026-09-30')])
 
 
+
+class TestMesControl(unittest.TestCase):
+    """«Control programado» con el MES en que el doctor le indicó volver: es lo que
+    permite revisar después si el paciente de verdad vino."""
+
+    def setUp(self):
+        sp._STORE.save(dict(sp._ESTRUCTURA))
+
+    def test_mes_valido_normaliza_y_rechaza(self):
+        self.assertEqual(sp.mes_valido('2027-3'), '2027-03')
+        self.assertEqual(sp.mes_valido('2027-03-15'), '2027-03')
+        for malo in ('', 'marzo', '2027-13', '2027-00', '1999-05', '2072-03', None):
+            self.assertEqual(sp.mes_valido(malo), '', malo)
+
+    def test_se_guarda_con_el_control_programado(self):
+        self.assertTrue(sp.marcar_destino('111111111', 'control_programado',
+                                          fecha_pc='2026-08-25', mes_control='2027-02'))
+        self.assertEqual(sp.destinos_manuales()['111111111']['mes_control'], '2027-02')
+
+    def test_otros_destinos_no_guardan_mes(self):
+        """Un mes colgado de 'en tratamiento' no significaría nada, y alguien podría
+        leerlo como un control que hay que revisar."""
+        sp.marcar_destino('222222222', 'en_tratamiento', mes_control='2027-02')
+        self.assertEqual(sp.destinos_manuales()['222222222']['mes_control'], '')
+
+    def test_sin_mes_igual_queda_marcado(self):
+        """El doctor puede no saber el mes en el momento: la marca no se pierde."""
+        self.assertTrue(sp.marcar_destino('333333333', 'control_programado'))
+        self.assertEqual(sp.destino_de('333333333'), 'control_programado')
+        self.assertEqual(sp.destinos_manuales()['333333333']['mes_control'], '')
+
+    def test_cambiar_el_mes_conserva_la_nota(self):
+        sp.marcar_destino('444444444', 'control_programado', motivo='ver erupción de caninos',
+                          fecha_pc='2026-08-25', mes_control='2027-02')
+        self.assertTrue(sp.fijar_mes_control('444444444', '2027-04'))
+        d = sp.destinos_manuales()['444444444']
+        self.assertEqual(d['mes_control'], '2027-04')
+        self.assertEqual(d['motivo'], 'ver erupción de caninos')
+        self.assertEqual(d['fecha_pc'], '2026-08-25')
+
+    def test_no_se_fija_mes_a_quien_no_es_control_programado(self):
+        sp.marcar_destino('555555555', 'no_inicia')
+        self.assertFalse(sp.fijar_mes_control('555555555', '2027-04'))
+        self.assertFalse(sp.fijar_mes_control('666666666', '2027-04'))   # sin marca
+        sp.marcar_destino('777777777', 'control_programado', mes_control='2027-02')
+        self.assertFalse(sp.fijar_mes_control('777777777', 'abril'))     # mes inválido
+        self.assertEqual(sp.destinos_manuales()['777777777']['mes_control'], '2027-02')
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

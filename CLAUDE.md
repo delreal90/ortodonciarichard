@@ -4189,6 +4189,47 @@ prueba que fija que no se adivinen.
 de `kpi.py`.** Si alguna vez hay que poder corregir uno de estos desde el panel, hay que mover
 esa consulta al principio de `categoria_motivo()`.
 
+#### «Control programado» con mes: ¿volvió de verdad? (2026-09-25)
+
+Hasta acá, «control programado» era un cajón sin fondo: se marcaba "vuelve en 6 meses" y
+nada comprobaba después si el paciente volvió. El que no volvía quedaba contado como
+desenlace OK para siempre — la fuga que el panel existe para mostrar, solo que escondida.
+
+**¿Se puede sacar el mes solo, del historial?** No de forma confiable, y por eso se pide:
+- La indicación ("control en 6 meses") vive en la **evolución**, texto libre de DentiDesk que
+  la API no expone. Solo se alcanza raspando la ficha (runbook `revision-evoluciones`).
+- Una **hora ya agendada** sí se ve, pero la cosecha diaria mira ~45 días hábiles hacia
+  adelante: una hora a 6 meses todavía no está en el datamart.
+
+Así que al marcar «📅 Control programado» el panel **pregunta el mes** (sugiere consulta +
+6 meses; vacío = no lo sabe, la marca se guarda igual). `seguimiento_pc.marcar_destino(...,
+mes_control=)` lo guarda (solo para ese destino) y `fijar_mes_control()` lo cambia después
+conservando la nota. `kpi.controles_programados()` lo compara contra la agenda **al vuelo**:
+
+| estado | cuándo |
+|---|---|
+| `cumplido` | tuvo una cita que OCURRIÓ desde 15 días antes del mes indicado (`CONTROL_TOLERANCIA_ANTES_DIAS`) |
+| `agendado` | no ha venido, pero tiene hora futura vigente |
+| `esperando` | su mes no ha terminado |
+| ★ `pendiente` | el mes terminó, no vino y no tiene hora → a quien hay que llamar |
+| `sin_mes` | se marcó sin mes: no hay contra qué comparar |
+
+- ⚠️ **Se calcula, no se guarda.** El paciente que llega tarde pasa solo de pendiente a
+  cumplido; nadie tiene que acordarse de desmarcarlo.
+- ⚠️ **"El mes terminó" = hoy ya es el mes siguiente.** Al que se le pidió marzo no se le
+  llama pendiente el 10 de marzo.
+- ⚠️ **La propia primera consulta nunca cuenta como el control** (importa si se marca
+  retroactivamente con un mes que coincide con el de la consulta), y una cita cancelada en
+  su mes tampoco.
+- El reparto de destinos **no cambia**: el pendiente sigue contando en `control_programado`.
+  Lo accionable es la tarjeta **📅 Controles programados** de la pestaña KPIs (pendientes
+  primero, el más atrasado arriba), que no depende del rango de fechas elegido.
+
+Endpoints: `POST /api/seguimiento-pc/descartar` acepta `mes_control` (un mes mal escrito se
+**rechaza con 400**, no se ignora: guardarlo vacío dejaría al doctor creyendo que se va a
+revisar) · `POST /api/seguimiento-pc/mes-control` `{rut, mes}` · la respuesta de
+`GET /api/kpi/primeras-consultas` trae `controles`.
+
 #### ⚠️ La línea base de 39,2% dejó de ser comparable
 
 Reclasificados los 5 años: **37 primeras consultas pasaron de `siguio` a `inicio`** (749 → 786)

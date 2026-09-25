@@ -5879,12 +5879,37 @@ def seguimiento_pc_descartar():
     if destino not in seguimiento_pc.DESTINOS:
         return jsonify({'ok': False, 'error': 'destino invalido',
                         'validos': sorted(seguimiento_pc.DESTINOS)}), 400
+    mes = (data.get('mes_control') or '').strip()
+    # Un mes que vino escrito pero no se entiende se RECHAZA, no se ignora: guardarlo
+    # vacío dejaría al doctor creyendo que el sistema va a revisar ese control.
+    if mes and destino == 'control_programado' and not seguimiento_pc.mes_valido(mes):
+        return jsonify({'ok': False, 'error': 'mes invalido (AAAA-MM)'}), 400
     ok = seguimiento_pc.marcar_destino(rut, destino, motivo=data.get('motivo') or '',
-                                       fecha_pc=(data.get('fecha') or '')[:10])
+                                       fecha_pc=(data.get('fecha') or '')[:10],
+                                       mes_control=mes)
     if not ok:
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
     return jsonify({'ok': True, 'destino': destino,
-                    'etiqueta': seguimiento_pc.DESTINOS[destino]})
+                    'etiqueta': seguimiento_pc.DESTINOS[destino],
+                    'mes_control': seguimiento_pc.mes_valido(mes)
+                    if destino == 'control_programado' else ''})
+
+
+@app.route('/api/seguimiento-pc/mes-control', methods=['POST'])
+def seguimiento_pc_mes_control():
+    """Cambia el mes en que un paciente con 'control programado' debe volver.
+    Body {rut, mes: 'AAAA-MM'}. Conserva la nota y la fecha de la marca."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    rut = (data.get('rut') or '').strip()
+    mes = seguimiento_pc.mes_valido(data.get('mes'))
+    if not rut or not mes:
+        return jsonify({'ok': False, 'error': 'Falta el RUT o el mes (AAAA-MM)'}), 400
+    if not seguimiento_pc.fijar_mes_control(rut, mes):
+        return jsonify({'ok': False,
+                        'error': 'Ese paciente no esta marcado como control programado'}), 409
+    return jsonify({'ok': True, 'mes_control': mes})
 
 
 @app.route('/api/seguimiento-pc/run', methods=['POST'])
@@ -6160,7 +6185,17 @@ def kpi_primeras_consultas():
     except Exception as e:
         # Sin nombre la lista igual sirve (queda el RUT): no vale la pena caerse.
         app.logger.warning('kpi: no se pudieron resolver nombres: %s', e)
-    return jsonify({'ok': True, 'destino': d})
+
+    # Los controles programados NO dependen del rango de fechas elegido: un paciente al
+    # que se le pidió volver en marzo hay que verlo aunque su consulta caiga fuera del
+    # período en pantalla. Un fallo acá no puede tumbar el resto de la respuesta.
+    try:
+        controles = kpi.controles_programados()
+        _con_nombre(controles.get('items') or [])
+    except Exception as e:
+        app.logger.warning('kpi: controles programados: %s', e)
+        controles = {'total': 0, 'conteo': {}, 'items': [], 'error': True}
+    return jsonify({'ok': True, 'destino': d, 'controles': controles})
 
 
 @app.route('/api/kpi/ocupacion', methods=['GET'])

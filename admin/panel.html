@@ -2310,6 +2310,9 @@ async function loadKpi() {
       _kpiFetch('/api/kpi/plata' + qs),
     ]);
     if (!res.ok) throw new Error(res.error || 'Error del servidor');
+    // Los controles programados viajan junto a los destinos pero no dependen del
+    // rango: se cuelgan del mismo objeto para no agregar otro parámetro al render.
+    if (pc.destino) pc.destino.controles = pc.controles || null;
     renderKpi(res.resumen, serie.serie, pc.destino, ocu, fug, car, pla.plata);
   } catch (e) {
     cuerpo.innerHTML = `<div class="card" style="border-left:4px solid var(--red)">
@@ -2426,14 +2429,91 @@ async function kpiDestino(i, destino) {
     return;
   }
   const [etiqueta, explica] = KPI_DESTINOS[destino] || [destino, ''];
-  if (!confirm(`Marcar a ${quien} como «${etiqueta}».\n\n${explica}\n\n`
+  let mes = '';
+  if (destino === 'control_programado') {
+    // El mes es lo que permite revisar después si el paciente vino. El diálogo del
+    // mes sirve además de confirmación: Cancelar no marca nada.
+    mes = _kpiPedirMes(`${quien}: ¿en qué MES le indicaste volver a control?`,
+                       _kpiMasMeses(x.fecha, 6));
+    if (mes === null) return;
+  } else if (!confirm(`Marcar a ${quien} como «${etiqueta}».\n\n${explica}\n\n`
       + 'El sistema deja de escribirle para invitarlo a retomar.\n\nSe puede deshacer.')) return;
   const motivo = prompt('¿Alguna nota? (opcional, queda registrada)', '') || '';
   _kpiCursoMsg('Registrando…');
   const r = await _kpiPost('/api/seguimiento-pc/descartar',
-                           { rut: x.rut, destino, motivo, fecha: x.fecha });
-  if (r.ok) { _kpiCursoMsg(`✅ ${quien}: ${r.etiqueta || etiqueta}.`); loadKpi(); }
+                           { rut: x.rut, destino, motivo, fecha: x.fecha, mes_control: mes });
+  if (r.ok) {
+    const cuando = r.mes_control ? ` — se revisará si vino en ${_kpiMesLegible(r.mes_control)}` : '';
+    _kpiCursoMsg(`✅ ${quien}: ${r.etiqueta || etiqueta}${cuando}.`); loadKpi();
+  }
   else _kpiCursoMsg('❌ ' + (r.error || 'Error'), false);
+}
+
+// ── Controles programados: el mes en que el paciente debe volver ──
+const _KPI_MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+                    'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+function _kpiMesLegible(mes) {
+  if (!/^\d{4}-\d{2}$/.test(mes || '')) return mes || '—';
+  return `${_KPI_MESES[+mes.slice(5, 7) - 1]} ${mes.slice(0, 4)}`;
+}
+
+// 'YYYY-MM-DD' + n meses -> 'YYYY-MM'. Es solo la SUGERENCIA que aparece escrita en el
+// diálogo (lo habitual: control a 6 meses de la consulta); el doctor la cambia.
+function _kpiMasMeses(fecha, n) {
+  const f = /^\d{4}-\d{2}/.test(fecha || '') ? fecha : new Date().toISOString().slice(0, 10);
+  let a = +f.slice(0, 4), m = +f.slice(5, 7) - 1 + n;
+  a += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+  return `${a}-${String(m + 1).padStart(2, '0')}`;
+}
+
+// Devuelve 'AAAA-MM', '' (no sabe el mes) o null (canceló). Acepta también '3/2027'.
+function _kpiPedirMes(pregunta, sugerido) {
+  let valor = sugerido || '';
+  for (;;) {
+    const r = prompt(`${pregunta}\n\nFormato AAAA-MM (ej. ${sugerido || '2027-03'}). `
+      + 'Revisa la sugerencia: es 6 meses después de la consulta.\n'
+      + 'Déjalo vacío si no lo sabes (se podrá agregar después).', valor);
+    if (r === null) return null;
+    const t = r.trim();
+    if (!t) return '';
+    let m = t.match(/^(\d{4})-(\d{1,2})$/);
+    if (!m) { const k = t.match(/^(\d{1,2})[\/-](\d{4})$/); if (k) m = [t, k[2], k[1]]; }
+    if (m && +m[2] >= 1 && +m[2] <= 12) return `${m[1]}-${String(+m[2]).padStart(2, '0')}`;
+    alert(`«${t}» no es un mes válido. Escríbelo como AAAA-MM, por ejemplo 2027-03.`);
+    valor = t;
+  }
+}
+
+let KPI_CONTROLES = [];
+
+function _kpiControlMsg(txt, ok) {
+  const el = document.getElementById('kpi-control-msg');
+  if (el) el.innerHTML = `<span style="color:${ok === false ? '#e53e3e' : '#2f855a'}">${_esc(txt)}</span>`;
+}
+
+async function kpiCambiarMes(i) {
+  const x = KPI_CONTROLES[i];
+  if (!x) return;
+  const quien = x.nombre || x.rut;
+  const mes = _kpiPedirMes(`${quien}: ¿en qué MES debe volver a control?`,
+                           x.mes_control || _kpiMasMeses(x.fecha_pc, 6));
+  if (!mes) return;   // cancelar o vacío: no se toca nada
+  _kpiControlMsg('Guardando…');
+  const r = await _kpiPost('/api/seguimiento-pc/mes-control', { rut: x.rut, mes });
+  if (r.ok) { _kpiControlMsg(`✅ ${quien}: control en ${_kpiMesLegible(r.mes_control)}.`); loadKpi(); }
+  else _kpiControlMsg('❌ ' + (r.error || 'Error'), false);
+}
+
+async function kpiQuitarControl(i) {
+  const x = KPI_CONTROLES[i];
+  if (!x) return;
+  const quien = x.nombre || x.rut;
+  if (!confirm(`Quitar a ${quien} de «Control programado».\n\nVuelve a clasificarse según su agenda.`)) return;
+  _kpiControlMsg('Deshaciendo…');
+  const r = await _kpiPost('/api/seguimiento-pc/descartar', { rut: x.rut, deshacer: true });
+  if (r.ok) { _kpiControlMsg(`✅ ${quien}: vuelve a la clasificación automática.`); loadKpi(); }
+  else _kpiControlMsg('❌ ' + (r.error || 'Error'), false);
 }
 
 async function kpiNoMolestar(i) {
@@ -2501,6 +2581,60 @@ async function kpiBackfill() {
   if (r.ok) _kpiMsg(`⏳ Barrido lanzado (${r.desde} → ${r.hasta}). `
     + 'Vuelve en unos minutos y aprieta «Ver» para mirar el avance.');
   else _kpiMsg('❌ ' + (r.error || r.motivo || 'Error'), false);
+}
+
+// Los pacientes que el doctor marcó «control programado», contra el mes indicado.
+// El estado lo calcula el backend (kpi.controles_programados): acá solo se pinta.
+function _kpiControles(c) {
+  const navy = '#1A2E4A', gold = '#C9A84C', rojo = '#e53e3e', verde = '#2f855a';
+  KPI_CONTROLES = (c && c.items) || [];
+  if (!c) return '';
+  const n = c.conteo || {};
+  let h = `<div class="card"><h3>📅 Controles programados (${c.total || 0})</h3>
+    <p style="font-size:.8rem;color:#718096;margin-bottom:12px">
+      Los pacientes a los que les indicaste volver más adelante. Con el <strong>mes</strong> que
+      anotas al marcarlos, el sistema revisa en la agenda si vinieron. Si el mes terminó y no
+      vino —ni tiene hora—, queda <strong style="color:${rojo}">pendiente</strong>: es a quien hay que llamar.
+      Si llega tarde, pasa solo a «vino».</p>`;
+  if (c.error) return h + '<p style="color:#e53e3e;font-size:.82rem">No se pudo revisar la agenda de estos pacientes.</p></div>';
+  if (!KPI_CONTROLES.length) {
+    return h + `<p style="font-size:.82rem;color:#a0aec0">Todavía no marcas a ningún paciente como
+      «Control programado». Se hace en la tabla «Revisar y corregir destinos», con el botón 📅.</p></div>`;
+  }
+  const EST = {
+    pendiente: [rojo, '⚠️ Pendiente'], sin_mes: [gold, 'Falta el mes'],
+    esperando: [navy, 'Esperando su mes'], agendado: [verde, 'Tiene hora'], cumplido: [verde, '✅ Vino'],
+  };
+  h += '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.82rem;margin-bottom:10px">';
+  h += ['pendiente', 'sin_mes', 'esperando', 'agendado', 'cumplido'].map(k =>
+    `<span style="color:${EST[k][0]}">${EST[k][1]}: <strong>${n[k] || 0}</strong></span>`).join('');
+  h += `</div><div style="overflow-x:auto"><table style="width:100%;font-size:.82rem;border-collapse:collapse">
+    <tr style="color:#718096;text-align:left"><th style="padding:4px">Paciente</th><th>Consulta</th>
+    <th>Volver en</th><th>Estado</th><th>Visitas</th><th style="text-align:right"></th></tr>`;
+  // Los botones referencian la POSICIÓN en el arreglo, nunca el RUT en el onclick.
+  KPI_CONTROLES.forEach((x, i) => {
+    const [col, et] = EST[x.estado] || ['#718096', x.estado];
+    let det = '';
+    if (x.estado === 'pendiente') det = `${x.meses_atraso} ${x.meses_atraso === 1 ? 'mes' : 'meses'} de atraso`;
+    else if (x.estado === 'cumplido') det = `vino el ${x.vino_el}`;
+    else if (x.estado === 'agendado') det = `hora el ${x.proxima}`;
+    const vis = [x.ultima_visita ? `última: ${x.ultima_visita}` : 'sin visitas desde la consulta',
+                 x.proxima && x.estado !== 'agendado' ? `próxima: ${x.proxima}` : ''].filter(Boolean);
+    h += `<tr style="border-top:1px solid #edf2f7">
+      <td style="padding:6px">${_esc(x.nombre || x.rut || '—')}${x.motivo_marca ? `<br><span style="font-size:.7rem;color:#a0aec0">${_esc(x.motivo_marca)}</span>` : ''}</td>
+      <td>${_esc(x.fecha_pc || '—')}</td>
+      <td>${x.mes_control ? _esc(_kpiMesLegible(x.mes_control)) : '<span style="color:#a0aec0">—</span>'}</td>
+      <td><span style="color:${col};font-weight:600">${_esc(et)}</span>${det ? `<br><span style="font-size:.7rem;color:#718096">${_esc(det)}</span>` : ''}</td>
+      <td style="font-size:.74rem;color:#718096">${vis.map(_esc).join('<br>')}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" onclick="kpiCambiarMes(${i})">📅 ${x.mes_control ? 'Cambiar mes' : 'Indicar mes'}</button>
+        <button class="btn btn-sm btn-danger" onclick="kpiQuitarControl(${i})" title="Quitar el control programado y volver a la clasificación automática">↩︎</button></td></tr>`;
+  });
+  h += `</table></div><p style="font-size:.74rem;color:#a0aec0;margin-top:8px">
+    Cuenta como que vino cualquier cita atendida desde ${c.tolerancia_antes_dias || 15} días antes del mes indicado.
+    Una hora agendada a más de ~2 meses todavía no la ve el sistema: ese paciente aparece «esperando su mes» hasta que se acerque la fecha.</p>
+    <div id="kpi-control-msg" style="margin-top:6px;font-size:.82rem"></div></div>`;
+  return h;
 }
 
 function renderKpi(r, serie, pc, ocu, fug, car, pla) {
@@ -2654,6 +2788,8 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
     h += '</table>';
   }
   h += '</div>';
+
+  h += _kpiControles(pc.controles);
 
   h += `<div class="card"><h3>📈 Pacientes nuevos y primeras consultas por mes</h3>
     <p style="font-size:.8rem;color:#718096">Primeras consultas atendidas al mes.</p>

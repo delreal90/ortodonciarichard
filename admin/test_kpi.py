@@ -918,13 +918,127 @@ class TestEsquema(unittest.TestCase):
         self.assertIn('estado_norm', cols)
 
 
+
+def _mes(k):
+    """Mes 'YYYY-MM' desplazado k meses desde el mes de HOY."""
+    a, m = HOY.year, HOY.month - 1 + k
+    a += m // 12
+    return f'{a:04d}-{m % 12 + 1:02d}'
+
+
+@contextlib.contextmanager
+def _con_controles(marcas):
+    """{rut: (fecha_pc, mes_control)} como si el doctor los hubiera marcado
+    'control programado'. No toca el registro real de seguimiento_pc."""
+    original = kpi._controles_marcados
+    kpi._controles_marcados = lambda: {
+        r: {'destino': 'control_programado', 'fecha_pc': f, 'mes_control': m, 'motivo': ''}
+        for r, (f, m) in marcas.items()}
+    try:
+        yield
+    finally:
+        kpi._controles_marcados = original
+
+
+class TestControlesProgramados(BaseKpi):
+    """«Vuelve en 6 meses»: ¿volvió? Un control programado que nadie revisa es una fuga
+    escondida detrás de un desenlace que se ve OK."""
+
+    RUT = '121212121'
+
+    def _estado(self, mes, citas=(), fecha_pc=None):
+        fecha_pc = fecha_pc or _dia(-250)
+        self.guardar([_cita('pc', fecha_pc, 'Primera Consulta', rut=self.RUT)] + list(citas))
+        with _con_controles({self.RUT: (fecha_pc, mes)}):
+            r = kpi.controles_programados()
+        self.assertEqual(r['total'], 1)
+        return r['items'][0]
+
+    def test_mes_pasado_sin_venir_queda_pendiente(self):
+        it = self._estado(_mes(-2))
+        self.assertEqual(it['estado'], 'pendiente')
+        self.assertEqual(it['meses_atraso'], 2)
+
+    def test_vino_en_el_mes_indicado(self):
+        dia = _mes(-2) + '-10'
+        it = self._estado(_mes(-2), [_cita(2, dia, 'Control Pasivo', rut=self.RUT)])
+        self.assertEqual(it['estado'], 'cumplido')
+        self.assertEqual(it['vino_el'], dia)
+
+    def test_si_llega_tarde_pasa_solo_a_cumplido(self):
+        """No hay que acordarse de desmarcarlo: el estado se recalcula con la agenda."""
+        it = self._estado(_mes(-3), [_cita(2, _dia(-5), 'Control Pasivo', rut=self.RUT)])
+        self.assertEqual(it['estado'], 'cumplido')
+
+    def test_unos_dias_antes_del_mes_cuenta(self):
+        inicio = date.fromisoformat(_mes(-2) + '-01')
+        antes = (inicio - timedelta(days=kpi.CONTROL_TOLERANCIA_ANTES_DIAS - 5)).isoformat()
+        it = self._estado(_mes(-2), [_cita(2, antes, 'Control Pasivo', rut=self.RUT)])
+        self.assertEqual(it['estado'], 'cumplido')
+
+    def test_una_visita_de_meses_antes_no_es_el_control(self):
+        """Una urgencia a mitad de camino no es el control que se indicó."""
+        inicio = date.fromisoformat(_mes(-2) + '-01')
+        lejos = (inicio - timedelta(days=kpi.CONTROL_TOLERANCIA_ANTES_DIAS + 30)).isoformat()
+        it = self._estado(_mes(-2), [_cita(2, lejos, 'Bracket Suelto', rut=self.RUT)])
+        self.assertEqual(it['estado'], 'pendiente')
+        self.assertEqual(it['ultima_visita'], lejos)
+
+    def test_su_mes_en_curso_no_es_pendiente(self):
+        """Al que se le pidió volver este mes no se le llama pendiente a mitad de mes."""
+        self.assertEqual(self._estado(_mes(0))['estado'], 'esperando')
+
+    def test_mes_futuro_esperando(self):
+        self.assertEqual(self._estado(_mes(4))['estado'], 'esperando')
+
+    def test_mes_pasado_pero_con_hora_futura_no_es_pendiente(self):
+        it = self._estado(_mes(-1), [_cita(2, _dia(20), 'Control Pasivo', rut=self.RUT,
+                                          estado='No confirmado', id_status='2120')])
+        self.assertEqual(it['estado'], 'agendado')
+        self.assertEqual(it['proxima'], _dia(20))
+
+    def test_una_cita_cancelada_en_su_mes_no_cuenta(self):
+        it = self._estado(_mes(-2), [_cita(2, _mes(-2) + '-10', 'Control Pasivo', rut=self.RUT,
+                                          estado='Hora Cancelada', id_status='2122')])
+        self.assertEqual(it['estado'], 'pendiente')
+
+    def test_la_propia_primera_consulta_no_es_el_control(self):
+        """Si el mes indicado coincide con el de la consulta (marca retroactiva), la
+        consulta misma no puede contar como que vino a control."""
+        pc = _mes(-3) + '-05'
+        it = self._estado(_mes(-3), fecha_pc=pc)
+        self.assertEqual(it['estado'], 'pendiente')
+
+    def test_sin_mes_no_se_puede_juzgar(self):
+        self.assertEqual(self._estado('')['estado'], 'sin_mes')
+
+    def test_otros_pacientes_no_se_mezclan(self):
+        it = self._estado(_mes(-2), [_cita(2, _mes(-2) + '-10', rut='343434343')])
+        self.assertEqual(it['estado'], 'pendiente')
+
+    def test_pendientes_primero_y_el_mas_atrasado_arriba(self):
+        pc = _dia(-400)
+        self.guardar([_cita('a', pc, 'Primera Consulta', rut='1'),
+                      _cita('b', pc, 'Primera Consulta', rut='2'),
+                      _cita('c', pc, 'Primera Consulta', rut='3')])
+        with _con_controles({'1': (pc, _mes(3)), '2': (pc, _mes(-1)), '3': (pc, _mes(-5))}):
+            r = kpi.controles_programados()
+        self.assertEqual([x['rut'] for x in r['items']], ['3', '2', '1'])
+        self.assertEqual(r['conteo']['pendiente'], 2)
+        self.assertEqual(r['conteo']['esperando'], 1)
+
+    def test_sin_marcas_no_toca_la_base(self):
+        with _con_controles({}):
+            r = kpi.controles_programados()
+        self.assertEqual((r['total'], r['items']), (0, []))
+
 def suite():
     loader = unittest.TestLoader()
     s = unittest.TestSuite()
     for cls in (TestEstados, TestDoctores, TestCategorias, TestIngesta, TestSerieMensual,
                 TestReclasificar, TestDestinoPrimeraConsulta, TestFugas,
                 TestOcupacion, TestCartera, TestPacientesNuevos, TestOrigen, TestIngresos, TestPlataGastos, TestResumenComparacion,
-                TestCalidadDatos, TestEsquema):
+                TestCalidadDatos, TestEsquema, TestControlesProgramados):
         s.addTests(loader.loadTestsFromTestCase(cls))
     return s
 
