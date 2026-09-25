@@ -6152,8 +6152,11 @@ def kpi_primeras_consultas():
         return items
 
     try:
+        # Las TRES listas. `reasignables` es la que pinta la tabla del panel: sin
+        # nombre quedan RUT pelados y no se puede decidir sobre nadie.
         _con_nombre(d.get('en_curso') or [])
         _con_nombre(d.get('perdidos') or [])
+        _con_nombre(d.get('reasignables') or [])
     except Exception as e:
         # Sin nombre la lista igual sirve (queda el RUT): no vale la pena caerse.
         app.logger.warning('kpi: no se pudieron resolver nombres: %s', e)
