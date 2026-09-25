@@ -2405,19 +2405,34 @@ function _kpiCursoMsg(txt, ok) {
   if (el) el.innerHTML = `<span style="color:${ok === false ? '#e53e3e' : '#2f855a'}">${_esc(txt)}</span>`;
 }
 
-async function kpiNoInicia(i) {
+const KPI_DESTINOS = {
+  en_tratamiento:     ['En tratamiento', 'Tiene un aparato puesto. Cuenta como INICIADO y deja de ser una fuga.'],
+  control_programado: ['Control programado', 'Le indicaste volver más adelante. No se cuenta como perdido.'],
+  no_requiere:        ['No requiere seguimiento', 'Se evaluó y no hay nada que tratar.'],
+  no_inicia:          ['Avisó que no inicia', 'Decisión tomada. NO se cuenta como paciente perdido: decidir que no es distinto de desaparecer.'],
+};
+
+async function kpiDestino(i, destino) {
   const x = KPI_EN_CURSO[i];
   if (!x) return;
   const quien = x.nombre || x.rut;
-  if (!confirm(`Registrar que ${quien} avisó que NO va a iniciar tratamiento.\n\n`
-      + '· Deja de contar como "en curso" y pasa a contar de inmediato como decisión tomada.\n'
-      + '· NO se cuenta como paciente perdido: decidir que no es distinto de desaparecer.\n'
-      + '· El sistema deja de escribirle para invitarlo a retomar.\n\n'
-      + 'Se puede deshacer.')) return;
-  const motivo = prompt('¿Algún motivo? (opcional, queda registrado)', '') || '';
+  // destino vacío = deshacer y volver a la clasificación automática.
+  if (!destino) {
+    if (!confirm(`Deshacer la marca de ${quien}.\n\nVuelve a clasificarse según su agenda.`)) return;
+    _kpiCursoMsg('Deshaciendo…');
+    const r = await _kpiPost('/api/seguimiento-pc/descartar', { rut: x.rut, deshacer: true });
+    if (r.ok) { _kpiCursoMsg(`✅ ${quien}: vuelve a la clasificación automática.`); loadKpi(); }
+    else _kpiCursoMsg('❌ ' + (r.error || 'Error'), false);
+    return;
+  }
+  const [etiqueta, explica] = KPI_DESTINOS[destino] || [destino, ''];
+  if (!confirm(`Marcar a ${quien} como «${etiqueta}».\n\n${explica}\n\n`
+      + 'El sistema deja de escribirle para invitarlo a retomar.\n\nSe puede deshacer.')) return;
+  const motivo = prompt('¿Alguna nota? (opcional, queda registrada)', '') || '';
   _kpiCursoMsg('Registrando…');
-  const r = await _kpiPost('/api/seguimiento-pc/descartar', { rut: x.rut, motivo, fecha: x.fecha });
-  if (r.ok) { _kpiCursoMsg(`✅ ${quien}: registrado como "no inicia".`); loadKpi(); }
+  const r = await _kpiPost('/api/seguimiento-pc/descartar',
+                           { rut: x.rut, destino, motivo, fecha: x.fecha });
+  if (r.ok) { _kpiCursoMsg(`✅ ${quien}: ${r.etiqueta || etiqueta}.`); loadKpi(); }
   else _kpiCursoMsg('❌ ' + (r.error || 'Error'), false);
 }
 
@@ -2521,8 +2536,9 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
   // ── A. Captación y conversión ──
   h += `<div class="card"><h3>🎯 Destino de cada primera consulta</h3>
     <p style="font-size:.8rem;color:#718096;margin-bottom:14px">
-      Volver a un control <strong>no</strong> es una fuga: el doctor pudo indicar observar en vez de tratar.
-      La fuga real es el paciente que consultó y <strong>nunca más vino</strong>.</p>`;
+      <strong>Cualquier sesión posterior está OK</strong> — instalar un aparato, un control, ver una
+      radiografía, o un control indicado para más adelante. La fuga real es <strong>solo</strong> el
+      paciente que consultó y <strong>nunca más volvió</strong>.</p>`;
   const d = pc.destinos, base = pc.base_clasificada;
   // Sin cohorte cerrada NO se dibuja ninguna barra ni porcentaje: un % calculado sobre
   // las consultas que alcanzaron a decidirse solo puede mirar a las que convirtieron
@@ -2539,12 +2555,13 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
       (por ejemplo, «Últimos 12 meses»).
     </div>`;
   } else {
+    // Solo el último es fuga. Los cuatro primeros son desenlaces OK: el paciente
+    // volvió a alguna sesión, o el doctor ya sabe qué pasó con él.
     const tramos = [
-      ['Inició tratamiento', d.inicio, verde],
-      ['Volvió, sin iniciar', d.siguio, gold],
-      // Separado de "perdido" a propósito: decidir que no es una venta perdida con
-      // motivo; esfumarse es una fuga que quizá se podía haber evitado.
-      ['Avisó que no inicia', d.no_inicia, '#718096'],
+      ['En tratamiento', d.inicio, verde],
+      ['Volvió sin iniciar', d.siguio, '#68a691'],
+      ['Control programado', d.control_programado, navy],
+      ['No requiere / avisó que no', (d.no_requiere || 0) + (d.no_inicia || 0), '#718096'],
       ['Perdido: nunca volvió', d.perdido, rojo],
     ];
     h += '<div style="display:flex;height:34px;border-radius:6px;overflow:hidden;margin-bottom:10px">';
@@ -2557,57 +2574,80 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
         ${d.en_ventana ? `Otras ${d.en_ventana} son más recientes y siguen en curso
           (${pc.en_ventana_ya_inicio} de ellas ya iniciaron); no entran al cálculo.` : ''}
         · conversión a ${pc.ventana_dias} días: <strong>${_n(pc.conversion_90d)}%</strong>
-        (línea base histórica: 39,2%)
+        <span title="El 39,2% se midió con una definición más estrecha, antes de que barra palatina, bandas, disyuntor y otros aparatos contaran como inicio. La cifra subió porque mejoró la definición, no la clínica.">(la línea base histórica de 39,2% ya no es comparable ⓘ)</span>
         · mediana hasta iniciar: ${pc.dias_hasta_inicio.mediana === null ? '—' : pc.dias_hasta_inicio.mediana + ' días'}</p>`;
   }
 
-  // ── Lista accionable: las consultas que todavía no se deciden ──
-  // Es el único lugar del panel donde se puede registrar que el paciente AVISÓ que no
-  // inicia. Sin esto, ese caso es indistinguible del que simplemente no ha vuelto
-  // todavía, y el sistema de seguimiento le sigue escribiendo para invitarlo a retomar
-  // una evaluación que ya descartó.
-  const curso = pc.en_curso || [];
-  KPI_EN_CURSO = curso;   // lo usan los botones por posición
-  if (curso.length) {
-    h += `<div class="card"><h3>⏳ Primeras consultas en curso (${curso.length})</h3>
+  // ── Lista accionable: reasignar el destino de una primera consulta ──
+  // Es el único lugar donde el doctor puede corregir lo que el sistema no puede saber,
+  // porque vive en la evolución (texto libre en DentiDesk, fuera de la API). Incluye a
+  // TODOS, no solo a los recientes: el caso que motivó esto es un paciente con control
+  // a 6 meses, que a los 90 días se marca PERDIDO — y es justo ahí cuando hay que
+  // poder corregirlo.
+  const lista = pc.reasignables || [];
+  KPI_EN_CURSO = lista;   // lo usan los botones por posición
+  if (lista.length) {
+    // Los que ya están en tratamiento no necesitan revisión: se muestran al final.
+    const revisar = lista.filter(x => x.destino !== 'inicio');
+    const ok = lista.length - revisar.length;
+    h += `<div class="card"><h3>🗂️ Revisar y corregir destinos (${lista.length})</h3>
+      <p style="font-size:.8rem;color:#718096;margin-bottom:6px">
+        <strong>Volver a cualquier sesión está OK</strong> — instalar un aparato, un control,
+        ver una radiografía. La fuga real es solo el que <strong>nunca volvió</strong>.</p>
       <p style="font-size:.8rem;color:#718096;margin-bottom:12px">
-        Consultaron hace menos de ${pc.ventana_dias} días, así que todavía no cuentan en los
-        porcentajes. Si alguno te avisó que <strong>no va a tratarse</strong>, márcalo: deja de
-        aparecer acá, pasa a contar de inmediato como una decisión tomada (no como fuga) y el
-        sistema deja de escribirle.</p>
-      <table style="width:100%;font-size:.82rem;border-collapse:collapse">
+        Si el sistema clasificó mal a alguien —porque lo que pasó está escrito en la evolución
+        y no en la agenda— corrígelo acá. Al marcarlo, deja de contarse como fuga y el sistema
+        deja de escribirle. ${ok ? `<br><span style="color:${verde}">${ok} ya están en tratamiento y no necesitan revisión.</span>` : ''}</p>
+      <div style="overflow-x:auto"><table style="width:100%;font-size:.82rem;border-collapse:collapse">
         <tr style="color:#718096;text-align:left">
           <th style="padding:4px">Paciente</th><th>Consulta</th><th>Doctor</th>
-          <th>Estado</th><th style="text-align:right">Acciones</th></tr>`;
-    curso.forEach((x, i) => {
-      const estado = x.ya_inicio
-        ? `<span style="color:${verde};font-weight:600">ya inició</span>`
-        : (x.volvio ? '<span style="color:#718096">volvió, sin iniciar</span>'
-                    : '<span style="color:#a0aec0">sin citas posteriores</span>');
+          <th>Cómo está hoy</th><th style="text-align:right">Reasignar a</th></tr>`;
+    const ETIQ = {
+      inicio:             [`<span style="color:${verde};font-weight:600">En tratamiento</span>`, 'ya inició'],
+      siguio:             ['<span style="color:#4A5568">Volvió sin iniciar</span>', 'tuvo otra sesión'],
+      control_programado: [`<span style="color:${navy};font-weight:600">Control programado</span>`, ''],
+      no_requiere:        ['<span style="color:#718096">No requiere seguimiento</span>', ''],
+      no_inicia:          ['<span style="color:#718096">Avisó que no inicia</span>', ''],
+      perdido:            [`<span style="color:${rojo};font-weight:600">Perdido</span>`, 'nunca volvió'],
+      en_ventana:         ['<span style="color:#a0aec0">En curso</span>', 'aún sin decidir'],
+    };
+    // Primero los que conviene revisar; los que ya están en tratamiento, al final.
+    [...revisar, ...lista.filter(x => x.destino === 'inicio')].forEach(x => {
+      const i = lista.indexOf(x);
+      const [et, nota] = ETIQ[x.destino] || [_esc(x.destino), ''];
+      const manual = x.destino_manual
+        ? ' <span style="font-size:.7rem;color:#a0aec0">(fijado a mano)</span>' : '';
       // Los botones referencian la POSICIÓN en el arreglo, no el RUT interpolado en el
       // onclick — misma convención que la pestaña Equipo tras el XSS de 2026-07-25.
-      const acciones = x.ya_inicio ? '' : `
-        <button class="btn btn-sm" onclick="kpiNoInicia(${i})"
-                title="El paciente avisó que no va a tratarse">🚫 Avisó que no inicia</button>
-        <button class="btn btn-sm" onclick="kpiNoMolestar(${i})"
-                title="Dejar de contactarlo, sin registrar un desenlace">🔕 No contactar</button>`;
+      const btn = (d, txt, tit) => x.destino_manual === d ? '' :
+        `<button class="btn btn-sm" onclick="kpiDestino(${i},'${d}')" title="${_esc(tit)}">${txt}</button>`;
+      const acciones = [
+        btn('en_tratamiento', '🦷 En tratamiento', 'Tiene un aparato puesto: cuenta como iniciado'),
+        btn('control_programado', '📅 Control programado', 'Le indicaste volver más adelante (ej. en 6 meses)'),
+        btn('no_requiere', '✅ No requiere seguimiento', 'Se evaluó y no hay nada que tratar'),
+        btn('no_inicia', '🚫 Avisó que no inicia', 'El paciente avisó que no va a tratarse'),
+        x.destino_manual
+          ? `<button class="btn btn-sm btn-danger" onclick="kpiDestino(${i},'')" title="Volver a la clasificación automática">↩︎ Deshacer</button>`
+          : `<button class="btn btn-sm" onclick="kpiNoMolestar(${i})" title="Solo dejar de contactarlo, sin fijar un desenlace">🔕 No contactar</button>`,
+      ].join(' ');
       h += `<tr style="border-top:1px solid #edf2f7">
         <td style="padding:6px">${_esc(x.nombre || x.rut || '—')}</td>
         <td>${_esc(x.fecha)}</td>
         <td>${_esc(_kpiDoc(x.doctor))}</td>
-        <td>${estado}</td>
+        <td>${et}${manual}${nota ? `<br><span style="font-size:.7rem;color:#a0aec0">${_esc(nota)}</span>` : ''}</td>
         <td style="text-align:right;white-space:nowrap">${acciones}</td></tr>`;
     });
-    h += '</table><div id="kpi-curso-msg" style="margin-top:10px;font-size:.82rem"></div></div>';
+    h += '</table></div><div id="kpi-curso-msg" style="margin-top:10px;font-size:.82rem"></div></div>';
   }
 
   if (pc.por_doctor && pc.por_doctor.length > 1) {
     h += '<table style="width:100%;font-size:.8rem;margin-top:14px;border-collapse:collapse">';
-    h += '<tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Consultas</th><th>Inició</th><th>Volvió</th><th>No inicia</th><th>Perdido</th><th>% inicio</th><th>% perdido</th></tr>';
+    h += '<tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Consultas</th><th>En tratam.</th><th>Volvió</th><th>Control prog.</th><th>No inicia</th><th>Perdido</th><th>% en tratam.</th><th>% perdido</th></tr>';
     pc.por_doctor.forEach(x => {
       h += `<tr style="border-top:1px solid #edf2f7"><td style="padding:5px">${_esc(_kpiDoc(x.doctor))}</td>
         <td>${x.total}</td><td>${x.inicio}</td><td>${x.siguio}</td>
-        <td style="color:#718096">${x.no_inicia}</td>
+        <td style="color:#718096">${x.control_programado}</td>
+        <td style="color:#718096">${(x.no_inicia || 0) + (x.no_requiere || 0)}</td>
         <td style="color:${x.perdido ? rojo : '#718096'}">${x.perdido}</td>
         <td>${_n(x.pct_inicio)}%</td><td>${_n(x.pct_perdido)}%</td></tr>`;
     });

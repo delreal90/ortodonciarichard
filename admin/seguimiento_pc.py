@@ -181,7 +181,10 @@ def save_config(updates):
 
 # ── Registro ─────────────────────────────────────────────────────────────
 
-_ESTRUCTURA = {'candidatos': {}, 'vistos': {}, 'no_molestar': [], 'descartados': {}}
+_ESTRUCTURA = {'candidatos': {}, 'vistos': {}, 'no_molestar': [],
+               # 'descartados' es el nombre viejo (solo 'no inicia'); se conserva
+               # para no perder lo ya marcado en produccion. Ver destinos_manuales().
+               'descartados': {}, 'destinos': {}}
 
 _STORE = jsonstore.JsonStore(REGISTRO_PATH, indent=2,
                              default=_ESTRUCTURA, claves=_ESTRUCTURA)
@@ -215,64 +218,115 @@ def en_no_molestar(rut):
     return _NO_MOLESTAR.contiene(rut)
 
 
-# ── "El paciente avisó que no inicia" ────────────────────────────────────────
-# Un desenlace DECIDIDO, y hasta el 2026-09-25 no había dónde anotarlo: el paciente
-# que avisa que no va a tratarse era indistinguible del que simplemente todavía no
-# ha vuelto. Son cosas distintas y se gestionan distinto — uno es una decisión
-# tomada, el otro una oportunidad abierta — y además el sistema seguía escribiéndole
-# para invitarlo a retomar una evaluación que él ya descartó.
+# ── El destino de una primera consulta, dicho por el doctor ─────────────────
+# Hay desenlaces que el doctor SABE y el sistema no puede deducir de la agenda,
+# porque viven en la evolución (texto libre en DentiDesk, fuera de la API):
+#
+#   · "avisó que no inicia"      — decisión tomada, no es una fuga sin explicación
+#   · "en tratamiento"           — tiene un aparato puesto; la agenda a veces lo
+#                                  dice con un motivo que el clasificador no reconoce
+#   · "control programado"       — "vuelve en 6 meses": no es que se haya perdido,
+#                                  es que su próxima cita es a propósito lejana
+#   · "no requiere seguimiento"  — se evaluó y no hay nada que tratar
+#
+# Sin esto, los cuatro se veían igual que el paciente que simplemente desapareció, y
+# además el sistema les seguía escribiendo para invitarlos a retomar.
 #
 # ⚠️ Va en un diccionario APARTE de `candidatos`, no como un estado más de esos. El
-# paciente puede avisar antes de que el barrido lo detecte (el toque 1 recién va a
+# doctor puede marcarlo antes de que el barrido lo detecte (el toque 1 recién va a
 # los 7 días), y un estado dentro de `candidatos` obligaría a inventarle una ficha
 # de candidato para poder marcarlo. Así se puede anotar desde el minuto uno.
 
-def descartar(rut, motivo='', fecha_pc=''):
-    """Registra que el paciente avisó que NO va a iniciar tratamiento.
+DESTINOS = {
+    'no_inicia':          'Avisó que no inicia tratamiento',
+    'en_tratamiento':     'En tratamiento (aparato instalado)',
+    'control_programado': 'Control programado a futuro',
+    'no_requiere':        'No requiere seguimiento',
+}
 
-    Lo saca de la lista de pendientes (nadie más lo contacta) y deja el dato para
-    que el panel de KPIs pueda separar "decidió que no" de "se perdió"."""
+
+def marcar_destino(rut, destino, motivo='', fecha_pc=''):
+    """El doctor fija el destino de una primera consulta. Devuelve False si el RUT o
+    el destino no son válidos — nunca inventa un destino que no está en DESTINOS,
+    porque el panel de KPIs cuenta por esa clave y una desconocida se perdería."""
     clave = _rut_key(rut)
-    if not clave:
+    if not clave or destino not in DESTINOS:
         return False
     with _LOCK:
         reg = _load_registro()
-        reg.setdefault('descartados', {})[clave] = {
+        reg.setdefault('destinos', {})[clave] = {
             'rut': clave,
+            'destino': destino,
             'motivo': (motivo or '').strip()[:200],
             'fecha_pc': fecha_pc or '',
             'creado': fechas.ahora_chile().isoformat(timespec='seconds'),
         }
-        # Si ya era candidato, deja de estar pendiente: no tiene sentido seguir
-        # ofreciéndolo para contactar en el reporte diario.
+        # Cualquiera de los cuatro destinos significa que ya se sabe qué pasó, así
+        # que deja de tener sentido ofrecerlo para contactar en el reporte diario.
         cand = (reg.get('candidatos') or {}).get(clave)
         if cand and cand.get('estado') == 'pendiente':
-            cand['estado'] = 'descartado'
+            cand['estado'] = 'resuelto'
         _save_registro(reg)
     return True
 
 
-def deshacer_descarte(rut):
+def quitar_destino(rut):
     """Se marcó por error, o el paciente cambió de opinión."""
     clave = _rut_key(rut)
     with _LOCK:
         reg = _load_registro()
-        quitado = (reg.get('descartados') or {}).pop(clave, None) is not None
+        quitado = (reg.get('destinos') or {}).pop(clave, None) is not None
+        # `descartados` es el nombre viejo (ver la migración más abajo): se limpia
+        # también, si no el paciente reaparecería marcado al próximo arranque.
+        quitado = (reg.get('descartados') or {}).pop(clave, None) is not None or quitado
         cand = (reg.get('candidatos') or {}).get(clave)
-        if cand and cand.get('estado') == 'descartado':
+        if cand and cand.get('estado') in ('resuelto', 'descartado'):
             cand['estado'] = 'pendiente'
         if quitado:
             _save_registro(reg)
     return quitado
 
 
+def destino_de(rut):
+    """El destino que fijó el doctor, o '' si no hay ninguno."""
+    d = destinos_manuales().get(_rut_key(rut)) or {}
+    return d.get('destino', '')
+
+
+def destinos_manuales():
+    """{rut_key: {destino, motivo, fecha_pc, creado}}. Lo lee kpi.py.
+
+    ⚠️ MIGRA `descartados` al vuelo. Ese era el nombre cuando el único destino
+    posible era "no inicia" (2026-09-25); generalizarlo a cuatro destinos dejaría
+    afuera a los pacientes ya marcados en producción, y con ellos el trabajo que el
+    doctor ya hizo. La migración es de LECTURA (no reescribe el archivo) para que
+    sea idempotente y no dependa de que alguien corra un script."""
+    reg = _load_registro()
+    out = {}
+    for clave, d in (reg.get('descartados') or {}).items():
+        out[clave] = dict(d, destino='no_inicia')
+    # Lo nuevo manda: si un RUT está en los dos, gana el destino explícito.
+    out.update(reg.get('destinos') or {})
+    return out
+
+
+# ── Compatibilidad: el nombre viejo, cuando "no inicia" era el único destino ──
+
+def descartar(rut, motivo='', fecha_pc=''):
+    return marcar_destino(rut, 'no_inicia', motivo=motivo, fecha_pc=fecha_pc)
+
+
+def deshacer_descarte(rut):
+    return quitar_destino(rut)
+
+
 def esta_descartado(rut):
-    return _rut_key(rut) in (_load_registro().get('descartados') or {})
+    return destino_de(rut) == 'no_inicia'
 
 
 def descartados():
-    """{rut_key: {...}} de los que avisaron que no inician. Lo lee kpi.py."""
-    return dict(_load_registro().get('descartados') or {})
+    return {k: v for k, v in destinos_manuales().items()
+            if v.get('destino') == 'no_inicia'}
 
 
 # ── El barrido: detecta candidatos y quién ya avanzó ────────────────────────
@@ -461,17 +515,19 @@ def pendientes(fecha=None, doctor=None, cfg=None):
     doc_norm = _normalizar(doctor) if doctor else ''
     reg = _load_registro()
     no_molestar = set(reg.get('no_molestar') or [])
-    # El que avisó que no inicia se filtra ACÁ y no solo por su estado de candidato:
-    # el barrido vuelve a pasar cada día y podría recrearlo como 'pendiente'. Con la
-    # guarda puesta en el estado nada más, el paciente terminaría recibiendo la
-    # invitación a retomar una evaluación que ya descartó.
-    descartados = set(reg.get('descartados') or {})
+    # El paciente con destino fijado por el doctor se filtra ACÁ y no solo por su
+    # estado de candidato: el barrido vuelve a pasar cada día y podría recrearlo como
+    # 'pendiente'. Con la guarda puesta en el estado nada más, el paciente terminaría
+    # recibiendo la invitación a retomar una evaluación que ya está resuelta — le
+    # escribiríamos al que avisó que no inicia, al que tiene control programado a 6
+    # meses y al que ya anda con un aparato puesto.
+    resueltos = set(destinos_manuales())
 
     out = []
     for rut, c in (reg.get('candidatos') or {}).items():
         if c.get('estado') != 'pendiente':
             continue
-        if rut in no_molestar or rut in descartados:
+        if rut in no_molestar or rut in resueltos:
             continue
         if c.get('proxima_fecha', '') > hoy_iso:
             continue

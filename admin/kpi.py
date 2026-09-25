@@ -226,10 +226,45 @@ _URGENCIA = {
 }
 
 
+# APARATOS INSTALADOS que `control_dental._INICIO_FIJOS` no reconoce, y que sí son
+# inicio de tratamiento. Decisión del Dr. Alberto (2026-09-25), a partir de un caso
+# real: una paciente con primera consulta el 4-ago quedó con separaciones el 11 y
+# barra palatina cementada el 20, y el panel seguía diciendo que NO había iniciado —
+# *"el que está con una barra palatina está en tratamiento y cuenta como iniciado"*.
+#
+# ⚠️ Solo van los NO AMBIGUOS. Quedan fuera a propósito:
+#   · 'aligner / essix'      — puede ser alineador (inicio) o contención (fin)
+#   · 'plano relajacion'     — tratamiento de bruxismo, otra cosa que ortodoncia
+#   · 'instalar microtornillos' / 'instalar arco' — suelen ser a mitad de camino
+#   · 'impresion p / essix'  — impresión de contención
+# Esos cuatro se resuelven con datos reales desde el panel (pestaña Control dental →
+# "Motivos sin clasificar" escribe `cfg['motivos_extra']` SIN deploy, y `reclasificar()`
+# lo aplica a los 5 años). Adivinarlos acá metería contenciones en la cuenta de inicios.
+_INICIO_APARATOS = {
+    'separaciones',                      # el paso previo al cementado de bandas
+    'bandas', 'bandas + higiene',
+    'barra palatina / hg', 'barra lingual',
+    'nance', 'quad helix', 'disyuntor', 'placa',
+    'impresion + bandas p / barra', 'impresion + bandas p / nance',
+    'impresion + bandas p / disyuntor', 'impresion + bandas p / qh',
+    'impresion + bandas p / pendulo', 'impresion + bandas p / distal jet',
+    'impresion + bandas p / de laire esqueletal',
+    'impresion arrastre + bandas',
+    'impresion + sep. p / hyrax', 'impresion p / disyuntor', 'impresion p / placa',
+    'cementar bracket', 'retenedor fijo',
+    'de laire esqueletal', 'mascara de laire',
+    'reinicio',                          # reingreso a tratamiento activo
+}
+
+
 def categoria_motivo(reason, cfg=None):
     """Categoría del motivo para los KPIs. Las categorías propias de este módulo se
     evalúan ANTES de delegar en control_dental, porque ese módulo devuelve None para
-    'Primera Consulta' y para el estudio (no le hacían falta)."""
+    'Primera Consulta' y para el estudio (no le hacían falta).
+
+    ⚠️ `cfg['motivos_extra']` (que el panel edita sin deploy) se consulta DENTRO de
+    control_dental, o sea DESPUÉS de las listas de acá. Si alguna vez hay que poder
+    corregir uno de estos desde el panel, hay que mover esa consulta al principio."""
     clave = _normalizar(reason)
     if not clave:
         return ''
@@ -241,6 +276,8 @@ def categoria_motivo(reason, cfg=None):
         return 'estudio'
     if clave in _URGENCIA:
         return 'urgencia'
+    if clave in _INICIO_APARATOS:
+        return 'inicio_fijos'
     return control_dental.clasificar_motivo(reason, cfg) or 'otro'
 
 
@@ -822,14 +859,21 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
     finally:
         con.close()
 
-    descartados = _descartados_set()
+    destinos_manuales = _destinos_manuales_map()
 
-    destinos = {'inicio': 0, 'siguio': 0, 'no_inicia': 0, 'perdido': 0, 'en_ventana': 0}
+    destinos = {'inicio': 0, 'siguio': 0, 'control_programado': 0,
+                'no_requiere': 0, 'no_inicia': 0, 'perdido': 0, 'en_ventana': 0}
     conv90 = conv90_base = ya_inicio_en_ventana = 0
     dias_hasta = []
     por_mes, por_doc = {}, {}
     perdidos = []
     en_curso = []
+    # TODA primera consulta con su destino, para poder reasignarla desde el panel.
+    # No basta con los 'en curso': el caso que motivo esto es un paciente con
+    # control a 6 meses, que a los 90 dias se marca PERDIDO — y es justo ahi cuando
+    # el doctor necesita corregirlo. Limitar la lista a los recientes dejaria el
+    # error visible y sin arreglo.
+    reasignables = []
     vistas = set()
 
     for pc in pcs:
@@ -847,21 +891,39 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         inicio_en_ventana = [x for x in inicio_alguna if x[0] <= limite]
         reciente = (date.fromisoformat(f0) + timedelta(days=ventana_dias)) > hoy
 
-        # El paciente AVISÓ que no inicia: es un desenlace decidido, así que cierra la
-        # ventana de inmediato — esperar 90 días para contar algo que ya se sabe solo
-        # retrasa el dato. Va en su propio cajón y NO se mezcla con `perdido`: el que
-        # decide que no es una venta perdida con motivo, el que se esfuma es una fuga
-        # que quizá se podía haber evitado. Juntarlos borra justo esa diferencia.
-        if pc['rut'] in descartados:
-            destinos['no_inicia'] += 1
+        # EL DESTINO QUE FIJÓ EL DOCTOR MANDA sobre lo que se deduzca de la agenda.
+        # Son los cuatro desenlaces que él sabe y el sistema no puede leer, porque
+        # viven en la evolución (texto libre, fuera de la API de DentiDesk):
+        # avisó que no inicia · en tratamiento · control programado · no requiere.
+        #
+        # Cierran la ventana de INMEDIATO: esperar 90 días para contar algo que ya se
+        # sabe solo retrasa el dato. Y cada uno va en su propio cajón, nunca revuelto
+        # con `perdido` — decidir que no, tener control a 6 meses o andar con un aparato
+        # puesto son tres cosas distintas, y ninguna es una fuga. Juntarlas borra justo
+        # la diferencia que hace accionable el indicador.
+        manual = destinos_manuales.get(pc['rut'])
+        if manual:
+            # 'en_tratamiento' CUENTA COMO INICIADO (decisión del Dr. Alberto): es el
+            # mismo desenlace que `inicio`, solo que lo afirmó una persona en vez de
+            # deducirse del motivo de una cita.
+            destino = 'inicio' if manual == 'en_tratamiento' else manual
+            destinos[destino] += 1
             mes = f0[:7]
             por_mes.setdefault(mes, _fila_destino(mes=mes))['total'] += 1
-            por_mes[mes]['no_inicia'] += 1
+            por_mes[mes][destino] += 1
             dk = pc['doctor'] or '—'
             por_doc.setdefault(dk, _fila_destino(doctor=dk))['total'] += 1
-            por_doc[dk]['no_inicia'] += 1
+            por_doc[dk][destino] += 1
             if not reciente:
                 conv90_base += 1
+                # Marcado a mano como en tratamiento = convirtió, también para la tasa
+                # comparable con la línea base histórica.
+                if destino == 'inicio':
+                    conv90 += 1
+            reasignables.append({'rut': pc['rut'], 'fecha': f0, 'doctor': pc['doctor'],
+                                 'destino': destino, 'destino_manual': manual,
+                                 'ya_inicio': bool(inicio_alguna),
+                                 'volvio': bool(posteriores)})
             continue
 
         # ⚠️ EL ORDEN DE ESTAS RAMAS ES EL PUNTO. La ventana se pregunta PRIMERO.
@@ -888,7 +950,8 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
             # tratarse. Los que ya iniciaron se informan igual, pero sin botones.
             en_curso.append({'rut': pc['rut'], 'fecha': f0, 'doctor': pc['doctor'],
                              'ya_inicio': bool(inicio_alguna),
-                             'volvio': bool(posteriores)})
+                             'volvio': bool(posteriores),
+                             'destino_manual': ''})
         elif inicio_alguna:
             destino = 'inicio'
         elif posteriores:
@@ -905,6 +968,10 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
                  - date.fromisoformat(f0)).days)
 
         destinos[destino] += 1
+        reasignables.append({'rut': pc['rut'], 'fecha': f0, 'doctor': pc['doctor'],
+                             'destino': destino, 'destino_manual': '',
+                             'ya_inicio': bool(inicio_alguna),
+                             'volvio': bool(posteriores)})
 
         # Tasa comparable con la línea base histórica (39,2%): ventana estricta de 90
         # días y solo las consultas que ya completaron la ventana.
@@ -931,6 +998,7 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         fila['pct_inicio'] = _pct(fila['inicio'], b)
         fila['pct_perdido'] = _pct(fila['perdido'], b)
         fila['pct_no_inicia'] = _pct(fila['no_inicia'], b)
+        fila['pct_control_programado'] = _pct(fila['control_programado'], b)
 
     dias_hasta.sort()
     return {
@@ -952,6 +1020,9 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         # Los que todavia no se deciden, de mas reciente a mas antiguo: es la lista
         # sobre la que el panel ofrece marcar "aviso que no inicia".
         'en_curso': sorted(en_curso, key=lambda x: x['fecha'], reverse=True),
+        # Acotada a propósito: sobre 5 años son ~1.400 filas y el panel se vuelve
+        # ilegible antes de volverse lento. Las mas recientes son las accionables.
+        'reasignables': sorted(reasignables, key=lambda x: x['fecha'], reverse=True)[:300],
     }
 
 
@@ -959,8 +1030,31 @@ def _fila_destino(**extra):
     """Fila de conteos por mes o por doctor. Una sola definición de las claves: si se
     agrega un destino nuevo y acá se olvida, el `+= 1` revienta con KeyError en vez de
     perder el conteo en silencio."""
-    return dict({'total': 0, 'inicio': 0, 'siguio': 0, 'no_inicia': 0,
-                 'perdido': 0, 'en_ventana': 0}, **extra)
+    return dict({'total': 0, 'inicio': 0, 'siguio': 0, 'control_programado': 0,
+                 'no_requiere': 0, 'no_inicia': 0, 'perdido': 0, 'en_ventana': 0}, **extra)
+
+
+def _destinos_manuales_map():
+    """{rut: destino} con lo que el doctor fijó a mano (`seguimiento_pc`).
+
+    Los destinos posibles son los cuatro de `seguimiento_pc.DESTINOS`:
+    no_inicia · en_tratamiento · control_programado · no_requiere.
+
+    ⚠️ Se lee del JSON operativo y NO de la tabla `eventos` de la base, a pesar de la
+    regla 9. La razón es la inmediatez: `eventos` se reconstruye una vez al día, así que
+    marcar a un paciente y que el panel siguiera mostrándolo igual hasta mañana haría
+    parecer que el botón no hizo nada. Es una lectura de un JSON chico, sin red. El
+    import es perezoso para no crear un ciclo (seguimiento_pc ya importa varios módulos
+    que a su vez miran la base)."""
+    try:
+        import seguimiento_pc
+        return {r: d.get('destino', '') for r, d in seguimiento_pc.destinos_manuales().items()
+                if d.get('destino')}
+    except Exception as e:
+        # Que falte el registro no puede tumbar todo el panel de KPIs: sin él, esos
+        # pacientes simplemente vuelven a clasificarse por su agenda, como antes.
+        log.warning('kpi: no se pudieron leer los destinos manuales: %r', e)
+        return {}
 
 
 def _descartados_set():

@@ -5855,12 +5855,18 @@ def seguimiento_pc_no_molestar():
 
 @app.route('/api/seguimiento-pc/descartar', methods=['POST'])
 def seguimiento_pc_descartar():
-    """El paciente AVISO que no va a iniciar tratamiento. Body {rut, motivo?, fecha?,
-    deshacer?}.
+    """El doctor fija el DESENLACE de una primera consulta.
+    Body {rut, destino?, motivo?, fecha?, deshacer?}.
+
+    `destino` es uno de seguimiento_pc.DESTINOS:
+      no_inicia · en_tratamiento · control_programado · no_requiere
+    Sin `destino` se asume 'no_inicia' (era el unico cuando se creo la ruta, y el F2
+    y el panel viejo la llaman asi).
 
     Es distinto de no-molestar: eso solo calla al sistema, esto registra un DESENLACE.
     El panel de KPIs deja de contarlo como 'en curso' al instante (no espera los 90
-    dias) y lo separa de 'perdido' — decidir que no es otra cosa que esfumarse."""
+    dias) y cada destino va en su propio cajon — decidir que no, tener control a 6
+    meses y andar con un aparato puesto son tres cosas distintas, y ninguna es fuga."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     data = request.get_json(silent=True) or {}
@@ -5868,12 +5874,17 @@ def seguimiento_pc_descartar():
     if not rut:
         return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
     if data.get('deshacer'):
-        return jsonify({'ok': True, 'deshecho': seguimiento_pc.deshacer_descarte(rut)})
-    ok = seguimiento_pc.descartar(rut, motivo=data.get('motivo') or '',
-                                  fecha_pc=(data.get('fecha') or '')[:10])
+        return jsonify({'ok': True, 'deshecho': seguimiento_pc.quitar_destino(rut)})
+    destino = (data.get('destino') or 'no_inicia').strip()
+    if destino not in seguimiento_pc.DESTINOS:
+        return jsonify({'ok': False, 'error': 'destino invalido',
+                        'validos': sorted(seguimiento_pc.DESTINOS)}), 400
+    ok = seguimiento_pc.marcar_destino(rut, destino, motivo=data.get('motivo') or '',
+                                       fecha_pc=(data.get('fecha') or '')[:10])
     if not ok:
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
-    return jsonify({'ok': True, 'descartado': True})
+    return jsonify({'ok': True, 'destino': destino,
+                    'etiqueta': seguimiento_pc.DESTINOS[destino]})
 
 
 @app.route('/api/seguimiento-pc/run', methods=['POST'])

@@ -56,15 +56,19 @@ def _dia(delta):
 
 
 @contextlib.contextmanager
-def _descartado(*ruts):
-    """Simula que esos pacientes avisaron que no inician, sin tocar el registro real
-    de seguimiento_pc (esta suite es de kpi y no debe depender de otro módulo)."""
-    original = kpi._descartados_set
-    kpi._descartados_set = lambda: set(ruts)
+def _con_destino(destino, *ruts):
+    """Simula que el doctor fijó ese destino a mano, sin tocar el registro real de
+    seguimiento_pc (esta suite es de kpi y no debe depender de otro módulo)."""
+    original = kpi._destinos_manuales_map
+    kpi._destinos_manuales_map = lambda: {r: destino for r in ruts}
     try:
         yield
     finally:
-        kpi._descartados_set = original
+        kpi._destinos_manuales_map = original
+
+
+def _descartado(*ruts):
+    return _con_destino('no_inicia', *ruts)
 
 
 class BaseKpi(unittest.TestCase):
@@ -364,16 +368,21 @@ class TestDestinoPrimeraConsulta(BaseKpi):
         self.assertEqual(r['destinos']['perdido'], 0)      # NO es lo mismo que perderse
         self.assertEqual(r['base_clasificada'], 1)         # ya cuenta, sin esperar
 
-    def test_el_descartado_sale_de_la_lista_accionable(self):
-        """Si siguiera apareciendo en 'en curso', el doctor volvería a marcarlo."""
+    def test_el_marcado_a_mano_sale_de_en_curso_pero_sigue_reasignable(self):
+        """Dos cosas distintas: deja de estar "en curso" (su desenlace ya se sabe) pero
+        SIGUE en la lista de reasignables, marcado, para poder deshacerlo. Si
+        desapareciera del todo, una marca equivocada no tendría cómo corregirse."""
         self.guardar([
             _cita(1, _dia(-20), 'Primera Consulta', rut='777777777'),
             _cita(2, _dia(-20), 'Primera Consulta', rut='888888888'),
         ])
         self.assertEqual(len(kpi.destino_primeras_consultas()['en_curso']), 2)
         with _descartado('777777777'):
-            curso = kpi.destino_primeras_consultas()['en_curso']
-        self.assertEqual([x['rut'] for x in curso], ['888888888'])
+            r = kpi.destino_primeras_consultas()
+        self.assertEqual([x['rut'] for x in r['en_curso']], ['888888888'])
+        marcado = [x for x in r['reasignables'] if x['rut'] == '777777777']
+        self.assertEqual(len(marcado), 1)
+        self.assertEqual(marcado[0]['destino_manual'], 'no_inicia')
 
     def test_la_lista_en_curso_dice_quien_ya_inicio(self):
         """Los que ya iniciaron se muestran sin botones: no hay nada que marcar."""
@@ -397,6 +406,68 @@ class TestDestinoPrimeraConsulta(BaseKpi):
             kpi._descartados_set = original
         # Con la función real (aunque el registro no exista) sigue respondiendo.
         self.assertEqual(kpi.destino_primeras_consultas()['destinos']['perdido'], 1)
+
+    def test_barra_palatina_cuenta_como_iniciado(self):
+        """Caso real (2026-09-25): primera consulta el 4-ago, separaciones el 11 y barra
+        palatina cementada el 20, y el panel decía que NO había iniciado porque esos dos
+        motivos caían en 'otro'. Decisión del Dr. Alberto: *"el que está con una barra
+        palatina está en tratamiento y cuenta como iniciado"*."""
+        self.guardar([
+            _cita(1, _dia(-200), 'Primera Consulta', rut='555555555'),
+            _cita(2, _dia(-193), 'Separaciones', rut='555555555'),
+            _cita(3, _dia(-184), 'Barra Palatina / HG', rut='555555555'),
+        ])
+        r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['inicio'], 1)
+        self.assertEqual(r['destinos']['siguio'], 0)
+
+    def test_los_motivos_ambiguos_NO_se_adivinan(self):
+        """'Aligner / Essix' puede ser un alineador (inicio) o una contención (fin del
+        tratamiento). Meterlo en inicios contaría contenciones como conversiones. Se
+        resuelve desde el panel con datos reales, no acá."""
+        for m in ('Aligner / Essix', 'Plano Relajación', 'Instalar Microtornillos'):
+            self.assertNotIn(kpi.categoria_motivo(m, {}), kpi.CATEGORIAS_INICIO, m)
+
+    def test_control_programado_no_es_perdido(self):
+        """El caso que motivó todo esto: al paciente se le indicó volver en 6 meses. A
+        los 90 días el sistema lo marcaría PERDIDO, y no lo está."""
+        self.guardar([_cita(1, _dia(-200), 'Primera Consulta', rut='666666666')])
+        self.assertEqual(kpi.destino_primeras_consultas()['destinos']['perdido'], 1)
+        with _con_destino('control_programado', '666666666'):
+            r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['control_programado'], 1)
+        self.assertEqual(r['destinos']['perdido'], 0)
+
+    def test_en_tratamiento_a_mano_cuenta_como_inicio_y_en_la_conversion(self):
+        """Marcarlo a mano tiene que valer lo MISMO que deducirlo del motivo: si no, la
+        corrección del doctor arreglaría el reparto pero no la tasa de conversión."""
+        self.guardar([_cita(1, _dia(-200), 'Primera Consulta', rut='999999999')])
+        with _con_destino('en_tratamiento', '999999999'):
+            r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['inicio'], 1)
+        self.assertEqual(r['conversion_90d'], 100.0)
+
+    def test_no_requiere_seguimiento_es_su_propio_destino(self):
+        """Se evaluó y no hay nada que tratar: ni conversión ni fuga."""
+        self.guardar([_cita(1, _dia(-200), 'Primera Consulta', rut='444444444')])
+        with _con_destino('no_requiere', '444444444'):
+            r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['no_requiere'], 1)
+        self.assertEqual(r['destinos']['perdido'], 0)
+        self.assertEqual(r['destinos']['inicio'], 0)
+
+    def test_el_destino_manual_manda_sobre_la_agenda(self):
+        """El doctor ve la evolución; el sistema solo ve la agenda. Si se contradicen,
+        gana el doctor."""
+        self.guardar([
+            _cita(1, _dia(-200), 'Primera Consulta', rut='333333333'),
+            _cita(2, _dia(-190), 'Montaje Total', rut='333333333'),   # la agenda dice inicio
+        ])
+        self.assertEqual(kpi.destino_primeras_consultas()['destinos']['inicio'], 1)
+        with _con_destino('no_inicia', '333333333'):
+            r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['no_inicia'], 1)
+        self.assertEqual(r['destinos']['inicio'], 0)
 
     def test_inicio_el_mismo_dia_cuenta(self):
         """109 de 535 conversiones históricas ocurrieron el mismo día."""

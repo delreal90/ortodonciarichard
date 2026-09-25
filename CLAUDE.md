@@ -4126,8 +4126,79 @@ lista es accionable desde el panel.
 - Los botones referencian la **posición** en el arreglo, no el RUT interpolado en el
   `onclick` — misma convención que la pestaña Equipo tras el XSS de 2026-07-25.
 
-Endpoint: `POST /api/seguimiento-pc/descartar` `{rut, motivo?, fecha?, deshacer?}`
+Endpoint: `POST /api/seguimiento-pc/descartar` `{rut, destino?, motivo?, fecha?, deshacer?}`
 (ADMIN_TOKEN). El «no contactar» reusa el `/no-molestar` que ya existía.
+
+### Los CUATRO destinos y qué cuenta como iniciado (2026-09-25, misma tarde)
+
+El criterio del Dr. Alberto, textual: *"cualquier paciente que haya tenido otra sesión, ya
+sea instalar un aparato, controlar, ver radiografía, poner barra, etc o que se haya indicado
+un control **están OK**. El paciente que le digo venir en 6 meses está **en control
+programado**. El que está con una barra palatina está **en tratamiento** y cuenta como
+iniciado."*
+
+O sea: **la fuga real es SOLO el que nunca volvió.** Todo lo demás es un desenlace legítimo,
+y dentro de lo legítimo hay que distinguir quién ya está en tratamiento.
+
+**`seguimiento_pc.DESTINOS`** — los cuatro que el doctor puede fijar a mano, porque viven en
+la evolución (texto libre en DentiDesk, fuera de la API) y el sistema no puede leerlos:
+
+| destino | cómo cuenta |
+|---|---|
+| `en_tratamiento` | **suma a `inicio`** — es el mismo desenlace, solo que lo afirmó una persona |
+| `control_programado` | cajón propio · **no es fuga** |
+| `no_requiere` | cajón propio · ni conversión ni fuga |
+| `no_inicia` | cajón propio · decisión tomada, distinta de esfumarse |
+
+`marcar_destino(rut, destino, motivo, fecha_pc)` · `quitar_destino(rut)` · `destino_de(rut)`
+· `destinos_manuales()`. Los nombres viejos (`descartar`, `deshacer_descarte`,
+`esta_descartado`, `descartados`) quedan como envoltorios.
+
+- ⚠️ **`destinos_manuales()` MIGRA `descartados` al vuelo.** Ese era el nombre cuando el único
+  destino posible era "no inicia" (unas horas antes, el mismo día). Generalizarlo habría
+  dejado afuera a los pacientes ya marcados en producción —y con ellos el trabajo que el
+  doctor ya hizo. La migración es de **LECTURA**, no reescribe el archivo: es idempotente y no
+  depende de que alguien corra un script. `quitar_destino()` limpia las dos claves.
+- ⚠️ **El destino manual MANDA sobre la agenda.** El doctor ve la evolución; el sistema solo
+  ve motivos de citas. Si se contradicen, gana el doctor. Hay prueba.
+- ⚠️ **`en_tratamiento` también entra en `conversion_90d`.** Si no, la corrección del doctor
+  arreglaría el reparto pero dejaría la tasa de conversión igual de mal.
+- ⚠️ **La lista del panel incluye a TODOS, no solo a los recientes.** El caso que motivó esto
+  es un paciente con control a 6 meses que **a los 90 días se marca PERDIDO**: es justo ahí
+  cuando hay que poder corregirlo. Acotada a 300 filas — sobre 5 años son ~1.400 y el panel se
+  vuelve ilegible antes de volverse lento. Un paciente ya marcado **sigue en la lista** con su
+  marca y un botón «Deshacer»: si desapareciera, una marca equivocada no tendría cómo
+  corregirse.
+
+#### Aparatos que ahora cuentan como inicio automáticamente
+
+`kpi._INICIO_APARATOS` — el caso real que lo destapó: primera consulta el 4-ago, separaciones
+el 11 y **barra palatina cementada el 20**, y el panel seguía diciendo que no había iniciado
+porque esos dos motivos caían en `otro`. Se agregaron separaciones, bandas, barra palatina,
+barra lingual, nance, quad helix, disyuntor, placa, las impresiones para bandas, cementar
+bracket, retenedor fijo, máscara de Laire y reinicio.
+
+⚠️ **Los AMBIGUOS quedan fuera a propósito** — `aligner / essix` (¿alineador o contención?),
+`plano relajacion` (bruxismo, no ortodoncia), `instalar microtornillos` e `impresion p / essix`
+suelen ser a mitad de camino o el final. Meterlos contaría **contenciones como conversiones**.
+Se resuelven con datos reales desde el panel (Control dental → «Motivos sin clasificar»
+escribe `cfg['motivos_extra']` sin deploy, y `reclasificar()` lo aplica a los 5 años). Hay
+prueba que fija que no se adivinen.
+
+⚠️ **`cfg['motivos_extra']` se consulta DENTRO de `control_dental`, o sea DESPUÉS de las listas
+de `kpi.py`.** Si alguna vez hay que poder corregir uno de estos desde el panel, hay que mover
+esa consulta al principio de `categoria_motivo()`.
+
+#### ⚠️ La línea base de 39,2% dejó de ser comparable
+
+Reclasificados los 5 años: **37 primeras consultas pasaron de `siguio` a `inicio`** (749 → 786)
+y la conversión a 90 días subió de **38,7% a 41,7%**. El `perdido` no se movió (27,1%) —
+correcto: esos pacientes no tienen ninguna cita posterior, así que reclasificar motivos no
+los toca.
+
+**El número subió porque mejoró la definición, no la clínica.** El 39,2% de
+`analisis_conversion_pc.py` se midió sin contar estos aparatos. El panel lo dice al pie en vez
+de seguir mostrando una comparación que ya no significa lo mismo.
 
 ### ⚠️⚠️ El cambio de etiquetado de 2023 (mirar `tasa_no_ocurrio`, NO `tasa_inasistencia`)
 
