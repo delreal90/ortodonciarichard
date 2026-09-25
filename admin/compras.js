@@ -632,6 +632,9 @@ function editarCostosCompra(c) {
 }
 
 /* ══════════════════ TAB: STOCK ══════════════════ */
+// Productos marcados para fusionar. Es un Set global y no se limpia al filtrar: así se
+// puede buscar "tornillo", marcar uno, buscar otro nombre y marcar el segundo.
+let stockSel = new Set();
 let stockFiltro = '';   // se conserva al refrescar tras un ajuste (si no, hay que rebuscar)
 RENDER.stock = async () => {
   const s = $('#tab-stock');
@@ -648,17 +651,19 @@ RENDER.stock = async () => {
         <input id="stBuscar" placeholder="Filtrar…" style="max-width:220px" value="${esc(stockFiltro)}">
         ${puede('admin') ? `<button class="btn ghost sm" id="stDup" title="Productos que probablemente están dos veces">🔍 Duplicados</button>` : ''}
         ${puede('registrar') ? `<button class="btn gold sm" id="stNuevo">➕ Producto</button>` : ''}</div>
+      ${puede('admin') ? `<div id="stSelBar" class="hidden" style="background:var(--light-bg);border:1px solid var(--gold);border-radius:8px;padding:8px 12px;margin-bottom:10px"></div>` : ''}
       <div class="tablewrap"><table id="stTabla"></table></div>
     </div>`;
   const pintar = () => {
     stockFiltro = $('#stBuscar').value || '';
     const q = stockFiltro.toLowerCase();
     const list = prods.filter(p => p.nombre.toLowerCase().includes(q) || (p.categoria_prod || '').toLowerCase().includes(q));
-    $('#stTabla').innerHTML = `<tr><th>Producto</th><th>Categoría</th><th class="num">Stock</th><th>Última compra</th><th class="num">Últ. precio</th><th></th></tr>` +
+    const sel = puede('admin');
+    $('#stTabla').innerHTML = `<tr>${sel ? '<th title="Marca dos productos para fusionarlos"></th>' : ''}<th>Producto</th><th>Categoría</th><th class="num">Stock</th><th>Última compra</th><th class="num">Últ. precio</th><th></th></tr>` +
       (list.length ? list.map(p => {
         const uc = p.ultima_compra;
         const low = p.stock_minimo > 0 && p.stock_actual <= p.stock_minimo;
-        return `<tr>
+        return `<tr>${sel ? `<td><input type="checkbox" data-sel="${p.id}" ${stockSel.has(p.id) ? 'checked' : ''} style="width:auto" title="Marcar para fusionar"></td>` : ''}
           <td><b>${esc(p.nombre)}</b> <span class="muted">${esc(p.unidad)}</span></td>
           <td class="muted">${esc(p.categoria_prod || '—')}</td>
           <td class="num"><span class="pill ${low ? 'low' : 'ok'}">${p.stock_actual}</span>${p.marca ? `<div class="muted" style="font-size:11px">${esc(p.marca)}</div>` : ''}</td>
@@ -667,10 +672,34 @@ RENDER.stock = async () => {
           <td class="right"><button class="btn ghost sm" data-ver="${p.id}">Ver</button>
             ${puede('registrar') ? `<button class="btn ghost sm" data-ajuste="${p.id}" title="Ajustar stock (agregar, quitar o fijar)">⚖️</button>`
               : (puede('escanear') ? `<button class="btn ghost sm" data-salida="${p.id}" title="Sacar del stock">➖</button>` : '')}</td></tr>`;
-      }).join('') : `<tr><td colspan="6" class="empty">Sin productos. Créalos al registrar una compra o con el botón «Producto».</td></tr>`);
+      }).join('') : `<tr><td colspan="${sel ? 7 : 6}" class="empty">Sin productos. Créalos al registrar una compra o con el botón «Producto».</td></tr>`);
     $$('#stTabla [data-ver]').forEach(b => b.onclick = () => verProducto(b.dataset.ver));
     $$('#stTabla [data-salida]').forEach(b => b.onclick = () => modalSalida(prods.find(p => p.id == b.dataset.salida)));
     $$('#stTabla [data-ajuste]').forEach(b => b.onclick = () => modalAjuste(prods.find(p => p.id == b.dataset.ajuste)));
+    $$('#stTabla [data-sel]').forEach(c => c.onchange = () => {
+      const id = Number(c.dataset.sel);
+      if (c.checked && stockSel.size >= 2) { c.checked = false; return toast('Se fusionan de a dos: desmarca uno primero', 'err'); }
+      c.checked ? stockSel.add(id) : stockSel.delete(id);
+      pintarSel();
+    });
+    pintarSel();
+  };
+  // Barra de los marcados: aparece con 1 (pide el segundo) y con 2 ofrece fusionar.
+  const pintarSel = () => {
+    const bar = $('#stSelBar'); if (!bar) return;
+    const marcados = [...stockSel].map(id => prods.find(p => p.id === id)).filter(Boolean);
+    stockSel = new Set(marcados.map(p => p.id));      // descarta los que ya no existen
+    bar.classList.toggle('hidden', !marcados.length);
+    if (!marcados.length) return;
+    bar.innerHTML = `<div class="flex wrap" style="gap:8px;align-items:center">
+      <span>🔀 ${marcados.map(p => `<b>${esc(p.nombre)}</b> <span class="muted">(stock ${p.stock_actual})</span>`).join(' + ')}
+        ${marcados.length < 2 ? '<span class="muted"> — marca el otro producto (puedes buscarlo arriba)</span>' : ''}</span>
+      <div class="spacer"></div>
+      <button class="btn ghost sm" id="stSelLimpiar">Quitar marcas</button>
+      ${marcados.length === 2 ? '<button class="btn gold sm" id="stSelFusionar">🔀 Fusionar estos 2</button>' : ''}</div>`;
+    bar.querySelector('#stSelLimpiar').onclick = () => { stockSel.clear(); pintar(); };
+    const f = bar.querySelector('#stSelFusionar');
+    if (f) f.onclick = () => modalFusionar(marcados[0], marcados[1]);
   };
   $('#stBuscar').oninput = pintar;
   if ($('#stDup')) $('#stDup').onclick = modalDuplicados;
@@ -838,6 +867,7 @@ function modalFusionar(a, b = null) {
     try {
       const r = await api('/api/compras/productos/fusionar', { method: 'POST', body: {
         origen_id: sale, destino_id: queda, forzar_unidad: m.querySelector('#fuForzar').checked } });
+      stockSel.clear();
       closeModal(); toast('Productos fusionados ✓ · stock ' + r.stock, 'ok');
       await recargarCaches(); RENDER.stock(); verProducto(queda);
     } catch (e) { toast(e.message, 'err'); }

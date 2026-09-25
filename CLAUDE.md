@@ -1407,6 +1407,11 @@ nombre viejo en las notas y un movimiento `ajuste` "Fusión con «X»: a + b = c
 transacción. ⚠️ Con **unidades distintas** (caja vs unidad) se rechaza salvo `forzar_unidad`:
 3 cajas + 40 unidades no son 43 de nada.
 
+**Tres formas de llegar a la fusión** (todas abren el mismo `modalFusionar`): marcar **dos
+casillas** en la lista de Stock y apretar "🔀 Fusionar estos 2" (la selección sobrevive al
+filtro, así se busca uno, se marca, se busca el otro); el botón 🔀 Fusionar en la ficha del
+producto; o desde 🔍 Duplicados. Las casillas solo las ve el rol `admin`.
+
 **Detector** (`compras.posibles_duplicados()`, `GET /api/compras/productos/duplicados`, botón
 🔍 Duplicados en Stock): `igual` = mismo nombre ignorando mayúsculas, tildes, paréntesis y
 orden de palabras; `parecido` = difflib ≥ 0,88, solo para revisar, **nunca se fusiona solo**.
