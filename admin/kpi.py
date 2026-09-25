@@ -823,7 +823,7 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         con.close()
 
     destinos = {'inicio': 0, 'siguio': 0, 'perdido': 0, 'en_ventana': 0}
-    conv90 = conv90_base = 0
+    conv90 = conv90_base = ya_inicio_en_ventana = 0
     dias_hasta = []
     por_mes, por_doc = {}, {}
     perdidos = []
@@ -844,18 +844,39 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         inicio_en_ventana = [x for x in inicio_alguna if x[0] <= limite]
         reciente = (date.fromisoformat(f0) + timedelta(days=ventana_dias)) > hoy
 
-        if inicio_alguna:
-            destino = 'inicio'
-            d = (date.fromisoformat(min(x[0] for x in inicio_alguna))
-                 - date.fromisoformat(f0)).days
-            dias_hasta.append(d)
-        elif reciente:
+        # ⚠️ EL ORDEN DE ESTAS RAMAS ES EL PUNTO. La ventana se pregunta PRIMERO.
+        #
+        # Hasta el 2026-09-25 se preguntaba primero por `inicio_alguna`, así que en un
+        # período reciente el que YA había iniciado se clasificaba (entraba al
+        # denominador) y el que todavía no caía en `en_ventana` (se excluía). El
+        # denominador quedaba con los convertidos y nada más: **100% de inicio por
+        # construcción**, en cualquier rango reciente, sin ningún dato capaz de bajarlo.
+        # Es sesgo de supervivencia de manual — solo se ve al que llegó.
+        # Lo destapó el Dr. Alberto: un paciente le avisó que no iniciaba y el panel
+        # seguía marcando 100%.
+        #
+        # Una tasa de conversión solo significa algo sobre una cohorte CERRADA. Mientras
+        # la ventana siga abierta el desenlace no está decidido, ni siquiera el del que
+        # ya inició: ese dato se informa aparte (`en_ventana_ya_inicio`), no se mezcla
+        # en el porcentaje.
+        if reciente:
             destino = 'en_ventana'
+            if inicio_alguna:
+                ya_inicio_en_ventana += 1
+        elif inicio_alguna:
+            destino = 'inicio'
         elif posteriores:
             destino = 'siguio'
         else:
             destino = 'perdido'
             perdidos.append({'rut': pc['rut'], 'fecha': f0, 'doctor': pc['doctor']})
+
+        # Los días hasta iniciar SÍ se miden en cuanto ocurren: es un hecho consumado y
+        # no depende de que la ventana se cierre.
+        if inicio_alguna:
+            dias_hasta.append(
+                (date.fromisoformat(min(x[0] for x in inicio_alguna))
+                 - date.fromisoformat(f0)).days)
 
         destinos[destino] += 1
 
@@ -895,6 +916,10 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         'pct': {k: _pct(v, base) for k, v in destinos.items() if k != 'en_ventana'},
         'conversion_90d': _pct(conv90, conv90_base),
         'conversion_90d_base': conv90_base,
+        # De los que aún están en ventana, cuántos YA iniciaron. Se informa aparte y
+        # NO entra al porcentaje: su cohorte todavía no cierra (ver el bloque del
+        # orden de las ramas). Sirve para no dar la impresión de que no pasa nada.
+        'en_ventana_ya_inicio': ya_inicio_en_ventana,
         'ventana_dias': ventana_dias,
         'dias_hasta_inicio': _percentiles(dias_hasta),
         'serie': sorted(por_mes.values(), key=lambda x: x['mes']),

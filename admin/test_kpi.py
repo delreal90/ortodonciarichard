@@ -282,6 +282,55 @@ class TestDestinoPrimeraConsulta(BaseKpi):
         self.assertEqual(r['base_clasificada'], 1)
         self.assertEqual(r['pct']['perdido'], 100.0)
 
+    def test_un_periodo_reciente_NO_puede_dar_100_por_ciento(self):
+        """REGRESIÓN del sesgo de supervivencia (2026-09-25).
+
+        Hasta esa fecha la rama `inicio` se evaluaba ANTES que la de ventana abierta:
+        en un rango reciente, el que ya había iniciado entraba al denominador y el que
+        todavía no quedaba fuera como `en_ventana`. El denominador se llenaba solo con
+        convertidos y el panel mostraba **100% de inicio siempre**, sin ningún dato
+        capaz de bajarlo. Lo destapó un paciente que avisó que no iniciaba.
+
+        Escenario: dos consultas de hace 20 días, una inició y la otra no. La cohorte
+        no cumple los 90 días, así que NO se puede afirmar ningún porcentaje."""
+        self.guardar([
+            _cita(1, _dia(-20), 'Primera Consulta', rut='100'),
+            _cita(2, _dia(-18), 'Inicio', rut='100'),          # esta ya inició
+            _cita(3, _dia(-20), 'Primera Consulta', rut='200'),  # esta todavía no
+        ])
+        r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['total'], 2)
+        self.assertEqual(r['destinos']['en_ventana'], 2)     # las DOS, no solo una
+        self.assertEqual(r['destinos']['inicio'], 0)
+        self.assertEqual(r['base_clasificada'], 0)
+        self.assertIsNone(r['pct']['inicio'])                # ni 100% ni 0%: no se sabe
+        # Pero el avance real no se esconde: una de las dos ya inició.
+        self.assertEqual(r['en_ventana_ya_inicio'], 1)
+
+    def test_la_ventana_cerrada_si_clasifica(self):
+        """El complemento: pasados los 90 días la cohorte cierra y el % ya significa algo."""
+        self.guardar([
+            _cita(1, _dia(-200), 'Primera Consulta', rut='100'),
+            _cita(2, _dia(-198), 'Inicio', rut='100'),
+            _cita(3, _dia(-200), 'Primera Consulta', rut='200'),
+        ])
+        r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['en_ventana'], 0)
+        self.assertEqual(r['destinos']['inicio'], 1)
+        self.assertEqual(r['destinos']['perdido'], 1)
+        self.assertEqual(r['pct']['inicio'], 50.0)
+
+    def test_los_dias_hasta_iniciar_se_miden_aunque_la_ventana_siga_abierta(self):
+        """Haber iniciado a los 2 días es un hecho consumado: no depende de que pasen
+        90. Solo el PORCENTAJE necesita la cohorte cerrada."""
+        self.guardar([
+            _cita(1, _dia(-20), 'Primera Consulta', rut='100'),
+            _cita(2, _dia(-18), 'Inicio', rut='100'),
+        ])
+        r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['dias_hasta_inicio']['n'], 1)
+        self.assertEqual(r['dias_hasta_inicio']['mediana'], 2)
+
     def test_inicio_el_mismo_dia_cuenta(self):
         """109 de 535 conversiones históricas ocurrieron el mismo día."""
         self.guardar([

@@ -2220,8 +2220,11 @@ function _kpiTile(label, valor, unidad, variacion, subirEsBueno, nota, delta) {
               ${flecha} ${txt} vs. año anterior</div>`;
   }
   const v = (valor === null || valor === undefined) ? '—' : valor;
+  // Sin dato no se pega la unidad: "—%" se lee como un cero mal formateado, y acá
+  // significa "todavía no se puede calcular", que es muy distinto.
+  const uni = (String(v) === '—') ? '' : (unidad || '');
   return `<div class="card" style="flex:1;min-width:150px;text-align:center;border-top:3px solid ${navy};padding:16px">
-    <div style="font-size:1.8rem;font-weight:700;color:${navy};line-height:1.1">${_esc(String(v))}<span style="font-size:.9rem;font-weight:400">${_esc(unidad || '')}</span></div>
+    <div style="font-size:1.8rem;font-weight:700;color:${navy};line-height:1.1">${_esc(String(v))}<span style="font-size:.9rem;font-weight:400">${_esc(uni)}</span></div>
     <div style="font-size:.78rem;color:#718096;margin:4px 0">${_esc(label)}</div>
     ${comp}
     ${nota ? `<div style="font-size:.68rem;color:#a0aec0;margin-top:4px">${_esc(nota)}</div>` : ''}
@@ -2388,8 +2391,13 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
   h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">';
   h += _kpiTile('Pacientes nuevos', a.pacientes_nuevos, '', v.pacientes_nuevos, true, null, dl.pacientes_nuevos);
   h += _kpiTile('Primeras consultas', a.primeras_consultas, '', v.primeras_consultas, true, null, dl.primeras_consultas);
-  h += _kpiTile('Iniciaron tratamiento', _n(a.pct_inicio), '%', v.pct_inicio, true, null, dl.pct_inicio);
-  h += _kpiTile('Primeras consultas perdidas', _n(a.pct_perdido), '%', v.pct_perdido, false, 'nunca volvieron', dl.pct_perdido);
+  // Nota explícita cuando la cohorte aún no cierra: un "—" sin razón se lee como
+  // "el sistema está roto", y acá significa "todavía no se puede saber".
+  const abierta = !pc.base_clasificada;
+  h += _kpiTile('Iniciaron tratamiento', _n(a.pct_inicio), '%', v.pct_inicio, true,
+                abierta ? 'aún en curso' : null, dl.pct_inicio);
+  h += _kpiTile('Primeras consultas perdidas', _n(a.pct_perdido), '%', v.pct_perdido, false,
+                abierta ? 'aún en curso' : 'nunca volvieron', dl.pct_perdido);
   h += '</div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px">';
   h += _kpiTile('Horas de sillón por día', _n(a.horas_por_dia, 2), ' h', v.horas_por_dia, true, null, dl.horas_por_dia);
   h += _kpiTile('Citas que no ocurren', _n(a.tasa_no_ocurrio), '%', v.tasa_no_ocurrio, false, 'no llega + cancela + reagenda', dl.tasa_no_ocurrio);
@@ -2402,22 +2410,40 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
     <p style="font-size:.8rem;color:#718096;margin-bottom:14px">
       Volver a un control <strong>no</strong> es una fuga: el doctor pudo indicar observar en vez de tratar.
       La fuga real es el paciente que consultó y <strong>nunca más vino</strong>.</p>`;
-  const d = pc.destinos, base = pc.base_clasificada || 1;
-  const tramos = [
-    ['Inició tratamiento', d.inicio, verde],
-    ['Volvió, sin iniciar', d.siguio, gold],
-    ['Perdido: nunca volvió', d.perdido, rojo],
-  ];
-  h += '<div style="display:flex;height:34px;border-radius:6px;overflow:hidden;margin-bottom:10px">';
-  h += tramos.map(([l, n, c]) => n ? `<div title="${_esc(l)}: ${n}" style="width:${(n / base * 100).toFixed(1)}%;background:${c};display:flex;align-items:center;justify-content:center;color:#fff;font-size:.72rem;font-weight:600">${(n / base * 100).toFixed(0)}%</div>` : '').join('');
-  h += '</div><div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;margin-bottom:6px">';
-  h += tramos.map(([l, n, c]) => `<span><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px"></span> ${_esc(l)}: <strong>${n}</strong></span>`).join('');
-  h += '</div>';
-  h += `<p style="font-size:.76rem;color:#a0aec0">
-      ${pc.total} primeras consultas · ${d.en_ventana} demasiado recientes para clasificar (excluidas del %) ·
-      conversión a ${pc.ventana_dias} días: <strong>${_n(pc.conversion_90d)}%</strong>
-      (línea base histórica: 39,2%) ·
-      mediana hasta iniciar: ${pc.dias_hasta_inicio.mediana === null ? '—' : pc.dias_hasta_inicio.mediana + ' días'}</p>`;
+  const d = pc.destinos, base = pc.base_clasificada;
+  // Sin cohorte cerrada NO se dibuja ninguna barra ni porcentaje: un % calculado sobre
+  // las consultas que alcanzaron a decidirse solo puede mirar a las que convirtieron
+  // (las otras siguen en curso), y siempre daría 100%. Se explica en vez de inventar.
+  if (!base) {
+    h += `<div style="background:#fffbeb;border-left:3px solid ${gold};padding:12px 14px;font-size:.82rem;color:#4A5568">
+      <strong>Todavía no se puede calcular un porcentaje para este período.</strong>
+      Las ${pc.total} primeras consultas son de hace menos de ${pc.ventana_dias} días, así que su
+      desenlace aún no está decidido. Calcular el % ahora solo contaría a los que ya iniciaron
+      —los demás siguen en curso— y daría 100% siempre.
+      ${pc.en_ventana_ya_inicio ? `<br><br><strong>${pc.en_ventana_ya_inicio} de ${pc.total}</strong> ya iniciaron tratamiento;
+        ${pc.total - pc.en_ventana_ya_inicio} siguen en curso.` : ''}
+      <br><br>Para ver la conversión, elige un período que termine hace más de ${pc.ventana_dias} días
+      (por ejemplo, «Últimos 12 meses»).
+    </div>`;
+  } else {
+    const tramos = [
+      ['Inició tratamiento', d.inicio, verde],
+      ['Volvió, sin iniciar', d.siguio, gold],
+      ['Perdido: nunca volvió', d.perdido, rojo],
+    ];
+    h += '<div style="display:flex;height:34px;border-radius:6px;overflow:hidden;margin-bottom:10px">';
+    h += tramos.map(([l, n, c]) => n ? `<div title="${_esc(l)}: ${n}" style="width:${(n / base * 100).toFixed(1)}%;background:${c};display:flex;align-items:center;justify-content:center;color:#fff;font-size:.72rem;font-weight:600">${(n / base * 100).toFixed(0)}%</div>` : '').join('');
+    h += '</div><div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;margin-bottom:6px">';
+    h += tramos.map(([l, n, c]) => `<span><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px"></span> ${_esc(l)}: <strong>${n}</strong></span>`).join('');
+    h += '</div>';
+    h += `<p style="font-size:.76rem;color:#a0aec0">
+        Porcentajes sobre las <strong>${base}</strong> consultas que ya cumplieron los ${pc.ventana_dias} días.
+        ${d.en_ventana ? `Otras ${d.en_ventana} son más recientes y siguen en curso
+          (${pc.en_ventana_ya_inicio} de ellas ya iniciaron); no entran al cálculo.` : ''}
+        · conversión a ${pc.ventana_dias} días: <strong>${_n(pc.conversion_90d)}%</strong>
+        (línea base histórica: 39,2%)
+        · mediana hasta iniciar: ${pc.dias_hasta_inicio.mediana === null ? '—' : pc.dias_hasta_inicio.mediana + ' días'}</p>`;
+  }
 
   if (pc.por_doctor && pc.por_doctor.length > 1) {
     h += '<table style="width:100%;font-size:.8rem;margin-top:14px;border-collapse:collapse">';
