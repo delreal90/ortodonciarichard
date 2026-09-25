@@ -822,11 +822,14 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
     finally:
         con.close()
 
-    destinos = {'inicio': 0, 'siguio': 0, 'perdido': 0, 'en_ventana': 0}
+    descartados = _descartados_set()
+
+    destinos = {'inicio': 0, 'siguio': 0, 'no_inicia': 0, 'perdido': 0, 'en_ventana': 0}
     conv90 = conv90_base = ya_inicio_en_ventana = 0
     dias_hasta = []
     por_mes, por_doc = {}, {}
     perdidos = []
+    en_curso = []
     vistas = set()
 
     for pc in pcs:
@@ -843,6 +846,23 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         inicio_alguna = [x for x in posteriores if x[1] in CATEGORIAS_INICIO]
         inicio_en_ventana = [x for x in inicio_alguna if x[0] <= limite]
         reciente = (date.fromisoformat(f0) + timedelta(days=ventana_dias)) > hoy
+
+        # El paciente AVISÓ que no inicia: es un desenlace decidido, así que cierra la
+        # ventana de inmediato — esperar 90 días para contar algo que ya se sabe solo
+        # retrasa el dato. Va en su propio cajón y NO se mezcla con `perdido`: el que
+        # decide que no es una venta perdida con motivo, el que se esfuma es una fuga
+        # que quizá se podía haber evitado. Juntarlos borra justo esa diferencia.
+        if pc['rut'] in descartados:
+            destinos['no_inicia'] += 1
+            mes = f0[:7]
+            por_mes.setdefault(mes, _fila_destino(mes=mes))['total'] += 1
+            por_mes[mes]['no_inicia'] += 1
+            dk = pc['doctor'] or '—'
+            por_doc.setdefault(dk, _fila_destino(doctor=dk))['total'] += 1
+            por_doc[dk]['no_inicia'] += 1
+            if not reciente:
+                conv90_base += 1
+            continue
 
         # ⚠️ EL ORDEN DE ESTAS RAMAS ES EL PUNTO. La ventana se pregunta PRIMERO.
         #
@@ -863,6 +883,12 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
             destino = 'en_ventana'
             if inicio_alguna:
                 ya_inicio_en_ventana += 1
+            # Los que siguen en curso son la lista accionable del panel: son ellos los
+            # que el doctor puede marcar cuando el paciente le avisa que no va a
+            # tratarse. Los que ya iniciaron se informan igual, pero sin botones.
+            en_curso.append({'rut': pc['rut'], 'fecha': f0, 'doctor': pc['doctor'],
+                             'ya_inicio': bool(inicio_alguna),
+                             'volvio': bool(posteriores)})
         elif inicio_alguna:
             destino = 'inicio'
         elif posteriores:
@@ -888,25 +914,23 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
                 conv90 += 1
 
         mes = f0[:7]
-        por_mes.setdefault(mes, {'mes': mes, 'total': 0, 'inicio': 0, 'siguio': 0,
-                                 'perdido': 0, 'en_ventana': 0})
-        por_mes[mes]['total'] += 1
+        por_mes.setdefault(mes, _fila_destino(mes=mes))['total'] += 1
         por_mes[mes][destino] += 1
 
         dk = pc['doctor'] or '—'
-        por_doc.setdefault(dk, {'doctor': dk, 'total': 0, 'inicio': 0, 'siguio': 0,
-                                'perdido': 0, 'en_ventana': 0})
-        por_doc[dk]['total'] += 1
+        por_doc.setdefault(dk, _fila_destino(doctor=dk))['total'] += 1
         por_doc[dk][destino] += 1
 
     total = sum(destinos.values())
     # El denominador de los porcentajes EXCLUYE los indeterminados: mezclarlos hace
     # que la fuga parezca bajar solo porque hubo consultas recientes.
+    # `no_inicia` SÍ entra al denominador: es un desenlace decidido, no un pendiente.
     base = total - destinos['en_ventana']
     for fila in list(por_mes.values()) + list(por_doc.values()):
         b = fila['total'] - fila['en_ventana']
         fila['pct_inicio'] = _pct(fila['inicio'], b)
         fila['pct_perdido'] = _pct(fila['perdido'], b)
+        fila['pct_no_inicia'] = _pct(fila['no_inicia'], b)
 
     dias_hasta.sort()
     return {
@@ -925,7 +949,37 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         'serie': sorted(por_mes.values(), key=lambda x: x['mes']),
         'por_doctor': sorted(por_doc.values(), key=lambda x: -x['total']),
         'perdidos': perdidos,
+        # Los que todavia no se deciden, de mas reciente a mas antiguo: es la lista
+        # sobre la que el panel ofrece marcar "aviso que no inicia".
+        'en_curso': sorted(en_curso, key=lambda x: x['fecha'], reverse=True),
     }
+
+
+def _fila_destino(**extra):
+    """Fila de conteos por mes o por doctor. Una sola definición de las claves: si se
+    agrega un destino nuevo y acá se olvida, el `+= 1` revienta con KeyError en vez de
+    perder el conteo en silencio."""
+    return dict({'total': 0, 'inicio': 0, 'siguio': 0, 'no_inicia': 0,
+                 'perdido': 0, 'en_ventana': 0}, **extra)
+
+
+def _descartados_set():
+    """RUTs de pacientes que AVISARON que no inician (`seguimiento_pc.descartados()`).
+
+    ⚠️ Se lee del JSON operativo y NO de la tabla `eventos` de la base, a pesar de la
+    regla 9. La razón es la inmediatez: `eventos` se reconstruye una vez al día, así que
+    marcar a un paciente y que el panel siguiera mostrándolo igual hasta mañana haría
+    parecer que el botón no hizo nada. Es una lectura de un JSON chico, sin red. El
+    import es perezoso para no crear un ciclo (seguimiento_pc ya importa varios módulos
+    que a su vez miran la base)."""
+    try:
+        import seguimiento_pc
+        return set(seguimiento_pc.descartados())
+    except Exception as e:
+        # Que falte el registro no puede tumbar todo el panel de KPIs: sin él, esos
+        # pacientes simplemente vuelven a clasificarse por su agenda, como antes.
+        log.warning('kpi: no se pudo leer la lista de descartados: %r', e)
+        return set()
 
 
 def _percentiles(xs):

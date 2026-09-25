@@ -5853,6 +5853,29 @@ def seguimiento_pc_no_molestar():
     return jsonify({'ok': True, 'no_molestar': seguimiento_pc.lista_no_molestar()})
 
 
+@app.route('/api/seguimiento-pc/descartar', methods=['POST'])
+def seguimiento_pc_descartar():
+    """El paciente AVISO que no va a iniciar tratamiento. Body {rut, motivo?, fecha?,
+    deshacer?}.
+
+    Es distinto de no-molestar: eso solo calla al sistema, esto registra un DESENLACE.
+    El panel de KPIs deja de contarlo como 'en curso' al instante (no espera los 90
+    dias) y lo separa de 'perdido' — decidir que no es otra cosa que esfumarse."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.get_json(silent=True) or {}
+    rut = (data.get('rut') or '').strip()
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Falta el RUT'}), 400
+    if data.get('deshacer'):
+        return jsonify({'ok': True, 'deshecho': seguimiento_pc.deshacer_descarte(rut)})
+    ok = seguimiento_pc.descartar(rut, motivo=data.get('motivo') or '',
+                                  fecha_pc=(data.get('fecha') or '')[:10])
+    if not ok:
+        return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    return jsonify({'ok': True, 'descartado': True})
+
+
 @app.route('/api/seguimiento-pc/run', methods=['POST'])
 def seguimiento_pc_run():
     """Fuerza el barrido ahora (para probar o poblar la primera vez), sin esperar
@@ -6094,17 +6117,36 @@ def kpi_serie():
 
 @app.route('/api/kpi/primeras-consultas', methods=['GET'])
 def kpi_primeras_consultas():
-    """El reparto de destinos de cada primera consulta: inicio / siguio / perdido /
-    en_ventana. Incluye la lista de los PERDIDOS (con RUT) para poder contactarlos —
-    es la unica ruta de este bloque que devuelve datos de paciente."""
+    """El reparto de destinos de cada primera consulta: inicio / siguio / no_inicia /
+    perdido / en_ventana. Incluye las listas de PERDIDOS y EN CURSO (con RUT y nombre)
+    para poder contactarlos o marcarlos — es la unica ruta de este bloque que devuelve
+    datos de paciente."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     r = _kpi_rango()
     if r is None:
         return jsonify({'ok': False, 'error': 'fechas invalidas (YYYY-MM-DD)'}), 400
     desde, hasta, doctor = r
-    return jsonify({'ok': True, 'destino': kpi.destino_primeras_consultas(
-        desde, hasta, doctor or None)})
+    d = kpi.destino_primeras_consultas(desde, hasta, doctor or None)
+
+    # El datamart guarda el RUT pero NO el nombre (la tabla `citas` no lo tiene), y una
+    # lista de RUT pelados no sirve para decidir nada. Se resuelve aca, contra la base
+    # local de pacientes, para no meterle esa dependencia a kpi.py.
+    def _con_nombre(items):
+        import pacientes          # perezoso, como el resto de los usos en este archivo
+        for it in items:
+            rec = pacientes.lookup(it.get('rut', '')) or {}
+            nom = ' '.join(x for x in (rec.get('nombres'), rec.get('apellidos')) if x)
+            it['nombre'] = nom.strip()
+        return items
+
+    try:
+        _con_nombre(d.get('en_curso') or [])
+        _con_nombre(d.get('perdidos') or [])
+    except Exception as e:
+        # Sin nombre la lista igual sirve (queda el RUT): no vale la pena caerse.
+        app.logger.warning('kpi: no se pudieron resolver nombres: %s', e)
+    return jsonify({'ok': True, 'destino': d})
 
 
 @app.route('/api/kpi/ocupacion', methods=['GET'])

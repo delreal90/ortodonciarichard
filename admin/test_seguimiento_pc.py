@@ -215,5 +215,60 @@ class TestDosToques(unittest.TestCase):
         self.assertEqual(c['proximo_toque'], 2)   # avanzo UNA vez, no dos
 
 
+class TestDescartar(unittest.TestCase):
+    """«El paciente avisó que no inicia»: un desenlace decidido, distinto de
+    no-molestar (que solo silencia) y distinto de perderse (que es desaparecer)."""
+
+    def setUp(self):
+        sp._STORE.save(dict(sp._ESTRUCTURA))
+
+    def test_descartar_y_deshacer(self):
+        self.assertTrue(sp.descartar('11.111.111-1', motivo='no le calzó el precio'))
+        self.assertTrue(sp.esta_descartado('111111111'))
+        self.assertIn('111111111', sp.descartados())
+        self.assertTrue(sp.deshacer_descarte('111111111'))
+        self.assertFalse(sp.esta_descartado('111111111'))
+
+    def test_se_puede_marcar_aunque_no_sea_candidato_todavia(self):
+        """El paciente avisa cuando quiere; el barrido recién lo detecta a los 7 días.
+        Si hubiera que ser candidato primero, el caso más común no se podría registrar."""
+        self.assertTrue(sp.descartar('22.222.222-2'))
+        self.assertTrue(sp.esta_descartado('222222222'))
+
+    def test_rut_invalido_no_se_guarda(self):
+        self.assertFalse(sp.descartar('   '))
+
+    def test_deja_de_aparecer_para_contactar(self):
+        """La razón práctica del botón: ya avisó que no, y el sistema le seguía
+        escribiendo para invitarlo a retomar su evaluación."""
+        reg = sp._load_registro()
+        reg['candidatos']['333333333'] = {
+            'rut': '333333333', 'nombre': 'Paciente Prueba', 'telefono': '912345678',
+            'doctor': 'Alberto Del Real', 'fecha_pc': '2026-09-01', 'estado': 'pendiente',
+            'proximo_toque': 1, 'proxima_fecha': '2026-09-08', 'toques': [],
+        }
+        sp._save_registro(reg)
+        antes = [p['rut'] for p in sp.pendientes(fecha='2026-09-30')]
+        self.assertIn('333333333', antes)
+
+        sp.descartar('333333333')
+        despues = [p['rut'] for p in sp.pendientes(fecha='2026-09-30')]
+        self.assertNotIn('333333333', despues)
+
+    def test_sigue_filtrado_aunque_el_barrido_lo_recree_como_pendiente(self):
+        """El barrido pasa todos los días: si la guarda viviera solo en el estado del
+        candidato, bastaría una pasada para que volviera a la lista."""
+        sp.descartar('444444444')
+        reg = sp._load_registro()
+        reg['candidatos']['444444444'] = {
+            'rut': '444444444', 'nombre': 'Otro', 'telefono': '', 'doctor': '',
+            'fecha_pc': '2026-09-01', 'estado': 'pendiente',   # ← recreado por el barrido
+            'proximo_toque': 1, 'proxima_fecha': '2026-09-08', 'toques': [],
+        }
+        sp._save_registro(reg)
+        self.assertNotIn('444444444',
+                         [p['rut'] for p in sp.pendientes(fecha='2026-09-30')])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

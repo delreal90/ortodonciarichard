@@ -181,7 +181,7 @@ def save_config(updates):
 
 # ── Registro ─────────────────────────────────────────────────────────────
 
-_ESTRUCTURA = {'candidatos': {}, 'vistos': {}, 'no_molestar': []}
+_ESTRUCTURA = {'candidatos': {}, 'vistos': {}, 'no_molestar': [], 'descartados': {}}
 
 _STORE = jsonstore.JsonStore(REGISTRO_PATH, indent=2,
                              default=_ESTRUCTURA, claves=_ESTRUCTURA)
@@ -213,6 +213,66 @@ def lista_no_molestar():
 
 def en_no_molestar(rut):
     return _NO_MOLESTAR.contiene(rut)
+
+
+# ── "El paciente avisó que no inicia" ────────────────────────────────────────
+# Un desenlace DECIDIDO, y hasta el 2026-09-25 no había dónde anotarlo: el paciente
+# que avisa que no va a tratarse era indistinguible del que simplemente todavía no
+# ha vuelto. Son cosas distintas y se gestionan distinto — uno es una decisión
+# tomada, el otro una oportunidad abierta — y además el sistema seguía escribiéndole
+# para invitarlo a retomar una evaluación que él ya descartó.
+#
+# ⚠️ Va en un diccionario APARTE de `candidatos`, no como un estado más de esos. El
+# paciente puede avisar antes de que el barrido lo detecte (el toque 1 recién va a
+# los 7 días), y un estado dentro de `candidatos` obligaría a inventarle una ficha
+# de candidato para poder marcarlo. Así se puede anotar desde el minuto uno.
+
+def descartar(rut, motivo='', fecha_pc=''):
+    """Registra que el paciente avisó que NO va a iniciar tratamiento.
+
+    Lo saca de la lista de pendientes (nadie más lo contacta) y deja el dato para
+    que el panel de KPIs pueda separar "decidió que no" de "se perdió"."""
+    clave = _rut_key(rut)
+    if not clave:
+        return False
+    with _LOCK:
+        reg = _load_registro()
+        reg.setdefault('descartados', {})[clave] = {
+            'rut': clave,
+            'motivo': (motivo or '').strip()[:200],
+            'fecha_pc': fecha_pc or '',
+            'creado': fechas.ahora_chile().isoformat(timespec='seconds'),
+        }
+        # Si ya era candidato, deja de estar pendiente: no tiene sentido seguir
+        # ofreciéndolo para contactar en el reporte diario.
+        cand = (reg.get('candidatos') or {}).get(clave)
+        if cand and cand.get('estado') == 'pendiente':
+            cand['estado'] = 'descartado'
+        _save_registro(reg)
+    return True
+
+
+def deshacer_descarte(rut):
+    """Se marcó por error, o el paciente cambió de opinión."""
+    clave = _rut_key(rut)
+    with _LOCK:
+        reg = _load_registro()
+        quitado = (reg.get('descartados') or {}).pop(clave, None) is not None
+        cand = (reg.get('candidatos') or {}).get(clave)
+        if cand and cand.get('estado') == 'descartado':
+            cand['estado'] = 'pendiente'
+        if quitado:
+            _save_registro(reg)
+    return quitado
+
+
+def esta_descartado(rut):
+    return _rut_key(rut) in (_load_registro().get('descartados') or {})
+
+
+def descartados():
+    """{rut_key: {...}} de los que avisaron que no inician. Lo lee kpi.py."""
+    return dict(_load_registro().get('descartados') or {})
 
 
 # ── El barrido: detecta candidatos y quién ya avanzó ────────────────────────
@@ -401,12 +461,17 @@ def pendientes(fecha=None, doctor=None, cfg=None):
     doc_norm = _normalizar(doctor) if doctor else ''
     reg = _load_registro()
     no_molestar = set(reg.get('no_molestar') or [])
+    # El que avisó que no inicia se filtra ACÁ y no solo por su estado de candidato:
+    # el barrido vuelve a pasar cada día y podría recrearlo como 'pendiente'. Con la
+    # guarda puesta en el estado nada más, el paciente terminaría recibiendo la
+    # invitación a retomar una evaluación que ya descartó.
+    descartados = set(reg.get('descartados') or {})
 
     out = []
     for rut, c in (reg.get('candidatos') or {}).items():
         if c.get('estado') != 'pendiente':
             continue
-        if rut in no_molestar:
+        if rut in no_molestar or rut in descartados:
             continue
         if c.get('proxima_fecha', '') > hoy_iso:
             continue

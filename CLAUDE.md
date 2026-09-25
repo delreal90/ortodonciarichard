@@ -4003,6 +4003,71 @@ ventana. La ventana solo define `conversion_90d`, que se mantiene para seguir co
 con la línea base de 39,2%. *Segunda Consulta* queda en `siguio`, no en `inicio` (el script
 histórico la contaba como avance) — decisión con prueba que la fija.
 
+#### ⚠️⚠️ El orden de las ramas: daba 100% en cualquier período reciente (2026-09-25)
+
+**Sesgo de supervivencia, y estuvo en producción un mes.** La rama `inicio` se evaluaba
+**antes** que la de ventana abierta, así que en un rango reciente:
+
+- el que **ya había iniciado** se clasificaba → entraba al denominador
+- el que **todavía no** caía en `en_ventana` → quedaba **fuera**
+
+El denominador se llenaba solo con convertidos: **100% de inicio por construcción**, sin
+ningún dato capaz de bajarlo. En producción, últimos 30 días: 24 consultas, 9 iniciadas,
+15 en curso → calculaba 9 de 9.
+
+Lo destapó el Dr. Alberto con conocimiento del negocio, no con una prueba: *"un paciente
+me acaba de avisar que no iniciará tratamiento, pero en los KPI sale que el 100% de mis
+primeras consultas iniciaron"*.
+
+**La ventana se pregunta PRIMERO.** Una tasa de conversión solo significa algo sobre una
+cohorte **cerrada**; con la ventana abierta el desenlace no está decidido, ni siquiera el
+del que ya inició. Si no hay cohorte cerrada **no se afirma ningún porcentaje** (ni 100 ni
+0): el panel muestra "—", explica por qué, e informa aparte `en_ventana_ya_inicio` para no
+dar la impresión de que no pasa nada. Los **días hasta iniciar** sí se miden en cuanto
+ocurren: eso es un hecho consumado y no depende de que la ventana cierre.
+
+Los históricos casi no se movieron (total 53,3% → 53,0%); el que estaba roto era justo el
+período reciente, que es el que uno mira. Hay una prueba con ese escenario exacto.
+
+### «El paciente avisó que no inicia» — el quinto destino (2026-09-25)
+
+Faltaba dónde anotar un desenlace que el doctor **sabe** y el sistema no puede deducir. El
+paciente que avisa que no va a tratarse era indistinguible del que simplemente todavía no
+ha vuelto, con dos consecuencias: no contaba hasta pasados los 90 días, y
+`seguimiento_pc` le seguía escribiendo para invitarlo a retomar una evaluación que ya
+descartó.
+
+`seguimiento_pc.descartar(rut, motivo, fecha_pc)` + `deshacer_descarte()` +
+`descartados()`. Botones **🚫 Avisó que no inicia** y **🔕 No contactar** en la tarjeta
+*«Primeras consultas en curso»* de la pestaña KPIs, que es además la primera vez que esa
+lista es accionable desde el panel.
+
+- ⚠️ **`no_inicia` NO se mezcla con `perdido`.** Decidir que no es una venta perdida **con
+  motivo**; esfumarse es una fuga que quizá se podía haber evitado. Juntarlos borra justo
+  la diferencia que hace accionable el indicador. Entra al denominador (es un desenlace
+  decidido) y **cierra la ventana de inmediato**: esperar 90 días para contar algo que ya
+  se sabe solo retrasa el dato.
+- ⚠️ **Va en un diccionario APARTE de `candidatos`**, no como un estado más de esos: el
+  paciente puede avisar antes de que el barrido lo detecte (el toque 1 recién va a los 7
+  días), y un estado dentro de `candidatos` obligaría a inventarle una ficha para poder
+  marcarlo.
+- ⚠️ **El filtro en `pendientes()` mira los descartados, no solo el estado del candidato.**
+  El barrido pasa todos los días y puede recrearlo como `pendiente`; con la guarda solo en
+  el estado, el paciente terminaba recibiendo el mensaje igual. Hay una prueba.
+- ⚠️ **`kpi._descartados_set()` lee el JSON operativo, no la tabla `eventos`**, a pesar de
+  la regla 9. Razón: inmediatez. `eventos` se reconstruye una vez al día, y marcar a un
+  paciente para que el panel siguiera igual hasta mañana haría parecer que el botón no
+  hizo nada. Es un JSON chico, sin red, con import perezoso. Si falla, se loguea y esos
+  pacientes vuelven a clasificarse por su agenda — no tumba el panel.
+- Los nombres de la lista los resuelve **`server.py` contra `pacientes.lookup`**: la tabla
+  `citas` guarda el RUT pero no el nombre, y una lista de RUT pelados no sirve para decidir
+  nada. Se hace ahí para no meterle esa dependencia a `kpi.py`.
+- Los botones referencian la **posición** en el arreglo, no el RUT interpolado en el
+  `onclick` — misma convención que la pestaña Equipo tras el XSS de 2026-07-25.
+
+Endpoint: `POST /api/seguimiento-pc/descartar` `{rut, motivo?, fecha?, deshacer?}`
+(ADMIN_TOKEN). El «no contactar» reusa el `/no-molestar` que ya existía.
+
 ### ⚠️⚠️ El cambio de etiquetado de 2023 (mirar `tasa_no_ocurrio`, NO `tasa_inasistencia`)
 
 El backfill dejó ver algo que ningún análisis previo podía: en el **primer semestre de

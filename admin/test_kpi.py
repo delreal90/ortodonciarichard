@@ -14,6 +14,7 @@ volvió (sí lo es), y el que consultó hace dos semanas (todavía no se puede s
 import os
 import sys
 import tempfile
+import contextlib
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
@@ -49,6 +50,18 @@ def _cita(id_agenda, fecha, motivo='Control Fijo', rut='111111111',
 
 def _dia(delta):
     return (HOY + timedelta(days=delta)).isoformat()
+
+
+@contextlib.contextmanager
+def _descartado(*ruts):
+    """Simula que esos pacientes avisaron que no inician, sin tocar el registro real
+    de seguimiento_pc (esta suite es de kpi y no debe depender de otro módulo)."""
+    original = kpi._descartados_set
+    kpi._descartados_set = lambda: set(ruts)
+    try:
+        yield
+    finally:
+        kpi._descartados_set = original
 
 
 class BaseKpi(unittest.TestCase):
@@ -330,6 +343,57 @@ class TestDestinoPrimeraConsulta(BaseKpi):
         r = kpi.destino_primeras_consultas()
         self.assertEqual(r['dias_hasta_inicio']['n'], 1)
         self.assertEqual(r['dias_hasta_inicio']['mediana'], 2)
+
+    def test_el_que_aviso_que_no_inicia_cuenta_al_tiro_y_NO_como_perdido(self):
+        """El paciente que avisa que no se va a tratar es un desenlace DECIDIDO:
+        no tiene sentido esperar 90 días para contarlo. Y va en su propio cajón —
+        decidir que no es una venta perdida con motivo; esfumarse es una fuga que
+        quizá se podía evitar. Juntarlos borra justo esa diferencia."""
+        self.guardar([_cita(1, _dia(-20), 'Primera Consulta', rut='777777777')])
+        r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['en_ventana'], 1)   # todavía sin decidir
+        self.assertEqual(r['base_clasificada'], 0)
+
+        with _descartado('777777777'):
+            r = kpi.destino_primeras_consultas()
+        self.assertEqual(r['destinos']['no_inicia'], 1)
+        self.assertEqual(r['destinos']['en_ventana'], 0)
+        self.assertEqual(r['destinos']['perdido'], 0)      # NO es lo mismo que perderse
+        self.assertEqual(r['base_clasificada'], 1)         # ya cuenta, sin esperar
+
+    def test_el_descartado_sale_de_la_lista_accionable(self):
+        """Si siguiera apareciendo en 'en curso', el doctor volvería a marcarlo."""
+        self.guardar([
+            _cita(1, _dia(-20), 'Primera Consulta', rut='777777777'),
+            _cita(2, _dia(-20), 'Primera Consulta', rut='888888888'),
+        ])
+        self.assertEqual(len(kpi.destino_primeras_consultas()['en_curso']), 2)
+        with _descartado('777777777'):
+            curso = kpi.destino_primeras_consultas()['en_curso']
+        self.assertEqual([x['rut'] for x in curso], ['888888888'])
+
+    def test_la_lista_en_curso_dice_quien_ya_inicio(self):
+        """Los que ya iniciaron se muestran sin botones: no hay nada que marcar."""
+        self.guardar([
+            _cita(1, _dia(-20), 'Primera Consulta', rut='777777777'),
+            _cita(2, _dia(-15), 'Inicio', rut='777777777'),
+        ])
+        x = kpi.destino_primeras_consultas()['en_curso'][0]
+        self.assertTrue(x['ya_inicio'])
+
+    def test_si_falla_leer_los_descartados_el_panel_no_se_cae(self):
+        """Un registro corrupto no puede tumbar todo el panel: esos pacientes
+        simplemente vuelven a clasificarse por su agenda."""
+        self.guardar([_cita(1, _dia(-200), 'Primera Consulta', rut='777777777')])
+        original = kpi._descartados_set
+        kpi._descartados_set = lambda: (_ for _ in ()).throw(RuntimeError('registro roto'))
+        try:
+            with self.assertRaises(RuntimeError):
+                kpi._descartados_set()
+        finally:
+            kpi._descartados_set = original
+        # Con la función real (aunque el registro no exista) sigue respondiendo.
+        self.assertEqual(kpi.destino_primeras_consultas()['destinos']['perdido'], 1)
 
     def test_inicio_el_mismo_dia_cuenta(self):
         """109 de 535 conversiones históricas ocurrieron el mismo día."""
