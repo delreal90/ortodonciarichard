@@ -1394,6 +1394,47 @@ El backend protege cada endpoint con `_require_compras(cap)`; el frontend muestr
 pestañas según `ME.caps` (mapa `TAB_CAP`). Login por usuario → token de sesión (30 días)
 en header `X-Compras-Token`. Contraseñas con PBKDF2-HMAC-SHA256 (200k iter, salt).
 
+### Etiquetas QR en hojas de stickers — reemplaza a la térmica (2026-09-25)
+
+Pestaña **🏷️ Etiquetas** (rol `registrar`). En vez de la etiquetadora térmica +
+`print_agent.py` (nunca se instaló), la cola `cola_impresion` se imprime **desde el
+navegador en cualquier impresora** sobre hojas carta de stickers. El problema que
+resuelve: una hoja a medio usar tiene huecos gastados → el sistema **recuerda qué stickers
+de la hoja abierta ya se usaron** (tabla `hojas_etiquetas`, una sola `abierta=1`,
+`usadas` = JSON de posiciones 0..N-1, izq→der y arriba→abajo) y reparte la cola solo en
+los libres; si no alcanzan, sigue en hojas nuevas y la UI dice cuántas poner.
+
+- **Formato por defecto: Demarka 7001** (Adetec) — 66 de 35×25 mm, **6 col × 11 filas**,
+  **margen superior 0 y lateral 2,95 mm** (valores de la plantilla oficial del fabricante,
+  confirmados por el usuario). Guardado en `etiquetas_config` (una fila, JSON) junto con
+  la **calibración de la impresora** `ajuste_x/ajuste_y` (mm). Todo editable en la
+  pestaña; "restaurar" vuelve al 7001.
+- **Zona segura (compras.js `htmlEtiquetas`)**: con margen superior 0 la 1ª fila queda
+  pegada al borde, donde casi ninguna impresora imprime. Cada etiqueta aleja su contenido
+  a ≥4,2 mm del borde de la hoja y achica el QR (17,5 → 16,2 mm en la 1ª fila) en vez de
+  salir cortado.
+- **Se marcan usados SOLO al confirmar** "¿salieron bien?" tras imprimir (si la impresora
+  falló, no se gastan stickers en blanco). La confirmación lleva la **firma** del plan
+  (`planificar_etiquetas()['firma']`: hoja, usadas y cola): si alguien agregó etiquetas o
+  marcó la hoja entre la vista previa y la confirmación → 409 y no se marca nada.
+- La impresión va por un **iframe oculto** con `@page {size: carta; margin: 0}` y todo en
+  mm; se espera a que carguen los QR (`/api/compras/qr/<codigo>.png`, ruta pública ya
+  existente). Instrucción al usuario: papel Carta, márgenes Ninguno, escala 100%.
+- **Hoja de prueba de alineación**: imprime el contorno numerado de los 66 stickers en
+  papel normal, para calzarla contra la luz sobre una hoja de stickers y ajustar mm.
+- Tocar un sticker en el dibujo de la hoja lo marca usado/libre (para una hoja que ya
+  venía gastada). "Empecé una hoja nueva" cierra la actual aunque le queden libres.
+- Desde el detalle del producto: 🏷️ al lado de cada código agrega N etiquetas a la cola;
+  "Generar código + etiqueta" crea el código propio y lo encola. En la pestaña, el
+  buscador agrega etiquetas de cualquier producto (si no tiene código, se le crea).
+- Rutas (todas `_require_compras('registrar')`): `GET /api/compras/etiquetas/estado`,
+  `POST .../posiciones`, `.../nueva-hoja`, `.../formato`, `.../cola`, `.../confirmar`.
+  `.../impresion/encolar` ahora valida producto, código y cantidad (1-500).
+- ⚠️ `print_agent.py` consume la MISMA cola. Si algún día se instala la térmica, usar
+  uno u otro, no los dos (el agente imprimiría y marcaría trabajos que la hoja espera).
+- Suite `test_etiquetas.py` (23 pruebas): nunca imprimir sobre un usado, desborde a hojas
+  nuevas, confirmar/firma, hoja llena, formato del fabricante.
+
 ### Dólar observado automático en compras USD (`admin/dolar.py`, 2026-08-25)
 
 Al elegir moneda **USD** (o cambiar la fecha de la compra), el campo "Tipo de cambio"

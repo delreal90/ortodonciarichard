@@ -7133,9 +7133,93 @@ def compras_impresion_encolar():
     if err:
         return err
     d = request.json or {}
-    jid = _compras.encolar_impresion(d.get('producto_id'), d.get('codigo', ''),
-                                     int(d.get('cantidad', 1)))
+    if not d.get('producto_id') or not (d.get('codigo') or '').strip():
+        return jsonify({'ok': False, 'error': 'Falta el producto o el código'}), 400
+    try:
+        cantidad = int(d.get('cantidad', 1))
+    except (TypeError, ValueError):
+        cantidad = 0
+    if not (1 <= cantidad <= 500):
+        return jsonify({'ok': False, 'error': 'Cantidad inválida (1 a 500)'}), 400
+    jid = _compras.encolar_impresion(d.get('producto_id'), d.get('codigo', ''), cantidad)
     return jsonify({'ok': True, 'id': jid})
+
+
+# ── Hojas de stickers: imprimir la cola desde el navegador (sin térmica) ───────
+
+def _estado_etiquetas():
+    return {'ok': True, 'formato': _compras.formato_etiquetas(),
+            'hoja': _compras.hoja_actual(), 'cola': _compras.cola_pendiente(),
+            'plan': _compras.planificar_etiquetas()}
+
+@app.route('/api/compras/etiquetas/estado', methods=['GET'])
+def compras_etiquetas_estado():
+    """Todo lo que necesita la pestaña Etiquetas: formato de la hoja, qué posiciones
+    ya se usaron, la cola y la vista previa de cómo quedaría la impresión."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    return jsonify(_estado_etiquetas())
+
+@app.route('/api/compras/etiquetas/posiciones', methods=['POST'])
+def compras_etiquetas_posiciones():
+    """Marca a mano posiciones de la hoja abierta como usadas o libres."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.marcar_posiciones(d.get('posiciones', []), bool(d.get('usada', True)))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify(_estado_etiquetas())
+
+@app.route('/api/compras/etiquetas/nueva-hoja', methods=['POST'])
+def compras_etiquetas_nueva_hoja():
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    _compras.nueva_hoja()
+    return jsonify(_estado_etiquetas())
+
+@app.route('/api/compras/etiquetas/formato', methods=['POST'])
+def compras_etiquetas_formato():
+    """Formato de la hoja y calibración de la impresora (ajuste_x / ajuste_y)."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.guardar_formato_etiquetas(d.get('campos', {}), bool(d.get('restaurar')))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify(_estado_etiquetas())
+
+@app.route('/api/compras/etiquetas/cola', methods=['POST'])
+def compras_etiquetas_cola():
+    """Cambia la cantidad de un trabajo de la cola (0 = quitarlo)."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.cambiar_cantidad_impresion(d.get('id'), d.get('cantidad', 0))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify(_estado_etiquetas())
+
+@app.route('/api/compras/etiquetas/confirmar', methods=['POST'])
+def compras_etiquetas_confirmar():
+    """La impresión salió bien: marca las posiciones usadas y vacía la cola.
+    Exige la firma de la vista previa (si la cola cambió en medio, se rechaza)."""
+    _, err = _require_compras('registrar')
+    if err:
+        return err
+    try:
+        r = _compras.confirmar_etiquetas((request.json or {}).get('firma', ''))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 409
+    return jsonify({**_estado_etiquetas(), 'impresas': r['impresas']})
 
 
 # ── Importación histórica (one-shot: catálogo + compras 2023-2026 de los Excel) ─

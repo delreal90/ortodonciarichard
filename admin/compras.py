@@ -269,6 +269,23 @@ def init_db():
             procesado   TEXT
         );
 
+        -- Hojas de stickers (impresora común en vez de térmica). Una sola hoja
+        -- 'abierta' a la vez; 'usadas' = posiciones ya gastadas, JSON [0..N-1],
+        -- numeradas de izquierda a derecha y de arriba a abajo.
+        CREATE TABLE IF NOT EXISTS hojas_etiquetas (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            usadas  TEXT NOT NULL DEFAULT '[]',
+            abierta INTEGER NOT NULL DEFAULT 1,
+            creado  TEXT NOT NULL,
+            cerrada TEXT
+        );
+
+        -- Formato de la hoja de stickers + calibración de la impresora (una fila).
+        CREATE TABLE IF NOT EXISTS etiquetas_config (
+            id    INTEGER PRIMARY KEY CHECK (id = 1),
+            datos TEXT NOT NULL
+        );
+
         -- Solicitudes de compra: lo que un encargado pide comprar. Cada fila = un
         -- producto pendiente. Al hacerse una compra de ese producto, se marca 'comprado'.
         CREATE TABLE IF NOT EXISTS pendientes_compra (
@@ -1611,6 +1628,257 @@ def marcar_impresion(job_id, estado='impreso'):
         con.commit()
     finally:
         con.close()
+
+
+def cambiar_cantidad_impresion(job_id, cantidad):
+    """Ajusta cuántas etiquetas pide un trabajo pendiente. 0 = quitarlo de la cola."""
+    cantidad = int(cantidad or 0)
+    if cantidad < 0 or cantidad > 500:
+        raise ValueError('Cantidad inválida (0 a 500)')
+    if cantidad == 0:
+        marcar_impresion(job_id, 'cancelado')
+        return
+    con = _conn()
+    try:
+        con.execute("UPDATE cola_impresion SET cantidad=? WHERE id=? AND estado='pendiente'",
+                    (cantidad, job_id))
+        con.commit()
+    finally:
+        con.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HOJAS DE STICKERS (impresora común, en vez de la etiquetadora térmica)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# La cola de etiquetas (cola_impresion) se imprime desde el navegador sobre hojas
+# carta de stickers. El problema que resuelve: una hoja a medio usar tiene huecos
+# gastados, así que el sistema RECUERDA qué posiciones de la hoja abierta ya se
+# usaron y reparte las etiquetas nuevas solo en las libres (izquierda→derecha,
+# arriba→abajo). Si no alcanzan, sigue en hojas nuevas.
+#
+# Las posiciones se marcan usadas SOLO cuando la persona confirma que la impresión
+# salió bien (si la impresora se trabó, no se "gastan" stickers que siguen en blanco).
+# La confirmación lleva una firma del plan: si entre la vista previa y la
+# confirmación alguien agregó etiquetas a la cola, se rechaza (se marcarían
+# posiciones que no corresponden).
+
+# Formato por defecto: Demarka 7001 (Adetec) — 66 etiquetas de 35×25 mm en hoja
+# carta, 6 columnas × 11 filas sin separación. Márgenes tomados de la plantilla
+# oficial del fabricante: superior 0 mm, lateral 2,95 mm (6×35=210 de 215,9).
+# Con margen superior 0 la primera fila queda pegada al borde, donde casi ninguna
+# impresora imprime: el contenido de cada etiqueta respeta una "zona segura" de
+# 4,2 mm desde el borde de la hoja (ver htmlEtiquetas en compras.js).
+FORMATO_ETIQUETAS_DEFAULT = {
+    'nombre': 'Demarka 7001 · 66 etiquetas de 35×25 mm (carta)',
+    'hoja_ancho': 215.9, 'hoja_alto': 279.4,
+    'columnas': 6, 'filas': 11,
+    'ancho': 35.0, 'alto': 25.0,
+    'margen_izq': 2.95, 'margen_sup': 0.0,
+    'paso_x': 35.0, 'paso_y': 25.0,
+    # Calibración de ESA impresora (mm): + mueve a la derecha / hacia abajo.
+    'ajuste_x': 0.0, 'ajuste_y': 0.0,
+}
+_LIMITES_FORMATO = {   # campo: (mínimo, máximo)
+    'hoja_ancho': (50, 450), 'hoja_alto': (50, 450),
+    'columnas': (1, 20), 'filas': (1, 60),
+    'ancho': (5, 300), 'alto': (5, 300),
+    'margen_izq': (0, 100), 'margen_sup': (0, 100),
+    'paso_x': (5, 300), 'paso_y': (5, 300),
+    'ajuste_x': (-20, 20), 'ajuste_y': (-20, 20),
+}
+
+
+def formato_etiquetas():
+    con = _conn()
+    try:
+        r = con.execute('SELECT datos FROM etiquetas_config WHERE id=1').fetchone()
+    finally:
+        con.close()
+    fmt = dict(FORMATO_ETIQUETAS_DEFAULT)
+    if r:
+        try:
+            fmt.update({k: v for k, v in json.loads(r['datos']).items() if k in fmt})
+        except ValueError:
+            pass
+    fmt['columnas'], fmt['filas'] = int(fmt['columnas']), int(fmt['filas'])
+    fmt['total'] = fmt['columnas'] * fmt['filas']
+    return fmt
+
+
+def guardar_formato_etiquetas(campos, restaurar=False):
+    """Guarda formato/calibración. restaurar=True vuelve al formato Demarka 7001."""
+    fmt = dict(FORMATO_ETIQUETAS_DEFAULT) if restaurar else formato_etiquetas()
+    fmt.pop('total', None)
+    for k, v in (campos or {}).items():
+        if k == 'nombre':
+            fmt['nombre'] = _norm(v)[:80] or fmt['nombre']
+            continue
+        if k not in _LIMITES_FORMATO:
+            continue
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f'Valor inválido para {k}')
+        lo, hi = _LIMITES_FORMATO[k]
+        if not (lo <= v <= hi):
+            raise ValueError(f'{k} debe estar entre {lo} y {hi}')
+        fmt[k] = int(v) if k in ('columnas', 'filas') else round(v, 2)
+    con = _conn()
+    try:
+        con.execute('INSERT OR REPLACE INTO etiquetas_config(id,datos) VALUES(1,?)',
+                    (json.dumps(fmt, ensure_ascii=False),))
+        con.commit()
+    finally:
+        con.close()
+    return formato_etiquetas()
+
+
+def _hoja_abierta(con, total):
+    """Devuelve (id, set de usadas) de la hoja abierta; la crea si no hay.
+    Posiciones fuera de rango (si se cambió el formato a uno más chico) se ignoran."""
+    r = con.execute('SELECT id, usadas FROM hojas_etiquetas WHERE abierta=1 '
+                    'ORDER BY id DESC LIMIT 1').fetchone()
+    if not r:
+        cur = con.execute('INSERT INTO hojas_etiquetas(usadas,abierta,creado) VALUES(?,1,?)',
+                          ('[]', ahora_cl().isoformat(timespec='seconds')))
+        return cur.lastrowid, set()
+    try:
+        usadas = {int(p) for p in json.loads(r['usadas'] or '[]')}
+    except (ValueError, TypeError):
+        usadas = set()
+    return r['id'], {p for p in usadas if 0 <= p < total}
+
+
+def hoja_actual():
+    fmt = formato_etiquetas()
+    con = _conn()
+    try:
+        hid, usadas = _hoja_abierta(con, fmt['total'])
+        con.commit()
+    finally:
+        con.close()
+    return {'id': hid, 'usadas': sorted(usadas), 'total': fmt['total'],
+            'libres': fmt['total'] - len(usadas)}
+
+
+def marcar_posiciones(posiciones, usada=True):
+    """Marca a mano posiciones de la hoja abierta como usadas o libres (p. ej. al
+    empezar a usar una hoja que ya venía gastada)."""
+    fmt = formato_etiquetas()
+    try:
+        pos = {int(p) for p in (posiciones or [])}
+    except (TypeError, ValueError):
+        raise ValueError('Posiciones inválidas')
+    if any(p < 0 or p >= fmt['total'] for p in pos):
+        raise ValueError(f'Las posiciones van de 1 a {fmt["total"]}')
+    con = _conn()
+    try:
+        hid, usadas = _hoja_abierta(con, fmt['total'])
+        usadas = (usadas | pos) if usada else (usadas - pos)
+        con.execute('UPDATE hojas_etiquetas SET usadas=? WHERE id=?',
+                    (json.dumps(sorted(usadas)), hid))
+        con.commit()
+    finally:
+        con.close()
+    return hoja_actual()
+
+
+def nueva_hoja():
+    """Cierra la hoja abierta (aunque le queden huecos) y empieza una en blanco."""
+    ahora = ahora_cl().isoformat(timespec='seconds')
+    con = _conn()
+    try:
+        con.execute('UPDATE hojas_etiquetas SET abierta=0, cerrada=? WHERE abierta=1', (ahora,))
+        con.execute('INSERT INTO hojas_etiquetas(usadas,abierta,creado) VALUES(?,1,?)',
+                    ('[]', ahora))
+        con.commit()
+    finally:
+        con.close()
+    return hoja_actual()
+
+
+def planificar_etiquetas():
+    """Reparte la cola pendiente en las posiciones libres de la hoja abierta y, si no
+    alcanza, en hojas nuevas. No modifica nada: es la vista previa.
+
+    Devuelve {'paginas': [{'nueva': bool, 'usadas_previas': [...],
+              'etiquetas': [{pos, codigo, nombre, unidad, job_id}]}],
+              'total': n, 'hojas_nuevas': k, 'firma': '...'}"""
+    fmt = formato_etiquetas()
+    total = fmt['total']
+    hoja = hoja_actual()
+    cola = cola_pendiente()
+
+    etiquetas = []
+    for job in cola:
+        for _ in range(max(0, int(job['cantidad'] or 0))):
+            etiquetas.append({'codigo': job['codigo'], 'nombre': job['producto_nombre'],
+                              'unidad': job.get('unidad') or '', 'job_id': job['id']})
+
+    paginas = []
+    usadas = set(hoja['usadas'])
+    nueva = False
+    i = 0
+    while i < len(etiquetas):
+        libres = [p for p in range(total) if p not in usadas]
+        if not libres:                     # hoja llena → la siguiente es una en blanco
+            usadas, nueva = set(), True
+            continue
+        pag = {'nueva': nueva, 'usadas_previas': sorted(usadas), 'etiquetas': []}
+        for p in libres:
+            if i >= len(etiquetas):
+                break
+            pag['etiquetas'].append({**etiquetas[i], 'pos': p})
+            usadas.add(p)
+            i += 1
+        paginas.append(pag)
+        usadas, nueva = set(), True        # lo que sobre va en hojas nuevas
+
+    base = json.dumps({'hoja': hoja['id'], 'usadas': hoja['usadas'], 'total': total,
+                       'cola': [(j['id'], j['cantidad']) for j in cola]}, sort_keys=True)
+    return {'paginas': paginas, 'total': len(etiquetas),
+            'hojas_nuevas': sum(1 for p in paginas if p['nueva']),
+            'firma': hashlib.sha256(base.encode('utf-8')).hexdigest()[:16]}
+
+
+def confirmar_etiquetas(firma):
+    """La persona confirmó que la impresión salió bien: marca como usadas las
+    posiciones impresas (cerrando las hojas que se llenaron) y saca los trabajos de
+    la cola. Rechaza si la cola o la hoja cambiaron desde la vista previa."""
+    plan = planificar_etiquetas()
+    if not plan['total']:
+        raise ValueError('No hay etiquetas por imprimir')
+    if firma != plan['firma']:
+        raise ValueError('La cola o la hoja cambiaron desde la vista previa. '
+                         'Vuelve a revisar antes de imprimir.')
+    total = formato_etiquetas()['total']
+    ahora = ahora_cl().isoformat(timespec='seconds')
+    con = _conn()
+    try:
+        hid, _ = _hoja_abierta(con, total)
+        for pag in plan['paginas']:
+            if pag['nueva']:
+                con.execute('UPDATE hojas_etiquetas SET abierta=0, cerrada=? WHERE id=?',
+                            (ahora, hid))
+                hid = con.execute('INSERT INTO hojas_etiquetas(usadas,abierta,creado) '
+                                  'VALUES(?,1,?)', ('[]', ahora)).lastrowid
+            usadas = sorted(set(pag['usadas_previas']) | {e['pos'] for e in pag['etiquetas']})
+            con.execute('UPDATE hojas_etiquetas SET usadas=? WHERE id=?',
+                        (json.dumps(usadas), hid))
+            if len(usadas) >= total:       # llena: se cierra; la próxima vez abre una nueva
+                con.execute('UPDATE hojas_etiquetas SET abierta=0, cerrada=? WHERE id=?',
+                            (ahora, hid))
+        for jid in {e['job_id'] for pag in plan['paginas'] for e in pag['etiquetas']}:
+            con.execute("UPDATE cola_impresion SET estado='impreso', procesado=? "
+                        "WHERE id=? AND estado='pendiente'", (ahora, jid))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+    return {'impresas': plan['total'], 'hoja': hoja_actual()}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

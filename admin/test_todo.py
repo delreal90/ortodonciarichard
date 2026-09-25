@@ -26,6 +26,7 @@ SUITES = [
     ('avisos',      'test_avisos.py',      'guardas de recaptacion / control dental / NPS'),
     ('consentimientos', 'test_consentimientos.py', 'no duplicar consentimientos + aviso del dia'),
     ('compras',     'test_compras.py',     'recurrentes, stock y migraciones'),
+    ('etiquetas',   'test_etiquetas.py',   'hojas de stickers: nunca imprimir sobre uno usado'),
     ('dolar',       'test_dolar.py',       'dolar observado en compras USD: fin de semana y API caida'),
     ('fichas',      'test_fichas.py',      'ficha primera consulta (Google Form) -> base'),
     ('seguimiento_pc', 'test_seguimiento_pc.py', 'seguimiento de primeras consultas que no avanzaron'),

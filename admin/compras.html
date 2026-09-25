@@ -133,6 +133,20 @@
   .bar .val{width:110px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 
   .scanbox{background:var(--navy-dark);border-radius:12px;padding:16px;text-align:center;color:#fff}
+
+  /* Hoja de stickers (a escala real: cada celda es un sticker) */
+  .hoja-vis{position:relative;width:100%;max-width:360px;margin:0 auto;background:#fff;
+       border:1px solid #cbd5e0;box-shadow:0 2px 10px rgba(26,46,74,.10)}
+  .hoja-vis .c{position:absolute;border:1px dashed #cbd5e0;border-radius:3px;font-size:9px;
+       display:flex;align-items:center;justify-content:center;cursor:pointer;color:#a0aec0;
+       overflow:hidden;user-select:none;line-height:1.05;text-align:center;padding:1px}
+  .hoja-vis .c:hover{outline:2px solid var(--gold-light);z-index:2}
+  .hoja-vis .c.usada{background:repeating-linear-gradient(45deg,#e2e8f0 0 3px,#f7fafc 3px 6px);
+       border-style:solid;color:#a0aec0}
+  .hoja-vis .c.plan{background:var(--gold-light);border:1px solid var(--gold);color:var(--navy-dark);font-weight:700}
+  .etq-item{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .etq-item input{max-width:70px;padding:5px 7px}
+  details.card summary{cursor:pointer;color:var(--navy)}
   #video{width:100%;max-width:360px;border-radius:10px;background:#000;aspect-ratio:4/3;object-fit:cover}
   .empty{text-align:center;color:var(--text-mid);padding:30px 10px}
 </style>
@@ -170,6 +184,7 @@
     <button data-tab="escanear">📷 Escanear salida</button>
     <button data-tab="solicitudes">🛒 Solicitudes <span id="badgePend" class="badge hidden">0</span></button>
     <button data-tab="recurrentes">🔁 Recurrentes</button>
+    <button data-tab="etiquetas">🏷️ Etiquetas <span id="badgeEtq" class="badge hidden">0</span></button>
     <button data-tab="reportes">📊 Reportes</button>
     <button data-tab="admin">⚙️ Administración</button>
   </nav>
@@ -180,6 +195,7 @@
     <section id="tab-escanear" class="hidden"></section>
     <section id="tab-solicitudes" class="hidden"></section>
     <section id="tab-recurrentes" class="hidden"></section>
+    <section id="tab-etiquetas" class="hidden"></section>
     <section id="tab-reportes" class="hidden"></section>
     <section id="tab-admin" class="hidden"></section>
   </main>

@@ -132,7 +132,7 @@ function logout() {
 // Qué capacidad exige cada pestaña.
 const TAB_CAP = { compras: 'registrar', historial: 'compras_ver', stock: 'stock',
   escanear: 'escanear', solicitudes: 'solicitar', recurrentes: 'registrar',
-  reportes: 'reportes', admin: 'admin' };
+  etiquetas: 'registrar', reportes: 'reportes', admin: 'admin' };
 
 async function entrarApp() {
   $('#auth').classList.add('hidden');
@@ -143,6 +143,7 @@ async function entrarApp() {
   // mostrar solo las pestañas permitidas por el rol
   $$('#tabs button').forEach(b => b.classList.toggle('hidden', !puede(TAB_CAP[b.dataset.tab])));
   actualizarBadge(ME.pendientes || 0);
+  refrescarBadgeEtq();
   await recargarCaches();
   // abrir la primera pestaña visible (un escáner-solo abre directo en Escanear)
   const primera = $$('#tabs button').find(b => !b.classList.contains('hidden'));
@@ -678,7 +679,8 @@ RENDER.stock = async () => {
 async function verProducto(id) {
   try {
     const j = await api('/api/compras/productos/' + id); const p = j.producto;
-    const codigos = (p.codigos || []).map(c => `<span class="pill ok" title="${c.origen}">${esc(c.codigo)}</span>`).join(' ') || '<span class="muted">ninguno</span>';
+    const codigos = (p.codigos || []).map(c => `<span class="pill ok" title="${c.origen}">${esc(c.codigo)}${puede('registrar')
+      ? ` <a href="#" data-etq="${esc(c.codigo)}" title="Agregar etiquetas de este código a la hoja de stickers" style="text-decoration:none">🏷️</a>` : ''}</span>`).join(' ') || '<span class="muted">ninguno</span>';
     const hist = (p.historial_precios || []).slice(0, 8);
     const maxP = Math.max(1, ...hist.map(h => h.precio_unitario));
     const m = modal(`
@@ -690,7 +692,7 @@ async function verProducto(id) {
         ${puede('registrar') ? `<div class="flex" style="margin-top:8px">
           <input id="vpCod" placeholder="Escanea o escribe un código" style="flex:1">
           <button class="btn ghost sm" id="vpAddCod">Asociar</button>
-          <button class="btn gold sm" id="vpGenCod">Generar + imprimir</button></div>` : ''}</div>
+          <button class="btn gold sm" id="vpGenCod" title="Crea un código propio y agrega su etiqueta a la hoja de stickers">Generar código + etiqueta</button></div>` : ''}</div>
       <div class="field"><label>Historial de precios</label>
         ${hist.length ? hist.map(h => `<div class="bar"><div class="lab">${esc(h.fecha)}${h.marca ? ' · ' + esc(h.marca) : ''}</div>
           <div class="track"><div class="fill" style="width:${Math.round(h.precio_unitario / maxP * 100)}%"></div></div>
@@ -718,10 +720,19 @@ async function verProducto(id) {
       };
       m.querySelector('#vpGenCod').onclick = async () => {
         try { const r = await api('/api/compras/productos/generar-codigo', { method: 'POST', body: { producto_id: id, imprimir: true } });
-          toast('Código ' + r.codigo + ' generado y enviado a imprimir ✓', 'ok'); verProducto(id);
+          refrescarBadgeEtq();
+          toast('Código ' + r.codigo + ' creado · su etiqueta quedó en la pestaña 🏷️ Etiquetas ✓', 'ok'); verProducto(id);
         } catch (e) { toast(e.message, 'err'); }
       };
       m.querySelector('#vpEditar').onclick = () => editarProducto(p);
+      m.querySelectorAll('[data-etq]').forEach(a => a.onclick = async ev => {
+        ev.preventDefault();
+        const n = Number(prompt('¿Cuántas etiquetas de ' + a.dataset.etq + '?', '1'));
+        if (!(n >= 1 && n <= 500)) return;
+        try { await encolarEtiqueta(id, a.dataset.etq, n);
+          toast(n + ' etiqueta(s) agregada(s) · imprímelas en 🏷️ Etiquetas ✓', 'ok');
+        } catch (e) { toast(e.message, 'err'); }
+      });
     }
     if (puede('admin')) {
       m.querySelector('#vpEliminar').onclick = () => eliminarProducto(p);
@@ -1140,6 +1151,287 @@ function editarRecurrente(r) {
       closeModal(); toast('Cargo recurrente actualizado ✓', 'ok'); pintarRecurrentes();
     } catch (e) { toast(e.message, 'err'); }
   };
+}
+
+/* ══════════════════ TAB: ETIQUETAS (hoja de stickers) ══════════════════ */
+// Las etiquetas QR se imprimen en una impresora común sobre hojas carta de
+// stickers. El backend recuerda qué stickers de la hoja abierta ya se usaron y
+// reparte la cola solo en los libres; al confirmar que salieron bien, los marca.
+
+async function refrescarBadgeEtq() {
+  if (!puede('registrar')) return;
+  try {
+    const cola = (await api('/api/compras/etiquetas/estado')).plan.total;
+    const b = $('#badgeEtq'); if (!b) return;
+    b.textContent = cola; b.classList.toggle('hidden', !cola);
+  } catch {}
+}
+
+async function encolarEtiqueta(productoId, codigo, cantidad) {
+  await api('/api/compras/impresion/encolar', { method: 'POST',
+    body: { producto_id: productoId, codigo, cantidad } });
+  refrescarBadgeEtq();
+}
+
+RENDER.etiquetas = async () => {
+  const s = $('#tab-etiquetas');
+  if (!puede('registrar')) { s.innerHTML = soloLectura(); return; }
+  s.innerHTML = `
+    <div class="card">
+      <h2>🏷️ Etiquetas QR en hoja de stickers</h2>
+      <div class="sub">Se imprimen en cualquier impresora sobre hojas carta de stickers (<span id="etqFmt"></span>).
+        El sistema recuerda qué stickers de la hoja ya se usaron y rellena solo los libres, así que puedes terminar una hoja antes de abrir otra.</div>
+      <div class="row c2">
+        <div>
+          <div class="field"><label>Agregar etiquetas de un producto</label>
+            <div class="flex"><div id="etqBusSlot" style="flex:1"></div>
+              <input id="etqCant" type="number" min="1" max="500" value="1" style="max-width:74px" title="Cantidad"></div>
+            <p class="muted" style="font-size:12px;margin-top:4px">Si el producto no tiene código, se le crea uno.</p></div>
+          <label>Por imprimir</label>
+          <div id="etqCola"></div>
+        </div>
+        <div>
+          <label>Hoja actual · <span id="etqResumen"></span></label>
+          <div id="etqHoja" class="hoja-vis"></div>
+          <p class="muted" style="font-size:12px;margin-top:6px;text-align:center">
+            Toca un sticker para marcarlo usado ▨ o libre ▢ · <b style="color:var(--gold)">■</b> = se imprime ahora</p>
+        </div>
+      </div>
+      <p id="etqAviso" style="font-size:14px;margin:12px 0 10px"></p>
+      <div class="flex wrap">
+        <button class="btn gold" id="etqImprimir">🖨️ Imprimir etiquetas</button>
+        <button class="btn ghost" id="etqNueva">📄 Empecé una hoja nueva</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:10px">Al imprimir: papel <b>Carta</b>, márgenes <b>Ninguno</b> y escala <b>100%</b> (no "Ajustar a la página").</p>
+    </div>
+
+    <details class="card" id="etqCalib">
+      <summary><b>Si las etiquetas salen corridas: ajustar alineación</b></summary>
+      <div style="margin-top:12px">
+        <p class="sub">1) Imprime la <b>hoja de prueba en papel normal</b>. 2) Ponla encima de una hoja de stickers y mírala contra la luz.
+          3) Si los cuadros quedan corridos, anota cuántos milímetros y ajusta: <b>+</b> mueve a la derecha / hacia abajo, <b>−</b> a la izquierda / hacia arriba.</p>
+        <div class="row c3">
+          <div class="field"><label>Mover a lo ancho (mm)</label><input id="fx_ajuste_x" type="number" step="0.1"></div>
+          <div class="field"><label>Mover a lo alto (mm)</label><input id="fx_ajuste_y" type="number" step="0.1"></div>
+          <div class="field"><label>&nbsp;</label><button class="btn ghost" id="etqPrueba" style="width:100%">🧪 Imprimir hoja de prueba</button></div>
+        </div>
+        <details style="margin:4px 0 12px"><summary class="muted" style="font-size:13px">Formato de la hoja (solo si usas otra marca de stickers)</summary>
+          <div class="row c4" style="margin-top:10px">
+            ${[['columnas', 'Columnas'], ['filas', 'Filas'], ['ancho', 'Ancho sticker (mm)'], ['alto', 'Alto sticker (mm)'],
+               ['margen_izq', 'Margen izquierdo (mm)'], ['margen_sup', 'Margen superior (mm)'], ['paso_x', 'Distancia entre columnas (mm)'],
+               ['paso_y', 'Distancia entre filas (mm)'], ['hoja_ancho', 'Ancho hoja (mm)'], ['hoja_alto', 'Alto hoja (mm)']]
+              .map(([k, l]) => `<div class="field"><label>${l}</label><input id="fx_${k}" type="number" step="0.01"></div>`).join('')}
+          </div>
+          <button class="btn ghost sm" id="etqRestaurar">↺ Volver al formato Demarka 7001 (66 de 35×25 mm)</button>
+        </details>
+        <button class="btn gold sm" id="etqGuardarFmt">Guardar ajustes</button>
+      </div>
+    </details>`;
+
+  const bus = buscador({
+    items: CACHE.productos, placeholder: 'Buscar producto…',
+    onPick: async it => {
+      const cant = Math.max(1, Math.min(500, Number($('#etqCant').value) || 1));
+      try {
+        const p = (await api('/api/compras/productos/' + it.id)).producto;
+        const cods = p.codigos || [];
+        if (cods.length) {
+          const cod = (cods.find(c => c.origen === 'propio') || cods[0]).codigo;
+          await encolarEtiqueta(p.id, cod, cant);
+        } else {
+          await api('/api/compras/productos/generar-codigo', { method: 'POST',
+            body: { producto_id: p.id, imprimir: true, cantidad: cant } });
+          refrescarBadgeEtq();
+        }
+        toast(`${cant} etiqueta(s) de ${p.nombre} agregada(s) ✓`, 'ok');
+        bus.reset(); $('#etqCant').value = 1;
+        etqCargar();
+      } catch (e) { toast(e.message, 'err'); }
+    }
+  });
+  $('#etqBusSlot').appendChild(bus.wrap);
+
+  $('#etqNueva').onclick = async () => {
+    if (!confirm('¿Empezar una hoja nueva? La hoja actual se da por terminada (aunque le queden stickers libres).')) return;
+    try { etqPintar(await api('/api/compras/etiquetas/nueva-hoja', { method: 'POST' })); toast('Hoja nueva lista ✓', 'ok'); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+  $('#etqImprimir').onclick = etqImprimir;
+  $('#etqPrueba').onclick = async () => {
+    try { const st = await api('/api/compras/etiquetas/estado'); await imprimirHTML(htmlEtiquetas(st.formato, null)); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+  $('#etqGuardarFmt').onclick = async () => {
+    const campos = {};
+    $$('#etqCalib input[id^="fx_"]').forEach(i => { if (i.value !== '') campos[i.id.slice(3)] = Number(i.value); });
+    try { etqPintar(await api('/api/compras/etiquetas/formato', { method: 'POST', body: { campos } })); toast('Ajustes guardados ✓', 'ok'); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+  $('#etqRestaurar').onclick = async () => {
+    try { etqPintar(await api('/api/compras/etiquetas/formato', { method: 'POST', body: { restaurar: true } })); toast('Formato Demarka 7001 restaurado ✓', 'ok'); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+  etqCargar();
+};
+
+async function etqCargar() {
+  try { etqPintar(await api('/api/compras/etiquetas/estado')); } catch (e) { toast(e.message, 'err'); }
+}
+
+function etqPintar(st) {
+  const f = st.formato, hoja = st.hoja, plan = st.plan;
+  $('#etqFmt').textContent = f.nombre;
+  Object.keys(f).forEach(k => { const i = $('#fx_' + k); if (i && document.activeElement !== i) i.value = f[k]; });
+
+  // Vista de la hoja actual, a escala: qué está usado, libre y qué se imprimirá ahora.
+  const usadas = new Set(hoja.usadas);
+  const pag0 = plan.paginas[0];
+  const planHoy = new Map((pag0 && !pag0.nueva ? pag0.etiquetas : []).map(e => [e.pos, e]));
+  const pct = (mm, tot) => (mm / tot * 100).toFixed(3) + '%';
+  const el = $('#etqHoja');
+  el.style.aspectRatio = `${f.hoja_ancho} / ${f.hoja_alto}`;
+  let html = '';
+  for (let p = 0; p < f.total; p++) {
+    const col = p % f.columnas, fila = Math.floor(p / f.columnas);
+    const e = planHoy.get(p);
+    const cls = e ? 'plan' : (usadas.has(p) ? 'usada' : '');
+    const txt = e ? esc((e.nombre || '').slice(0, 14)) : (usadas.has(p) ? '' : String(p + 1));
+    html += `<div class="c ${cls}" data-p="${p}" title="Sticker ${p + 1}${e ? ' · ' + esc(e.nombre) : (usadas.has(p) ? ' · usado' : ' · libre')}"
+      style="left:${pct(f.margen_izq + col * f.paso_x, f.hoja_ancho)};top:${pct(f.margen_sup + fila * f.paso_y, f.hoja_alto)};
+             width:${pct(f.ancho, f.hoja_ancho)};height:${pct(f.alto, f.hoja_alto)}">${txt}</div>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.c').forEach(c => c.onclick = async () => {
+    const p = Number(c.dataset.p);
+    try { etqPintar(await api('/api/compras/etiquetas/posiciones', { method: 'POST',
+      body: { posiciones: [p], usada: !usadas.has(p) } })); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+  $('#etqResumen').textContent = `${hoja.libres} de ${hoja.total} libres`;
+
+  // Cola por imprimir
+  $('#etqCola').innerHTML = st.cola.length ? st.cola.map(j => `
+    <div class="etq-item"><div style="flex:1;min-width:0"><b>${esc(j.producto_nombre)}</b>
+      <div class="muted" style="font-size:12px">${esc(j.codigo)}</div></div>
+      <input type="number" min="0" max="500" value="${j.cantidad}" data-cant="${j.id}" title="Cantidad (0 = quitar)">
+      <div class="item-x" data-quitar="${j.id}" title="Quitar">✕</div></div>`).join('')
+    : '<p class="muted" style="padding:8px 0">No hay etiquetas por imprimir. Agrégalas con el buscador de arriba, o desde Stock → Ver producto → 🏷️.</p>';
+  const cambiar = async (id, cantidad) => {
+    try { etqPintar(await api('/api/compras/etiquetas/cola', { method: 'POST', body: { id: +id, cantidad } })); refrescarBadgeEtq(); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+  $$('#etqCola [data-cant]').forEach(i => i.onchange = () => cambiar(i.dataset.cant, Number(i.value) || 0));
+  $$('#etqCola [data-quitar]').forEach(b => b.onclick = () => cambiar(b.dataset.quitar, 0));
+
+  // Qué va a pasar al imprimir
+  const aviso = $('#etqAviso');
+  $('#etqImprimir').disabled = !plan.total;
+  if (!plan.total) { aviso.innerHTML = ''; }
+  else {
+    const enActual = pag0 && !pag0.nueva ? pag0.etiquetas.length : 0;
+    const partes = [];
+    if (enActual) partes.push(`<b>${enActual}</b> en la hoja actual`);
+    if (plan.hojas_nuevas) partes.push(`${enActual ? 'el resto en ' : ''}<b>${plan.hojas_nuevas} hoja(s) nueva(s)</b>`);
+    aviso.innerHTML = `Se imprimirán <b>${plan.total}</b> etiqueta(s): ${partes.join(' y ')}.` +
+      (plan.paginas.length > 1 ? ` <span class="muted">Pon en la impresora ${enActual ? 'primero la hoja a medio usar y después ' : ''}${plan.hojas_nuevas} hoja(s) en blanco.</span>` : '');
+  }
+  const b = $('#badgeEtq'); if (b) { b.textContent = plan.total; b.classList.toggle('hidden', !plan.total); }
+}
+
+async function etqImprimir() {
+  try {
+    const st = await api('/api/compras/etiquetas/estado');   // plan fresco
+    if (!st.plan.total) return toast('No hay etiquetas por imprimir', 'err');
+    await imprimirHTML(htmlEtiquetas(st.formato, st.plan.paginas));
+    const m = modal(`<h3>¿Salieron bien las etiquetas?</h3>
+      <p class="muted" style="margin-bottom:14px">Si las <b>${st.plan.total}</b> etiquetas quedaron bien impresas, marco esos stickers como usados y salen de la cola.
+        Si la impresora falló o cancelaste, no marco nada y puedes volver a imprimir.</p>
+      <div class="flex"><div class="spacer"></div>
+        <button class="btn ghost" id="etqNo">No, no se imprimieron</button>
+        <button class="btn gold" id="etqSi">Sí, quedaron bien</button></div>`);
+    m.querySelector('#etqNo').onclick = () => { closeModal(); toast('No se marcó nada', ''); };
+    m.querySelector('#etqSi').onclick = async () => {
+      try {
+        const r = await api('/api/compras/etiquetas/confirmar', { method: 'POST', body: { firma: st.plan.firma } });
+        closeModal(); etqPintar(r); toast(`${r.impresas} sticker(s) marcados como usados ✓`, 'ok');
+      } catch (e) { closeModal(); toast(e.message, 'err'); etqCargar(); }
+    };
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// Documento de impresión, en milímetros reales. paginas=null → hoja de prueba de
+// alineación (el contorno numerado de cada sticker, para calzarla contra la luz).
+function htmlEtiquetas(f, paginas) {
+  const W = f.hoja_ancho, H = f.hoja_alto;
+  // Zona segura: casi ninguna impresora imprime en los ~4 mm del borde de la hoja.
+  // Con el margen superior en 0 (Demarka 7001) la primera fila está pegada al borde,
+  // así que el contenido de cada etiqueta se aleja del borde lo necesario y el QR
+  // se achica un poco en esas filas en vez de salir cortado.
+  const ZONA = 4.2, PAD = 1.6, COD = 3.0;
+  const caja = (x, y) => {
+    const t = Math.max(PAD, ZONA - y), b = Math.max(PAD, ZONA - (H - y - f.alto));
+    const l = Math.max(PAD, ZONA - x), r = Math.max(PAD, ZONA - (W - x - f.ancho));
+    const qr = Math.max(8, Math.min(f.alto - t - b - COD, (f.ancho - l - r) * 0.55));
+    return { pad: `${t.toFixed(2)}mm ${r.toFixed(2)}mm ${b.toFixed(2)}mm ${l.toFixed(2)}mm`, qr: qr.toFixed(2) };
+  };
+  const xy = p => ({ x: f.margen_izq + (p % f.columnas) * f.paso_x + f.ajuste_x,
+                     y: f.margen_sup + Math.floor(p / f.columnas) * f.paso_y + f.ajuste_y });
+  const qrUrl = c => new URL(API + '/api/compras/qr/' + encodeURIComponent(c) + '.png', location.href).href;
+  let cuerpo;
+  if (!paginas) {
+    let celdas = '';
+    for (let p = 0; p < f.total; p++) {
+      const { x, y } = xy(p);
+      celdas += `<div class="guia" style="left:${x}mm;top:${y}mm"><span>${p + 1}</span><i class="h"></i><i class="v"></i></div>`;
+    }
+    cuerpo = `<div class="pag">${celdas}</div>`;
+  } else {
+    cuerpo = paginas.map(pg => `<div class="pag">` + pg.etiquetas.map(e => {
+      const { x, y } = xy(e.pos);
+      const k = caja(x, y);
+      return `<div class="et" style="left:${x}mm;top:${y}mm;padding:${k.pad}">
+        <div class="fila"><img class="qr" src="${qrUrl(e.codigo)}" style="width:${k.qr}mm;height:${k.qr}mm">
+          <div class="nom" style="max-height:${k.qr}mm">${esc(e.nombre)}</div></div>
+        <div class="cod">${esc(e.codigo)}</div></div>`;
+    }).join('') + `</div>`).join('');
+  }
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Etiquetas</title><style>
+    @page { size: ${W}mm ${H}mm; margin: 0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: ${W}mm; background: #fff; }
+    .pag { position: relative; width: ${W}mm; height: ${H}mm; overflow: hidden; break-after: page; page-break-after: always; }
+    .pag:last-child { break-after: auto; page-break-after: auto; }
+    .et { position: absolute; width: ${f.ancho}mm; height: ${f.alto}mm; display: flex; flex-direction: column;
+          overflow: hidden; font-family: Arial, Helvetica, sans-serif; color: #000; }
+    .fila { display: flex; gap: 1.2mm; flex: 1; min-height: 0; align-items: flex-start; }
+    .qr { flex: none; image-rendering: pixelated; }
+    .nom { font-size: 6.3pt; line-height: 1.15; font-weight: 700; overflow: hidden; word-break: break-word; }
+    .cod { font: 5.5pt 'Courier New', monospace; text-align: center; white-space: nowrap; overflow: hidden; margin-top: .5mm; }
+    .guia { position: absolute; width: ${f.ancho}mm; height: ${f.alto}mm; border: .25mm solid #000;
+            font: bold 9pt Arial, sans-serif; display: flex; align-items: center; justify-content: center; }
+    .guia span { position: absolute; top: .8mm; left: 1.2mm; }
+    .guia i { position: absolute; background: #000; }
+    .guia .h { width: 4mm; height: .2mm; top: 50%; left: calc(50% - 2mm); }
+    .guia .v { width: .2mm; height: 4mm; left: 50%; top: calc(50% - 2mm); }
+  </style></head><body>${cuerpo}</body></html>`;
+}
+
+// Imprime un documento en un iframe oculto (sin ventanas emergentes) esperando a
+// que carguen los QR; se resuelve cuando se cierra el cuadro de impresión.
+function imprimirHTML(html) {
+  return new Promise(resolve => {
+    const fr = document.createElement('iframe');
+    fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(fr);
+    const d = fr.contentDocument; d.open(); d.write(html); d.close();
+    const imgs = [...d.images];
+    Promise.all(imgs.map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; }))).then(() => {
+      setTimeout(() => {
+        fr.contentWindow.focus(); fr.contentWindow.print();
+        setTimeout(() => { fr.remove(); resolve(); }, 400);
+      }, 150);
+    });
+  });
 }
 
 /* ══════════════════ TAB: REPORTES ══════════════════ */
