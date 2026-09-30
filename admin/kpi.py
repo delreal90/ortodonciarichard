@@ -1700,8 +1700,11 @@ def estado_gastos(meses, hoy=None):
             med = _mediana(ref_a)
             if admin.get(m, 0) < GASTO_INCOMPLETO_BAJO * med:
                 estado = 'incompleto'
-                detalle = (f'administración (sueldos, impuestos) ${round(admin.get(m, 0)):,} '
-                           f'contra ${round(med):,} habitual').replace(',', '.')
+                # Los miles con punto, a la chilena. Se formatea cada número por separado:
+                # reemplazar sobre la frase entera le cambiaba también la coma al texto.
+                clp = lambda n: f'${round(n):,}'.replace(',', '.')
+                detalle = (f'administración (sueldos, impuestos) {clp(admin.get(m, 0))} '
+                           f'contra {clp(med)} habitual')
         atipico = False
         if len(ref_t) >= GASTO_MIN_REFERENCIAS:
             atipico = total.get(m, 0) > GASTO_ATIPICO_SOBRE * _mediana(ref_t)

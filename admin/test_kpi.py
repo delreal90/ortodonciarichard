@@ -864,6 +864,7 @@ class TestMargenHonesto(TestPlataGastos):
         self.assertEqual(r['margen'], 600000)                # solo abril
         exc = r['meses_excluidos_margen']
         self.assertEqual([(x['mes'], x['motivo']) for x in exc], [('2026-05', 'incompleto')])
+        self.assertIn('(sueldos, impuestos) $50.000 contra $400.000', exc[0]['detalle'])
         mayo = next(m for m in r['serie_mensual'] if m['mes'] == '2026-05')
         self.assertIsNone(mayo['margen'])                    # ni en la serie mensual
 
