@@ -615,7 +615,7 @@ async function verCompra(id) {
       ${c.notas ? `<p class="muted" style="margin-top:10px">📝 ${esc(c.notas)}</p>` : ''}
       ${foto}
       <div class="flex" style="margin-top:16px">
-        ${puede('registrar') ? `<button class="btn gold sm" id="editCostos">✏️ Editar pago y costos</button>` : ''}
+        ${puede('registrar') ? `<button class="btn gold sm" id="editCostos">✏️ Editar pago, categoría y costos</button>` : ''}
         <div class="spacer"></div>
         ${puede('admin') ? `<button class="btn danger sm" id="delCompra">Eliminar</button>` : ''}
         <button class="btn ghost sm" onclick="document.getElementById('modalRoot').innerHTML=''">Cerrar</button></div>`);
@@ -634,7 +634,10 @@ function editarCostosCompra(c) {
   const m = modal(`
     <h3>Editar compra #${c.id}</h3>
     <p class="muted" style="margin-bottom:12px">Ajusta despacho, moneda o agrega el <b>costo de importación</b> (aduana/courier) que suele llegar después por FedEx, DHL, etc. El total se recalcula solo.</p>
-    <div class="field"><label>Forma de pago</label><select id="ecPago">${optsPago(c.forma_pago)}</select></div>
+    <div class="row c2">
+      <div class="field"><label>Forma de pago</label><select id="ecPago">${optsPago(c.forma_pago)}</select></div>
+      <div class="field"><label>Categoría</label><select id="ecCat"><option value="">(sin categoría)</option>${optsCategorias(c.categoria_id)}</select></div>
+    </div>
     <div class="row c2">
       <div class="field"><label>Moneda</label><select id="ecMoneda">
         <option value="CLP" ${mon === 'CLP' ? 'selected' : ''}>Peso (CLP)</option>
@@ -652,7 +655,10 @@ function editarCostosCompra(c) {
   m.querySelector('#ecMoneda').onchange = e => m.querySelector('#ecTCWrap').classList.toggle('hidden', e.target.value !== 'USD');
   m.querySelector('#ecOk').onclick = async () => {
     const moneda = m.querySelector('#ecMoneda').value;
+    // La categoría decide en qué bloque de gastos cae (operación / administración) y es
+    // la que usa el panel de KPIs: lo que se paga a los doctores va en Sueldos.
     const body = { id: c.id, moneda, forma_pago: m.querySelector('#ecPago').value,
+      categoria_id: m.querySelector('#ecCat').value || null,
       tipo_cambio: moneda === 'USD' ? (Number(m.querySelector('#ecTC').value) || 0) : 1,
       costo_despacho: Number(m.querySelector('#ecDesp').value) || 0,
       costo_importacion: Number(m.querySelector('#ecImp').value) || 0 };

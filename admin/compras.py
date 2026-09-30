@@ -2156,6 +2156,23 @@ def resumen_gastos(desde=None, hasta=None, ambito=None):
         con.close()
 
 
+def gasto_por_mes_ambito():
+    """[{mes, ambito, total}] de TODA la historia, en CLP. Lo usa kpi.py para decidir
+    si un mes tiene los gastos completos: compara la administración (sueldos,
+    impuestos) de ese mes contra la de los meses anteriores, así que necesita la
+    historia aunque el panel esté mirando un solo mes."""
+    con = _conn()
+    try:
+        M = 'CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END'
+        return _rows(con.execute(
+            f"SELECT substr(c.fecha,1,7) AS mes, "
+            f"COALESCE(cat.ambito,'sin_categoria') AS ambito, SUM({M}) AS total "
+            f"FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id "
+            f"GROUP BY mes, ambito ORDER BY mes"))
+    finally:
+        con.close()
+
+
 def inicio_registro():
     """Primera fecha con gastos registrados, por ámbito: {'operacion': 'YYYY-MM-DD',
     'administracion': ...}. Sirve para no comparar contra un período en que ese tipo de

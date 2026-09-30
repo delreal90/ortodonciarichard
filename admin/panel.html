@@ -2324,6 +2324,42 @@ async function loadKpi() {
 // muestran siempre; los ingresos solo existen desde que la extensión F2 empuja las
 // boletas. El margen lo calcula el backend (kpi.plata) SOLO sobre los meses con
 // boletas: acá no se resta nada, para no repetir esa regla en dos lados.
+// Horas de agenda ABIERTA por doctor: el denominador del costo hora sillón clásico.
+// Todo lo calcula el backend (kpi.capacidad); acá solo se pinta.
+function _kpiCapacidad(cap, filtroDoctor) {
+  const navy = '#1A2E4A';
+  if (!cap) return '';
+  let h = `<h4 style="margin:16px 0 4px;font-size:.85rem;color:#4A5568">Horas disponibles (agenda abierta)</h4>
+    <p style="font-size:.76rem;color:#718096;margin-bottom:8px">
+      Lo que se usa normalmente para el <strong>costo hora sillón</strong>: el gasto dividido por las horas en que
+      la agenda está <strong>abierta</strong>, se llenen o no. Acá un «sillón» es la agenda de un doctor.
+      Solo existe desde que el sistema guarda cada día las horas libres de cada doctor
+      ${cap.desde ? `(${_esc(cap.desde)})` : ''}: las de días pasados no se pueden pedir después.</p>`;
+  const c = cap.costo_por_hora_disponible;
+  if (!filtroDoctor) {
+    h += c
+      ? `<div style="margin-bottom:10px">${_statCard('Costo por hora disponible', _clp(c.costo_por_hora), navy)}
+          <span style="font-size:.76rem;color:#718096">${_esc(c.meses.map(_kpiMesLegible).join(', '))} · ${_n(c.horas_disponibles)} h de agenda abierta</span></div>`
+      : `<p style="font-size:.78rem;color:#975a16;margin-bottom:8px">El costo por hora disponible todavía no se puede calcular:
+          hace falta un mes <strong>entero</strong> con la agenda capturada y sus gastos completos. El primero
+          será el primer mes completo desde que empezó la captura, una vez anotados sus sueldos.</p>`;
+  }
+  const docs = cap.por_doctor || [];
+  if (!docs.length) return h + '<p style="font-size:.78rem;color:#a0aec0">Sin días capturados en este período.</p>';
+  h += `<div style="overflow-x:auto"><table style="width:100%;font-size:.8rem;border-collapse:collapse">
+    <tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Días</th><th>Agenda abierta</th>
+    <th>Atendidas</th><th>% ocupación</th><th title="Boletas del doctor dividido por sus horas de agenda abierta, desde la primera boleta cargada">Ingreso por hora disponible</th></tr>`;
+  docs.forEach(d => {
+    h += `<tr style="border-top:1px solid #edf2f7"><td style="padding:5px">${_esc(_kpiDoc(d.doctor))}</td>
+      <td>${d.dias}</td><td>${_n(d.horas_disponibles)} h</td><td>${_n(d.horas_atendidas)} h</td>
+      <td>${d.pct_ocupacion === null ? '—' : _n(d.pct_ocupacion) + '%'}</td>
+      <td>${d.produccion_por_hora_disponible === null ? '—' : _clp(d.produccion_por_hora_disponible)}</td></tr>`;
+  });
+  return h + `</table></div><p style="font-size:.74rem;color:#a0aec0;margin-top:6px">
+    El ingreso por doctor es un piso: las boletas de un día en que el paciente no tuvo cita no se le pueden atribuir
+    a nadie y quedan sin doctor.</p>`;
+}
+
 function _kpiPlata(pla) {
   const navy = '#1A2E4A', gold = '#C9A84C', rojo = '#e53e3e', verde = '#2f855a';
   if (!pla || pla.gastos === null || pla.gastos === undefined) {
@@ -2350,23 +2386,45 @@ function _kpiPlata(pla) {
     </div>`;
   if (!pla.filtro_doctor) {
     h += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-      ${_kpiTile('Gasto por hora de sillón', _clp(pla.gasto_por_hora), '', null, false, _n(pla.horas_sillon) + ' h agendadas')}
+      ${_kpiTile('Gasto por hora atendida', _clp(pla.gasto_por_hora), '', null, false, 'todo el período · ' + _n(pla.horas_sillon) + ' h atendidas')}
       ${_kpiTile('Gasto por atención', _clp(pla.gasto_por_atencion), '', null, false, pla.atendidos + ' atenciones')}
       ${_kpiTile('Insumos por atención', _clp(pla.insumos_por_atencion), '', null, false, 'solo gasto de operación')}
     </div>`;
   }
   if (pla.meses_con_ingresos) {
-    const parcial = pla.gastos_meses_con_ingresos !== null && pla.gastos_meses_con_ingresos !== pla.gastos;
+    const cmp = pla.comparacion;
+    const meses = xs => xs.map(_kpiMesLegible).join(', ');
     h += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
       ${_statCard('Ingresos (boletas)', _clp(pla.ingresos), verde)}
       ${pla.margen !== null ? _statCard('Margen', _clp(pla.margen), pla.margen >= 0 ? verde : rojo) : ''}
       ${pla.margen_pct !== null ? _statCard('Margen %', _n(pla.margen_pct) + '%', pla.margen_pct >= 0 ? verde : rojo) : ''}
-      ${_statCard('Ingreso por hora de sillón', _clp(pla.ingreso_por_hora), navy)}
+      ${_statCard('Ingreso por hora atendida', _clp(pla.ingreso_por_hora), navy)}
     </div>
     <p style="font-size:.76rem;color:#718096;margin-bottom:10px">
       ${pla.boletas} documentos emitidos en ${pla.meses_con_ingresos} mes(es); las notas de crédito ya vienen restadas.
-      ${parcial ? `<strong>El margen se calcula solo con los meses que tienen boletas cargadas</strong>
-        (gasto de esos meses: ${_clp(pla.gastos_meses_con_ingresos)}); los otros meses no tienen ingresos que comparar.` : ''}</p>`;
+      El ingreso por hora usa solo las horas de esos mismos meses (${_n(pla.horas_meses_con_ingresos)} h).</p>`;
+    // Ingreso y gasto por hora SOBRE LAS MISMAS HORAS: la diferencia es el margen por hora.
+    if (cmp) {
+      h += `<div style="background:#f7fafc;border-left:3px solid ${navy};padding:10px 14px;margin-bottom:10px;font-size:.82rem;color:#2D3748">
+        <strong>Mismo período para los dos</strong> (${_esc(meses(cmp.meses))}, ${_n(cmp.horas)} h atendidas):
+        entra <strong style="color:${verde}">${_clp(cmp.ingreso_por_hora)}</strong> y se gasta
+        <strong>${_clp(cmp.gasto_por_hora)}</strong> por hora →
+        margen de <strong style="color:${cmp.margen_por_hora >= 0 ? verde : rojo}">${_clp(cmp.margen_por_hora)}</strong> por hora.
+        <br><span style="color:#718096;font-size:.76rem">Los gastos incluyen lo que se paga a los doctores
+        (se anota como Sueldos), así que el margen es lo que queda después de pagarles.</span></div>`;
+    }
+    const exc = pla.meses_excluidos_margen || [];
+    if (exc.length) {
+      h += `<p style="font-size:.78rem;color:#975a16;background:#fffbeb;padding:8px 12px;border-radius:4px;margin-bottom:10px">
+        <strong>No entran al margen:</strong> ${exc.map(x => `${_esc(_kpiMesLegible(x.mes))}
+        (${x.motivo === 'en_curso' ? 'mes en curso: los sueldos se pagan a fin de mes'
+          : 'faltan gastos por anotar — ' + _esc(x.detalle)})`).join(' · ')}.
+        Restar un gasto a medio cargar daría un margen que no existe.</p>`;
+    }
+    if (!cmp) {
+      h += `<p style="font-size:.78rem;color:#718096;margin-bottom:10px">Todavía no hay un mes con boletas
+        <strong>y</strong> gastos completos, así que no se calcula margen.</p>`;
+    }
   } else {
     h += `<p style="font-size:.8rem;color:#718096;margin-bottom:10px">
       <strong>Ingresos:</strong> todavía no hay boletas cargadas para este período. Las empuja la extensión F2
@@ -2375,10 +2433,20 @@ function _kpiPlata(pla) {
   }
   h += `<h4 style="margin:10px 0 4px;font-size:.85rem;color:#4A5568">Gasto por mes</h4>
     ${_kpiSerie(pla.serie_mensual, 'gastos', gold, _clp)}`;
+  const atip = (pla.serie_mensual || []).filter(m => m.atipico).map(m => m.mes);
+  const incomp = (pla.serie_mensual || []).filter(m => m.estado_gastos === 'incompleto').map(m => m.mes);
+  if (atip.length || incomp.length) {
+    h += `<p style="font-size:.76rem;color:#718096;margin:4px 0 8px">
+      ${atip.length ? `<strong>Gasto fuera de lo habitual:</strong> ${_esc(atip.map(_kpiMesLegible).join(', '))} —
+        más de 1,6 veces la mediana de los 6 meses anteriores. Revisa que sea una compra grande o un pago anual y no un error de tipeo. ` : ''}
+      ${incomp.length ? `<strong>Gastos incompletos:</strong> ${_esc(incomp.map(_kpiMesLegible).join(', '))} —
+        la administración (sueldos, impuestos) trae menos de la mitad de lo habitual.` : ''}</p>`;
+  }
   if (pla.meses_con_ingresos) {
     h += `<h4 style="margin:10px 0 4px;font-size:.85rem;color:#4A5568">Ingresos por mes</h4>
       ${_kpiSerie(pla.serie_mensual.filter(m => m.ingresos !== null), 'ingresos', verde, _clp)}`;
   }
+  h += _kpiCapacidad(pla.capacidad, pla.filtro_doctor);
   const top = pla.gastos_top_categorias || [];
   if (top.length) {
     const max = Math.max(...top.map(c => c.total), 1);

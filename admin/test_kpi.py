@@ -826,6 +826,109 @@ class TestPlataGastos(BaseKpi):
         self.assertEqual(r['gasto_por_hora'], 300000)
 
 
+
+class TestMargenHonesto(TestPlataGastos):
+    """Ingreso y gasto por hora sobre el MISMO período, y el margen solo con meses que
+    tienen los gastos completos. Hasta el 2026-09-30 el panel dividía 4 meses de boletas
+    por 12 meses de horas y mostraba a la clínica perdiendo plata."""
+
+    def _sueldos_historicos(self, meses, monto=400000):
+        for m in meses:
+            self._gasto(m + '-28', monto, self.sueldos)
+
+    def test_ingreso_por_hora_usa_solo_las_horas_de_los_meses_con_boletas(self):
+        self.guardar([_cita(1, '2026-02-10', duracion=60), _cita(2, '2026-03-10', duracion=60)])
+        kpi.registrar_ingresos([self._dte('1', '2026-03-10', 50000)])
+        r = kpi.plata('2026-02-01', '2026-03-31')
+        self.assertEqual(r['ingreso_por_hora'], 50000)      # no 25.000
+        self.assertEqual(r['horas_meses_con_ingresos'], 1.0)
+
+    def test_el_mes_en_curso_no_entra_al_margen(self):
+        """Los sueldos se pagan a fin de mes: el gasto del mes en curso siempre está a medias."""
+        hoy = kpi.fechas.hoy_chile().isoformat()
+        self.guardar([_cita(1, hoy, duracion=60)])
+        self._gasto(hoy, 1000, self.insumos)
+        kpi.registrar_ingresos([self._dte('1', hoy, 90000)])
+        r = kpi.plata(hoy[:7] + '-01', hoy)
+        self.assertIsNone(r['margen'])
+        self.assertEqual(r['meses_excluidos_margen'][0]['motivo'], 'en_curso')
+        self.assertEqual(r['ingreso_por_hora'], 90000)      # el ingreso sí se informa
+
+    def test_un_mes_con_los_sueldos_sin_anotar_no_entra_al_margen(self):
+        self._sueldos_historicos(['2026-01', '2026-02', '2026-03', '2026-04'])
+        self._gasto('2026-05-28', 50000, self.sueldos)       # mayo, a medio cargar
+        kpi.registrar_ingresos([self._dte('1', '2026-04-15', 1000000),
+                                self._dte('2', '2026-05-15', 1000000)])
+        r = kpi.plata('2026-04-01', '2026-05-31')
+        self.assertEqual(r['comparacion']['meses'], ['2026-04'])
+        self.assertEqual(r['margen'], 600000)                # solo abril
+        exc = r['meses_excluidos_margen']
+        self.assertEqual([(x['mes'], x['motivo']) for x in exc], [('2026-05', 'incompleto')])
+        mayo = next(m for m in r['serie_mensual'] if m['mes'] == '2026-05')
+        self.assertIsNone(mayo['margen'])                    # ni en la serie mensual
+
+    def test_un_gasto_grande_se_marca_atipico_pero_cuenta(self):
+        """Una compra grande es real: se avisa para no leerla como tendencia, no se esconde."""
+        self._sueldos_historicos(['2026-01', '2026-02', '2026-03', '2026-04'], 100000)
+        self._gasto('2026-05-28', 100000, self.sueldos)
+        self._gasto('2026-05-10', 900000, self.insumos)
+        r = kpi.plata('2026-05-01', '2026-05-31')
+        mayo = next(m for m in r['serie_mensual'] if m['mes'] == '2026-05')
+        self.assertTrue(mayo['atipico'])
+        self.assertEqual(mayo['estado_gastos'], 'completo')
+
+    def test_ingreso_y_gasto_por_hora_comparten_las_horas(self):
+        self.guardar([_cita(1, '2026-04-10', duracion=120)])
+        self._gasto('2026-04-28', 400000, self.sueldos)
+        kpi.registrar_ingresos([self._dte('1', '2026-04-10', 300000)])
+        c = kpi.plata('2026-04-01', '2026-04-30')['comparacion']
+        self.assertEqual((c['horas'], c['ingreso_por_hora'], c['gasto_por_hora'],
+                          c['margen_por_hora']), (2.0, 150000, 200000, -50000))
+
+
+class TestCapacidad(TestPlataGastos):
+    """El costo hora sillón CLÁSICO: dividido por las horas de agenda abierta, no por
+    las que se llenaron. Solo existe desde que se captura `disponibilidad`."""
+
+    def _disp(self, fecha, doctor, libres, ocupados):
+        con = kpi._conn()
+        con.execute('INSERT INTO disponibilidad (fecha, doctor, min_libres, min_ocupados, visto) '
+                    'VALUES (?,?,?,?,?)', (fecha, doctor, libres, ocupados, 'x'))
+        con.commit()
+        con.close()
+
+    def test_ocupacion_y_produccion_por_hora_disponible(self):
+        self._disp('2026-04-15', 'alberto', 120, 60)          # 3 h de agenda abierta
+        self.guardar([_cita(1, '2026-04-15', duracion=60)])
+        kpi.registrar_ingresos([self._dte('1', '2026-04-15', 90000)])
+        d = kpi.capacidad('2026-04-01', '2026-04-30')['por_doctor'][0]
+        self.assertEqual((d['doctor'], d['horas_disponibles'], d['horas_atendidas']),
+                         ('alberto', 3.0, 1.0))
+        self.assertEqual(d['pct_ocupacion'], 33.3)
+        self.assertEqual(d['produccion_por_hora_disponible'], 30000)
+
+    def test_un_dia_sin_agenda_abierta_o_futuro_no_cuenta(self):
+        self._disp('2026-04-15', 'alberto', 0, 0)               # no atendió ese día
+        manana = (kpi.fechas.hoy_chile() + timedelta(days=1)).isoformat()
+        self._disp(manana, 'alberto', 120, 0)                  # todavía no ocurre
+        self.assertEqual(kpi.capacidad()['por_doctor'], [])
+
+    def test_costo_por_hora_disponible_solo_con_el_mes_capturado_entero(self):
+        dias = kpi._dias_habiles(date(2026, 4, 1), date(2026, 4, 30))
+        for d in dias:
+            self._disp(d.isoformat(), 'alberto', 120, 60)       # 3 h por día
+        self._gasto('2026-04-28', len(dias) * 3 * 10000, self.sueldos)
+        c = kpi.plata('2026-04-01', '2026-04-30')['capacidad']['costo_por_hora_disponible']
+        self.assertEqual((c['meses'], c['costo_por_hora']), (['2026-04'], 10000))
+
+    def test_un_mes_capturado_a_medias_no_da_costo(self):
+        """Dividir el gasto de un mes entero por la mitad de sus horas lo duplicaría."""
+        for d in kpi._dias_habiles(date(2026, 4, 1), date(2026, 4, 12)):
+            self._disp(d.isoformat(), 'alberto', 120, 60)
+        self._gasto('2026-04-28', 900000, self.sueldos)
+        self.assertIsNone(kpi.plata('2026-04-01', '2026-04-30')['capacidad']
+                          ['costo_por_hora_disponible'])
+
 class TestResumenComparacion(BaseKpi):
     """Las dos formas en que la comparación interanual puede mentir."""
 
@@ -1038,7 +1141,8 @@ def suite():
     for cls in (TestEstados, TestDoctores, TestCategorias, TestIngesta, TestSerieMensual,
                 TestReclasificar, TestDestinoPrimeraConsulta, TestFugas,
                 TestOcupacion, TestCartera, TestPacientesNuevos, TestOrigen, TestIngresos, TestPlataGastos, TestResumenComparacion,
-                TestCalidadDatos, TestEsquema, TestControlesProgramados):
+                TestCalidadDatos, TestEsquema, TestControlesProgramados,
+                TestMargenHonesto, TestCapacidad):
         s.addTests(loader.loadTestsFromTestCase(cls))
     return s
 

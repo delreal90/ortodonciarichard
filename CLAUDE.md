@@ -1475,6 +1475,46 @@ Con boletas, además ingresos, margen y margen %.
   compras real del PC donde se corrían las pruebas. ⚠️ Esa suite usa una **lista explícita
   de clases** en `suite()`: una clase de prueba nueva que no se agregue ahí no corre.
 
+#### ⚠️ Ingreso por hora, margen y costo hora sillón (corregido 2026-09-30)
+
+El panel mostraba un **gasto por hora casi el doble que el ingreso por hora** y se leía como
+que la clínica perdía plata. Era un error de cálculo: las boletas existen **desde junio de
+2026**, y con «últimos 12 meses» se dividían **4 meses de ingresos por 12 meses de horas**.
+Tres cambios en `kpi.plata()`, cada uno con su prueba (`TestMargenHonesto`, `TestCapacidad`):
+
+1. **`ingreso_por_hora` usa solo las horas de los meses con boletas** (`_minutos_por_mes`).
+2. **El margen solo usa meses con boletas Y gastos completos** (`estado_gastos()`):
+   - `en_curso` — el mes no ha terminado; los sueldos se pagan el último día. **Nunca** entra.
+   - `incompleto` — la **administración** (sueldos, previsión, impuestos, gastos comunes) trae
+     menos del 50% de la mediana de los 6 meses anteriores. Se mira la administración porque es
+     casi fija; los insumos varían legítimamente. Con menos de 3 meses de historia no se juzga.
+   - `atipico` (informativo, no excluye) — gasto total > 1,6× la mediana: junio y julio de 2026
+     (una compra grande de insumos, un pago en «Otros»). Se avisa para no leerlo como tendencia.
+   Los excluidos van en `meses_excluidos_margen` y el panel dice por qué. `comparacion` da
+   ingreso, gasto y **margen por hora sobre las mismas horas**. Medido al corregirlo: agosto
+   2026 traía menos de la mitad de su administración habitual (sueldos sin anotar) y mostraba
+   un margen enorme que no existía. (Las cifras no van acá: este repo es público.)
+3. **`capacidad()` — el costo hora sillón clásico.** Lo usual en gestión dental es dividir el
+   gasto por las horas de agenda **abierta**, no por las atendidas. Acá «sillón» = la agenda de
+   un doctor. Sale de la tabla `disponibilidad` (libres + ocupadas de la captura de las 03:00 de
+   cada día), así que **solo existe desde el 2026-08-21**. Por doctor: días, horas abiertas,
+   atendidas, % de ocupación e ingreso por hora disponible (este último solo desde la primera
+   boleta). El costo de la clínica por hora disponible solo se calcula con un mes **entero**
+   capturado (≥90% de sus días hábiles) y con gastos completos: dividir el gasto de un mes por la
+   mitad de sus horas lo duplicaría.
+
+⚠️ **«Gasto por hora atendida» (todo el período) y el de `comparacion` NO son el mismo número**:
+el primero divide por todas las horas del rango; el segundo, solo por las de los meses que
+entran al margen. Por eso el panel pone el par ingreso/gasto en un recuadro aparte.
+
+**Lo que se paga a los doctores va en la categoría «Sueldos y Leyes Sociales»** (decisión del
+usuario 2026-09-30). Los tres ortodoncistas ya estaban ahí («incluye sueldos patronales de los 3
+Drs.»); los honorarios del **Dr. Vial** se habían anotado en «Otros». Para poder corregirlos, el
+modal **✏️ Editar pago, categoría y costos** del detalle de una compra ahora permite cambiar la
+categoría (`actualizar_compra` ya la aceptaba; faltaba el selector). Para el margen da igual en
+qué categoría esté un gasto — se restan todos —, pero sí cambia «En qué se gasta» y la detección
+de meses incompletos, que mira la administración.
+
 ### Etiquetas QR en hojas de stickers — reemplaza a la térmica (2026-09-25)
 
 Pestaña **🏷️ Etiquetas** (rol `registrar`). En vez de la etiquetadora térmica +

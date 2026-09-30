@@ -1624,6 +1624,183 @@ def _por_ambito(g):
     return d
 
 
+# ── ¿Están completos los gastos de un mes? ──────────────────────────────────
+# Los gastos se anotan a mano y con atraso: los sueldos se pagan el último día del mes
+# y a veces se registran semanas después. Un mes a medio cargar mostraba un margen de
+# 70-95% que no existía (agosto y septiembre de 2026, con los sueldos sin anotar).
+#
+# El síntoma que delata un mes incompleto es la ADMINISTRACIÓN (sueldos, previsión,
+# impuestos, gastos comunes): es casi fija de un mes a otro, así que un mes que trae
+# menos de la mitad de lo habitual está a medio cargar. Los insumos no sirven para esto:
+# varían legítimamente mucho.
+GASTO_INCOMPLETO_BAJO = 0.5     # administración < 50% de la mediana reciente
+GASTO_ATIPICO_SOBRE = 1.6       # gasto total > 160% de la mediana reciente
+GASTO_MESES_REFERENCIA = 6
+GASTO_MIN_REFERENCIAS = 3       # con menos meses de historia no se juzga
+
+
+def _mes_mas(mes, n):
+    a, m = int(mes[:4]), int(mes[5:7]) - 1 + n
+    a += m // 12
+    return f'{a:04d}-{m % 12 + 1:02d}'
+
+
+def _mediana(xs):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    k = len(xs) // 2
+    return xs[k] if len(xs) % 2 else (xs[k - 1] + xs[k]) / 2
+
+
+def _gasto_mensual_historico():
+    """({mes: administración}, {mes: total}) de toda la historia de compras."""
+    try:
+        import compras
+        filas = compras.gasto_por_mes_ambito()
+    except Exception as e:
+        log.warning('kpi: no se pudo leer el gasto mensual historico: %r', e)
+        return {}, {}
+    admin, total = {}, {}
+    for r in filas:
+        t = r['total'] or 0
+        total[r['mes']] = total.get(r['mes'], 0) + t
+        if r['ambito'] == 'administracion':
+            admin[r['mes']] = admin.get(r['mes'], 0) + t
+    return admin, total
+
+
+def estado_gastos(meses, hoy=None):
+    """{mes: {'estado', 'detalle', 'atipico'}} para cada mes pedido.
+
+      en_curso    — el mes no ha terminado: los sueldos se pagan el último día, así que
+                    su gasto SIEMPRE está incompleto. Nunca entra al margen.
+      incompleto  — la administración del mes es menos de la mitad de lo habitual.
+      completo    — se puede restar contra los ingresos.
+
+    `atipico` no excluye nada: marca un mes con gasto muy sobre lo habitual (una compra
+    grande, un pago anual) para que no se lea como tendencia.
+
+    ⚠️ Sin al menos 3 meses de historia no se juzga y el mes queda `completo`: acusar de
+    incompleto a un mes sin nada con qué compararlo sería inventar."""
+    hoy = hoy or fechas.hoy_chile()
+    mes_hoy = hoy.isoformat()[:7]
+    admin, total = _gasto_mensual_historico()
+    out = {}
+    for m in meses:
+        if m >= mes_hoy:
+            out[m] = {'estado': 'en_curso', 'atipico': False,
+                      'detalle': 'mes en curso: los sueldos se pagan a fin de mes'}
+            continue
+        previos = [_mes_mas(m, -k) for k in range(1, GASTO_MESES_REFERENCIA + 1)]
+        ref_a = [admin[x] for x in previos if admin.get(x, 0) > 0]
+        ref_t = [total[x] for x in previos if total.get(x, 0) > 0]
+        estado, detalle = 'completo', ''
+        if len(ref_a) >= GASTO_MIN_REFERENCIAS:
+            med = _mediana(ref_a)
+            if admin.get(m, 0) < GASTO_INCOMPLETO_BAJO * med:
+                estado = 'incompleto'
+                detalle = (f'administración (sueldos, impuestos) ${round(admin.get(m, 0)):,} '
+                           f'contra ${round(med):,} habitual').replace(',', '.')
+        atipico = False
+        if len(ref_t) >= GASTO_MIN_REFERENCIAS:
+            atipico = total.get(m, 0) > GASTO_ATIPICO_SOBRE * _mediana(ref_t)
+        out[m] = {'estado': estado, 'detalle': detalle, 'atipico': atipico}
+    return out
+
+
+def _minutos_por_mes(desde, hasta, doctor):
+    """{mes: minutos atendidos}: las horas de sillón de cada mes, para dividir cada
+    ingreso por las horas de SU mismo período."""
+    w, p = _rango(desde, hasta, doctor)
+    con = _conn()
+    try:
+        return {r['mes']: r['m'] or 0 for r in con.execute(
+            f"SELECT substr(fecha,1,7) mes, SUM(COALESCE(duracion,0)) m FROM citas {w} "
+            f"AND {_SQL_OCURRIO} AND doctor <> '' GROUP BY 1", p)}
+    finally:
+        con.close()
+
+
+# ── Capacidad: las horas DISPONIBLES de cada doctor ─────────────────────────
+# El "costo hora sillón" que se usa normalmente divide por las horas en que la agenda
+# está ABIERTA, no por las que se llenaron. Acá "sillón" = la agenda de un doctor en
+# DentiDesk (una por doctor, aunque use dos sillones a la vez).
+#
+# ⚠️ Solo existe desde que el barrido diario empezó a guardar `disponibilidad`
+# (agosto de 2026): `getAvailableHours` solo responde por días futuros, así que las
+# horas abiertas de un día pasado no se pueden pedir después. Para un día D sirve la
+# captura de las 03:00 de ese mismo día: libres + ocupadas = la agenda abierta.
+CAPACIDAD_COBERTURA_MIN = 0.9   # un mes cuenta si se capturó al menos el 90% de sus días hábiles
+
+
+def capacidad(desde=None, hasta=None, doctor=None):
+    """Horas disponibles, atendidas e ingresos por doctor en los días con captura.
+
+    ⚠️ La producción por hora disponible solo mira los días desde la primera boleta
+    cargada: antes de eso no hay ingresos y el número saldría artificialmente bajo."""
+    hoy_iso = fechas.hoy_chile().isoformat()
+    cond, p = ['d.fecha < ?', '(d.min_libres + d.min_ocupados) > 0'], [hoy_iso]
+    if desde:
+        cond.append('d.fecha >= ?')
+        p.append(_iso(desde))
+    if hasta:
+        cond.append('d.fecha <= ?')
+        p.append(_iso(hasta))
+    if doctor:
+        cond.append('d.doctor = ?')
+        p.append(doctor)
+    w = ' AND '.join(cond)
+    con = _conn()
+    try:
+        primer_ingreso = con.execute('SELECT MIN(fecha) FROM ingresos').fetchone()[0]
+        base = _lista(con, f"""
+            SELECT d.doctor, COUNT(*) dias, SUM(d.min_libres + d.min_ocupados) min_disp,
+                   MIN(d.fecha) desde, MAX(d.fecha) hasta
+            FROM disponibilidad d WHERE {w} GROUP BY d.doctor""", p)
+        atend = {r['doctor']: r['m'] or 0 for r in con.execute(f"""
+            SELECT c.doctor, SUM(COALESCE(c.duracion,0)) m
+            FROM citas c JOIN disponibilidad d ON d.fecha = c.fecha AND d.doctor = c.doctor
+            WHERE {w} AND {_SQL_OCURRIO} GROUP BY c.doctor""", p)}
+        con_ing, ing = {}, {}
+        if primer_ingreso:
+            w2, p2 = w + ' AND d.fecha >= ?', p + [primer_ingreso]
+            con_ing = {r['doctor']: r['m'] or 0 for r in con.execute(f"""
+                SELECT d.doctor, SUM(d.min_libres + d.min_ocupados) m
+                FROM disponibilidad d WHERE {w2} GROUP BY d.doctor""", p2)}
+            ing = {r['doctor']: r['m'] or 0 for r in con.execute(f"""
+                SELECT i.doctor, SUM(i.monto) m
+                FROM ingresos i JOIN disponibilidad d ON d.fecha = i.fecha AND d.doctor = i.doctor
+                WHERE {w2} GROUP BY i.doctor""", p2)}
+        por_mes = {r['mes']: {'dias': r['dias'], 'min_disp': r['m'] or 0} for r in con.execute(f"""
+            SELECT substr(d.fecha,1,7) mes, COUNT(DISTINCT d.fecha) dias,
+                   SUM(d.min_libres + d.min_ocupados) m
+            FROM disponibilidad d WHERE {w} GROUP BY 1""", p)}
+    finally:
+        con.close()
+    for f in base:
+        disp = f['min_disp'] or 0
+        f['horas_disponibles'] = round(disp / 60, 1)
+        f['horas_atendidas'] = round(atend.get(f['doctor'], 0) / 60, 1)
+        f['pct_ocupacion'] = _pct(atend.get(f['doctor'], 0), disp)
+        h_ing = con_ing.get(f['doctor'], 0) / 60
+        f['ingresos'] = ing.get(f['doctor'], 0)
+        f['produccion_por_hora_disponible'] = (round(f['ingresos'] / h_ing)
+                                               if h_ing and f['ingresos'] else None)
+    base.sort(key=lambda x: -(x['min_disp'] or 0))
+    return {'por_doctor': base, 'por_mes': por_mes,
+            'desde': min((f['desde'] for f in base), default=None),
+            'primer_ingreso': primer_ingreso}
+
+
+def _mes_cubierto(mes, dias_capturados):
+    """True si se capturó la agenda de casi todos los días hábiles del mes."""
+    ini = date.fromisoformat(mes + '-01')
+    fin = date.fromisoformat(_mes_mas(mes, 1) + '-01') - timedelta(days=1)
+    habiles = len(_dias_habiles(ini, fin))
+    return bool(habiles) and dias_capturados >= CAPACIDAD_COBERTURA_MIN * habiles
+
+
 def plata(desde=None, hasta=None, doctor=None):
     """Ingresos, gastos y margen. El ingreso por hora de sillón es el indicador que
     junta operación y precio en un número.
@@ -1710,17 +1887,73 @@ def plata(desde=None, hasta=None, doctor=None):
         serie_mensual.append({'mes': mes, 'gastos': gas, 'ingresos': ing,
                               'margen': (ing - gas) if ing is not None and not doctor else None})
 
-    margen = margen_pct = gastos_cubiertos = None
-    if g is not None and ingreso_mes and not doctor:
-        gastos_cubiertos = sum(gasto_mes.get(m, 0) for m in ingreso_mes)
-        margen = ingresos - gastos_cubiertos
-        margen_pct = _pct(margen, ingresos) if ingresos > 0 else None
-
     oc = ocupacion(desde, hasta, doctor)
     minutos = sum(d['minutos'] or 0 for d in oc['por_doctor'])
     horas = minutos / 60
     amb = _por_ambito(g)
     toda_la_clinica = not doctor and gastos is not None
+    min_mes = _minutos_por_mes(desde, hasta, doctor)
+
+    # ⚠️ INGRESO POR HORA: solo con las horas de los meses que tienen boletas. Hasta el
+    # 2026-09-30 dividía los ingresos de 4 meses por las horas de 12 (el rango elegido) y
+    # mostraba un tercio del valor real, al lado de un gasto por hora que sí era de 12
+    # meses: parecía que la clínica perdía plata.
+    meses_ing = sorted(ingreso_mes)
+    h_ing = sum(min_mes.get(m, 0) for m in meses_ing) / 60
+    ingreso_por_hora = round(ingresos / h_ing) if h_ing else None
+
+    # ⚠️ EL MARGEN: solo meses con boletas Y con los gastos completos. Un mes en curso o
+    # con los sueldos sin anotar resta un gasto a medias y da un margen que no existe.
+    estados = estado_gastos(sorted(set(gasto_mes) | set(ingreso_mes)))
+    comparables, excluidos = [], []
+    if g is not None and not doctor:
+        for m in meses_ing:
+            e = estados.get(m) or {}
+            if e.get('estado') == 'completo':
+                comparables.append(m)
+            else:
+                excluidos.append({'mes': m, 'motivo': e.get('estado', ''),
+                                  'detalle': e.get('detalle', '')})
+    for fila in serie_mensual:
+        e = estados.get(fila['mes']) or {}
+        fila['estado_gastos'] = e.get('estado', '')
+        fila['atipico'] = bool(e.get('atipico'))
+        fila['horas'] = round(min_mes.get(fila['mes'], 0) / 60, 1)
+        if fila['estado_gastos'] != 'completo':
+            fila['margen'] = None
+
+    margen = margen_pct = gastos_cubiertos = comparacion = None
+    if comparables:
+        ing_c = sum(ingreso_mes[m] for m in comparables)
+        gastos_cubiertos = sum(gasto_mes.get(m, 0) for m in comparables)
+        h_c = sum(min_mes.get(m, 0) for m in comparables) / 60
+        margen = ing_c - gastos_cubiertos
+        margen_pct = _pct(margen, ing_c) if ing_c > 0 else None
+        comparacion = {
+            'meses': comparables,
+            'ingresos': ing_c,
+            'gastos': gastos_cubiertos,
+            'horas': round(h_c, 1),
+            'ingreso_por_hora': round(ing_c / h_c) if h_c else None,
+            'gasto_por_hora': round(gastos_cubiertos / h_c) if h_c else None,
+            'margen_por_hora': round(margen / h_c) if h_c else None,
+        }
+
+    # El "costo hora sillón" clásico: gasto dividido por las horas de agenda ABIERTA,
+    # solo en meses completos que además tengan la agenda capturada casi entera.
+    cap = capacidad(desde, hasta, doctor)
+    costo_disp = None
+    if toda_la_clinica:
+        meses_cap = [m for m, v in cap['por_mes'].items()
+                     if (estados.get(m) or {}).get('estado') == 'completo'
+                     and _mes_cubierto(m, v['dias'])]
+        h_disp = sum(cap['por_mes'][m]['min_disp'] for m in meses_cap) / 60
+        if h_disp:
+            costo_disp = {'meses': sorted(meses_cap),
+                          'horas_disponibles': round(h_disp, 1),
+                          'costo_por_hora': round(sum(gasto_mes.get(m, 0)
+                                                      for m in meses_cap) / h_disp)}
+    cap['costo_por_hora_disponible'] = costo_disp
 
     return {
         'ingresos': ingresos,
@@ -1737,12 +1970,17 @@ def plata(desde=None, hasta=None, doctor=None):
         'gastos_top_categorias': [
             {'label': r['label'], 'total': round(r['total'] or 0), 'ambito': r['ambito']}
             for r in ((g or {}).get('por_categoria') or [])[:8]],
+        # Gasto de los meses que entraron al margen (con boletas y gastos completos).
         'gastos_meses_con_ingresos': gastos_cubiertos,
         'margen': margen,
         'margen_pct': margen_pct,
+        'comparacion': comparacion,
+        'meses_excluidos_margen': excluidos,
         'horas_sillon': round(horas, 1),
+        'horas_meses_con_ingresos': round(h_ing, 1),
         'atendidos': atendidos,
-        'ingreso_por_hora': round(ingresos / horas) if horas else None,
+        'ingreso_por_hora': ingreso_por_hora,
+        'capacidad': cap,
         # Cuánto cuesta abrir la clínica por cada hora vendida y por cada paciente
         # atendido. Solo con la clínica completa: ver la nota de doctor arriba.
         'gasto_por_hora': round(gastos / horas) if toda_la_clinica and horas else None,
