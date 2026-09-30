@@ -1431,6 +1431,26 @@ Chile (`Intl` con `America/Santiago`), no del reloj del PC.
 > `id="rHasta"`, el mismo que el selector Indefinido/Hasta-fecha de los cargos recurrentes en
 > Nueva compra, y `$('#rHasta')` encontraba ese otro. Ahora son `repDesde`/`repHasta`.
 
+### Forma de pago por tarjeta de crédito, para cuadrar con la cartola (2026-09-30)
+
+"Crédito" se reemplazó por 7 tarjetas (`compras.TARJETAS_CREDITO`: Oficina ODS/ROW/ADV,
+Personal ODS/ROW/ADV y Otro). `forma_pago` sigue siendo texto libre en la base (nunca se
+validó contra `FORMAS_PAGO`), así que no hubo migración.
+- ⚠️ **Las compras antiguas con `credito` NO se reasignaron**: no dicen con qué tarjeta se
+  pagaron y adivinarlo arruinaría justo el cuadre. Se muestran como "T. Crédito (sin
+  especificar)", ya no se ofrecen al registrar, y se corrigen una por una con
+  **✏️ Editar pago y costos** en el detalle de la compra (el selector conserva el valor
+  antiguo para no cambiarlo sin querer).
+- **Historial** filtra por forma de pago (`?forma_pago=` → `listar_compras(forma_pago=)`),
+  con la opción `tarjetas` = cualquier `tc_*` **más** las `credito` antiguas, y muestra el
+  **total de lo filtrado**: tarjeta + mes da el número que se compara con la cartola.
+- ⚠️ La lista traía como máximo 200 filas: con período o tarjeta elegidos ahora trae hasta
+  5.000, porque un total calculado sobre una lista cortada no calza con la cartola.
+- El Excel exporta el nombre legible de la tarjeta (`FORMAS_PAGO_LABEL`).
+- ⚠️ El Excel exporta **una fila por ítem** (`JOIN compra_items`): los gastos sin productos
+  (arriendo, sueldos, cargos recurrentes) **no salen ahí**. Para cuadrar tarjetas, usar el
+  Historial.
+
 ### Gastos en la pestaña KPIs del panel (2026-09-25)
 
 `kpi.plata()` ahora devuelve los gastos del sistema de compras **siempre** (antes la tarjeta

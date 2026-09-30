@@ -385,5 +385,47 @@ class TestPosiblesDuplicados(_Base):
         self.assertEqual(pares[0]['tipo'], 'parecido')
 
 
+class TestFormaPago(_Base):
+    """Filtrar por tarjeta es para cuadrar contra la cartola: no puede perder ni
+    colar compras de otra forma de pago."""
+
+    def _gasto(self, pago, monto=1000, fecha='2026-09-10'):
+        compras.crear_compra({'fecha': fecha, 'tipo_gasto': 'variable', 'moneda': 'CLP',
+                              'forma_pago': pago, 'total': monto}, [])
+
+    def test_filtra_por_una_tarjeta(self):
+        self._gasto('tc_oficina_ods', 1000)
+        self._gasto('tc_personal_ods', 2000)
+        self._gasto('transferencia', 4000)
+        r = compras.listar_compras(forma_pago='tc_oficina_ods')
+        self.assertEqual([c['total'] for c in r], [1000])
+
+    def test_todas_las_tarjetas_incluye_las_antiguas_sin_especificar(self):
+        self._gasto('tc_oficina_row', 1000)
+        self._gasto('credito', 2000)          # compra antigua: solo decía "crédito"
+        self._gasto('debito', 4000)
+        r = compras.listar_compras(forma_pago='tarjetas')
+        self.assertEqual(sorted(c['total'] for c in r), [1000, 2000])
+
+    def test_las_siete_tarjetas_existen(self):
+        self.assertEqual(len(compras.TARJETAS_CREDITO), 7)
+        for k in compras.TARJETAS_CREDITO:
+            self.assertIn(k, compras.FORMAS_PAGO)
+
+    def test_el_excel_muestra_el_nombre_de_la_tarjeta(self):
+        p = compras.crear_producto('Guantes M')
+        compras.crear_compra({'fecha': '2026-09-10', 'tipo_gasto': 'variable', 'moneda': 'CLP',
+                              'forma_pago': 'tc_personal_adv'},
+                             [{'producto_id': p, 'cantidad': 1, 'precio_unitario': 500}])
+        self.assertEqual(compras.filas_export()[0]['forma_pago'], 'T. Crédito Personal ADV')
+
+    def test_se_puede_cambiar_la_tarjeta_de_una_compra_antigua(self):
+        self._gasto('credito', 3000)
+        cid = compras.listar_compras()[0]['id']
+        compras.actualizar_compra(cid, {'forma_pago': 'tc_oficina_adv'})
+        self.assertEqual(compras.obtener_compra(cid)['forma_pago'], 'tc_oficina_adv')
+        self.assertEqual(compras.obtener_compra(cid)['total'], 3000)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -34,6 +34,22 @@ const AMBITO_LABEL = {
   administracion: '🏦 Administración (sueldos, honorarios, impuestos, seguros)',
   sin_categoria: '(sin categoría)',
 };
+// Formas de pago. Las tarjetas de crédito van por separado para poder cuadrar cada
+// una contra su cartola. 'credito' (sin tarjeta) solo existe en compras antiguas: se
+// muestra, pero ya no se ofrece al registrar.
+const FORMAS_PAGO = [
+  ['transferencia', 'Transferencia'], ['efectivo', 'Efectivo'], ['debito', 'Débito'],
+  ['tc_oficina_ods', 'T. Crédito Oficina ODS'], ['tc_oficina_row', 'T. Crédito Oficina ROW'],
+  ['tc_oficina_adv', 'T. Crédito Oficina ADV'], ['tc_personal_ods', 'T. Crédito Personal ODS'],
+  ['tc_personal_row', 'T. Crédito Personal ROW'], ['tc_personal_adv', 'T. Crédito Personal ADV'],
+  ['tc_otro', 'T. Crédito Otro'], ['cheque', 'Cheque'], ['otro', 'Otro'],
+];
+const PAGO_LEGADO = { credito: 'T. Crédito (sin especificar)' };
+const labelPago = v => (FORMAS_PAGO.find(f => f[0] === v) || [])[1] || PAGO_LEGADO[v] || v || '';
+// <option>s del selector. Si la compra ya tiene un valor antiguo, se muestra para no
+// cambiárselo sin querer al editar.
+const optsPago = (sel) => (sel && PAGO_LEGADO[sel] ? `<option value="${sel}" selected>${PAGO_LEGADO[sel]}</option>` : '') +
+  FORMAS_PAGO.map(([v, l]) => `<option value="${v}" ${sel === v ? 'selected' : ''}>${l}</option>`).join('');
 const ROLES_ORDEN = ['registro', 'inventario', 'solicitante', 'escaner', 'lectura', 'admin'];
 const optsRoles = sel => ROLES_ORDEN.map(r =>
   `<option value="${r}" ${sel === r ? 'selected' : ''}>${ROLES_LABEL[r]}</option>`).join('');
@@ -237,7 +253,7 @@ RENDER.compras = () => {
           <select id="cTipoDoc"><option value="factura">Factura</option><option value="boleta">Boleta</option><option value="otro">Otro</option></select></div>
         <div class="field"><label>N° documento</label><input id="cNroDoc" placeholder="Ej: 12345"></div>
         <div class="field"><label>Forma de pago</label>
-          <select id="cPago"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="debito">Débito</option><option value="credito">Crédito</option><option value="cheque">Cheque</option><option value="otro">Otro</option></select></div>
+          <select id="cPago">${optsPago('transferencia')}</select></div>
       </div>
       <div class="row c3">
         <div class="field"><label>Tipo de gasto</label>
@@ -533,7 +549,14 @@ RENDER.historial = async () => {
         <div class="field"><label>Proveedor</label><select id="hProv"><option value="">Todos</option>${CACHE.proveedores.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select></div>
         <div class="field"><label>Tipo</label><select id="hTipo"><option value="">Todos</option><option value="fijo">Fijo</option><option value="variable">Variable</option><option value="recurrente">Recurrente</option></select></div>
       </div>
+      <div class="row c4" style="margin-bottom:14px">
+        <div class="field"><label>Forma de pago</label><select id="hPago"><option value="">Todas</option>
+          <option value="tarjetas">💳 Todas las tarjetas de crédito</option>
+          ${FORMAS_PAGO.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+          <option value="credito">${PAGO_LEGADO.credito}</option></select></div>
+      </div>
       <button class="btn ghost sm" id="hFiltrar">Filtrar</button>
+      <div id="hResumen" class="muted" style="margin-top:10px"></div>
       <div class="tablewrap" style="margin-top:14px"><table id="hTabla"></table></div>
     </div>`;
   const cargar = async () => {
@@ -542,17 +565,27 @@ RENDER.historial = async () => {
     if ($('#hHasta').value) q.set('hasta', $('#hHasta').value);
     if ($('#hProv').value) q.set('proveedor_id', $('#hProv').value);
     if ($('#hTipo').value) q.set('tipo_gasto', $('#hTipo').value);
+    if ($('#hPago').value) q.set('forma_pago', $('#hPago').value);
     try {
       const j = await api('/api/compras/compras?' + q);
-      $('#hTabla').innerHTML = `<tr><th>Fecha</th><th>Proveedor</th><th>Doc</th><th>Categoría</th><th>Tipo</th><th class="num">Total</th><th></th></tr>` +
+      // Total de lo filtrado: con una tarjeta y un mes elegidos, es el número que se
+      // compara contra la cartola del banco.
+      const suma = j.compras.reduce((a, c) => a + (Number(c.total_clp) || Number(c.total) || 0), 0);
+      const cortada = j.compras.length >= 200 && !q.get('desde') && !q.get('forma_pago');
+      $('#hResumen').innerHTML = j.compras.length
+        ? `<b>${j.compras.length}</b> compra(s) · total <b>${clp(suma)}</b>` +
+          (cortada ? ' <span class="muted">(solo las últimas 200 — elige un período o una tarjeta para ver el total completo)</span>' : '')
+        : '';
+      $('#hTabla').innerHTML = `<tr><th>Fecha</th><th>Proveedor</th><th>Doc</th><th>Categoría</th><th>Pago</th><th>Tipo</th><th class="num">Total</th><th></th></tr>` +
         (j.compras.length ? j.compras.map(c => `<tr>
           <td>${esc(c.fecha)}</td><td>${esc(c.proveedor_nombre || '—')}</td>
           <td>${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')}</td>
           <td>${esc(c.categoria_nombre || '—')}</td>
+          <td class="muted">${esc(labelPago(c.forma_pago))}</td>
           <td><span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span>${c.moneda === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</td>
           <td class="num">${clp(c.total_clp || c.total)}</td>
           <td><button class="btn ghost sm" data-ver="${c.id}">Ver</button></td></tr>`).join('')
-          : `<tr><td colspan="7" class="empty">Sin compras en el período.</td></tr>`);
+          : `<tr><td colspan="8" class="empty">Sin compras en el período.</td></tr>`);
       $$('#hTabla [data-ver]').forEach(b => b.onclick = () => verCompra(b.dataset.ver));
     } catch (e) { toast(e.message, 'err'); }
   };
@@ -572,7 +605,7 @@ async function verCompra(id) {
     const m = modal(`
       <h3>Compra #${c.id}${mon === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</h3>
       <p class="muted">${esc(c.fecha)} · ${esc(c.proveedor_nombre || 'sin proveedor')} · ${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')}</p>
-      <p class="muted" style="margin-bottom:12px">${esc(c.forma_pago || '')} · <span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span> · ${esc(c.categoria_nombre || 'sin categoría')}${c.suscripcion_id ? ' · <span class="pill recurrente">🔁 generado automático</span>' : ''}</p>
+      <p class="muted" style="margin-bottom:12px">${esc(labelPago(c.forma_pago))} · <span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span> · ${esc(c.categoria_nombre || 'sin categoría')}${c.suscripcion_id ? ' · <span class="pill recurrente">🔁 generado automático</span>' : ''}</p>
       <div class="tablewrap"><table><tr><th>Producto</th><th>Marca</th><th class="num">Cant.</th><th class="num">P. unit.</th><th class="num">Subtotal</th></tr>
         ${c.items.map(i => `<tr><td>${esc(i.producto_nombre || '—')}</td><td class="muted">${esc(i.marca || '—')}</td><td class="num">${i.cantidad}</td><td class="num">${money(i.precio_unitario, mon)}</td><td class="num">${money(i.subtotal, mon)}</td></tr>`).join('')}
         ${c.items.length ? '' : `<tr><td colspan="5" class="muted">Gasto sin productos</td></tr>`}
@@ -582,7 +615,7 @@ async function verCompra(id) {
       ${c.notas ? `<p class="muted" style="margin-top:10px">📝 ${esc(c.notas)}</p>` : ''}
       ${foto}
       <div class="flex" style="margin-top:16px">
-        ${puede('registrar') ? `<button class="btn gold sm" id="editCostos">✏️ Editar costos</button>` : ''}
+        ${puede('registrar') ? `<button class="btn gold sm" id="editCostos">✏️ Editar pago y costos</button>` : ''}
         <div class="spacer"></div>
         ${puede('admin') ? `<button class="btn danger sm" id="delCompra">Eliminar</button>` : ''}
         <button class="btn ghost sm" onclick="document.getElementById('modalRoot').innerHTML=''">Cerrar</button></div>`);
@@ -599,8 +632,9 @@ async function verCompra(id) {
 function editarCostosCompra(c) {
   const mon = c.moneda || 'CLP';
   const m = modal(`
-    <h3>Editar costos — Compra #${c.id}</h3>
+    <h3>Editar compra #${c.id}</h3>
     <p class="muted" style="margin-bottom:12px">Ajusta despacho, moneda o agrega el <b>costo de importación</b> (aduana/courier) que suele llegar después por FedEx, DHL, etc. El total se recalcula solo.</p>
+    <div class="field"><label>Forma de pago</label><select id="ecPago">${optsPago(c.forma_pago)}</select></div>
     <div class="row c2">
       <div class="field"><label>Moneda</label><select id="ecMoneda">
         <option value="CLP" ${mon === 'CLP' ? 'selected' : ''}>Peso (CLP)</option>
@@ -618,14 +652,14 @@ function editarCostosCompra(c) {
   m.querySelector('#ecMoneda').onchange = e => m.querySelector('#ecTCWrap').classList.toggle('hidden', e.target.value !== 'USD');
   m.querySelector('#ecOk').onclick = async () => {
     const moneda = m.querySelector('#ecMoneda').value;
-    const body = { id: c.id, moneda,
+    const body = { id: c.id, moneda, forma_pago: m.querySelector('#ecPago').value,
       tipo_cambio: moneda === 'USD' ? (Number(m.querySelector('#ecTC').value) || 0) : 1,
       costo_despacho: Number(m.querySelector('#ecDesp').value) || 0,
       costo_importacion: Number(m.querySelector('#ecImp').value) || 0 };
     if (moneda === 'USD' && body.tipo_cambio <= 0) return toast('Ingresa el tipo de cambio', 'err');
     try {
       const r = await api('/api/compras/compras/actualizar', { method: 'POST', body });
-      closeModal(); toast('Costos actualizados · Total ' + clp(r.total_clp) + ' ✓', 'ok');
+      closeModal(); toast('Compra actualizada · Total ' + clp(r.total_clp) + ' ✓', 'ok');
       RENDER.historial();
     } catch (e) { toast(e.message, 'err'); }
   };

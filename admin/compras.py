@@ -111,6 +111,25 @@ def tiene_cap(rol, cap):
 TIPOS_GASTO = ('fijo', 'variable', 'recurrente')
 TIPOS_DOC = ('factura', 'boleta', 'otro')
 FORMAS_PAGO = ('efectivo', 'transferencia', 'debito', 'credito', 'cheque', 'otro')
+# Tarjetas de crédito por separado, para poder cuadrar cada una contra su cartola
+# (2026-09-30). 'credito' queda solo para las compras antiguas, que no dicen con qué
+# tarjeta se pagaron: ya no se ofrece al registrar.
+TARJETAS_CREDITO = {
+    'tc_oficina_ods': 'T. Crédito Oficina ODS',
+    'tc_oficina_row': 'T. Crédito Oficina ROW',
+    'tc_oficina_adv': 'T. Crédito Oficina ADV',
+    'tc_personal_ods': 'T. Crédito Personal ODS',
+    'tc_personal_row': 'T. Crédito Personal ROW',
+    'tc_personal_adv': 'T. Crédito Personal ADV',
+    'tc_otro': 'T. Crédito Otro',
+}
+FORMAS_PAGO_LABEL = {
+    'transferencia': 'Transferencia', 'efectivo': 'Efectivo', 'debito': 'Débito',
+    **TARJETAS_CREDITO,
+    'credito': 'T. Crédito (sin especificar)',
+    'cheque': 'Cheque', 'otro': 'Otro',
+}
+FORMAS_PAGO = tuple(FORMAS_PAGO_LABEL)
 UNIDADES = ('unidad', 'caja', 'paquete', 'litro', 'kilo', 'metro', 'par', 'set')
 
 SESION_DIAS = 30            # validez de una sesión de login
@@ -1434,7 +1453,7 @@ def actualizar_compra(compra_id, campos):
 
 
 def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
-                   tipo_gasto=None, limite=200, solo_ambito=None):
+                   tipo_gasto=None, limite=200, solo_ambito=None, forma_pago=None):
     """solo_ambito='operacion' oculta las compras de categorías administrativas
     (sueldos, honorarios, impuestos, seguros) — lo usa el rol 'inventario'."""
     con = _conn()
@@ -1453,6 +1472,12 @@ def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
             cond.append('c.categoria_id=?'); vals.append(categoria_id)
         if tipo_gasto in TIPOS_GASTO:
             cond.append('c.tipo_gasto=?'); vals.append(tipo_gasto)
+        # 'tarjetas' = cualquier tarjeta de crédito, incluidas las compras antiguas que
+        # solo dicen 'credito'.
+        if forma_pago == 'tarjetas':
+            cond.append("(substr(c.forma_pago,1,3)='tc_' OR c.forma_pago='credito')")
+        elif forma_pago:
+            cond.append('c.forma_pago=?'); vals.append(forma_pago)
         if solo_ambito in AMBITOS:
             # Sin categoría asignada = se considera operativo (no filtra info sensible
             # por accidente: lo administrativo SIEMPRE lleva su categoría).
@@ -2157,7 +2182,7 @@ def filas_export(desde=None, hasta=None):
         if hasta:
             cond.append('c.fecha<=?'); vals.append(hasta)
         where = (' WHERE ' + ' AND '.join(cond)) if cond else ''
-        return _rows(con.execute(
+        filas = _rows(con.execute(
             f"SELECT c.fecha, pr.nombre AS proveedor, c.tipo_doc, c.nro_doc, "
             f"c.forma_pago, c.tipo_gasto, cat.nombre AS categoria, "
             f"p.nombre AS producto, i.marca, i.cantidad, i.precio_unitario, i.subtotal, "
@@ -2167,5 +2192,8 @@ def filas_export(desde=None, hasta=None):
             f"LEFT JOIN categorias cat ON cat.id=c.categoria_id "
             f"LEFT JOIN productos p ON p.id=i.producto_id{where} "
             f"ORDER BY c.fecha DESC, c.id DESC", vals))
+        for f in filas:
+            f['forma_pago'] = FORMAS_PAGO_LABEL.get(f['forma_pago'], f['forma_pago'])
+        return filas
     finally:
         con.close()

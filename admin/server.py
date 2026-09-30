@@ -7112,7 +7112,11 @@ def compras_listar():
     return jsonify({'ok': True, 'compras': _compras.listar_compras(
         desde=a.get('desde') or None, hasta=a.get('hasta') or None,
         proveedor_id=a.get('proveedor_id') or None, categoria_id=a.get('categoria_id') or None,
-        tipo_gasto=a.get('tipo_gasto') or None, solo_ambito=_ambito_de(u))})
+        tipo_gasto=a.get('tipo_gasto') or None, solo_ambito=_ambito_de(u),
+        forma_pago=a.get('forma_pago') or None,
+        # Con un período o una tarjeta elegidos se trae todo: para cuadrar contra la
+        # cartola, una lista cortada en 200 daría un total que no calza.
+        limite=5000 if (a.get('desde') or a.get('forma_pago')) else 200)})
 
 @app.route('/api/compras/compras/<int:cid>', methods=['GET'])
 def compras_obtener(cid):
