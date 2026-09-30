@@ -720,6 +720,7 @@ import reporte_semanal
 import kpi              # datamart de KPIs (copia local de la agenda), ver kpi.py
 import clinico          # capa clinica y de eventos sobre la MISMA base, ver clinico.py
 import backup
+import vigilante_respaldos
 from datetime import date, datetime, timedelta
 
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
@@ -6041,6 +6042,25 @@ def backup_estado():
     return jsonify({'ok': True, **backup.estado()})
 
 
+@app.route('/api/respaldos/vigilancia', methods=['GET'])
+def respaldos_vigilancia():
+    """Cuantos dias lleva cada respaldo (Render y DIGITAL1) sin hacerse. Solo
+    consulta: no envia correo ni cambia el contador de avisos."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, 'umbral_dias': vigilante_respaldos.UMBRAL_DIAS,
+                    'respaldos': vigilante_respaldos.evaluar()})
+
+
+@app.route('/api/respaldos/vigilancia/run', methods=['POST'])
+def respaldos_vigilancia_run():
+    """Fuerza el chequeo ahora (con envio de correo si toca). Respeta la regla de
+    no repetir: avisa al cruzar 4 dias y luego cada multiplo (8, 12...)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify(vigilante_respaldos.revisar())
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # REPORTE SEMANAL  (KPIs de negocio al correo — modulo reporte_semanal.py)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -8068,6 +8088,27 @@ def _loop_backup():
         time.sleep(40)
 
 
+def _loop_vigilante_respaldos():
+    """Una vez al dia (ventana 08:00-12:00) revisa que los dos respaldos no lleven
+    4 o mas dias sin hacerse y avisa por correo si es asi. Ver vigilante_respaldos.py.
+    Va de manana: DIGITAL1 respalda de 21:00 en adelante, asi que a esa hora ya
+    dejo su resumen de anoche."""
+    import time
+    ya_corrio = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            if '08:00' <= slot < '12:00' and ya_corrio != ahora.date():
+                ya_corrio = ahora.date()
+                r = vigilante_respaldos.revisar()
+                print('[vigilante-respaldos]', slot, r.get('correo'),
+                      {k: v.get('dias') for k, v in r['respaldos'].items()})
+        except Exception as e:
+            print('[vigilante-respaldos] error:', e)
+        time.sleep(40)
+
+
 def _procesar_alerta_consentimientos():
     """Cruza los consentimientos SIN FIRMAR con la agenda de DentiDesk y manda
     UN aviso agrupado a recepcion (nunca uno por paciente).
@@ -8463,6 +8504,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_reporte_semanal, daemon=True).start()
     threading.Thread(target=_loop_kpi_cosecha, daemon=True).start()
     threading.Thread(target=_loop_backup, daemon=True).start()
+    threading.Thread(target=_loop_vigilante_respaldos, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')

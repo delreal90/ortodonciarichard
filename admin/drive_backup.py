@@ -132,6 +132,41 @@ def listar_archivos(folder_id=None, prefijo=None):
         return {'ok': False, 'error': str(e), 'archivos': []}
 
 
+def leer_texto_por_nombre(nombre):
+    """Lee el contenido de un archivo de texto de Drive buscandolo por nombre en
+    TODO lo que la cuenta de servicio puede ver (unidades compartidas y carpetas
+    compartidas con ella). Si hay varios con ese nombre toma el mas reciente.
+
+    Lo usa el vigilante de respaldos para leer `ultimo_respaldo.txt`, que deja
+    cada noche el respaldo de DIGITAL1. Devuelve {'ok': bool, 'texto'?, 'error'?};
+    'no encontrado' suele significar que la carpeta no esta compartida con la
+    cuenta de servicio."""
+    from googleapiclient.discovery import build
+
+    creds = _credenciales()
+    if not creds:
+        return {'ok': False, 'error': 'Sin credenciales de Google Drive configuradas'}
+    try:
+        service = build('drive', 'v3', credentials=creds, cache_discovery=False)
+        nombre_q = nombre.replace('\\', '\\\\').replace("'", "\\'")
+        resp = service.files().list(
+            q=f"name = '{nombre_q}' and trashed = false",
+            fields='files(id, name, modifiedTime)', orderBy='modifiedTime desc',
+            pageSize=5, supportsAllDrives=True, includeItemsFromAllDrives=True,
+            corpora='allDrives',
+        ).execute()
+        archivos = resp.get('files', [])
+        if not archivos:
+            return {'ok': False, 'error': f'{nombre} no encontrado (¿la carpeta esta '
+                                          f'compartida con la cuenta de servicio?)'}
+        contenido = service.files().get_media(
+            fileId=archivos[0]['id'], supportsAllDrives=True).execute()
+        return {'ok': True, 'texto': contenido.decode('utf-8-sig', errors='replace')}
+    except Exception as e:
+        log.error('Error leyendo %s en Drive: %s', nombre, e)
+        return {'ok': False, 'error': str(e)}
+
+
 def eliminar_archivo(file_id):
     """Elimina un archivo de Drive por id (rotacion de respaldos viejos).
     Devuelve {'ok': bool, 'error'?}."""

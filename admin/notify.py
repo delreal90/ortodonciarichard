@@ -1485,3 +1485,53 @@ def avisar_collage_pendiente(destinatario_email, lista):
     except Exception as e:
         log.error('SMTP aviso de collage error: %s', e)
         return {'ok': False, 'error': str(e)}
+
+
+def avisar_respaldos_atrasados(destinatario_email, problemas, umbral_dias):
+    """Aviso de que uno o ambos respaldos llevan `umbral_dias` o mas sin hacerse.
+
+    `problemas`: lista de {sistema, dias, detalle, sin_verificar} tal como los
+    arma vigilante_respaldos.evaluar(). UN solo correo con todo lo atrasado.
+    Devuelve {ok, error}: el llamador solo debe dar el aviso por hecho si ok."""
+    if not problemas:
+        return {'ok': False, 'error': 'lista vacía'}
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    if not smtp_user or not smtp_pass or '@' not in (destinatario_email or ''):
+        return {'ok': False, 'error': 'sin SMTP o email de destino'}
+
+    filas = []
+    for p in problemas:
+        if p.get('sin_verificar'):
+            que = (f"No se ha podido comprobar desde hace {p.get('dias', 0)} días."
+                   f"<br><span style=\"color:#718096;font-size:13px\">{p.get('detalle', '')}</span>")
+        else:
+            que = (f"Lleva <b>{p.get('dias')} días</b> sin respaldarse."
+                   f"<br><span style=\"color:#718096;font-size:13px\">{p.get('detalle', '')}</span>")
+        filas.append(_fila(p.get('sistema', ''), que))
+    n = len(problemas)
+    titulo = 'Un respaldo lleva días sin hacerse' if n == 1 else 'Dos respaldos llevan días sin hacerse'
+    html = _aviso_recepcion_html(
+        titulo,
+        ''.join(filas) + _fila('Qué hacer',
+                               'Revisar que el PC de DIGITAL1 esté encendido y con internet; '
+                               'para el de datos, mirar el log de Render (línea [backup]).'),
+        etiqueta='Respaldos — Alerta',
+        pie=f'Ortodoncia Richard · Aviso automático (se avisa a partir de {umbral_dias} días sin respaldo)')
+
+    msg = MIMEMultipart('alternative')
+    msg['From'] = f'Ortodoncia Richard <{smtp_user}>'
+    msg['To'] = destinatario_email
+    msg['Subject'] = f'⚠️ {titulo}'
+    msg['Reply-To'] = smtp_user
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destinatario_email], msg.as_bytes())
+        log.info('Aviso de respaldo atrasado enviado a %s', destinatario_email)
+        return {'ok': True}
+    except Exception as e:
+        log.error('SMTP aviso de respaldo atrasado error: %s', e)
+        return {'ok': False, 'error': str(e)}
