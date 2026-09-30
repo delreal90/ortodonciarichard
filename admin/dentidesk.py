@@ -142,7 +142,12 @@ def _get_agenda_day(cfg, target_date, force=False):
     except ValueError:
         log.warning('_get_agenda_day: respuesta 200 con JSON invalido para %s (no se cachea)', key)
         return []
-    _AGENDA_DIA_CACHE[key] = (_t.time(), data)
+    ahora = _t.time()
+    # Sin esto el cache solo crecia: cada barrido (KPIs, reactivacion de ~400 dias,
+    # backfill) dejaba sus dias guardados para siempre en la RAM del proceso.
+    for k in [k for k, v in _AGENDA_DIA_CACHE.items() if ahora - v[0] >= _AGENDA_DIA_TTL]:
+        _AGENDA_DIA_CACHE.pop(k, None)
+    _AGENDA_DIA_CACHE[key] = (ahora, data)
     return data
 
 

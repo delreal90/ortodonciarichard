@@ -76,10 +76,18 @@ def subir_archivo(ruta_local, nombre_archivo=None, mimetype='application/octet-s
             'name': nombre_archivo or ruta_local.name,
             'parents': [folder_id or _folder_id()],
         }
-        media = MediaFileUpload(str(ruta_local), mimetype=mimetype, resumable=False)
-        archivo = service.files().create(
+        # ⚠️ resumable=True a proposito: con False la libreria lee el archivo ENTERO a
+        # memoria y arma el cuerpo multipart (varias copias). Con el zip del respaldo
+        # (clinica.db + compras.db) eso reventaba el limite de RAM de Render a las 03:30.
+        # En trozos de 2 MB el consumo es constante sin importar el tamano.
+        media = MediaFileUpload(str(ruta_local), mimetype=mimetype, resumable=True,
+                                chunksize=2 * 1024 * 1024)
+        pedido = service.files().create(
             body=metadata, media_body=media, fields='id', supportsAllDrives=True
-        ).execute()
+        )
+        archivo = None
+        while archivo is None:
+            _estado, archivo = pedido.next_chunk(num_retries=3)
         return {'ok': True, 'file_id': archivo.get('id')}
     except Exception as e:
         log.error('Error subiendo a Drive: %s', e)
