@@ -1624,6 +1624,29 @@ botones: pedir el detalle de un sueldo por URL directa devuelve 404.
 Verificado con los datos reales: de 952 compras que ve un admin, el rol inventario ve 812
 — se le ocultan las 140 administrativas (la mayor parte del gasto), con 0 fugas.
 
+**Proveedor confidencial (2026-09-30).** El ámbito de la categoría **no alcanzaba**: el
+Dr. Labraña es un **servicio externo** (va en «Servicios», que es operación) y aun así su pago
+no lo debe ver quien lleva el inventario. Pedido del Dr. Alberto: ese pago no lo debe ver
+quien lleva el inventario, y tampoco el del Dr. Vial, sueldos, SII ni Previred. Ahora
+`proveedores.confidencial` (migración idempotente) esconde al rol con `solo_operacion` **todo
+pago de ese proveedor, sea cual sea su categoría — o si no tiene ninguna** —, y el proveedor
+mismo de las listas (su nombre ya dice a quién se le paga).
+- Marcados en producción: **Dr. Labraña, Dr. Vial, Sueldos, PreviRed y SII / Tesorería**. Se
+  marca en Administración → Proveedores → Editar (casilla 🔒, **solo admin**; el servidor
+  rechaza con 403 que otro rol la cambie).
+- ⚠️ **Se cerraron de paso cuatro rutas que no aplicaban el filtro de ámbito** — el rol
+  inventario podía llegar por ellas a lo administrativo aunque el historial se lo escondiera:
+  `compras/actualizar` (editar una compra que no ve, o moverla a un proveedor confidencial /
+  categoría que no ve), `foto/<nombre>` (la foto de una liquidación de sueldo pedida por su
+  nombre: `compras.compra_de_foto()`), `proveedores` y `proveedores/actualizar`, y los
+  **cargos recurrentes** (listar, editar y cortar).
+- Pruebas: `TestConfidencial` (a nivel de datos) y `TestConfidencialRutas` (llamando a las
+  rutas con la sesión de un usuario Inventario) en `test_compras.py`.
+- ⚠️ **Lo que esto NO cubre:** la pestaña KPIs del panel muestra los gastos por categoría
+  (sueldos incluidos) a quien tenga el `ADMIN_TOKEN`, y ese token está en el `config.js` de la
+  extensión F2 de cada PC de la clínica. No es algo que se vea usando Compras, pero alguien con
+  acceso a un PC de la clínica y conocimientos técnicos podría leerlo.
+
 **Usuarios (2026-08-13):**
 - **Sin email obligatorio**: la columna `usuarios.email` es en realidad el NOMBRE DE
   USUARIO para entrar (se mantiene el nombre de columna por compatibilidad). Acepta

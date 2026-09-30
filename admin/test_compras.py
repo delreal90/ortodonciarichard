@@ -427,5 +427,133 @@ class TestFormaPago(_Base):
         self.assertEqual(compras.obtener_compra(cid)['total'], 3000)
 
 
+
+class _ConfBase(_Base):
+    """Lo que el rol Inventario NO puede ver: sueldos, SII, Previred, honorarios de
+    doctores y servicios externos privados. La categoría sola no alcanzaba: el Dr.
+    Labraña es un servicio externo (va en «Servicios», operación) y su pago tampoco lo
+    debe ver quien lleva el inventario (pedido del Dr. Alberto, 2026-09-30)."""
+
+    def setUp(self):
+        super().setUp()
+        self.servicios = compras.crear_categoria('Servicios', 'operacion')
+        self.sueldos = compras.crear_categoria('Sueldos', 'administracion')
+        self.externo = compras.crear_proveedor('Dr. Externo')
+        self.insumos_prov = compras.crear_proveedor('Dental Uno')
+        compras.actualizar_proveedor(self.externo, confidencial=True)
+        self.c_externo = self._compra(self.externo, self.servicios, foto='liq.jpg')
+        self.c_insumo = self._compra(self.insumos_prov, self.servicios)
+
+    def _compra(self, prov, cat, foto=None):
+        cid = compras.crear_compra({'fecha': '2026-09-10', 'tipo_gasto': 'variable',
+                                       'moneda': 'CLP', 'proveedor_id': prov,
+                                       'categoria_id': cat, 'total': 500000,
+                                       'foto_path': foto}, [])
+        return cid
+
+
+class TestConfidencial(_ConfBase):
+
+    def test_el_pago_a_un_proveedor_confidencial_no_se_ve_aunque_sea_de_operacion(self):
+        ids = {c['id'] for c in compras.listar_compras(solo_ambito='operacion')}
+        self.assertNotIn(self.c_externo, ids)
+        self.assertIn(self.c_insumo, ids)
+
+    def test_el_admin_lo_sigue_viendo(self):
+        self.assertIn(self.c_externo, {c['id'] for c in compras.listar_compras()})
+
+    def test_tampoco_entrando_por_el_detalle(self):
+        self.assertIsNone(compras.obtener_compra(self.c_externo, solo_ambito='operacion'))
+        self.assertIsNotNone(compras.obtener_compra(self.c_externo))
+
+    def test_ni_sin_categoria(self):
+        """Un pago sensible anotado sin categoría caía en «operación» por defecto."""
+        cid = self._compra(self.externo, None)
+        self.assertNotIn(cid, {c['id'] for c in compras.listar_compras(solo_ambito='operacion')})
+
+    def test_el_nombre_del_proveedor_tampoco_aparece(self):
+        nombres = {p['nombre'] for p in compras.listar_proveedores(solo_ambito='operacion')}
+        self.assertNotIn('Dr. Externo', nombres)
+        self.assertIn('Dental Uno', nombres)
+        self.assertIn('Dr. Externo', {p['nombre'] for p in compras.listar_proveedores()})
+
+    def test_cargos_recurrentes_filtrados(self):
+        compras.crear_suscripcion({'nombre': 'Honorarios', 'proveedor_id': self.externo,
+                                   'categoria_id': self.servicios, 'monto': 1, 'dia_mes': 28,
+                                   'fecha_inicio': '2099-01-01'})
+        compras.crear_suscripcion({'nombre': 'Contador', 'proveedor_id': self.insumos_prov,
+                                   'categoria_id': self.sueldos, 'monto': 1, 'dia_mes': 28,
+                                   'fecha_inicio': '2099-01-01'})
+        compras.crear_suscripcion({'nombre': 'Internet', 'proveedor_id': self.insumos_prov,
+                                   'categoria_id': self.servicios, 'monto': 1, 'dia_mes': 28,
+                                   'fecha_inicio': '2099-01-01'})
+        ve = {x['nombre'] for x in compras.listar_suscripciones(solo_ambito='operacion')}
+        self.assertEqual(ve, {'Internet'})
+        self.assertEqual(len(compras.listar_suscripciones()), 3)
+
+    def test_la_foto_se_asocia_a_su_compra(self):
+        self.assertEqual(compras.compra_de_foto('liq.jpg'), self.c_externo)
+        self.assertIsNone(compras.compra_de_foto('no-existe.jpg'))
+
+    def test_desmarcar_lo_vuelve_visible(self):
+        compras.actualizar_proveedor(self.externo, confidencial=False)
+        self.assertIn(self.c_externo,
+                      {c['id'] for c in compras.listar_compras(solo_ambito='operacion')})
+
+
+class TestConfidencialRutas(_ConfBase):
+    """Las mismas garantías llamando a las rutas, con la sesión de un usuario
+    Inventario: editar, ver la foto y el proveedor no pueden abrir un costado."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['DENTIDESK_ENABLED'] = 'false'
+        os.environ.pop('RENDER', None)
+        os.environ.pop('RUN_PATIENT_SYNC', None)
+        import server
+        cls.app = server.app.test_client()
+
+    def setUp(self):
+        super().setUp()
+        inv = compras.crear_usuario('ana', 'Ana', 'clave-larga-123', rol='inventario')
+        adm = compras.crear_usuario('jefe', 'Jefe', 'clave-larga-123', rol='admin')
+        self.h_inv = {'X-Compras-Token': compras.crear_sesion(inv)}
+        self.h_adm = {'X-Compras-Token': compras.crear_sesion(adm)}
+        (Path(compras.FOTOS_DIR)).mkdir(parents=True, exist_ok=True)
+        (Path(compras.FOTOS_DIR) / 'liq.jpg').write_bytes(b'x')
+
+    def test_no_puede_editar_lo_que_no_ve(self):
+        r = self.app.post('/api/compras/compras/actualizar', headers=self.h_inv,
+                          json={'id': self.c_externo, 'notas': 'x'})
+        self.assertEqual(r.status_code, 404)
+
+    def test_no_puede_mover_una_compra_a_un_proveedor_confidencial(self):
+        r = self.app.post('/api/compras/compras/actualizar', headers=self.h_inv,
+                          json={'id': self.c_insumo, 'proveedor_id': self.externo})
+        self.assertEqual(r.status_code, 400)
+
+    def test_no_puede_ver_la_foto(self):
+        r = self.app.get('/api/compras/foto/liq.jpg', headers=self.h_inv)
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self.app.get('/api/compras/foto/liq.jpg', headers=self.h_adm).status_code, 200)
+
+    def test_no_puede_desmarcar_un_proveedor(self):
+        r = self.app.post('/api/compras/proveedores/actualizar', headers=self.h_inv,
+                          json={'id': self.insumos_prov, 'confidencial': True})
+        self.assertEqual(r.status_code, 403)
+        r = self.app.post('/api/compras/proveedores/actualizar', headers=self.h_inv,
+                          json={'id': self.externo, 'nombre': 'otro'})
+        self.assertEqual(r.status_code, 404)
+
+    def test_la_lista_de_proveedores_de_la_ruta_lo_esconde(self):
+        j = self.app.get('/api/compras/proveedores', headers=self.h_inv).get_json()
+        self.assertNotIn('Dr. Externo', {p['nombre'] for p in j['proveedores']})
+
+    def test_el_admin_si_lo_marca(self):
+        r = self.app.post('/api/compras/proveedores/actualizar', headers=self.h_adm,
+                          json={'id': self.insumos_prov, 'confidencial': True})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(compras.proveedor_confidencial(self.insumos_prov))
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

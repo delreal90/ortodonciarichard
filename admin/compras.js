@@ -1757,7 +1757,9 @@ RENDER.admin = async () => {
   // proveedores
   const pintarProvs = () => {
     $('#adProvs').innerHTML = `<tr><th>Nombre</th><th>RUT</th><th>Contacto</th><th></th></tr>` +
-      CACHE.proveedores.map(p => `<tr><td>${esc(p.nombre)}</td><td>${esc(p.rut || '—')}</td><td>${esc(p.contacto || '—')}</td>
+      CACHE.proveedores.map(p => `<tr><td>${esc(p.nombre)}${p.confidencial
+          ? ' <span class="pill low" title="Sus pagos no los ve el rol Inventario">🔒 confidencial</span>' : ''}</td>
+        <td>${esc(p.rut || '—')}</td><td>${esc(p.contacto || '—')}</td>
         <td class="right"><button class="btn ghost sm" data-ed="${p.id}">Editar</button></td></tr>`).join('');
     $$('#adProvs [data-ed]').forEach(b => b.onclick = () => editarProveedor(CACHE.proveedores.find(p => p.id == b.dataset.ed)));
   };
@@ -1795,11 +1797,20 @@ function editarProveedor(p) {
     <div class="row c2"><div class="field"><label>RUT</label><input id="epR" value="${esc(p.rut || '')}"></div>
       <div class="field"><label>Contacto</label><input id="epC" value="${esc(p.contacto || '')}"></div></div>
     <div class="field"><label>Notas</label><textarea id="epNotas" rows="2">${esc(p.notas || '')}</textarea></div>
+    ${ME.rol === 'admin' ? `<label style="display:flex;gap:8px;align-items:flex-start;margin:4px 0 8px;cursor:pointer">
+      <input type="checkbox" id="epConf" ${p.confidencial ? 'checked' : ''} style="margin-top:3px">
+      <span>🔒 <b>Confidencial</b><br><span class="muted" style="font-size:12px">Sus pagos y el proveedor mismo
+      no los ve el rol <b>Inventario</b>, aunque se anoten en una categoría de operación.
+      Para sueldos, honorarios de doctores, SII, Previred o servicios externos privados.</span></span></label>` : ''}
     <div class="flex" style="margin-top:6px"><div class="spacer"></div>
       <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
       <button class="btn gold" id="epOk">Guardar</button></div>`);
   m.querySelector('#epOk').onclick = async () => {
-    try { await api('/api/compras/proveedores/actualizar', { method: 'POST', body: { id: p.id, nombre: m.querySelector('#epN').value, rut: m.querySelector('#epR').value, contacto: m.querySelector('#epC').value, notas: m.querySelector('#epNotas').value } });
+    const body = { id: p.id, nombre: m.querySelector('#epN').value, rut: m.querySelector('#epR').value, contacto: m.querySelector('#epC').value, notas: m.querySelector('#epNotas').value };
+    // Solo se manda si la casilla existe (admin): el servidor rechaza el cambio a otro rol.
+    const conf = m.querySelector('#epConf');
+    if (conf) body.confidencial = conf.checked;
+    try { await api('/api/compras/proveedores/actualizar', { method: 'POST', body });
       closeModal(); toast('Proveedor actualizado ✓', 'ok'); await recargarCaches(); RENDER.admin();
     } catch (e) { toast(e.message, 'err'); }
   };

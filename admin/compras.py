@@ -187,7 +187,8 @@ def init_db():
             contacto  TEXT,
             notas     TEXT,
             archivado INTEGER NOT NULL DEFAULT 0,
-            creado    TEXT NOT NULL
+            creado    TEXT NOT NULL,
+            confidencial INTEGER NOT NULL DEFAULT 0   -- ver _migrar / listar_compras
         );
 
         CREATE TABLE IF NOT EXISTS productos (
@@ -349,6 +350,12 @@ def _migrar(con):
     agrega columnas a tablas existentes). Agrega columnas nuevas si faltan."""
     def _cols(tabla):
         return {r['name'] for r in con.execute(f'PRAGMA table_info({tabla})')}
+    # Proveedor CONFIDENCIAL (2026-09-30): sus pagos no los ve el rol con
+    # `solo_operacion`, aunque se anoten en una categoría de operación. La categoría
+    # sola no alcanzaba: el Dr. Labraña es un servicio externo (va en «Servicios»,
+    # operación) y aun así su pago no lo debe ver quien lleva el inventario.
+    if 'confidencial' not in _cols('proveedores'):
+        con.execute('ALTER TABLE proveedores ADD COLUMN confidencial INTEGER NOT NULL DEFAULT 0')
     if 'marca' not in _cols('productos'):
         con.execute('ALTER TABLE productos ADD COLUMN marca TEXT')
     if 'marca' not in _cols('compra_items'):
@@ -693,13 +700,17 @@ def crear_proveedor(nombre, rut='', contacto='', notas=''):
         con.close()
 
 
-def listar_proveedores(buscar='', incluir_archivados=False):
+def listar_proveedores(buscar='', incluir_archivados=False, solo_ambito=None):
+    """solo_ambito (rol inventario) oculta los proveedores confidenciales: el nombre
+    solo ya dice a quién se le paga (Sueldos, PreviRed, un doctor)."""
     con = _conn()
     try:
         q = 'SELECT * FROM proveedores'
         cond, vals = [], []
         if not incluir_archivados:
             cond.append('archivado=0')
+        if solo_ambito in AMBITOS:
+            cond.append('COALESCE(confidencial,0)=0')
         if _norm(buscar):
             cond.append('(nombre LIKE ? OR rut LIKE ?)')
             like = f'%{_norm(buscar)}%'
@@ -712,13 +723,25 @@ def listar_proveedores(buscar='', incluir_archivados=False):
         con.close()
 
 
+def proveedor_confidencial(prov_id):
+    if not prov_id:
+        return False
+    con = _conn()
+    try:
+        r = con.execute('SELECT confidencial FROM proveedores WHERE id=?', (prov_id,)).fetchone()
+        return bool(r and r['confidencial'])
+    finally:
+        con.close()
+
+
 def actualizar_proveedor(prov_id, **campos):
-    permit = {'nombre', 'rut', 'contacto', 'notas', 'archivado'}
+    permit = {'nombre', 'rut', 'contacto', 'notas', 'archivado', 'confidencial'}
+    banderas = {'archivado', 'confidencial'}
     sets, vals = [], []
     for k, v in campos.items():
         if k in permit:
             sets.append(f'{k}=?')
-            vals.append(1 if k == 'archivado' and v else 0 if k == 'archivado' else _norm(v))
+            vals.append((1 if v else 0) if k in banderas else _norm(v))
     if not sets:
         return
     vals.append(prov_id)
@@ -1305,16 +1328,24 @@ def crear_suscripcion(datos, usuario_id=None):
     return sub_id, compra_id
 
 
-def listar_suscripciones(solo_activas=False):
+def listar_suscripciones(solo_activas=False, solo_ambito=None):
+    """solo_ambito (rol inventario): mismo criterio que listar_compras — ni cargos
+    administrativos ni de proveedores confidenciales."""
     con = _conn()
     try:
         q = ('SELECT s.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre '
              'FROM suscripciones s LEFT JOIN proveedores pr ON pr.id=s.proveedor_id '
              'LEFT JOIN categorias cat ON cat.id=s.categoria_id')
+        cond, vals = [], []
         if solo_activas:
-            q += ' WHERE s.activa=1'
+            cond.append('s.activa=1')
+        if solo_ambito in AMBITOS:
+            cond.append('(cat.ambito=? OR s.categoria_id IS NULL)'); vals.append(solo_ambito)
+            cond.append('COALESCE(pr.confidencial,0)=0')
+        if cond:
+            q += ' WHERE ' + ' AND '.join(cond)
         q += ' ORDER BY s.activa DESC, s.nombre'
-        rows = _rows(con.execute(q))
+        rows = _rows(con.execute(q, vals))
     finally:
         con.close()
     hoy = ahora_cl().date()
@@ -1479,9 +1510,10 @@ def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
         elif forma_pago:
             cond.append('c.forma_pago=?'); vals.append(forma_pago)
         if solo_ambito in AMBITOS:
-            # Sin categoría asignada = se considera operativo (no filtra info sensible
-            # por accidente: lo administrativo SIEMPRE lleva su categoría).
+            # Sin categoría asignada = se considera operativo. Lo que protege de verdad
+            # un pago sensible anotado sin categoría es la marca del PROVEEDOR.
             cond.append('(cat.ambito=? OR c.categoria_id IS NULL)'); vals.append(solo_ambito)
+            cond.append('COALESCE(pr.confidencial,0)=0')
         if cond:
             q += ' WHERE ' + ' AND '.join(cond)
         q += ' ORDER BY c.fecha DESC, c.id DESC LIMIT ?'
@@ -1498,13 +1530,14 @@ def obtener_compra(compra_id, solo_ambito=None):
     try:
         c = _row(con.execute(
             'SELECT c.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre, '
-            'cat.ambito AS categoria_ambito '
+            'cat.ambito AS categoria_ambito, COALESCE(pr.confidencial,0) AS proveedor_confidencial '
             'FROM compras c LEFT JOIN proveedores pr ON pr.id=c.proveedor_id '
             'LEFT JOIN categorias cat ON cat.id=c.categoria_id WHERE c.id=?',
             (compra_id,)).fetchone())
         if not c:
             return None
-        if solo_ambito in AMBITOS and c.get('categoria_ambito') not in (None, solo_ambito):
+        if solo_ambito in AMBITOS and (c.get('categoria_ambito') not in (None, solo_ambito)
+                                       or c.get('proveedor_confidencial')):
             return None
         c['items'] = _rows(con.execute(
             'SELECT i.*, p.nombre AS producto_nombre, p.unidad '
@@ -2169,6 +2202,17 @@ def gasto_por_mes_ambito():
             f"COALESCE(cat.ambito,'sin_categoria') AS ambito, SUM({M}) AS total "
             f"FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id "
             f"GROUP BY mes, ambito ORDER BY mes"))
+    finally:
+        con.close()
+
+
+def compra_de_foto(nombre):
+    """Id de la compra que tiene adjunto ese archivo, o None. Sirve para no servirle al
+    rol inventario la foto de una liquidación de sueldo pidiéndola por su nombre."""
+    con = _conn()
+    try:
+        r = con.execute('SELECT id FROM compras WHERE foto_path=? LIMIT 1', (nombre,)).fetchone()
+        return r['id'] if r else None
     finally:
         con.close()
 
