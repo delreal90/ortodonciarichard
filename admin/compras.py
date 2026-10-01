@@ -375,6 +375,16 @@ def _migrar(con):
         con.execute('UPDATE compras SET total_clp=total WHERE total_clp=0')
     if 'suscripcion_id' not in ccol:
         con.execute('ALTER TABLE compras ADD COLUMN suscripcion_id INTEGER REFERENCES suscripciones(id)')
+    # Factura en dos manos (2026-10-01): una persona ingresa la factura (total, forma de
+    # pago) y otra los productos. NULL = compra normal · 'pendiente' · 'completo'.
+    for col, ddl in (
+        ('detalle_estado', 'ALTER TABLE compras ADD COLUMN detalle_estado TEXT'),
+        ('detalle_nota', 'ALTER TABLE compras ADD COLUMN detalle_nota TEXT'),
+        ('detallado_por', 'ALTER TABLE compras ADD COLUMN detallado_por INTEGER REFERENCES usuarios(id)'),
+        ('detallado_en', 'ALTER TABLE compras ADD COLUMN detallado_en TEXT'),
+    ):
+        if col not in ccol:
+            con.execute(ddl)
     # Ámbito de la categoría (operacion | administracion) para separar los gastos de
     # insumos/materiales de los de sueldos/impuestos, y poder ocultarle estos últimos
     # al rol 'inventario'. Backfill por nombre conocido; el resto queda 'operacion'.
@@ -479,6 +489,7 @@ def eliminar_usuario(usuario_id, actor_id=None):
             if otros == 0:
                 raise ValueError('Es el único administrador activo: crea otro antes de eliminarlo')
         con.execute('UPDATE compras SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
+        con.execute('UPDATE compras SET detallado_por=NULL WHERE detallado_por=?', (usuario_id,))
         con.execute('UPDATE movimientos_stock SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
         con.execute('UPDATE pendientes_compra SET solicitado_por=NULL WHERE solicitado_por=?', (usuario_id,))
         con.execute('UPDATE suscripciones SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
@@ -1146,11 +1157,68 @@ def _total_clp(total_moneda, tipo_cambio, costo_importacion):
     return round(float(total_moneda) * float(tipo_cambio) + float(costo_importacion or 0), 2)
 
 
+def _normalizar_items(items):
+    """[(producto_id, marca, cantidad, precio, subtotal)] y la suma. Valida cada ítem."""
+    norm, subtotal = [], 0.0
+    for it in items:
+        pid = it.get('producto_id')
+        cant = float(it.get('cantidad') or 0)
+        precio = float(it.get('precio_unitario') or 0)
+        if not pid or cant <= 0:
+            raise ValueError('Cada ítem necesita producto y cantidad > 0')
+        if precio < 0:
+            raise ValueError('El precio no puede ser negativo')
+        sub = round(cant * precio, 2)
+        subtotal += sub
+        norm.append((int(pid), _norm(it.get('marca')), cant, precio, sub))
+    return norm, round(subtotal, 2)
+
+
+def _insertar_items(con, compra_id, norm_items, usuario_id, ahora):
+    """Ítems + entrada de stock + última marca + solicitudes resueltas, dentro de la
+    transacción del que llama. Lo comparten crear_compra y detallar_compra."""
+    for pid, marca, cant, precio, sub in norm_items:
+        con.execute(
+            'INSERT INTO compra_items(compra_id,producto_id,marca,cantidad,precio_unitario,'
+            'subtotal) VALUES(?,?,?,?,?,?)', (compra_id, pid, marca, cant, precio, sub))
+        con.execute(
+            'INSERT INTO movimientos_stock(producto_id,tipo,cantidad,motivo,compra_id,'
+            'usuario_id,creado) VALUES(?,?,?,?,?,?,?)',
+            (pid, 'entrada', cant, f'Compra #{compra_id}', compra_id, usuario_id, ahora))
+        con.execute('UPDATE productos SET stock_actual=stock_actual+? WHERE id=?',
+                    (cant, pid))
+        # recordar la última marca comprada del producto (referencial, prellenado)
+        if marca:
+            con.execute('UPDATE productos SET marca=? WHERE id=?', (marca, pid))
+    # Auto-resolver: si algún producto comprado estaba pendiente por comprar, se
+    # marca 'comprado' y sale de la lista de pendientes.
+    _resolver_pendientes(con, [n[0] for n in norm_items], compra_id, ahora)
+
+
+def _validar_detalle_pendiente(con, cab):
+    """Una factura que espera sus productos la detalla el rol Inventario. Si es de una
+    categoría de administración o de un proveedor confidencial, ese rol NO la ve: quedaría
+    pendiente para siempre sin que nadie pueda abrirla."""
+    cat = cab.get('categoria_id')
+    if cat:
+        r = con.execute('SELECT ambito FROM categorias WHERE id=?', (cat,)).fetchone()
+        if r and r['ambito'] == 'administracion':
+            raise ValueError('Esta categoría es de administración: quien lleva el inventario '
+                             'no la ve, así que no podría ingresar sus productos.')
+    prov = cab.get('proveedor_id')
+    if prov:
+        r = con.execute('SELECT confidencial FROM proveedores WHERE id=?', (prov,)).fetchone()
+        if r and r['confidencial']:
+            raise ValueError('Este proveedor es confidencial: quien lleva el inventario no lo '
+                             've, así que no podría ingresar los productos de esta factura.')
+
+
 def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
     """Registra una compra completa en UNA transacción.
     cab: dict con fecha, proveedor_id, tipo_doc, nro_doc, forma_pago, tipo_gasto,
          categoria_id, foto_path, notas, moneda, tipo_cambio, costo_despacho,
-         costo_importacion, total (opcional; se recalcula de los ítems).
+         costo_importacion, total (opcional; se recalcula de los ítems),
+         detalle_pendiente / detalle_nota (factura cuyos productos ingresa otra persona).
     items: lista de dicts {producto_id, marca, cantidad, precio_unitario}.
     suscripcion_id: si esta compra nace de un cargo recurrente (suscripciones), enlaza
     de vuelta para mostrar "generado automáticamente de X" en el detalle.
@@ -1161,9 +1229,11 @@ def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
     moneda, tc = _moneda_de(cab)
     despacho = round(float(cab.get('costo_despacho') or 0), 2)
     importacion = round(float(cab.get('costo_importacion') or 0), 2)
+    pendiente = bool(cab.get('detalle_pendiente')) and not items
 
     # Gasto SIN productos (arriendo, luz, servicios): se registra solo el monto,
-    # no toca stock. Requiere un total > 0 en la cabecera.
+    # no toca stock. Requiere un total > 0 en la cabecera. Es también la factura que
+    # espera que otra persona ingrese sus productos (detalle_pendiente).
     if not items:
         base = round(float(cab.get('total') or 0), 2)
         if base <= 0:
@@ -1173,32 +1243,27 @@ def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
         ahora = ahora_cl().isoformat(timespec='seconds')
         con = _conn()
         try:
+            if pendiente:
+                _validar_detalle_pendiente(con, cab)
             cur = con.execute(
                 'INSERT INTO compras(fecha,proveedor_id,tipo_doc,nro_doc,forma_pago,'
                 'tipo_gasto,categoria_id,moneda,tipo_cambio,costo_despacho,costo_importacion,'
-                'total,total_clp,foto_path,notas,suscripcion_id,usuario_id,creado) '
-                'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                'total,total_clp,foto_path,notas,suscripcion_id,usuario_id,creado,'
+                'detalle_estado,detalle_nota) '
+                'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (fecha, cab.get('proveedor_id'), cab.get('tipo_doc'), _norm(cab.get('nro_doc')),
                  cab.get('forma_pago'), tipo_gasto, cab.get('categoria_id'), moneda, tc,
                  despacho, importacion, total, total_clp,
-                 cab.get('foto_path'), _norm(cab.get('notas')), suscripcion_id, usuario_id, ahora))
+                 cab.get('foto_path'), _norm(cab.get('notas')), suscripcion_id, usuario_id, ahora,
+                 'pendiente' if pendiente else None,
+                 _norm(cab.get('detalle_nota')) if pendiente else None))
             con.commit()
             return cur.lastrowid
         finally:
             con.close()
 
     # Calcular subtotales y total desde los ítems (fuente de verdad).
-    norm_items = []
-    subtotal = 0.0
-    for it in items:
-        pid = it.get('producto_id')
-        cant = float(it.get('cantidad') or 0)
-        precio = float(it.get('precio_unitario') or 0)
-        if not pid or cant <= 0:
-            raise ValueError('Cada ítem necesita producto y cantidad > 0')
-        sub = round(cant * precio, 2)
-        subtotal += sub
-        norm_items.append((int(pid), _norm(it.get('marca')), cant, precio, sub))
+    norm_items, subtotal = _normalizar_items(items)
     total = round(subtotal + despacho, 2)          # ítems + despacho, en la moneda
     total_clp = _total_clp(total, tc, importacion)
 
@@ -1215,22 +1280,7 @@ def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
              despacho, importacion, total, total_clp,
              cab.get('foto_path'), _norm(cab.get('notas')), suscripcion_id, usuario_id, ahora))
         compra_id = cur.lastrowid
-        for pid, marca, cant, precio, sub in norm_items:
-            con.execute(
-                'INSERT INTO compra_items(compra_id,producto_id,marca,cantidad,precio_unitario,'
-                'subtotal) VALUES(?,?,?,?,?,?)', (compra_id, pid, marca, cant, precio, sub))
-            con.execute(
-                'INSERT INTO movimientos_stock(producto_id,tipo,cantidad,motivo,compra_id,'
-                'usuario_id,creado) VALUES(?,?,?,?,?,?,?)',
-                (pid, 'entrada', cant, f'Compra #{compra_id}', compra_id, usuario_id, ahora))
-            con.execute('UPDATE productos SET stock_actual=stock_actual+? WHERE id=?',
-                        (cant, pid))
-            # recordar la última marca comprada del producto (referencial, prellenado)
-            if marca:
-                con.execute('UPDATE productos SET marca=? WHERE id=?', (marca, pid))
-        # Auto-resolver: si algún producto comprado estaba pendiente por comprar, se
-        # marca 'comprado' y sale de la lista de pendientes.
-        _resolver_pendientes(con, [n[0] for n in norm_items], compra_id, ahora)
+        _insertar_items(con, compra_id, norm_items, usuario_id, ahora)
         con.commit()
         return compra_id
     except Exception:
@@ -1238,6 +1288,51 @@ def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
         raise
     finally:
         con.close()
+
+
+def detallar_compra(compra_id, items, usuario_id=None):
+    """Ingresa los productos de una factura que otra persona registró sin ellos
+    (detalle_estado='pendiente'). Suma stock y alimenta el historial de precios.
+
+    ⚠️ NO toca el total: el que manda es el de la factura, que es el que aparece en la
+    cartola. Si los productos no suman exacto (IVA, descuentos, redondeo) la pantalla lo
+    avisa, pero no se recalcula nada.
+
+    ⚠️ Solo una vez: si la compra ya tiene ítems se rechaza, aunque dos personas aprieten
+    "Guardar" a la vez — sumar el stock dos veces descuadra el inventario sin que nadie
+    lo note. La comprobación y la escritura van en la misma transacción (BEGIN IMMEDIATE)."""
+    norm_items, subtotal = _normalizar_items(items or [])
+    if not norm_items:
+        raise ValueError('Agrega al menos un producto')
+    ahora = ahora_cl().isoformat(timespec='seconds')
+    con = _conn()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        c = con.execute('SELECT detalle_estado FROM compras WHERE id=?', (compra_id,)).fetchone()
+        if not c:
+            raise ValueError('Compra no encontrada')
+        if c['detalle_estado'] != 'pendiente':
+            raise ValueError('Esta factura no está esperando sus productos'
+                             + (' (ya se ingresaron)' if c['detalle_estado'] == 'completo' else ''))
+        if con.execute('SELECT COUNT(*) n FROM compra_items WHERE compra_id=?',
+                       (compra_id,)).fetchone()['n']:
+            raise ValueError('Esta factura ya tiene productos ingresados')
+        _insertar_items(con, compra_id, norm_items, usuario_id, ahora)
+        con.execute("UPDATE compras SET detalle_estado='completo', detallado_por=?, "
+                    "detallado_en=? WHERE id=?", (usuario_id, ahora, compra_id))
+        con.commit()
+        return {'items': len(norm_items), 'suma_productos': subtotal}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def contar_por_detallar(solo_ambito=None):
+    """Facturas esperando sus productos, con el MISMO filtro que ve quien las abre: el
+    contador no puede mostrar una factura que esa persona no puede abrir."""
+    return len(listar_compras(detalle='pendiente', solo_ambito=solo_ambito, limite=5000))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1454,6 +1549,10 @@ def actualizar_compra(compra_id, campos):
         if not actual:
             raise ValueError('Compra no encontrada')
         nuevo = {**actual, **{k: v for k, v in (campos or {}).items() if k in permit}}
+        # Una factura que espera sus productos no puede pasar a algo que Inventario no ve:
+        # quedaría pendiente para siempre sin que nadie la pueda abrir.
+        if nuevo.get('detalle_estado') == 'pendiente':
+            _validar_detalle_pendiente(con, nuevo)
         if nuevo.get('tipo_gasto') not in TIPOS_GASTO:
             nuevo['tipo_gasto'] = 'variable'
         moneda, tc = _moneda_de(nuevo)
@@ -1463,7 +1562,9 @@ def actualizar_compra(compra_id, campos):
         # conserva el 'base' implícito del total anterior menos su despacho anterior.
         fila = con.execute('SELECT COALESCE(SUM(subtotal),0) AS s, COUNT(*) AS n '
                            'FROM compra_items WHERE compra_id=?', (compra_id,)).fetchone()
-        if fila['n'] > 0:
+        # En una factura de dos manos el total es el de la factura, no la suma de los
+        # productos (que suele ir sin IVA): editar la forma de pago no puede pisarlo.
+        if fila['n'] > 0 and not actual.get('detalle_estado'):
             base = round(fila['s'], 2)
         else:
             base = round(float(actual['total']) - float(actual['costo_despacho'] or 0), 2)
@@ -1484,13 +1585,16 @@ def actualizar_compra(compra_id, campos):
 
 
 def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
-                   tipo_gasto=None, limite=200, solo_ambito=None, forma_pago=None):
+                   tipo_gasto=None, limite=200, solo_ambito=None, forma_pago=None,
+                   detalle=None):
     """solo_ambito='operacion' oculta las compras de categorías administrativas
     (sueldos, honorarios, impuestos, seguros) — lo usa el rol 'inventario'."""
     con = _conn()
     try:
-        q = ('SELECT c.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre '
+        q = ('SELECT c.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre, '
+             'ur.nombre AS registrado_por_nombre '
              'FROM compras c LEFT JOIN proveedores pr ON pr.id=c.proveedor_id '
+             'LEFT JOIN usuarios ur ON ur.id=c.usuario_id '
              'LEFT JOIN categorias cat ON cat.id=c.categoria_id')
         cond, vals = [], []
         if desde:
@@ -1505,6 +1609,8 @@ def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
             cond.append('c.tipo_gasto=?'); vals.append(tipo_gasto)
         # 'tarjetas' = cualquier tarjeta de crédito, incluidas las compras antiguas que
         # solo dicen 'credito'.
+        if detalle in ('pendiente', 'completo'):
+            cond.append('c.detalle_estado=?'); vals.append(detalle)
         if forma_pago == 'tarjetas':
             cond.append("(substr(c.forma_pago,1,3)='tc_' OR c.forma_pago='credito')")
         elif forma_pago:
@@ -1530,8 +1636,11 @@ def obtener_compra(compra_id, solo_ambito=None):
     try:
         c = _row(con.execute(
             'SELECT c.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre, '
-            'cat.ambito AS categoria_ambito, COALESCE(pr.confidencial,0) AS proveedor_confidencial '
+            'cat.ambito AS categoria_ambito, COALESCE(pr.confidencial,0) AS proveedor_confidencial, '
+            'ur.nombre AS registrado_por_nombre, ud.nombre AS detallado_por_nombre '
             'FROM compras c LEFT JOIN proveedores pr ON pr.id=c.proveedor_id '
+            'LEFT JOIN usuarios ur ON ur.id=c.usuario_id '
+            'LEFT JOIN usuarios ud ON ud.id=c.detallado_por '
             'LEFT JOIN categorias cat ON cat.id=c.categoria_id WHERE c.id=?',
             (compra_id,)).fetchone())
         if not c:

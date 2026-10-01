@@ -1431,6 +1431,40 @@ Chile (`Intl` con `America/Santiago`), no del reloj del PC.
 > `id="rHasta"`, el mismo que el selector Indefinido/Hasta-fecha de los cargos recurrentes en
 > Nueva compra, y `$('#rHasta')` encontraba ese otro. Ahora son `repDesde`/`repHasta`.
 
+### Factura en dos manos: uno ingresa la factura, otro sus productos (2026-10-01)
+
+Pedido del Dr. Octavio: él ingresa la factura (total, forma de pago, tarjeta) y **Ana María
+(rol Inventario)** registra después sus productos con cantidad y precio, para el stock y el
+historial de precios.
+
+- **Nueva compra** → sin productos, con el "Total de la factura" y la casilla **"📥 Los
+  productos los ingresa otra persona"** (+ nota opcional). Se guarda como gasto sin ítems con
+  `compras.detalle_estado='pendiente'`: el gasto cuenta al tiro en Reportes y en el cuadre de
+  la tarjeta.
+- **Pestaña "📥 Por detallar"** (`registrar`, badge `por_detallar` en `/me`): lista y editor
+  de productos con el cuadre *total factura / suma de productos / diferencia*, que reconoce
+  cuando la diferencia es el IVA (suma × 1,19). El rol con `solo_operacion` entra directo a
+  esa pestaña si tiene facturas esperando. `detallar_compra()` → `detalle_estado='completo'`
+  + `detallado_por/en`; el detalle de la compra muestra quién ingresó cada parte.
+- ⚠️ **El total que manda es el de la factura**, no la suma de los productos (que suele ir sin
+  IVA). `detallar_compra` no lo toca, y `actualizar_compra` **no lo recalcula desde los
+  ítems** cuando `detalle_estado` no es NULL: si no, cambiar la forma de pago pisaría
+  $119.000 con los $100.000 netos.
+- ⚠️ **El stock se suma una sola vez**: `detallar_compra` rechaza una compra que no esté
+  `pendiente` o que ya tenga ítems, con la comprobación y la escritura dentro del mismo
+  `BEGIN IMMEDIATE` (dos personas apretando Guardar a la vez).
+- ⚠️ **No puede quedar una factura pendiente que Inventario no ve** (categoría de
+  administración o proveedor 🔒 confidencial): `_validar_detalle_pendiente()` lo rechaza al
+  crearla **y** al editarle la categoría o el proveedor. `contar_por_detallar(solo_ambito)`
+  usa el mismo filtro que la lista, así el contador nunca muestra algo que no se puede abrir.
+- La ruta `compras/detallar` sigue el molde de `compras/actualizar`: `obtener_compra(cid,
+  solo_ambito)` primero → 404 si no la ve.
+- `crear_compra` y `detallar_compra` comparten `_normalizar_items()` / `_insertar_items()`
+  (ítems + entrada de stock + última marca + solicitudes resueltas).
+- `eliminar_usuario` también suelta `detallado_por` (si no, la FK impediría borrar a quien
+  detalló una factura).
+- Pruebas: `TestDetalleEnDosManos` y `TestDetalleRutas` en `test_compras.py`.
+
 ### Forma de pago por tarjeta de crédito, para cuadrar con la cartola (2026-09-30)
 
 "Crédito" se reemplazó por 7 tarjetas (`compras.TARJETAS_CREDITO`: Oficina ODS/ROW/ADV,

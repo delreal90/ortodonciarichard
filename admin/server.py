@@ -6736,8 +6736,13 @@ def compras_setup():
 def _con_caps(u):
     """Adjunta al usuario sus capacidades (para que el frontend sepa qué mostrar) +
     el contador de pendientes por comprar (badge de solicitudes)."""
-    return {**u, 'caps': sorted(_compras.CAPS.get(u['rol'], set())),
-            'pendientes': _compras.contar_pendientes()}
+    caps = _compras.CAPS.get(u['rol'], set())
+    return {**u, 'caps': sorted(caps),
+            'pendientes': _compras.contar_pendientes(),
+            # Facturas esperando sus productos (badge de la pestaña «Por detallar»),
+            # contadas con el MISMO filtro que ve esta persona.
+            'por_detallar': (_compras.contar_por_detallar(solo_ambito=_ambito_de(u))
+                             if 'registrar' in caps else 0)}
 
 
 def _ambito_de(u):
@@ -7147,6 +7152,34 @@ def compras_crear():
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, 'id': cid})
+
+@app.route('/api/compras/por-detallar', methods=['GET'])
+def compras_por_detallar():
+    """Facturas que otra persona ingresó sin productos y esperan que alguien los
+    registre (factura en dos manos). El rol inventario solo ve las que puede abrir."""
+    u, err = _require_compras('registrar')
+    if err:
+        return err
+    return jsonify({'ok': True, 'compras': _compras.listar_compras(
+        detalle='pendiente', solo_ambito=_ambito_de(u), limite=5000)})
+
+@app.route('/api/compras/compras/detallar', methods=['POST'])
+def compras_detallar():
+    """Ingresa los productos de una factura pendiente: suma stock e historial de
+    precios, sin tocar el total de la factura (ver compras.detallar_compra)."""
+    u, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    cid = d.get('id')
+    # Mismo molde que compras/actualizar: no se puede detallar lo que no se puede ver.
+    if not _compras.obtener_compra(cid, solo_ambito=_ambito_de(u)):
+        return jsonify({'ok': False, 'error': 'Compra no encontrada'}), 404
+    try:
+        r = _compras.detallar_compra(cid, d.get('items') or [], usuario_id=u['id'])
+    except (ValueError, TypeError) as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, **r})
 
 @app.route('/api/compras/compras/actualizar', methods=['POST'])
 def compras_actualizar():

@@ -147,7 +147,7 @@ function logout() {
 
 // Qué capacidad exige cada pestaña.
 const TAB_CAP = { compras: 'registrar', historial: 'compras_ver', stock: 'stock',
-  escanear: 'escanear', solicitudes: 'solicitar', recurrentes: 'registrar',
+  escanear: 'escanear', solicitudes: 'solicitar', detallar: 'registrar', recurrentes: 'registrar',
   etiquetas: 'registrar', reportes: 'reportes', admin: 'admin' };
 
 async function entrarApp() {
@@ -159,9 +159,13 @@ async function entrarApp() {
   // mostrar solo las pestañas permitidas por el rol
   $$('#tabs button').forEach(b => b.classList.toggle('hidden', !puede(TAB_CAP[b.dataset.tab])));
   actualizarBadge(ME.pendientes || 0);
+  actualizarBadgeDet(ME.por_detallar || 0);
   refrescarBadgeEtq();
   await recargarCaches();
-  // abrir la primera pestaña visible (un escáner-solo abre directo en Escanear)
+  // Quien lleva el inventario y tiene facturas esperando sus productos entra directo
+  // ahí: es su tarea pendiente. Si no, la primera pestaña visible (un escáner-solo
+  // abre directo en Escanear).
+  if (ME.por_detallar > 0 && puede('solo_operacion')) return irTab('detallar');
   const primera = $$('#tabs button').find(b => !b.classList.contains('hidden'));
   irTab(primera ? primera.dataset.tab : 'escanear');
 }
@@ -170,6 +174,15 @@ function actualizarBadge(n) {
   const b = $('#badgePend'); if (!b) return;
   b.textContent = n;
   b.classList.toggle('hidden', !(n > 0 && puede('solicitar')));
+}
+function actualizarBadgeDet(n) {
+  const b = $('#badgeDet'); if (!b) return;
+  b.textContent = n;
+  b.classList.toggle('hidden', !(n > 0 && puede('registrar')));
+}
+async function refrescarBadgeDet() {
+  if (!puede('registrar')) return;
+  try { actualizarBadgeDet((await api('/api/compras/por-detallar')).compras.length); } catch {}
 }
 async function refrescarPendientesBadge() {
   if (!puede('solicitar')) return;
@@ -284,8 +297,17 @@ RENDER.compras = () => {
       <div id="itemsBox"></div>
       <div id="itemsEmpty" class="empty">Aún no agregas productos.</div>
       <div id="montoDirectoWrap" class="field" style="margin-top:12px;max-width:260px">
-        <label>Monto total (gasto sin productos)</label>
+        <label id="cMontoLabel">Monto total (gasto sin productos)</label>
         <input id="cMontoDirecto" type="number" step="any" min="0" placeholder="Ej: 850000">
+      </div>
+      <div id="detWrap" style="margin-top:10px;padding:12px;background:var(--light-bg);border-radius:10px">
+        <div class="flex" style="gap:8px;align-items:flex-start;cursor:pointer" id="cDetPendRow">
+          <input type="checkbox" id="cDetPend" style="width:auto;margin-top:3px">
+          <span><b>📥 Los productos de esta factura los ingresa otra persona</b><br>
+            <span class="muted" style="font-size:12px">Guarda la factura con su total y forma de pago. Quien lleva el
+            inventario la verá en «📥 Por detallar» e ingresará los productos (stock y precios).</span></span></div>
+        <textarea id="cDetNota" class="hidden" rows="2" style="margin-top:8px"
+          placeholder="Nota para quien ingresa los productos (opcional). Ej: la factura está en el escritorio"></textarea>
       </div>
       <div id="recurBox" class="field hidden" style="margin-top:14px;padding:14px;background:var(--light-bg);border-radius:10px">
         <label style="margin-bottom:10px">🔁 Este gasto se repite cada mes</label>
@@ -339,6 +361,13 @@ RENDER.compras = () => {
   $('#cFoto').onchange = subirFoto;
   $('#cGuardar').onclick = guardarCompra;
   $('#cMontoDirecto').oninput = recalcTotal;
+  const onDetPend = () => {
+    const on = $('#cDetPend').checked;
+    $('#cDetNota').classList.toggle('hidden', !on);
+    $('#cMontoLabel').textContent = on ? 'Total de la factura' : 'Monto total (gasto sin productos)';
+  };
+  $('#cDetPend').onchange = onDetPend;
+  $('#cDetPendRow').onclick = e => { if (e.target.id !== 'cDetPend') { $('#cDetPend').checked = !$('#cDetPend').checked; onDetPend(); } };
   const onMoneda = () => {
     const usd = $('#cMoneda').value === 'USD';
     $('#cTCWrap').classList.toggle('hidden', !usd);
@@ -397,6 +426,10 @@ function pintarItems() {
   // sentido para un gasto sin productos marcado "recurrente" (suscripción/servicio)
   const rb = $('#recurBox');
   if (rb) rb.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value !== 'recurrente');
+  // "Los productos los ingresa otra persona": solo sin productos y si no es un cargo
+  // recurrente (un cargo mensual no trae productos que contar).
+  const dw = $('#detWrap');
+  if (dw) dw.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value === 'recurrente');
   box.innerHTML = compraItems.map((it, i) => `
     <div class="item-row">
       <div>${esc(it.producto_nombre)} <span class="muted" style="font-size:12px">(${esc(it.unidad)})</span></div>
@@ -496,11 +529,14 @@ async function guardarCompra() {
     costo_importacion: Number($('#cImportacion').value) || 0,
     total: compraItems.length ? undefined : montoDirecto
   };
+  const detPend = !compraItems.length && $('#cDetPend')?.checked && !$('#detWrap').classList.contains('hidden');
+  if (detPend) { cab.detalle_pendiente = true; cab.detalle_nota = $('#cDetNota').value; }
   const items = compraItems.map(i => ({ producto_id: i.producto_id, marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario }));
   try {
     const j = await api('/api/compras/compras', { method: 'POST', body: { cabecera: cab, items } });
-    toast('Compra #' + j.id + ' guardada ✓', 'ok');
-    await recargarCaches(); refrescarPendientesBadge(); RENDER.compras();
+    toast(detPend ? 'Factura #' + j.id + ' guardada · quedó esperando sus productos en 📥 Por detallar ✓'
+                  : 'Compra #' + j.id + ' guardada ✓', 'ok');
+    await recargarCaches(); refrescarPendientesBadge(); refrescarBadgeDet(); RENDER.compras();
   } catch (e) { toast(e.message, 'err'); }
 }
 
@@ -535,6 +571,143 @@ async function modalNuevoProducto(nombreInicial = '') {
       } catch (e) { toast(e.message, 'err'); }
     };
   });
+}
+
+/* ══════════════════ TAB: POR DETALLAR ══════════════════
+   Factura en dos manos: alguien ingresa la factura (total, forma de pago) sin
+   productos, y quien lleva el inventario ingresa acá sus productos. El total que
+   manda es el de la factura; acá solo se avisa si los productos no suman lo mismo. */
+let detCompra = null, detItems = [];
+
+RENDER.detallar = async () => {
+  detCompra = null; detItems = [];
+  const s = $('#tab-detallar');
+  s.innerHTML = `<div class="card"><h2>📥 Facturas por detallar</h2>
+    <div class="sub">Facturas que ya se ingresaron con su total y forma de pago, y esperan que alguien registre
+      sus productos para el stock y el historial de precios.</div>
+    <div class="tablewrap"><table id="detTabla"><tr><td class="muted">Cargando…</td></tr></table></div></div>`;
+  try {
+    const { compras } = await api('/api/compras/por-detallar');
+    actualizarBadgeDet(compras.length);
+    $('#detTabla').innerHTML = `<tr><th>Fecha</th><th>Proveedor</th><th>Doc</th><th class="num">Total factura</th><th>Ingresada por</th><th>Nota</th><th></th></tr>` +
+      (compras.length ? compras.map(c => `<tr>
+        <td>${esc(c.fecha)}</td><td>${esc(c.proveedor_nombre || '—')}</td>
+        <td>${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')}</td>
+        <td class="num">${money(c.total, c.moneda || 'CLP')}</td>
+        <td class="muted">${esc(c.registrado_por_nombre || '—')}</td>
+        <td class="muted">${esc(c.detalle_nota || '')}</td>
+        <td class="right"><button class="btn gold sm" data-det="${c.id}">Ingresar productos</button></td></tr>`).join('')
+      : `<tr><td colspan="7" class="empty">No hay facturas esperando sus productos. 🎉</td></tr>`);
+    $$('#detTabla [data-det]').forEach(b => b.onclick = () => abrirDetalle(Number(b.dataset.det)));
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+async function abrirDetalle(id) {
+  let c;
+  try { c = (await api('/api/compras/compras/' + id)).compra; } catch (e) { return toast(e.message, 'err'); }
+  if (c.detalle_estado !== 'pendiente') { toast('Esta factura ya tiene sus productos', 'err'); return RENDER.detallar(); }
+  detCompra = c; detItems = [];
+  const mon = c.moneda || 'CLP';
+  const s = $('#tab-detallar');
+  s.innerHTML = `
+    <div class="card">
+      <div class="flex"><h2 style="margin:0">📥 Factura #${c.id}</h2><div class="spacer"></div>
+        <button class="btn ghost sm" id="detVolver">← Volver a la lista</button></div>
+      <p class="muted" style="margin-top:8px">${esc(c.fecha)} · <b>${esc(c.proveedor_nombre || 'sin proveedor')}</b> ·
+        ${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')} · ${esc(c.categoria_nombre || 'sin categoría')}</p>
+      <p class="muted">Total de la factura: <b>${money(c.total, mon)}</b>${mon === 'USD' ? ` (${clp(c.total_clp)})` : ''}
+        · ingresada por ${esc(c.registrado_por_nombre || '—')}</p>
+      ${c.detalle_nota ? `<p class="muted">📝 ${esc(c.detalle_nota)}</p>` : ''}
+      ${c.foto_path ? `<p><a href="${API}/api/compras/foto/${encodeURIComponent(c.foto_path)}" target="_blank">📎 Ver la factura adjunta</a></p>` : ''}
+    </div>
+    <div class="card">
+      <h2>Productos de la factura</h2>
+      <div class="sub">Busca cada producto (si no existe, créalo) y anota la cantidad y el precio unitario que dice la factura.</div>
+      <div id="detProdSlot" class="field"></div>
+      <div class="item-row item-head"><div>Producto</div><div>Marca</div><div>Cant.</div><div>Precio unit.</div><div class="right">Subtotal</div><div></div></div>
+      <div id="detItemsBox"></div>
+      <div id="detItemsEmpty" class="empty">Aún no agregas productos.</div>
+      <div id="detCuadre" style="margin-top:12px;padding:12px;border-radius:10px;background:var(--light-bg)"></div>
+      <div class="flex" style="margin-top:12px"><div class="spacer"></div>
+        <button class="btn gold" id="detGuardar">✅ Guardar productos</button></div>
+    </div>`;
+  $('#detVolver').onclick = () => RENDER.detallar();
+  const bus = buscador({
+    items: CACHE.productos, placeholder: 'Buscar o crear producto…',
+    onPick: it => { agregarDet(it); bus.reset(); },
+    onCrear: async txt => { const p = await modalNuevoProducto(txt); if (p) { agregarDet(p); bus.reset(); } return null; }
+  });
+  $('#detProdSlot').appendChild(bus.wrap);
+  $('#detGuardar').onclick = guardarDetalle;
+  pintarDet();
+}
+
+function agregarDet(prod) {
+  const ya = detItems.find(i => i.producto_id === prod.id);
+  if (ya) { ya.cantidad++; pintarDet(); return; }
+  const ult = prod.ultima_compra || {};
+  detItems.push({ producto_id: prod.id, producto_nombre: prod.nombre, unidad: prod.unidad || 'unidad',
+    marca: prod.marca || ult.marca || '', cantidad: 1, precio_unitario: ult.precio_unitario || 0 });
+  pintarDet();
+}
+
+function pintarDet() {
+  const box = $('#detItemsBox'); if (!box) return;
+  $('#detItemsEmpty').classList.toggle('hidden', detItems.length > 0);
+  box.innerHTML = detItems.map((it, i) => `
+    <div class="item-row">
+      <div>${esc(it.producto_nombre)} <span class="muted" style="font-size:12px">(${esc(it.unidad)})</span></div>
+      <input class="marca" type="text" placeholder="Marca" value="${esc(it.marca || '')}" data-i="${i}" data-k="marca">
+      <input type="number" min="0" step="any" value="${it.cantidad}" data-i="${i}" data-k="cantidad">
+      <input type="number" min="0" step="any" value="${it.precio_unitario}" data-i="${i}" data-k="precio_unitario">
+      <div class="sub">${clp(it.cantidad * it.precio_unitario)}</div>
+      <div class="item-x" data-del="${i}">✕</div>
+    </div>`).join('');
+  box.querySelectorAll('input').forEach(inp => inp.oninput = () => {
+    const k = inp.dataset.k;
+    detItems[inp.dataset.i][k] = k === 'marca' ? inp.value : (Number(inp.value) || 0);
+    if (k !== 'marca') { inp.closest('.item-row').querySelector('.sub').textContent =
+      clp(detItems[inp.dataset.i].cantidad * detItems[inp.dataset.i].precio_unitario); pintarCuadre(); }
+  });
+  box.querySelectorAll('[data-del]').forEach(x => x.onclick = () => { detItems.splice(+x.dataset.del, 1); pintarDet(); });
+  pintarCuadre();
+}
+
+// Total de la factura vs suma de productos. Solo avisa: el total que manda es el de
+// la factura. La diferencia más común es el IVA (precios netos en la factura).
+function pintarCuadre() {
+  const el = $('#detCuadre'); if (!el || !detCompra) return;
+  const mon = detCompra.moneda || 'CLP';
+  const total = (Number(detCompra.total) || 0) - (Number(detCompra.costo_despacho) || 0);
+  const suma = detItems.reduce((a, it) => a + it.cantidad * it.precio_unitario, 0);
+  const dif = total - suma;
+  const tol = Math.max(2, total * 0.005);           // redondeos de la factura
+  let msg;
+  if (!detItems.length) msg = '';
+  else if (Math.abs(dif) <= tol) msg = '<span style="color:var(--ok)">✓ Los productos suman el total de la factura.</span>';
+  else if (Math.abs(suma * 1.19 - total) <= Math.max(tol, total * 0.01))
+    msg = '<span style="color:var(--ok)">✓ La diferencia es el IVA (los precios están sin IVA).</span>';
+  else if (dif > 0) msg = '<span style="color:var(--warn)">Faltan ' + money(dif, mon) + ' para llegar al total: ¿falta algún producto?</span>';
+  else msg = '<span style="color:var(--warn)">Los productos suman ' + money(-dif, mon) + ' más que la factura: revisa cantidades y precios.</span>';
+  el.innerHTML = `<div class="flex wrap" style="gap:18px">
+      <div>Total factura${detCompra.costo_despacho ? ' (sin despacho)' : ''}: <b>${money(total, mon)}</b></div>
+      <div>Suma de productos: <b>${money(suma, mon)}</b></div>
+      <div>Diferencia: <b>${money(dif, mon)}</b></div></div>
+    ${msg ? `<div style="margin-top:6px">${msg}</div>` : ''}
+    <div class="muted" style="font-size:12px;margin-top:4px">El total que queda registrado es el de la factura; esto es solo para revisar.</div>`;
+}
+
+async function guardarDetalle() {
+  if (!detItems.length) return toast('Agrega al menos un producto', 'err');
+  if (detItems.some(it => !(it.cantidad > 0))) return toast('Cada producto necesita una cantidad mayor que 0', 'err');
+  const btn = $('#detGuardar'); btn.disabled = true;     // evita el doble clic
+  try {
+    const r = await api('/api/compras/compras/detallar', { method: 'POST', body: {
+      id: detCompra.id,
+      items: detItems.map(i => ({ producto_id: i.producto_id, marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario })) } });
+    toast(r.items + ' producto(s) ingresado(s) · stock actualizado ✓', 'ok');
+    await recargarCaches(); refrescarPendientesBadge(); RENDER.detallar();
+  } catch (e) { btn.disabled = false; toast(e.message, 'err'); }
 }
 
 /* ══════════════════ TAB: HISTORIAL ══════════════════ */
@@ -582,7 +755,8 @@ RENDER.historial = async () => {
           <td>${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')}</td>
           <td>${esc(c.categoria_nombre || '—')}</td>
           <td class="muted">${esc(labelPago(c.forma_pago))}</td>
-          <td><span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span>${c.moneda === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</td>
+          <td><span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span>${c.detalle_estado === 'pendiente'
+            ? ' <span class="pill low" title="Falta que inventario ingrese sus productos">📥 sin productos</span>' : ''}${c.moneda === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</td>
           <td class="num">${clp(c.total_clp || c.total)}</td>
           <td><button class="btn ghost sm" data-ver="${c.id}">Ver</button></td></tr>`).join('')
           : `<tr><td colspan="8" class="empty">Sin compras en el período.</td></tr>`);
@@ -608,18 +782,28 @@ async function verCompra(id) {
       <p class="muted" style="margin-bottom:12px">${esc(labelPago(c.forma_pago))} · <span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span> · ${esc(c.categoria_nombre || 'sin categoría')}${c.suscripcion_id ? ' · <span class="pill recurrente">🔁 generado automático</span>' : ''}</p>
       <div class="tablewrap"><table><tr><th>Producto</th><th>Marca</th><th class="num">Cant.</th><th class="num">P. unit.</th><th class="num">Subtotal</th></tr>
         ${c.items.map(i => `<tr><td>${esc(i.producto_nombre || '—')}</td><td class="muted">${esc(i.marca || '—')}</td><td class="num">${i.cantidad}</td><td class="num">${money(i.precio_unitario, mon)}</td><td class="num">${money(i.subtotal, mon)}</td></tr>`).join('')}
-        ${c.items.length ? '' : `<tr><td colspan="5" class="muted">Gasto sin productos</td></tr>`}
+        ${c.items.length ? '' : `<tr><td colspan="5" class="muted">${c.detalle_estado === 'pendiente'
+          ? '📥 Esperando que inventario ingrese los productos' : 'Gasto sin productos'}</td></tr>`}
+        ${c.detalle_estado && c.items.length ? `<tr><td colspan="4" class="num muted">Suma de productos</td><td class="num muted">${money(c.items.reduce((a, i) => a + (Number(i.subtotal) || 0), 0), mon)}</td></tr>` : ''}
         <tr><td colspan="4" class="num">Total ${mon}</td><td class="num"><b>${money(c.total, mon)}</b></td></tr>
         ${mon === 'USD' || c.costo_importacion ? `<tr><td colspan="4" class="num"><b>Total CLP</b></td><td class="num"><b>${clp(c.total_clp || c.total)}</b></td></tr>` : ''}</table></div>
       ${costos.length ? `<p class="muted" style="margin-top:10px">${costos.join(' · ')}</p>` : ''}
       ${c.notas ? `<p class="muted" style="margin-top:10px">📝 ${esc(c.notas)}</p>` : ''}
+      ${c.detalle_estado === 'pendiente' ? `<p class="muted" style="margin-top:10px">📥 Factura ingresada por
+        ${esc(c.registrado_por_nombre || '—')}; los productos los ingresa inventario.${c.detalle_nota ? ' Nota: ' + esc(c.detalle_nota) : ''}</p>` : ''}
+      ${c.detalle_estado === 'completo' ? `<p class="muted" style="margin-top:10px">📥 Factura ingresada por
+        ${esc(c.registrado_por_nombre || '—')} · productos ingresados por ${esc(c.detallado_por_nombre || '—')}
+        el ${esc((c.detallado_en || '').slice(0, 16).replace('T', ' '))}. El total es el de la factura.</p>` : ''}
       ${foto}
       <div class="flex" style="margin-top:16px">
+        ${puede('registrar') && c.detalle_estado === 'pendiente' ? `<button class="btn gold sm" id="detIr">📥 Ingresar productos</button>` : ''}
         ${puede('registrar') ? `<button class="btn gold sm" id="editCostos">✏️ Editar pago, categoría y costos</button>` : ''}
         <div class="spacer"></div>
         ${puede('admin') ? `<button class="btn danger sm" id="delCompra">Eliminar</button>` : ''}
         <button class="btn ghost sm" onclick="document.getElementById('modalRoot').innerHTML=''">Cerrar</button></div>`);
     if (puede('registrar')) m.querySelector('#editCostos').onclick = () => editarCostosCompra(c);
+    const detIr = m.querySelector('#detIr');
+    if (detIr) detIr.onclick = () => { closeModal(); irTab('detallar'); abrirDetalle(c.id); };
     if (puede('admin')) m.querySelector('#delCompra').onclick = async () => {
       if (!confirm('¿Eliminar la compra #' + c.id + '? Se revertirá el stock que sumó.')) return;
       try { await api('/api/compras/compras/eliminar', { method: 'POST', body: { id: c.id } });

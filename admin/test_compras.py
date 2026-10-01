@@ -555,5 +555,177 @@ class TestConfidencialRutas(_ConfBase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(compras.proveedor_confidencial(self.insumos_prov))
 
+class TestDetalleEnDosManos(_Base):
+    """Factura en dos manos: una persona ingresa la factura (total, forma de pago) y
+    otra los productos. El total de la factura manda; el stock se suma una sola vez."""
+
+    def setUp(self):
+        super().setUp()
+        self.insumos = compras.crear_categoria('Insumos dos manos', 'operacion')
+        self.sueldos = compras.crear_categoria('Sueldos dos manos', 'administracion')
+        self.guantes = compras.crear_producto('Guantes M', unidad='caja')
+        self.fresa = compras.crear_producto('Fresa', unidad='unidad')
+
+    def _factura(self, total=119000, **extra):
+        cab = {'fecha': '2026-09-10', 'tipo_gasto': 'variable', 'moneda': 'CLP',
+               'forma_pago': 'tc_oficina_ods', 'categoria_id': self.insumos,
+               'total': total, 'detalle_pendiente': True, 'detalle_nota': 'en el escritorio'}
+        cab.update(extra)
+        return compras.crear_compra(cab, [])
+
+    def _stock(self, pid):
+        return compras.obtener_producto(pid)['stock_actual']
+
+    def test_la_factura_pendiente_cuenta_como_gasto_y_no_toca_stock(self):
+        cid = self._factura()
+        self.assertEqual(compras.obtener_compra(cid)['detalle_estado'], 'pendiente')
+        self.assertEqual(compras.resumen_gastos()['total'], 119000)
+        self.assertEqual(self._stock(self.guantes), 0)
+        self.assertEqual(compras.contar_por_detallar(), 1)
+
+    def test_detallar_suma_stock_y_alimenta_el_historial_de_precios(self):
+        cid = self._factura()
+        compras.detallar_compra(cid, [
+            {'producto_id': self.guantes, 'cantidad': 4, 'precio_unitario': 20000},
+            {'producto_id': self.fresa, 'cantidad': 10, 'precio_unitario': 2000}])
+        self.assertEqual(self._stock(self.guantes), 4)
+        self.assertEqual(self._stock(self.fresa), 10)
+        self.assertEqual(compras.historial_precios(self.guantes)[0]['precio_unitario'], 20000)
+        self.assertEqual(compras.obtener_compra(cid)['detalle_estado'], 'completo')
+        self.assertEqual(compras.contar_por_detallar(), 0)
+
+    def test_el_total_es_el_de_la_factura_aunque_los_productos_sumen_distinto(self):
+        """Los productos suman 100.000 (sin IVA) y la factura dice 119.000."""
+        cid = self._factura(119000)
+        compras.detallar_compra(cid, [{'producto_id': self.guantes, 'cantidad': 5,
+                                       'precio_unitario': 20000}])
+        c = compras.obtener_compra(cid)
+        self.assertEqual((c['total'], c['total_clp']), (119000, 119000))
+        self.assertEqual(compras.resumen_gastos()['total'], 119000)
+
+    def test_detallar_dos_veces_no_suma_el_stock_dos_veces(self):
+        cid = self._factura()
+        items = [{'producto_id': self.guantes, 'cantidad': 3, 'precio_unitario': 1000}]
+        compras.detallar_compra(cid, items)
+        with self.assertRaises(ValueError):
+            compras.detallar_compra(cid, items)
+        self.assertEqual(self._stock(self.guantes), 3)
+
+    def test_no_se_detalla_una_compra_normal(self):
+        cid = compras.crear_compra({'fecha': '2026-09-10', 'tipo_gasto': 'fijo',
+                                    'moneda': 'CLP', 'total': 50000}, [])
+        with self.assertRaises(ValueError):
+            compras.detallar_compra(cid, [{'producto_id': self.guantes, 'cantidad': 1,
+                                           'precio_unitario': 1}])
+        self.assertEqual(self._stock(self.guantes), 0)
+
+    def test_sin_productos_no_se_puede_guardar(self):
+        cid = self._factura()
+        with self.assertRaises(ValueError):
+            compras.detallar_compra(cid, [])
+        self.assertEqual(compras.obtener_compra(cid)['detalle_estado'], 'pendiente')
+
+    def test_editar_la_forma_de_pago_no_pisa_el_total_de_la_factura(self):
+        """actualizar_compra recalcula el total desde los ítems en una compra normal;
+        en una de dos manos eso cambiaría 119.000 por la suma neta."""
+        cid = self._factura(119000)
+        compras.detallar_compra(cid, [{'producto_id': self.guantes, 'cantidad': 5,
+                                       'precio_unitario': 20000}])
+        compras.actualizar_compra(cid, {'forma_pago': 'tc_personal_row'})
+        c = compras.obtener_compra(cid)
+        self.assertEqual((c['forma_pago'], c['total']), ('tc_personal_row', 119000))
+
+    def test_detallar_resuelve_la_solicitud_pendiente(self):
+        compras.crear_solicitud([{'producto_id': self.guantes, 'cantidad': 2}])
+        cid = self._factura()
+        compras.detallar_compra(cid, [{'producto_id': self.guantes, 'cantidad': 2,
+                                       'precio_unitario': 1000}])
+        self.assertEqual([p for p in compras.listar_pendientes()
+                          if p['producto_id'] == self.guantes], [])
+
+    def test_no_se_deja_pendiente_algo_que_inventario_no_ve(self):
+        with self.assertRaises(ValueError):
+            self._factura(categoria_id=self.sueldos)
+        prov = compras.crear_proveedor('Dr. Externo dos manos')
+        compras.actualizar_proveedor(prov, confidencial=True)
+        with self.assertRaises(ValueError):
+            self._factura(proveedor_id=prov)
+        self.assertEqual(compras.contar_por_detallar(), 0)
+
+    def test_no_se_puede_mover_una_pendiente_a_administracion(self):
+        cid = self._factura()
+        with self.assertRaises(ValueError):
+            compras.actualizar_compra(cid, {'categoria_id': self.sueldos})
+        self.assertEqual(compras.obtener_compra(cid)['categoria_id'], self.insumos)
+
+    def test_borrar_al_usuario_que_detallo_conserva_la_compra(self):
+        u = compras.crear_usuario('ana2', 'Ana', 'clave-larga-123', rol='inventario')
+        compras.crear_usuario('jefe2', 'Jefe', 'clave-larga-123', rol='admin')
+        cid = self._factura()
+        compras.detallar_compra(cid, [{'producto_id': self.guantes, 'cantidad': 1,
+                                       'precio_unitario': 1000}], usuario_id=u)
+        compras.eliminar_usuario(u)
+        c = compras.obtener_compra(cid)
+        self.assertEqual((c['detalle_estado'], c['detallado_por']), ('completo', None))
+
+
+class TestDetalleRutas(_Base):
+    """Las rutas con la sesión de Inventario (Ana María) y de un admin (Octavio)."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['DENTIDESK_ENABLED'] = 'false'
+        os.environ.pop('RENDER', None)
+        os.environ.pop('RUN_PATIENT_SYNC', None)
+        import server
+        cls.app = server.app.test_client()
+
+    def setUp(self):
+        super().setUp()
+        inv = compras.crear_usuario('ana', 'Ana', 'clave-larga-123', rol='inventario')
+        adm = compras.crear_usuario('octavio', 'Octavio', 'clave-larga-123', rol='admin')
+        self.h_inv = {'X-Compras-Token': compras.crear_sesion(inv)}
+        self.h_adm = {'X-Compras-Token': compras.crear_sesion(adm)}
+        self.insumos = compras.crear_categoria('Insumos rutas', 'operacion')
+        self.guantes = compras.crear_producto('Guantes M', unidad='caja')
+
+    def _crear(self, headers, **cab):
+        base = {'fecha': '2026-09-10', 'tipo_gasto': 'variable', 'moneda': 'CLP',
+                'categoria_id': self.insumos, 'total': 119000, 'detalle_pendiente': True}
+        base.update(cab)
+        return self.app.post('/api/compras/compras', headers=headers,
+                             json={'cabecera': base, 'items': []})
+
+    def test_octavio_ingresa_y_ana_detalla(self):
+        cid = self._crear(self.h_adm).get_json()['id']
+        me = self.app.get('/api/compras/me', headers=self.h_inv).get_json()
+        self.assertEqual(me['usuario']['por_detallar'], 1)
+        lista = self.app.get('/api/compras/por-detallar', headers=self.h_inv).get_json()
+        self.assertEqual([c['id'] for c in lista['compras']], [cid])
+        r = self.app.post('/api/compras/compras/detallar', headers=self.h_inv, json={
+            'id': cid, 'items': [{'producto_id': self.guantes, 'cantidad': 2, 'precio_unitario': 50000}]})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(compras.obtener_producto(self.guantes)['stock_actual'], 2)
+        self.assertEqual(self.app.get('/api/compras/por-detallar', headers=self.h_inv)
+                         .get_json()['compras'], [])
+
+    def test_no_puede_detallar_lo_que_no_ve(self):
+        """Una compra administrativa pedida por id: 404, como en editar."""
+        sueldos = compras.crear_categoria('Sueldos rutas', 'administracion')
+        cid = compras.crear_compra({'fecha': '2026-09-10', 'tipo_gasto': 'fijo', 'moneda': 'CLP',
+                                    'categoria_id': sueldos, 'total': 900000}, [])
+        r = self.app.post('/api/compras/compras/detallar', headers=self.h_inv, json={
+            'id': cid, 'items': [{'producto_id': self.guantes, 'cantidad': 1, 'precio_unitario': 1}]})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(compras.obtener_producto(self.guantes)['stock_actual'], 0)
+
+    def test_marcar_pendiente_algo_confidencial_da_un_error_claro(self):
+        prov = compras.crear_proveedor('Dr. Externo rutas')
+        compras.actualizar_proveedor(prov, confidencial=True)
+        r = self._crear(self.h_adm, proveedor_id=prov)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('confidencial', r.get_json()['error'])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
