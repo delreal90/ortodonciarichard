@@ -530,7 +530,10 @@ class TestConfidencialRutas(_ConfBase):
     def test_no_puede_mover_una_compra_a_un_proveedor_confidencial(self):
         r = self.app.post('/api/compras/compras/actualizar', headers=self.h_inv,
                           json={'id': self.c_insumo, 'proveedor_id': self.externo})
-        self.assertEqual(r.status_code, 400)
+        # Desde 2026-10-01 Inventario no edita compras (es una acción del Historial, que
+        # ya no tiene): se le cierra antes, con 404.
+        self.assertEqual(r.status_code, 404)
+        self.assertNotEqual(compras.obtener_compra(self.c_insumo)['proveedor_id'], self.externo)
 
     def test_no_puede_ver_la_foto(self):
         r = self.app.get('/api/compras/foto/liq.jpg', headers=self.h_inv)
@@ -787,7 +790,8 @@ class TestInventarioNoVeNiAnota(_Base):
         r = self.app.post('/api/compras/suscripciones', headers=self.h_inv, json={
             'nombre': 'x', 'monto': 1, 'dia_mes': 1, 'categoria_id': self.otros,
             'fecha_inicio': '2026-10-01'})
-        self.assertEqual(r.status_code, 400)
+        # Recurrentes ya no es del rol Inventario (2026-10-01): 403 antes de mirar la categoría.
+        self.assertEqual(r.status_code, 403)
 
     def test_si_puede_anotar_insumos_y_el_admin_todo(self):
         base = {'fecha': '2026-10-01', 'tipo_gasto': 'variable', 'moneda': 'CLP', 'total': 1}
@@ -797,6 +801,92 @@ class TestInventarioNoVeNiAnota(_Base):
         r = self.app.post('/api/compras/compras', headers=self.h_adm,
                           json={'cabecera': {**base, 'categoria_id': self.otros}, 'items': []})
         self.assertEqual(r.status_code, 200)
+
+
+class TestInventarioSinHistorialNiRecurrentes(_Base):
+    """Pedido del usuario (2026-10-01): el rol Inventario no ve las pestañas Historial
+    ni Recurrentes. Se cierra en el SERVIDOR, no solo escondiendo el botón."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['DENTIDESK_ENABLED'] = 'false'
+        os.environ.pop('RENDER', None)
+        os.environ.pop('RUN_PATIENT_SYNC', None)
+        import server
+        cls.app = server.app.test_client()
+
+    def setUp(self):
+        super().setUp()
+        inv = compras.crear_usuario('ana', 'Ana', 'clave-larga-123', rol='inventario')
+        reg = compras.crear_usuario('reg', 'Reg', 'clave-larga-123', rol='registro')
+        self.h_inv = {'X-Compras-Token': compras.crear_sesion(inv)}
+        self.h_reg = {'X-Compras-Token': compras.crear_sesion(reg)}
+        self.insumos = compras.crear_categoria('Insumos tabs', 'operacion')
+        base = {'fecha': '2026-09-10', 'tipo_gasto': 'variable', 'moneda': 'CLP',
+                'categoria_id': self.insumos, 'total': 1000}
+        self.normal = compras.crear_compra(dict(base), [])
+        self.pendiente = compras.crear_compra(dict(base, detalle_pendiente=True), [])
+        self.sub, _ = compras.crear_suscripcion({'nombre': 'Internet', 'monto': 1000, 'dia_mes': 28,
+                                                 'categoria_id': self.insumos,
+                                                 'fecha_inicio': '2026-09-01'})
+
+    def test_las_capacidades(self):
+        self.assertNotIn('historial', compras.CAPS['inventario'])
+        self.assertNotIn('recurrentes', compras.CAPS['inventario'])
+        for rol in ('admin', 'registro'):
+            self.assertTrue({'historial', 'recurrentes'} <= compras.CAPS[rol], rol)
+        for rol in ('solicitante', 'lectura'):          # conservan lo que ya tenían
+            self.assertIn('historial', compras.CAPS[rol])
+
+    def test_no_ve_la_lista_de_compras(self):
+        self.assertEqual(self.app.get('/api/compras/compras', headers=self.h_inv).status_code, 403)
+        self.assertEqual(self.app.get('/api/compras/compras', headers=self.h_reg).status_code, 200)
+
+    def test_no_abre_una_compra_por_su_numero_salvo_las_por_detallar(self):
+        r = self.app.get(f'/api/compras/compras/{self.normal}', headers=self.h_inv)
+        self.assertEqual(r.status_code, 404)
+        r = self.app.get(f'/api/compras/compras/{self.pendiente}', headers=self.h_inv)
+        self.assertEqual(r.status_code, 200)          # «Por detallar» sigue funcionando
+        r = self.app.get(f'/api/compras/compras/{self.normal}', headers=self.h_reg)
+        self.assertEqual(r.status_code, 200)
+
+    def test_no_edita_compras(self):
+        r = self.app.post('/api/compras/compras/actualizar', headers=self.h_inv,
+                          json={'id': self.normal, 'notas': 'x'})
+        self.assertEqual(r.status_code, 404)
+
+    def test_la_foto_solo_de_las_por_detallar(self):
+        Path(compras.FOTOS_DIR).mkdir(parents=True, exist_ok=True)
+        for nombre, cid in (('normal.jpg', self.normal), ('pend.jpg', self.pendiente)):
+            (Path(compras.FOTOS_DIR) / nombre).write_bytes(b'x')
+            con = compras._conn()
+            con.execute('UPDATE compras SET foto_path=? WHERE id=?', (nombre, cid))
+            con.commit(); con.close()
+        self.assertEqual(self.app.get('/api/compras/foto/normal.jpg', headers=self.h_inv).status_code, 404)
+        self.assertEqual(self.app.get('/api/compras/foto/pend.jpg', headers=self.h_inv).status_code, 200)
+
+    def test_sigue_detallando_y_registrando_compras(self):
+        r = self.app.post('/api/compras/compras/detallar', headers=self.h_inv, json={
+            'id': self.pendiente, 'items': [{'producto_id': compras.crear_producto('X tabs'),
+                                             'cantidad': 1, 'precio_unitario': 1000}]})
+        self.assertEqual(r.status_code, 200)
+        r = self.app.post('/api/compras/compras', headers=self.h_inv, json={'cabecera': {
+            'fecha': '2026-10-01', 'tipo_gasto': 'variable', 'moneda': 'CLP',
+            'categoria_id': self.insumos, 'total': 500}, 'items': []})
+        self.assertEqual(r.status_code, 200)
+
+    def test_no_ve_ni_toca_recurrentes(self):
+        for metodo, ruta, body in (
+                ('get', '/api/compras/suscripciones', None),
+                ('post', '/api/compras/suscripciones', {'nombre': 'x', 'monto': 1, 'dia_mes': 1,
+                                                        'categoria_id': self.insumos,
+                                                        'fecha_inicio': '2026-10-01'}),
+                ('post', '/api/compras/suscripciones/actualizar', {'id': self.sub, 'monto': 5}),
+                ('post', '/api/compras/suscripciones/cortar', {'id': self.sub})):
+            r = getattr(self.app, metodo)(ruta, headers=self.h_inv, json=body)
+            self.assertEqual(r.status_code, 403, ruta)
+        self.assertEqual(self.app.get('/api/compras/suscripciones', headers=self.h_reg).status_code, 200)
+        self.assertTrue(compras.listar_suscripciones()[0]['activa'])
 
 
 if __name__ == '__main__':

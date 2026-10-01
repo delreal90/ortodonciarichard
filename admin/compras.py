@@ -56,7 +56,11 @@ FOTOS_DIR = Path(os.environ.get('COMPRAS_FOTOS_DIR', _BASE_DIR / 'compras_fotos'
 # ve; 'solicitante' ve y solicita pero no registra compras).
 #   escanear     — registrar salidas de stock (escaneo).
 #   stock        — ver productos, stock, alertas, resolver códigos.
-#   compras_ver  — ver el historial de compras y su detalle.
+#   compras_ver  — ver el detalle de una compra y su documento adjunto.
+#   historial    — la pestaña Historial: la lista de TODAS las compras y abrir cualquiera.
+#                  Inventario no la tiene (2026-10-01): solo abre las facturas que esperan
+#                  sus productos («Por detallar»).
+#   recurrentes  — la pestaña Recurrentes y crear/editar/cortar cargos mensuales.
 #   reportes     — ver reportes de gasto y exportar.
 #   solicitar    — crear solicitudes de compra y ver pendientes.
 #   registrar    — ingresar compras/productos/proveedores/movimientos/códigos.
@@ -66,11 +70,13 @@ FOTOS_DIR = Path(os.environ.get('COMPRAS_FOTOS_DIR', _BASE_DIR / 'compras_fotos'
 #                    impuestos ni seguros. Se aplica filtrando por categorias.ambito.
 ROLES = ('admin', 'registro', 'inventario', 'solicitante', 'lectura', 'escaner')
 CAPS = {
-    'admin':       {'escanear', 'stock', 'compras_ver', 'reportes', 'solicitar', 'registrar', 'admin'},
-    'registro':    {'escanear', 'stock', 'compras_ver', 'reportes', 'solicitar', 'registrar'},
+    'admin':       {'escanear', 'stock', 'compras_ver', 'historial', 'recurrentes', 'reportes',
+                    'solicitar', 'registrar', 'admin'},
+    'registro':    {'escanear', 'stock', 'compras_ver', 'historial', 'recurrentes', 'reportes',
+                    'solicitar', 'registrar'},
     'inventario':  {'escanear', 'stock', 'compras_ver', 'solicitar', 'registrar', 'solo_operacion'},
-    'solicitante': {'escanear', 'stock', 'compras_ver', 'solicitar'},
-    'lectura':     {'stock', 'compras_ver', 'reportes'},
+    'solicitante': {'escanear', 'stock', 'compras_ver', 'historial', 'solicitar'},
+    'lectura':     {'stock', 'compras_ver', 'historial', 'reportes'},
     'escaner':     {'escanear'},
 }
 # Etiquetas legibles para el panel de usuarios.

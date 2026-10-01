@@ -146,8 +146,8 @@ function logout() {
 }
 
 // Qué capacidad exige cada pestaña.
-const TAB_CAP = { compras: 'registrar', historial: 'compras_ver', stock: 'stock',
-  escanear: 'escanear', solicitudes: 'solicitar', detallar: 'registrar', recurrentes: 'registrar',
+const TAB_CAP = { compras: 'registrar', historial: 'historial', stock: 'stock',
+  escanear: 'escanear', solicitudes: 'solicitar', detallar: 'registrar', recurrentes: 'recurrentes',
   etiquetas: 'registrar', reportes: 'reportes', admin: 'admin' };
 
 async function entrarApp() {
@@ -270,7 +270,7 @@ RENDER.compras = () => {
       </div>
       <div class="row c3">
         <div class="field"><label>Tipo de gasto</label>
-          <select id="cTipoGasto"><option value="variable">Variable</option><option value="fijo">Fijo</option><option value="recurrente">Recurrente (mensual)</option></select></div>
+          <select id="cTipoGasto"><option value="variable">Variable</option><option value="fijo">Fijo</option>${puede('recurrentes') ? '<option value="recurrente">Recurrente (mensual)</option>' : ''}</select></div>
         <div class="field"><label>Categoría</label><select id="cCategoria"></select></div>
         <div class="field"><label>Foto factura/boleta (opcional)</label>
           <input type="file" id="cFoto" accept="image/*,application/pdf" capture="environment"></div>

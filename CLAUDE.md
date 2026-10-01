@@ -1700,6 +1700,20 @@ que se encontró y se corrigió:
   rol veía con monto. «Reparaciones» queda en operación a propósito.
 - Pruebas: `TestInventarioNoVeNiAnota` en `test_compras.py`.
 
+**Inventario sin Historial ni Recurrentes (2026-10-01, pedido del usuario).** Dos
+capacidades nuevas en `CAPS`: **`historial`** (pestaña Historial: la lista de todas las
+compras, abrir cualquiera y editarla) y **`recurrentes`** (pestaña Recurrentes y sus 4 rutas).
+Las tienen admin y registro; solicitante y lectura conservan `historial` (ya lo veían).
+Inventario **no tiene ninguna de las dos** y se cierra en el servidor, no solo en el botón:
+- `GET /compras` → 403. `compras/<id>`, `foto/<nombre>` y `compras/actualizar` pasan por
+  `server._compra_abrible()`: sin `historial` solo se abre una factura **pendiente de
+  detalle** (lo único que necesita «📥 Por detallar»); cualquier otra por su número da 404.
+- `suscripciones` (listar, crear, actualizar, cortar) → `_require_compras('recurrentes')`, y
+  Nueva compra no le ofrece el tipo «Recurrente (mensual)».
+- Sigue pudiendo registrar compras, detallar facturas, Stock, Escanear, Solicitudes y
+  Etiquetas.
+- Pruebas: `TestInventarioSinHistorialNiRecurrentes`.
+
 **Usuarios (2026-08-13):**
 - **Sin email obligatorio**: la columna `usuarios.email` es en realidad el NOMBRE DE
   USUARIO para entrar (se mantiene el nombre de columna por compatibilidad). Acepta

@@ -6764,6 +6764,19 @@ def _destino_oculto(u, categoria_id=None, proveedor_id=None):
     return None
 
 
+def _compra_abrible(u, cid):
+    """La compra si este usuario la puede abrir, o None. Sin la capacidad 'historial'
+    (rol Inventario) solo se abren las facturas que esperan sus productos: es lo único
+    que necesita «Por detallar», y abrir cualquier otra por su número sería tener el
+    Historial por la puerta de atrás."""
+    c = _compras.obtener_compra(cid, solo_ambito=_ambito_de(u))
+    if not c:
+        return None
+    if not _compras.tiene_cap(u['rol'], 'historial') and c.get('detalle_estado') != 'pendiente':
+        return None
+    return c
+
+
 def _ambito_de(u):
     """'operacion' si el rol solo puede ver gastos operativos (inventario), o None
     si puede verlo todo. Se aplica en el SERVIDOR, no solo escondiendo botones."""
@@ -7138,7 +7151,7 @@ def compras_dolar():
 
 @app.route('/api/compras/compras', methods=['GET'])
 def compras_listar():
-    u, err = _require_compras('compras_ver')
+    u, err = _require_compras('historial')
     if err:
         return err
     a = request.args
@@ -7156,7 +7169,7 @@ def compras_obtener(cid):
     u, err = _require_compras('compras_ver')
     if err:
         return err
-    c = _compras.obtener_compra(cid, solo_ambito=_ambito_de(u))
+    c = _compra_abrible(u, cid)
     if not c:
         return jsonify({'ok': False, 'error': 'Compra no encontrada'}), 404
     return jsonify({'ok': True, 'compra': c})
@@ -7216,6 +7229,8 @@ def compras_actualizar():
     cid = d.pop('id', None)
     # El rol inventario no puede editar lo que no puede ver (un sueldo, un pago a un
     # proveedor confidencial), ni mover una compra hacia algo que no ve.
+    if not _compras.tiene_cap(u['rol'], 'historial'):
+        return jsonify({'ok': False, 'error': 'Compra no encontrada'}), 404
     amb = _ambito_de(u)
     if amb:
         if not _compras.obtener_compra(cid, solo_ambito=amb):
@@ -7265,10 +7280,9 @@ def compras_foto_ver(nombre):
         return err
     if '/' in nombre or '\\' in nombre or '..' in nombre:
         return jsonify({'ok': False, 'error': 'Nombre inválido'}), 400
-    amb = _ambito_de(u)
-    if amb:
+    if _ambito_de(u) or not _compras.tiene_cap(u['rol'], 'historial'):
         cid = _compras.compra_de_foto(nombre)
-        if not cid or not _compras.obtener_compra(cid, solo_ambito=amb):
+        if not cid or not _compra_abrible(u, cid):
             return jsonify({'ok': False, 'error': 'No encontrado'}), 404
     return send_from_directory(str(_compras.FOTOS_DIR), nombre)
 
@@ -7546,7 +7560,7 @@ def _notificar_solicitud_admins(usuario, items):
 
 @app.route('/api/compras/suscripciones', methods=['GET'])
 def compras_suscripciones():
-    u, err = _require_compras('registrar')
+    u, err = _require_compras('recurrentes')
     if err:
         return err
     return jsonify({'ok': True, 'suscripciones': _compras.listar_suscripciones(
@@ -7562,7 +7576,7 @@ def _suscripcion_oculta(u, sid):
 
 @app.route('/api/compras/suscripciones', methods=['POST'])
 def compras_suscripciones_crear():
-    u, err = _require_compras('registrar')
+    u, err = _require_compras('recurrentes')
     if err:
         return err
     d = request.json or {}
@@ -7577,7 +7591,7 @@ def compras_suscripciones_crear():
 
 @app.route('/api/compras/suscripciones/actualizar', methods=['POST'])
 def compras_suscripciones_actualizar():
-    u, err = _require_compras('registrar')
+    u, err = _require_compras('recurrentes')
     if err:
         return err
     d = request.json or {}
@@ -7595,7 +7609,7 @@ def compras_suscripciones_actualizar():
 
 @app.route('/api/compras/suscripciones/cortar', methods=['POST'])
 def compras_suscripciones_cortar():
-    u, err = _require_compras('registrar')
+    u, err = _require_compras('recurrentes')
     if err:
         return err
     d = request.json or {}
