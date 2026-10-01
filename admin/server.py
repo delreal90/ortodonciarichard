@@ -6745,6 +6745,25 @@ def _con_caps(u):
                              if 'registrar' in caps else 0)}
 
 
+def _destino_oculto(u, categoria_id=None, proveedor_id=None):
+    """Mensaje de error si el rol con `solo_operacion` intenta anotar un gasto en una
+    categoría de administración o a un proveedor confidencial; None si puede. Después no
+    lo vería, pero igual quedaría un pago en «Sueldos» que nadie pidió."""
+    amb = _ambito_de(u)
+    if not amb:
+        return None
+    if _compras.proveedor_confidencial(proveedor_id):
+        return 'Proveedor no válido'
+    if categoria_id:
+        try:
+            cat = int(categoria_id)
+        except (TypeError, ValueError):
+            return 'Categoría no válida'
+        if cat not in {c['id'] for c in _compras.listar_categorias(solo_ambito=amb)}:
+            return 'Categoría no válida'
+    return None
+
+
 def _ambito_de(u):
     """'operacion' si el rol solo puede ver gastos operativos (inventario), o None
     si puede verlo todo. Se aplica en el SERVIDOR, no solo escondiendo botones."""
@@ -6911,7 +6930,7 @@ def compras_proveedores_actualizar():
 
 @app.route('/api/compras/productos', methods=['GET'])
 def compras_productos():
-    _, err = _require_compras('stock')
+    u, err = _require_compras('stock')
     if err:
         return err
     prods = _compras.listar_productos(buscar=request.args.get('buscar', ''),
@@ -6919,19 +6938,20 @@ def compras_productos():
     # adjuntar última compra si se pide (para la vista de stock)
     if request.args.get('detalle') == '1':
         for p in prods:
-            p['ultima_compra'] = _compras.ultima_compra_producto(p['id'])
+            p['ultima_compra'] = _compras.ultima_compra_producto(p['id'], solo_ambito=_ambito_de(u))
     return jsonify({'ok': True, 'productos': prods})
 
 @app.route('/api/compras/productos/<int:pid>', methods=['GET'])
 def compras_producto_detalle(pid):
-    _, err = _require_compras('stock')
+    u, err = _require_compras('stock')
     if err:
         return err
     p = _compras.obtener_producto(pid)
     if not p:
         return jsonify({'ok': False, 'error': 'Producto no encontrado'}), 404
-    p['ultima_compra'] = _compras.ultima_compra_producto(pid)
-    p['historial_precios'] = _compras.historial_precios(pid)
+    amb = _ambito_de(u)
+    p['ultima_compra'] = _compras.ultima_compra_producto(pid, solo_ambito=amb)
+    p['historial_precios'] = _compras.historial_precios(pid, solo_ambito=amb)
     p['movimientos'] = _compras.movimientos_producto(pid)
     return jsonify({'ok': True, 'producto': p})
 
@@ -7147,8 +7167,12 @@ def compras_crear():
     if err:
         return err
     d = request.json or {}
+    cab = d.get('cabecera') or {}
+    malo = _destino_oculto(u, cab.get('categoria_id'), cab.get('proveedor_id'))
+    if malo:
+        return jsonify({'ok': False, 'error': malo}), 400
     try:
-        cid = _compras.crear_compra(d.get('cabecera', {}), d.get('items', []), u['id'])
+        cid = _compras.crear_compra(cab, d.get('items', []), u['id'])
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, 'id': cid})
@@ -7542,6 +7566,9 @@ def compras_suscripciones_crear():
     if err:
         return err
     d = request.json or {}
+    malo = _destino_oculto(u, d.get('categoria_id'), d.get('proveedor_id'))
+    if malo:
+        return jsonify({'ok': False, 'error': malo}), 400
     try:
         sid, cid = _compras.crear_suscripcion(d, u['id'])
     except ValueError as e:
@@ -7557,6 +7584,9 @@ def compras_suscripciones_actualizar():
     sid = d.pop('id', None)
     if _suscripcion_oculta(u, sid):
         return jsonify({'ok': False, 'error': 'Cargo no encontrado'}), 404
+    malo = _destino_oculto(u, d.get('categoria_id'), d.get('proveedor_id'))
+    if malo:
+        return jsonify({'ok': False, 'error': malo}), 400
     try:
         _compras.actualizar_suscripcion(sid, d)
     except ValueError as e:

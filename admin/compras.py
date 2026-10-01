@@ -1104,8 +1104,21 @@ def generar_codigo_propio(prod_id):
     return codigo
 
 
-def ultima_compra_producto(prod_id):
-    """Última vez que se compró: fecha, proveedor, precio unitario y cantidad."""
+def _filtro_visible(solo_ambito):
+    """(sql, params) que deja solo las compras que puede ver un rol con `solo_operacion`:
+    su categoría es de ese ámbito (o no tiene) y el proveedor no es confidencial. Es el
+    mismo criterio de listar_compras; espera los alias `c`, `cat` y `pr`."""
+    if solo_ambito not in AMBITOS:
+        return '', []
+    return (' AND (cat.ambito=? OR c.categoria_id IS NULL) AND COALESCE(pr.confidencial,0)=0',
+            [solo_ambito])
+
+
+def ultima_compra_producto(prod_id, solo_ambito=None):
+    """Última vez que se compró: fecha, proveedor, precio unitario y cantidad.
+    ⚠️ Con solo_ambito no cuenta compras que ese rol no ve: un producto comprado en
+    «Otros» (administración) mostraba su proveedor y su precio en la lista de Stock."""
+    filtro, extra = _filtro_visible(solo_ambito)
     con = _conn()
     try:
         r = con.execute(
@@ -1113,23 +1126,27 @@ def ultima_compra_producto(prod_id):
             '       i.precio_unitario, i.cantidad, i.marca '
             'FROM compra_items i JOIN compras c ON c.id=i.compra_id '
             'LEFT JOIN proveedores pr ON pr.id=c.proveedor_id '
-            'WHERE i.producto_id=? ORDER BY c.fecha DESC, c.id DESC LIMIT 1',
-            (prod_id,)).fetchone()
+            'LEFT JOIN categorias cat ON cat.id=c.categoria_id '
+            'WHERE i.producto_id=?' + filtro + ' ORDER BY c.fecha DESC, c.id DESC LIMIT 1',
+            [prod_id] + extra).fetchone()
         return _row(r)
     finally:
         con.close()
 
 
-def historial_precios(prod_id, limite=50):
-    """Evolución del precio de un producto: cada compra con fecha, proveedor y precio."""
+def historial_precios(prod_id, limite=50, solo_ambito=None):
+    """Evolución del precio de un producto: cada compra con fecha, proveedor y precio.
+    ⚠️ Con solo_ambito oculta las compras que ese rol no ve (ver ultima_compra_producto)."""
+    filtro, extra = _filtro_visible(solo_ambito)
     con = _conn()
     try:
         return _rows(con.execute(
             'SELECT c.fecha, pr.nombre AS proveedor, i.precio_unitario, i.cantidad, i.marca '
             'FROM compra_items i JOIN compras c ON c.id=i.compra_id '
             'LEFT JOIN proveedores pr ON pr.id=c.proveedor_id '
-            'WHERE i.producto_id=? ORDER BY c.fecha DESC, c.id DESC LIMIT ?',
-            (prod_id, limite)))
+            'LEFT JOIN categorias cat ON cat.id=c.categoria_id '
+            'WHERE i.producto_id=?' + filtro + ' ORDER BY c.fecha DESC, c.id DESC LIMIT ?',
+            [prod_id] + extra + [limite]))
     finally:
         con.close()
 

@@ -1681,6 +1681,25 @@ mismo de las listas (su nombre ya dice a quién se le paga).
   extensión F2 de cada PC de la clínica. No es algo que se vea usando Compras, pero alguien con
   acceso a un PC de la clínica y conocimientos técnicos podría leerlo.
 
+**Auditoría del rol Inventario (2026-10-01).** Se recorrieron TODAS las rutas
+`/api/compras/*` con una sesión Inventario sobre una copia de la base (con los 5 proveedores
+confidenciales y «Otros» en administración, como producción). Lo cerrado estaba bien
+(reportes, Excel, usuarios, sueldos/SII/PreviRed/doctores por lista y por URL directa). Lo
+que se encontró y se corrigió:
+- ⚠️ **La ficha de un producto mostraba compras que el rol no ve.** `historial_precios()` y
+  `ultima_compra_producto()` no filtraban: un equipo dental de $4.000.000 anotado en «Otros»
+  aparecía con proveedor y precio en Stock. Ahora reciben `solo_ambito` y aplican
+  `_filtro_visible()` (mismo criterio que `listar_compras`). **Si se agrega otra consulta que
+  lea `compra_items` para mostrarla, tiene que pasar por ese filtro.**
+- **Podía ANOTAR pagos en lo que no ve** (una compra en «Sueldos», a nombre de un doctor
+  confidencial, o un cargo recurrente administrativo). `server._destino_oculto()` lo rechaza
+  con 400 en `compras` (POST), `suscripciones` y `suscripciones/actualizar`; editar ya lo
+  hacía (`compras/actualizar`).
+- **«Servicios» se pasó a administración en producción** (decisión del usuario): ahí estaban
+  el contador, honorarios de personas, luz, teléfono, internet y música — 167 pagos que el
+  rol veía con monto. «Reparaciones» queda en operación a propósito.
+- Pruebas: `TestInventarioNoVeNiAnota` en `test_compras.py`.
+
 **Usuarios (2026-08-13):**
 - **Sin email obligatorio**: la columna `usuarios.email` es en realidad el NOMBRE DE
   USUARIO para entrar (se mantiene el nombre de columna por compatibilidad). Acepta

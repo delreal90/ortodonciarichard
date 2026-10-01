@@ -727,5 +727,77 @@ class TestDetalleRutas(_Base):
         self.assertIn('confidencial', r.get_json()['error'])
 
 
+class TestInventarioNoVeNiAnota(_Base):
+    """Auditoría del rol Inventario (2026-10-01): la ficha de un producto mostraba las
+    compras de administración (un equipo de $4.000.000 anotado en «Otros»), y podía
+    anotar pagos en categorías o a proveedores que después no ve."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['DENTIDESK_ENABLED'] = 'false'
+        os.environ.pop('RENDER', None)
+        os.environ.pop('RUN_PATIENT_SYNC', None)
+        import server
+        cls.app = server.app.test_client()
+
+    def setUp(self):
+        super().setUp()
+        inv = compras.crear_usuario('ana', 'Ana', 'clave-larga-123', rol='inventario')
+        adm = compras.crear_usuario('jefe', 'Jefe', 'clave-larga-123', rol='admin')
+        self.h_inv = {'X-Compras-Token': compras.crear_sesion(inv)}
+        self.h_adm = {'X-Compras-Token': compras.crear_sesion(adm)}
+        self.insumos = compras.crear_categoria('Insumos aud', 'operacion')
+        self.otros = compras.crear_categoria('Otros aud', 'administracion')
+        self.conf = compras.crear_proveedor('Dr. Externo aud')
+        compras.actualizar_proveedor(self.conf, confidencial=True)
+        self.equipo = compras.crear_producto('Equipo dental aud')
+        for fecha, cat, prov, precio in (('2026-01-10', self.insumos, None, 1000),
+                                         ('2026-05-10', self.otros, None, 4000000),
+                                         ('2026-06-10', self.insumos, self.conf, 777)):
+            compras.crear_compra({'fecha': fecha, 'tipo_gasto': 'variable', 'moneda': 'CLP',
+                                  'categoria_id': cat, 'proveedor_id': prov},
+                                 [{'producto_id': self.equipo, 'cantidad': 1, 'precio_unitario': precio}])
+
+    def _ficha(self, h):
+        return self.app.get(f'/api/compras/productos/{self.equipo}', headers=h).get_json()['producto']
+
+    def test_la_ficha_del_producto_no_muestra_compras_que_no_ve(self):
+        p = self._ficha(self.h_inv)
+        self.assertEqual([h['precio_unitario'] for h in p['historial_precios']], [1000])
+        self.assertEqual(p['ultima_compra']['precio_unitario'], 1000)
+
+    def test_la_lista_de_stock_tampoco(self):
+        j = self.app.get('/api/compras/productos?detalle=1', headers=self.h_inv).get_json()
+        p = next(x for x in j['productos'] if x['id'] == self.equipo)
+        self.assertEqual(p['ultima_compra']['precio_unitario'], 1000)
+
+    def test_el_admin_sigue_viendo_todo(self):
+        p = self._ficha(self.h_adm)
+        self.assertEqual(len(p['historial_precios']), 3)
+        self.assertEqual(p['ultima_compra']['precio_unitario'], 777)
+
+    def test_no_puede_anotar_en_una_categoria_que_no_ve(self):
+        for cab in ({'categoria_id': self.otros}, {'proveedor_id': self.conf},
+                    {'categoria_id': 'abc'}):
+            base = {'fecha': '2026-10-01', 'tipo_gasto': 'variable', 'moneda': 'CLP', 'total': 1}
+            base.update(cab)
+            r = self.app.post('/api/compras/compras', headers=self.h_inv,
+                              json={'cabecera': base, 'items': []})
+            self.assertEqual(r.status_code, 400, cab)
+        r = self.app.post('/api/compras/suscripciones', headers=self.h_inv, json={
+            'nombre': 'x', 'monto': 1, 'dia_mes': 1, 'categoria_id': self.otros,
+            'fecha_inicio': '2026-10-01'})
+        self.assertEqual(r.status_code, 400)
+
+    def test_si_puede_anotar_insumos_y_el_admin_todo(self):
+        base = {'fecha': '2026-10-01', 'tipo_gasto': 'variable', 'moneda': 'CLP', 'total': 1}
+        r = self.app.post('/api/compras/compras', headers=self.h_inv,
+                          json={'cabecera': {**base, 'categoria_id': self.insumos}, 'items': []})
+        self.assertEqual(r.status_code, 200)
+        r = self.app.post('/api/compras/compras', headers=self.h_adm,
+                          json={'cabecera': {**base, 'categoria_id': self.otros}, 'items': []})
+        self.assertEqual(r.status_code, 200)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
