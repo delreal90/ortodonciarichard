@@ -960,7 +960,7 @@ class TestCorregirItem(_Base):
 
 class TestGastosFijos(_Base):
     """Arriendo, sueldos, PreviRed, PPM, honorarios: salen todos los meses. Un mes sin
-    el arriendo anotado se veía 12 millones más barato y el margen mentía."""
+    el arriendo anotado se veía mucho más barato y el margen mentía."""
 
     def setUp(self):
         super().setUp()
