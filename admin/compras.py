@@ -391,6 +391,41 @@ def _migrar(con):
     ):
         if col not in ccol:
             con.execute(ddl)
+    # Naturaleza de la compra (2026-10-01): no todo lo que sale de la cuenta es un gasto
+    # del mes. Una inversión (un sillón dental), un ahorro o una compra anotada dos veces
+    # (los dos Excel que se llevaron en paralelo) hundían el margen. Se MARCA, no se
+    # borra: la compra sigue en el historial y la marca se puede deshacer.
+    for col, ddl in (
+        ('naturaleza', "ALTER TABLE compras ADD COLUMN naturaleza TEXT NOT NULL DEFAULT 'gasto'"),
+        ('naturaleza_nota', 'ALTER TABLE compras ADD COLUMN naturaleza_nota TEXT'),
+        # Gastos fijos del mes: a qué gasto fijo y a qué MES corresponde un pago (el
+        # arriendo de junio puede pagarse en julio).
+        ('obligatorio_id', 'ALTER TABLE compras ADD COLUMN obligatorio_id INTEGER'),
+        ('periodo', 'ALTER TABLE compras ADD COLUMN periodo TEXT'),
+    ):
+        if col not in _cols('compras'):
+            con.execute(ddl)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS gastos_obligatorios (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre       TEXT NOT NULL,
+            proveedor_id INTEGER REFERENCES proveedores(id),
+            categoria_id INTEGER REFERENCES categorias(id),
+            monto_ref    REAL NOT NULL DEFAULT 0,
+            desde        TEXT NOT NULL,            -- YYYY-MM: primer mes que se exige
+            activo       INTEGER NOT NULL DEFAULT 1,
+            notas        TEXT,
+            creado       TEXT NOT NULL
+        )""")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS obligatorios_omitidos (
+            obligatorio_id INTEGER NOT NULL REFERENCES gastos_obligatorios(id) ON DELETE CASCADE,
+            periodo        TEXT NOT NULL,
+            nota           TEXT,
+            usuario_id     INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+            creado         TEXT NOT NULL,
+            PRIMARY KEY (obligatorio_id, periodo)
+        )""")
     # Ámbito de la categoría (operacion | administracion) para separar los gastos de
     # insumos/materiales de los de sueldos/impuestos, y poder ocultarle estos últimos
     # al rol 'inventario'. Backfill por nombre conocido; el resto queda 'operacion'.
@@ -2275,9 +2310,16 @@ def resumen_gastos(desde=None, hasta=None, ambito=None):
         if ambito in AMBITOS:
             cond.append('(SELECT ambito FROM categorias WHERE id=c.categoria_id) = ?')
             vals.append(ambito)
-        where = (' WHERE ' + ' AND '.join(cond)) if cond else ''
+        # Lo que NO es gasto del mes (inversiones, ahorros, duplicados) se informa
+        # aparte y no entra en ningún total. Ver NATURALEZAS.
+        where_todo = (' WHERE ' + ' AND '.join(cond)) if cond else ''
+        cond = cond + [_SQL_ES_GASTO]
+        where = ' WHERE ' + ' AND '.join(cond)
         # total_clp puede ser 0 en filas viejas antes de la migración → cae a total.
         M = 'CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END'
+        fuera = {r['naturaleza']: {'total': round(r['t'] or 0), 'n': r['n']} for r in con.execute(
+            f"SELECT COALESCE(c.naturaleza,'gasto') AS naturaleza, SUM({M}) AS t, COUNT(*) AS n "
+            f"FROM compras c{where_todo} GROUP BY 1", vals) if r['naturaleza'] != 'gasto'}
         # Etiqueta de ámbito: sin categoría se muestra aparte para no mezclarlo.
         A = ("COALESCE((SELECT ambito FROM categorias WHERE id=c.categoria_id),"
              "'sin_categoria')")
@@ -2316,6 +2358,8 @@ def resumen_gastos(desde=None, hasta=None, ambito=None):
             'por_proveedor': por_prov,
             'por_tipo': por_tipo,
             'por_ambito': por_ambito,
+            # {naturaleza: {total, n}} de lo que quedó FUERA de los totales.
+            'fuera_de_gastos': fuera,
         }
     finally:
         con.close()
@@ -2333,7 +2377,293 @@ def gasto_por_mes_ambito():
             f"SELECT substr(c.fecha,1,7) AS mes, "
             f"COALESCE(cat.ambito,'sin_categoria') AS ambito, SUM({M}) AS total "
             f"FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id "
-            f"GROUP BY mes, ambito ORDER BY mes"))
+            f"WHERE {_SQL_ES_GASTO} GROUP BY mes, ambito ORDER BY mes"))
+    finally:
+        con.close()
+
+
+# ══ Naturaleza de una compra: ¿cuenta como gasto del mes? (2026-10-01) ════════
+NATURALEZAS = {
+    'gasto':     'Gasto del mes',
+    'inversion': 'Inversión (equipos: se usa por años)',
+    'no_gasto':  'No es gasto (ahorro, préstamo, traspaso)',
+    'duplicado': 'Duplicado (ya está anotado en otra compra)',
+}
+# Lo único que suma en los totales de gasto (Reportes, KPIs, reporte semanal).
+_SQL_ES_GASTO = "COALESCE(c.naturaleza,'gasto')='gasto'"
+
+
+def marcar_naturaleza(compra_id, naturaleza, nota=''):
+    """Marca una compra como gasto, inversión, no-gasto o duplicado. NO la borra: sigue
+    en el historial (con su detalle de productos y su foto) y se puede volver a
+    'gasto'. ⚠️ Un 'duplicado' se excluye de todo; una 'inversion' se informa aparte."""
+    if naturaleza not in NATURALEZAS:
+        raise ValueError('Naturaleza no válida')
+    con = _conn()
+    try:
+        cur = con.execute('UPDATE compras SET naturaleza=?, naturaleza_nota=? WHERE id=?',
+                          (naturaleza, _norm(nota)[:300] or None, compra_id))
+        if not cur.rowcount:
+            raise ValueError('Compra no encontrada')
+        con.commit()
+    finally:
+        con.close()
+
+
+def corregir_item(item_id, cantidad=None, precio_unitario=None):
+    """Corrige la cantidad o el precio de un ítem ya registrado (un error de tipeo: el
+    Excel de inventario anotó «100» láminas como 100 CAJAS) y recalcula el total.
+    Si el ítem sumó stock al registrarse, el stock se ajusta por la diferencia; las
+    compras importadas del histórico nunca sumaron stock, así que ahí no se toca.
+    En una factura de dos manos el total es el de la factura y no se recalcula."""
+    con = _conn()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        it = _row(con.execute('SELECT * FROM compra_items WHERE id=?', (item_id,)).fetchone())
+        if not it:
+            raise ValueError('Ítem no encontrado')
+        cant = float(cantidad) if cantidad not in (None, '') else float(it['cantidad'])
+        precio = (float(precio_unitario) if precio_unitario not in (None, '')
+                  else float(it['precio_unitario']))
+        if cant <= 0 or precio < 0:
+            raise ValueError('Cantidad o precio no válidos')
+        con.execute('UPDATE compra_items SET cantidad=?, precio_unitario=?, subtotal=? WHERE id=?',
+                    (cant, precio, round(cant * precio, 2), item_id))
+        c = _row(con.execute('SELECT * FROM compras WHERE id=?', (it['compra_id'],)).fetchone())
+        if not c.get('detalle_estado'):
+            s = con.execute('SELECT COALESCE(SUM(subtotal),0) FROM compra_items WHERE compra_id=?',
+                            (c['id'],)).fetchone()[0]
+            total = round(s + float(c['costo_despacho'] or 0), 2)
+            _, tc = _moneda_de(c)
+            con.execute('UPDATE compras SET total=?, total_clp=? WHERE id=?',
+                        (total, _total_clp(total, tc, float(c['costo_importacion'] or 0)), c['id']))
+        delta = cant - float(it['cantidad'])
+        if delta and it['producto_id']:
+            mov = con.execute("SELECT id, cantidad FROM movimientos_stock WHERE compra_id=? "
+                              "AND producto_id=? AND tipo='entrada' ORDER BY id LIMIT 1",
+                              (c['id'], it['producto_id'])).fetchone()
+            if mov:
+                con.execute('UPDATE movimientos_stock SET cantidad=? WHERE id=?',
+                            (float(mov['cantidad']) + delta, mov['id']))
+                con.execute('UPDATE productos SET stock_actual=stock_actual+? WHERE id=?',
+                            (delta, it['producto_id']))
+        con.commit()
+        tot = con.execute('SELECT total, total_clp FROM compras WHERE id=?', (c['id'],)).fetchone()
+        return {'compra_id': c['id'], 'total': tot['total'], 'total_clp': tot['total_clp']}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+# ══ Gastos fijos del mes (2026-10-01) ═════════════════════════════════════════
+# Arriendo, gastos comunes, sueldos, PreviRed, PPM, honorarios del Dr. Vial,
+# almuerzos del personal: salen TODOS los meses y nadie avisaba cuando faltaba
+# anotar uno. Un mes sin arriendo se veía mucho más barato y el margen mentía.
+# Cada gasto fijo se da por anotado en un mes si hay un pago de ese proveedor en ese
+# mes (o uno registrado desde esta lista con ese período), y si de verdad no hubo, un
+# administrador lo puede «omitir» con una nota. Solo lo ven los administradores.
+
+def _periodo(p):
+    """'2026-07' (o una fecha '2026-07-15') -> '2026-07'; otra cosa -> ''."""
+    t = _norm(p)[:7]
+    try:
+        a, m = int(t[:4]), int(t[5:7])
+    except ValueError:
+        return ''
+    return f'{a:04d}-{m:02d}' if len(t) == 7 and t[4] == '-' and 1 <= m <= 12 else ''
+
+
+def _sumar_mes(p, n):
+    a, m = int(p[:4]), int(p[5:7]) - 1 + n
+    return f'{a + m // 12:04d}-{m % 12 + 1:02d}'
+
+
+def crear_obligatorio(nombre, proveedor_id, categoria_id=None, monto_ref=0, desde='', notas=''):
+    nombre = _norm(nombre)
+    if not nombre:
+        raise ValueError('Falta el nombre del gasto fijo')
+    if not proveedor_id:
+        raise ValueError('Falta el proveedor: es con lo que se reconoce el pago')
+    desde = _periodo(desde) or _periodo(_hoy_cl())
+    con = _conn()
+    try:
+        cur = con.execute(
+            'INSERT INTO gastos_obligatorios(nombre,proveedor_id,categoria_id,monto_ref,desde,'
+            'activo,notas,creado) VALUES(?,?,?,?,?,1,?,?)',
+            (nombre, proveedor_id, categoria_id or None, round(float(monto_ref or 0), 2), desde,
+             _norm(notas), ahora_cl().isoformat(timespec='seconds')))
+        con.commit()
+        return cur.lastrowid
+    finally:
+        con.close()
+
+
+def actualizar_obligatorio(oid, campos):
+    permit = {'nombre', 'proveedor_id', 'categoria_id', 'monto_ref', 'desde', 'activo', 'notas'}
+    sets, vals = [], []
+    for k, v in (campos or {}).items():
+        if k not in permit:
+            continue
+        if k == 'desde':
+            v = _periodo(v)
+            if not v:
+                raise ValueError('Mes de inicio no válido (AAAA-MM)')
+        elif k == 'activo':
+            v = 1 if v else 0
+        elif k == 'monto_ref':
+            v = round(float(v or 0), 2)
+        elif k in ('nombre', 'notas'):
+            v = _norm(v)
+        sets.append(f'{k}=?')
+        vals.append(v)
+    if not sets:
+        return
+    con = _conn()
+    try:
+        con.execute(f'UPDATE gastos_obligatorios SET {",".join(sets)} WHERE id=?', vals + [oid])
+        con.commit()
+    finally:
+        con.close()
+
+
+def listar_obligatorios(incluir_inactivos=False):
+    con = _conn()
+    try:
+        return _rows(con.execute(
+            'SELECT o.*, pr.nombre AS proveedor_nombre, cat.nombre AS categoria_nombre '
+            'FROM gastos_obligatorios o LEFT JOIN proveedores pr ON pr.id=o.proveedor_id '
+            'LEFT JOIN categorias cat ON cat.id=o.categoria_id '
+            + ('' if incluir_inactivos else 'WHERE o.activo=1 ') + 'ORDER BY o.nombre'))
+    finally:
+        con.close()
+
+
+_SQL_PAGO_DE = ("FROM compras c WHERE COALESCE(c.naturaleza,'gasto') <> 'duplicado' "
+                "AND COALESCE(c.periodo, substr(c.fecha,1,7)) = ? "
+                "AND (c.obligatorio_id = ? OR (c.obligatorio_id IS NULL AND c.proveedor_id = ?))")
+
+
+def _estado_de(con, o, periodo):
+    pagos = _rows(con.execute(
+        'SELECT c.id, c.fecha, CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END AS total '
+        + _SQL_PAGO_DE + ' ORDER BY c.fecha', (periodo, o['id'], o['proveedor_id'])))
+    om = _row(con.execute('SELECT nota, creado FROM obligatorios_omitidos '
+                          'WHERE obligatorio_id=? AND periodo=?', (o['id'], periodo)).fetchone())
+    estado = 'registrado' if pagos else ('omitido' if om else 'pendiente')
+    return estado, pagos, om
+
+
+def _ultimo_monto(con, o):
+    r = con.execute(
+        "SELECT CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END AS t FROM compras c "
+        "WHERE COALESCE(c.naturaleza,'gasto') <> 'duplicado' "
+        "AND (c.obligatorio_id = ? OR (c.obligatorio_id IS NULL AND c.proveedor_id = ?)) "
+        "ORDER BY c.fecha DESC, c.id DESC LIMIT 1", (o['id'], o['proveedor_id'])).fetchone()
+    return round(r['t']) if r else round(o['monto_ref'] or 0)
+
+
+def estado_obligatorios(periodo):
+    """Cada gasto fijo activo con su estado en ese mes: registrado | pendiente | omitido.
+    Los que empiezan a exigirse después de ese mes no aparecen."""
+    periodo = _periodo(periodo)
+    if not periodo:
+        raise ValueError('Mes no válido (AAAA-MM)')
+    out = []
+    con = _conn()
+    try:
+        for o in listar_obligatorios():
+            if o['desde'] > periodo:
+                continue
+            estado, pagos, om = _estado_de(con, o, periodo)
+            out.append({**o, 'estado': estado, 'pagos': pagos,
+                        'pagado': round(sum(p['total'] or 0 for p in pagos)),
+                        'omitido_nota': (om or {}).get('nota') or '',
+                        'monto_sugerido': _ultimo_monto(con, o)})
+    finally:
+        con.close()
+    return out
+
+
+def obligatorios_atrasados(hoy=None):
+    """[{obligatorio_id, nombre, periodo}] de los meses YA TERMINADOS que siguen sin
+    anotar. El mes en curso no cuenta como atrasado: los sueldos se pagan a fin de mes."""
+    mes_hoy = _periodo((hoy or ahora_cl().date()).isoformat())
+    out = []
+    con = _conn()
+    try:
+        for o in listar_obligatorios():
+            p = o['desde']
+            while p < mes_hoy:
+                if _estado_de(con, o, p)[0] == 'pendiente':
+                    out.append({'obligatorio_id': o['id'], 'nombre': o['nombre'], 'periodo': p})
+                p = _sumar_mes(p, 1)
+    finally:
+        con.close()
+    return out
+
+
+def faltantes_por_mes(meses):
+    """{mes: [nombres de gastos fijos sin anotar]} — lo usa kpi.py: un mes al que le
+    falta el arriendo no puede entrar al margen."""
+    out = {}
+    con = _conn()
+    try:
+        obls = listar_obligatorios()
+        for m in meses:
+            faltan = [o['nombre'] for o in obls
+                      if o['desde'] <= m and _estado_de(con, o, m)[0] == 'pendiente']
+            if faltan:
+                out[m] = faltan
+    finally:
+        con.close()
+    return out
+
+
+def registrar_obligatorio(oid, periodo, monto, fecha=None, forma_pago=None, notas='',
+                          nro_doc='', usuario_id=None):
+    """Anota el pago de un gasto fijo para ese mes: crea la compra (sin productos) con
+    su proveedor y categoría, y la enlaza al gasto fijo y al mes que cubre."""
+    periodo = _periodo(periodo)
+    if not periodo:
+        raise ValueError('Mes no válido (AAAA-MM)')
+    o = next((x for x in listar_obligatorios(incluir_inactivos=True) if x['id'] == int(oid)), None)
+    if not o:
+        raise ValueError('Gasto fijo no encontrado')
+    cid = crear_compra({'fecha': _norm(fecha) or _hoy_cl(), 'proveedor_id': o['proveedor_id'],
+                        'categoria_id': o['categoria_id'], 'tipo_gasto': 'fijo',
+                        'forma_pago': forma_pago, 'nro_doc': nro_doc, 'moneda': 'CLP',
+                        'total': monto, 'notas': _norm(notas) or o['nombre']}, [],
+                       usuario_id=usuario_id)
+    con = _conn()
+    try:
+        con.execute('UPDATE compras SET obligatorio_id=?, periodo=? WHERE id=?', (o['id'], periodo, cid))
+        con.commit()
+    finally:
+        con.close()
+    return cid
+
+
+def omitir_obligatorio(oid, periodo, nota='', usuario_id=None, deshacer=False):
+    """«Este mes no hubo» (o se pagó junto con otro mes): saca el gasto fijo de los
+    pendientes de ese mes, con una nota de por qué. Se puede deshacer."""
+    periodo = _periodo(periodo)
+    if not periodo:
+        raise ValueError('Mes no válido (AAAA-MM)')
+    con = _conn()
+    try:
+        if deshacer:
+            con.execute('DELETE FROM obligatorios_omitidos WHERE obligatorio_id=? AND periodo=?',
+                        (oid, periodo))
+        else:
+            if not _norm(nota):
+                raise ValueError('Escribe por qué no hay pago ese mes')
+            con.execute('INSERT OR REPLACE INTO obligatorios_omitidos(obligatorio_id,periodo,nota,'
+                        'usuario_id,creado) VALUES(?,?,?,?,?)',
+                        (oid, periodo, _norm(nota)[:300], usuario_id,
+                         ahora_cl().isoformat(timespec='seconds')))
+        con.commit()
     finally:
         con.close()
 
@@ -2379,7 +2709,8 @@ def filas_export(desde=None, hasta=None):
             f"SELECT c.fecha, pr.nombre AS proveedor, c.tipo_doc, c.nro_doc, "
             f"c.forma_pago, c.tipo_gasto, cat.nombre AS categoria, "
             f"p.nombre AS producto, i.marca, i.cantidad, i.precio_unitario, i.subtotal, "
-            f"c.moneda, c.tipo_cambio, c.costo_despacho, c.costo_importacion, c.total, c.total_clp "
+            f"c.moneda, c.tipo_cambio, c.costo_despacho, c.costo_importacion, c.total, c.total_clp, "
+            f"COALESCE(c.naturaleza,'gasto') AS naturaleza "
             f"FROM compras c JOIN compra_items i ON i.compra_id=c.id "
             f"LEFT JOIN proveedores pr ON pr.id=c.proveedor_id "
             f"LEFT JOIN categorias cat ON cat.id=c.categoria_id "

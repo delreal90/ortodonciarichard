@@ -2384,6 +2384,16 @@ function _kpiPlata(pla) {
           prev && prev.por_ambito.administracion > 0 ? Math.round((amb.administracion - prev.por_ambito.administracion) / prev.por_ambito.administracion * 1000) / 10 : null, false,
           'sueldos, honorarios, impuestos')}
     </div>`;
+  // Lo que se pagó pero no es gasto del mes (marcado en Compras): se dice cuánto quedó
+  // fuera, para que nadie crea que se perdió un pago.
+  const fuera = pla.fuera_de_gastos || {};
+  const ETQ_FUERA = { inversion: 'inversiones (equipos)', no_gasto: 'ahorros y préstamos', duplicado: 'duplicados' };
+  const partes = Object.keys(ETQ_FUERA).filter(k => fuera[k] && fuera[k].total)
+    .map(k => `${ETQ_FUERA[k]} ${_clp(fuera[k].total)} (${fuera[k].n})`);
+  if (partes.length) {
+    h += `<p style="font-size:.76rem;color:#718096;margin:-4px 0 12px">
+      <strong>No cuentan como gasto del mes</strong> (marcados en Compras): ${_esc(partes.join(' · '))}.</p>`;
+  }
   if (!pla.filtro_doctor) {
     h += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
       ${_kpiTile('Gasto por hora atendida', _clp(pla.gasto_por_hora), '', null, false, 'todo el período · ' + _n(pla.horas_sillon) + ' h atendidas')}
@@ -2418,7 +2428,7 @@ function _kpiPlata(pla) {
       h += `<p style="font-size:.78rem;color:#975a16;background:#fffbeb;padding:8px 12px;border-radius:4px;margin-bottom:10px">
         <strong>No entran al margen:</strong> ${exc.map(x => `${_esc(_kpiMesLegible(x.mes))}
         (${x.motivo === 'en_curso' ? 'mes en curso: los sueldos se pagan a fin de mes'
-          : 'faltan gastos por anotar — ' + _esc(x.detalle)})`).join(' · ')}.
+          : _esc(x.detalle)})`).join(' · ')}.
         Restar un gasto a medio cargar daría un margen que no existe.</p>`;
     }
     if (!cmp) {

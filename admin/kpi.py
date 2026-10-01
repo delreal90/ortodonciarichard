@@ -1686,6 +1686,16 @@ def estado_gastos(meses, hoy=None):
     hoy = hoy or fechas.hoy_chile()
     mes_hoy = hoy.isoformat()[:7]
     admin, total = _gasto_mensual_historico()
+    # Los GASTOS FIJOS del mes (arriendo, sueldos, PreviRed, PPM, honorarios...) que un
+    # administrador definió en Compras: si a un mes ya terminado le falta uno, ese mes
+    # está incompleto aunque la administración parezca normal. Es la señal exacta; la
+    # mediana de abajo queda como respaldo para los meses anteriores a esa lista.
+    try:
+        import compras
+        faltan = compras.faltantes_por_mes([m for m in meses if m < mes_hoy])
+    except Exception as e:
+        log.warning('kpi: no se pudieron leer los gastos fijos: %r', e)
+        faltan = {}
     out = {}
     for m in meses:
         if m >= mes_hoy:
@@ -1705,6 +1715,9 @@ def estado_gastos(meses, hoy=None):
                 clp = lambda n: f'${round(n):,}'.replace(',', '.')
                 detalle = (f'administración (sueldos, impuestos) {clp(admin.get(m, 0))} '
                            f'contra {clp(med)} habitual')
+        if faltan.get(m):
+            estado = 'incompleto'
+            detalle = '; '.join(x for x in ('faltan por anotar: ' + ', '.join(faltan[m]), detalle) if x)
         atipico = False
         if len(ref_t) >= GASTO_MIN_REFERENCIAS:
             atipico = total.get(m, 0) > GASTO_ATIPICO_SOBRE * _mediana(ref_t)
@@ -1964,6 +1977,9 @@ def plata(desde=None, hasta=None, doctor=None):
         'meses_con_ingresos': len(serie),
         'gastos': gastos,
         'gastos_por_ambito': amb,
+        # Lo que se pagó pero NO es gasto del mes (marcado en Compras): inversiones,
+        # ahorros/préstamos y duplicados. No entra en ningún total ni en el margen.
+        'fuera_de_gastos': (g or {}).get('fuera_de_gastos') or {},
         'gastos_ano_anterior': gastos_prev,
         'gastos_variacion_pct': (round((gastos - gastos_prev['total']) / gastos_prev['total'] * 100, 1)
                                  if gastos_prev and (gastos_prev['total'] or 0) > 0 else None),

@@ -1549,6 +1549,60 @@ categoría (`actualizar_compra` ya la aceptaba; faltaba el selector). Para el ma
 qué categoría esté un gasto — se restan todos —, pero sí cambia «En qué se gasta» y la detección
 de meses incompletos, que mira la administración.
 
+### Qué es gasto del mes, corrección de ítems y gastos fijos (2026-10-01)
+
+El margen del panel de KPIs para junio-julio de 2026 salía absurdamente bajo y no cuadraba. No faltaba
+información: **sobraban gastos que no eran reales**. Tres causas, cada una con su arreglo.
+
+**1. Error ×100 de la carga histórica.** El Excel de inventario anotó «Lámina Essix 040
+(caja de 100)» con **cantidad 100** cuando era una caja —el gasto quedó 100 veces más alto—, en
+**cuatro** compras (nov-2024, mar-2025, nov-2025, jul-2026). `compras.corregir_item(item_id,
+cantidad, precio)` corrige un ítem y recalcula el total; si el ítem había sumado stock, ajusta
+el stock por la diferencia (las del histórico nunca sumaron, así que ahí no toca nada). En una
+factura de dos manos el total es el de la factura y no se recalcula. Ruta admin
+`POST /api/compras/compras/item`; en el detalle de una compra, ✏️ al lado de cada producto.
+
+**2. Compras anotadas dos veces.** Los dos Excel se llevaron en paralelo en 2025-2026; la
+importación descartaba el duplicado del mismo mes (±15%), pero se escaparon los que caen en
+meses distintos o se pagaron en cuotas (los brackets GAC de abril: completos en un Excel y en
+4 cuotas en el otro; el sillón Bomm: de una vez y como abono + cuotas).
+
+**3. Cosas que no son gasto del mes**: ahorros/depósitos a plazo, un préstamo a una persona
+del equipo, y la compra de un sillón dental (una inversión que se usa por años).
+
+Para 2 y 3: **`compras.naturaleza`** = `gasto` (por defecto) · `inversion` · `no_gasto` ·
+`duplicado`, con `naturaleza_nota`. ⚠️ **Se marca, no se borra**: la compra sigue en el
+historial con su detalle de productos y su foto, y la marca se deshace. Solo `gasto` suma en
+`resumen_gastos()` (Reportes, KPIs, reporte semanal) y en `gasto_por_mes_ambito()`; lo demás
+va en `fuera_de_gastos` y el panel lo informa aparte. En el Historial, el total filtrado
+excluye solo los **duplicados** (inversiones y ahorros sí salieron de la cuenta: cuentan para
+cuadrar la cartola). Ruta admin `POST /api/compras/naturaleza`; en el detalle de la compra,
+**🏷️ ¿Es gasto del mes?**. El Excel exportado trae la columna «Naturaleza».
+
+**Gastos fijos del mes** — pedido del Dr. Alberto: *"hay gastos que sí o sí deben ir todos
+los meses, como arriendo, gastos comunes, pago al Dr. Vial, sueldos del personal, almuerzos
+del personal, PreviRed, PPM… que estén pendientes a ser rellenados, que lo vean los
+administradores, no alguien de inventario"*. Un mes sin el arriendo anotado se veía mucho más
+barato y el margen mentía.
+- Tablas `gastos_obligatorios` (nombre, proveedor, categoría, monto de referencia, `desde`
+  AAAA-MM, activo) y `obligatorios_omitidos` (mes en que de verdad no hubo, con nota).
+- **Un gasto fijo se da por anotado en un mes** si hay un pago (no duplicado) de **su
+  proveedor** en ese mes, o uno registrado desde la pestaña con ese `periodo`
+  (`compras.periodo` + `obligatorio_id`): el arriendo de julio pagado el 3 de agosto cubre
+  julio. Se reconoce por proveedor para que los pagos que ya existían cuenten sin migrar nada.
+- `obligatorios_atrasados()` = meses **ya cerrados** con alguno pendiente (el mes en curso no:
+  los sueldos se pagan a fin de mes). Es el badge de la pestaña.
+- **Pestaña «🗓️ Gastos fijos»** en Compras, capacidad **`admin`** (Inventario no la ve, ni el
+  badge, ni las rutas `/api/compras/gastos-fijos*`): elegir mes, ver qué falta, **Anotar pago**
+  (crea la compra sin productos con proveedor y categoría, monto sugerido = el último pagado),
+  **No hubo** (exige nota) y la lista para agregar/editar/desactivar.
+- **El panel de KPIs lo usa**: `kpi.estado_gastos()` marca `incompleto` un mes cerrado con un
+  gasto fijo pendiente (*"faltan por anotar: Arriendo, Honorarios Dr. Vial"*) y ese mes no
+  entra al margen. La regla de la mediana de la administración queda de respaldo para los meses
+  anteriores a la lista.
+- Pruebas: `TestNaturaleza`, `TestCorregirItem`, `TestGastosFijos` (test_compras) y
+  `TestGastosFijosEnElMargen` (test_kpi).
+
 ### Etiquetas QR en hojas de stickers — reemplaza a la térmica (2026-09-25)
 
 Pestaña **🏷️ Etiquetas** (rol `registrar`). En vez de la etiquetadora térmica +

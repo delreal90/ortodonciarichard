@@ -6742,7 +6742,12 @@ def _con_caps(u):
             # Facturas esperando sus productos (badge de la pestaña «Por detallar»),
             # contadas con el MISMO filtro que ve esta persona.
             'por_detallar': (_compras.contar_por_detallar(solo_ambito=_ambito_de(u))
-                             if 'registrar' in caps else 0)}
+                             if 'registrar' in caps else 0),
+            # Gastos fijos de meses ya terminados que siguen sin anotar (badge de la
+            # pestaña «Gastos fijos»). Solo para administradores: es lo que se paga en
+            # sueldos, arriendo, impuestos.
+            'gastos_fijos_atrasados': (len(_compras.obligatorios_atrasados())
+                                       if 'admin' in caps else 0)}
 
 
 def _destino_oculto(u, categoria_id=None, proveedor_id=None):
@@ -7315,14 +7320,16 @@ def compras_export():
     ws.title = 'Compras'
     cols = ['Fecha', 'Proveedor', 'Tipo doc', 'N° doc', 'Forma pago', 'Tipo gasto',
             'Categoría', 'Producto', 'Marca', 'Cantidad', 'Precio unitario', 'Subtotal',
-            'Moneda', 'Tipo cambio', 'Despacho', 'Importación (CLP)', 'Total (moneda)', 'Total CLP']
+            'Moneda', 'Tipo cambio', 'Despacho', 'Importación (CLP)', 'Total (moneda)', 'Total CLP',
+            'Naturaleza']
     ws.append(cols)
     for r in filas:
         ws.append([r.get('fecha'), r.get('proveedor'), r.get('tipo_doc'), r.get('nro_doc'),
                    r.get('forma_pago'), r.get('tipo_gasto'), r.get('categoria'), r.get('producto'),
                    r.get('marca'), r.get('cantidad'), r.get('precio_unitario'), r.get('subtotal'),
                    r.get('moneda'), r.get('tipo_cambio'), r.get('costo_despacho'),
-                   r.get('costo_importacion'), r.get('total'), r.get('total_clp')])
+                   r.get('costo_importacion'), r.get('total'), r.get('total_clp'),
+                   _compras.NATURALEZAS.get(r.get('naturaleza'), r.get('naturaleza'))])
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -7616,6 +7623,116 @@ def compras_suscripciones_cortar():
     if _suscripcion_oculta(u, d.get('id')):
         return jsonify({'ok': False, 'error': 'Cargo no encontrado'}), 404
     _compras.cortar_suscripcion(d.get('id'), d.get('fecha_fin'))
+    return jsonify({'ok': True})
+
+
+# ── Naturaleza de una compra y corrección de ítems (admin) ─────────────────────
+
+@app.route('/api/compras/naturaleza', methods=['POST'])
+def compras_naturaleza():
+    """Marca una compra como gasto / inversión / no-gasto / duplicado. Decide qué entra
+    a los totales de gasto (y al margen del panel de KPIs), así que es de admin."""
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.marcar_naturaleza(d.get('id'), d.get('naturaleza'), d.get('nota') or '')
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/compras/compras/item', methods=['POST'])
+def compras_corregir_item():
+    """Corrige cantidad o precio de un ítem ya registrado y recalcula el total."""
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        res = _compras.corregir_item(d.get('item_id'), d.get('cantidad'), d.get('precio_unitario'))
+    except (ValueError, TypeError) as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, **res})
+
+
+# ── Gastos fijos del mes (admin) ───────────────────────────────────────────────
+
+@app.route('/api/compras/gastos-fijos', methods=['GET'])
+def compras_gastos_fijos():
+    """La lista de gastos fijos (configuración) + su estado en el mes pedido
+    (?periodo=AAAA-MM, por defecto el actual) + los meses atrasados."""
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    periodo = request.args.get('periodo') or fechas.hoy_chile().isoformat()[:7]
+    try:
+        estado = _compras.estado_obligatorios(periodo)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'periodo': periodo[:7], 'estado': estado,
+                    'atrasados': _compras.obligatorios_atrasados(),
+                    'lista': _compras.listar_obligatorios(incluir_inactivos=True)})
+
+
+@app.route('/api/compras/gastos-fijos', methods=['POST'])
+def compras_gastos_fijos_crear():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        oid = _compras.crear_obligatorio(d.get('nombre'), d.get('proveedor_id'),
+                                         d.get('categoria_id'), d.get('monto_ref') or 0,
+                                         d.get('desde') or '', d.get('notas') or '')
+    except (ValueError, TypeError) as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': oid})
+
+
+@app.route('/api/compras/gastos-fijos/actualizar', methods=['POST'])
+def compras_gastos_fijos_actualizar():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.actualizar_obligatorio(d.pop('id', None), d)
+    except (ValueError, TypeError) as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/compras/gastos-fijos/registrar', methods=['POST'])
+def compras_gastos_fijos_registrar():
+    """Anota el pago de un gasto fijo para un mes (crea la compra sin productos)."""
+    u, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        cid = _compras.registrar_obligatorio(
+            d.get('id'), d.get('periodo'), d.get('monto'), fecha=d.get('fecha'),
+            forma_pago=d.get('forma_pago'), notas=d.get('notas') or '',
+            nro_doc=d.get('nro_doc') or '', usuario_id=u['id'])
+    except (ValueError, TypeError) as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'compra_id': cid})
+
+
+@app.route('/api/compras/gastos-fijos/omitir', methods=['POST'])
+def compras_gastos_fijos_omitir():
+    """«Este mes no hubo» (con nota), o deshacerlo con {deshacer: true}."""
+    u, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _compras.omitir_obligatorio(d.get('id'), d.get('periodo'), d.get('nota') or '',
+                                    usuario_id=u['id'], deshacer=bool(d.get('deshacer')))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True})
 
 

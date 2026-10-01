@@ -148,7 +148,7 @@ function logout() {
 // Qué capacidad exige cada pestaña.
 const TAB_CAP = { compras: 'registrar', historial: 'historial', stock: 'stock',
   escanear: 'escanear', solicitudes: 'solicitar', detallar: 'registrar', recurrentes: 'recurrentes',
-  etiquetas: 'registrar', reportes: 'reportes', admin: 'admin' };
+  gastosfijos: 'admin', etiquetas: 'registrar', reportes: 'reportes', admin: 'admin' };
 
 async function entrarApp() {
   $('#auth').classList.add('hidden');
@@ -160,6 +160,7 @@ async function entrarApp() {
   $$('#tabs button').forEach(b => b.classList.toggle('hidden', !puede(TAB_CAP[b.dataset.tab])));
   actualizarBadge(ME.pendientes || 0);
   actualizarBadgeDet(ME.por_detallar || 0);
+  actualizarBadgeFijos(ME.gastos_fijos_atrasados || 0);
   refrescarBadgeEtq();
   await recargarCaches();
   // Quien lleva el inventario y tiene facturas esperando sus productos entra directo
@@ -179,6 +180,11 @@ function actualizarBadgeDet(n) {
   const b = $('#badgeDet'); if (!b) return;
   b.textContent = n;
   b.classList.toggle('hidden', !(n > 0 && puede('registrar')));
+}
+function actualizarBadgeFijos(n) {
+  const b = $('#badgeFijos'); if (!b) return;
+  b.textContent = n;
+  b.classList.toggle('hidden', !(n > 0 && puede('admin')));
 }
 async function refrescarBadgeDet() {
   if (!puede('registrar')) return;
@@ -743,7 +749,10 @@ RENDER.historial = async () => {
       const j = await api('/api/compras/compras?' + q);
       // Total de lo filtrado: con una tarjeta y un mes elegidos, es el número que se
       // compara contra la cartola del banco.
-      const suma = j.compras.reduce((a, c) => a + (Number(c.total_clp) || Number(c.total) || 0), 0);
+      // Un duplicado no es un pago real (ya está anotado en otra compra): no suma. Las
+      // inversiones y los ahorros sí salieron de la cuenta, así que cuentan para la cartola.
+      const suma = j.compras.filter(c => (c.naturaleza || 'gasto') !== 'duplicado')
+        .reduce((a, c) => a + (Number(c.total_clp) || Number(c.total) || 0), 0);
       const cortada = j.compras.length >= 200 && !q.get('desde') && !q.get('forma_pago');
       $('#hResumen').innerHTML = j.compras.length
         ? `<b>${j.compras.length}</b> compra(s) · total <b>${clp(suma)}</b>` +
@@ -756,7 +765,7 @@ RENDER.historial = async () => {
           <td>${esc(c.categoria_nombre || '—')}</td>
           <td class="muted">${esc(labelPago(c.forma_pago))}</td>
           <td><span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span>${c.detalle_estado === 'pendiente'
-            ? ' <span class="pill low" title="Falta que inventario ingrese sus productos">📥 sin productos</span>' : ''}${c.moneda === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</td>
+            ? ' <span class="pill low" title="Falta que inventario ingrese sus productos">📥 sin productos</span>' : ''}${pillNaturaleza(c)}${c.moneda === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</td>
           <td class="num">${clp(c.total_clp || c.total)}</td>
           <td><button class="btn ghost sm" data-ver="${c.id}">Ver</button></td></tr>`).join('')
           : `<tr><td colspan="8" class="empty">Sin compras en el período.</td></tr>`);
@@ -780,8 +789,10 @@ async function verCompra(id) {
       <h3>Compra #${c.id}${mon === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</h3>
       <p class="muted">${esc(c.fecha)} · ${esc(c.proveedor_nombre || 'sin proveedor')} · ${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')}</p>
       <p class="muted" style="margin-bottom:12px">${esc(labelPago(c.forma_pago))} · <span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span> · ${esc(c.categoria_nombre || 'sin categoría')}${c.suscripcion_id ? ' · <span class="pill recurrente">🔁 generado automático</span>' : ''}</p>
+      ${(c.naturaleza || 'gasto') !== 'gasto' ? `<p style="margin-bottom:10px">${pillNaturaleza(c)}
+        <span class="muted">No cuenta como gasto del mes.${c.naturaleza_nota ? ' ' + esc(c.naturaleza_nota) : ''}</span></p>` : ''}
       <div class="tablewrap"><table><tr><th>Producto</th><th>Marca</th><th class="num">Cant.</th><th class="num">P. unit.</th><th class="num">Subtotal</th></tr>
-        ${c.items.map(i => `<tr><td>${esc(i.producto_nombre || '—')}</td><td class="muted">${esc(i.marca || '—')}</td><td class="num">${i.cantidad}</td><td class="num">${money(i.precio_unitario, mon)}</td><td class="num">${money(i.subtotal, mon)}</td></tr>`).join('')}
+        ${c.items.map(i => `<tr><td>${esc(i.producto_nombre || '—')}${puede('admin') ? ` <button class="btn ghost sm" data-item="${i.id}" title="Corregir cantidad o precio">✏️</button>` : ''}</td><td class="muted">${esc(i.marca || '—')}</td><td class="num">${i.cantidad}</td><td class="num">${money(i.precio_unitario, mon)}</td><td class="num">${money(i.subtotal, mon)}</td></tr>`).join('')}
         ${c.items.length ? '' : `<tr><td colspan="5" class="muted">${c.detalle_estado === 'pendiente'
           ? '📥 Esperando que inventario ingrese los productos' : 'Gasto sin productos'}</td></tr>`}
         ${c.detalle_estado && c.items.length ? `<tr><td colspan="4" class="num muted">Suma de productos</td><td class="num muted">${money(c.items.reduce((a, i) => a + (Number(i.subtotal) || 0), 0), mon)}</td></tr>` : ''}
@@ -798,10 +809,16 @@ async function verCompra(id) {
       <div class="flex" style="margin-top:16px">
         ${puede('registrar') && c.detalle_estado === 'pendiente' ? `<button class="btn gold sm" id="detIr">📥 Ingresar productos</button>` : ''}
         ${puede('registrar') ? `<button class="btn gold sm" id="editCostos">✏️ Editar pago, categoría y costos</button>` : ''}
+        ${puede('admin') ? `<button class="btn ghost sm" id="natCompra" title="Inversión, ahorro, duplicado…">🏷️ ¿Es gasto del mes?</button>` : ''}
         <div class="spacer"></div>
         ${puede('admin') ? `<button class="btn danger sm" id="delCompra">Eliminar</button>` : ''}
         <button class="btn ghost sm" onclick="document.getElementById('modalRoot').innerHTML=''">Cerrar</button></div>`);
     if (puede('registrar')) m.querySelector('#editCostos').onclick = () => editarCostosCompra(c);
+    if (puede('admin')) {
+      m.querySelector('#natCompra').onclick = () => marcarNaturaleza(c);
+      $$('[data-item]', m).forEach(b => b.onclick = () =>
+        corregirItem(c, c.items.find(i => String(i.id) === b.dataset.item)));
+    }
     const detIr = m.querySelector('#detIr');
     if (detIr) detIr.onclick = () => { closeModal(); irTab('detallar'); abrirDetalle(c.id); };
     if (puede('admin')) m.querySelector('#delCompra').onclick = async () => {
@@ -811,6 +828,218 @@ async function verCompra(id) {
       } catch (e) { toast(e.message, 'err'); }
     };
   } catch (e) { toast(e.message, 'err'); }
+}
+
+// ── Naturaleza de una compra: ¿cuenta como gasto del mes? ──
+const NATURALEZAS = {
+  gasto: ['Gasto del mes', ''],
+  inversion: ['Inversión', 'background:#EBF8FF;color:#2B6CB0'],
+  no_gasto: ['No es gasto', 'background:#F0FFF4;color:#2F855A'],
+  duplicado: ['Duplicado', 'background:#FFF5F5;color:#C53030'],
+};
+function pillNaturaleza(c) {
+  const n = c.naturaleza || 'gasto';
+  if (n === 'gasto') return '';
+  const [l, st] = NATURALEZAS[n] || [n, ''];
+  return ` <span class="pill" style="${st}" title="${esc(c.naturaleza_nota || 'No cuenta como gasto del mes')}">${esc(l)}</span>`;
+}
+
+function marcarNaturaleza(c) {
+  const actual = c.naturaleza || 'gasto';
+  const m = modal(`<h3>¿Es gasto del mes? — compra #${c.id}</h3>
+    <p class="muted" style="margin-bottom:12px">Solo los <b>gastos del mes</b> suman en Reportes y en el margen del panel.
+      Lo demás queda en el historial, marcado, y se puede volver a cambiar.</p>
+    ${Object.entries({
+      gasto: 'Gasto del mes — lo normal: insumos, sueldos, arriendo, servicios.',
+      inversion: 'Inversión — un equipo o mueble que se usa por años (sillón, escáner).',
+      no_gasto: 'No es gasto — un ahorro, un depósito a plazo, un préstamo, un traspaso.',
+      duplicado: 'Duplicado — esta misma compra ya está anotada en otra.',
+    }).map(([k, t]) => `<label style="display:flex;gap:8px;margin:6px 0;cursor:pointer">
+      <input type="radio" name="nat" value="${k}" ${k === actual ? 'checked' : ''}> <span>${esc(t)}</span></label>`).join('')}
+    <div class="field" style="margin-top:8px"><label>Nota (por qué)</label>
+      <input id="natNota" value="${esc(c.naturaleza_nota || '')}" placeholder="Ej: duplicado de la compra #123 (cuotas)"></div>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="natOk">Guardar</button></div>`);
+  m.querySelector('#natOk').onclick = async () => {
+    const naturaleza = (m.querySelector('input[name=nat]:checked') || {}).value;
+    try {
+      await api('/api/compras/naturaleza', { method: 'POST', body: { id: c.id, naturaleza, nota: m.querySelector('#natNota').value } });
+      closeModal(); toast('Guardado ✓', 'ok');
+      if (!$('#tab-historial').classList.contains('hidden')) RENDER.historial();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+function corregirItem(c, i) {
+  if (!i) return;
+  const mon = c.moneda || 'CLP';
+  const m = modal(`<h3>Corregir ítem</h3>
+    <p class="muted" style="margin-bottom:12px">${esc(i.producto_nombre || '')} — para un error de tipeo
+      (ej. «100» cajas que eran 100 láminas en 1 caja). El total de la compra se recalcula.</p>
+    <div class="row c2">
+      <div class="field"><label>Cantidad</label><input id="ciCant" type="number" step="any" min="0" value="${i.cantidad}"></div>
+      <div class="field"><label>Precio unitario (${mon})</label><input id="ciPrecio" type="number" step="any" min="0" value="${i.precio_unitario}"></div>
+    </div>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="ciOk">Guardar</button></div>`);
+  m.querySelector('#ciOk').onclick = async () => {
+    try {
+      const r = await api('/api/compras/compras/item', { method: 'POST', body: { item_id: i.id,
+        cantidad: m.querySelector('#ciCant').value, precio_unitario: m.querySelector('#ciPrecio').value } });
+      closeModal(); toast('Corregido · total de la compra ' + clp(r.total_clp) + ' ✓', 'ok');
+      verCompra(c.id);
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+// ── Gastos fijos del mes (solo administradores) ──
+// Arriendo, gastos comunes, sueldos, PreviRed, PPM, honorarios: salen todos los meses.
+// Esta pestaña dice cuáles faltan por anotar; un mes con alguno pendiente no entra al
+// margen del panel de KPIs (lo decide el servidor, no este archivo).
+const MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+  'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const mesLegible = p => `${MESES_ES[+p.slice(5, 7) - 1]} ${p.slice(0, 4)}`;
+const mesHoyCL = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date()).slice(0, 7);
+const hoyCL = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+let GF_PERIODO = null;
+
+RENDER.gastosfijos = async () => {
+  const s = $('#tab-gastosfijos');
+  GF_PERIODO = GF_PERIODO || mesHoyCL();
+  s.innerHTML = `
+    <div class="card">
+      <div class="flex"><h2>🗓️ Gastos fijos del mes</h2><div class="spacer"></div>
+        <input type="month" id="gfMes" value="${GF_PERIODO}" max="${mesHoyCL()}"></div>
+      <p class="muted" style="margin:6px 0 12px">Lo que se paga <b>todos los meses</b>. Un gasto se da por anotado si hay
+        un pago de ese proveedor en el mes. Mientras a un mes le falte alguno, ese mes <b>no entra al margen</b>
+        del panel de KPIs. Si de verdad no hubo pago (o se pagó junto con otro mes), márcalo «No hubo» con una nota.</p>
+      <div id="gfAtrasados"></div>
+      <div class="tablewrap"><table id="gfTabla"></table></div>
+    </div>
+    <div class="card">
+      <div class="flex"><h2>La lista</h2><div class="spacer"></div>
+        <button class="btn ghost sm" id="gfNuevo">➕ Agregar gasto fijo</button></div>
+      <div class="tablewrap" style="margin-top:10px"><table id="gfLista"></table></div>
+    </div>`;
+  $('#gfMes').onchange = e => { GF_PERIODO = e.target.value || mesHoyCL(); cargarGastosFijos(); };
+  $('#gfNuevo').onclick = () => editarGastoFijo({});
+  cargarGastosFijos();
+};
+
+async function cargarGastosFijos() {
+  let j;
+  try { j = await api('/api/compras/gastos-fijos?periodo=' + GF_PERIODO); }
+  catch (e) { return toast(e.message, 'err'); }
+  actualizarBadgeFijos(j.atrasados.length);
+  // Atrasados de meses ya terminados, agrupados por mes (clic = ir a ese mes).
+  const porMes = {};
+  j.atrasados.forEach(a => (porMes[a.periodo] = porMes[a.periodo] || []).push(a.nombre));
+  $('#gfAtrasados').innerHTML = Object.keys(porMes).length
+    ? `<div style="background:#FFF5F5;border-left:3px solid #C53030;padding:10px 12px;margin-bottom:12px;border-radius:4px">
+        <b>Meses ya cerrados con gastos sin anotar:</b>
+        ${Object.keys(porMes).sort().map(p => `<div style="margin-top:4px"><a href="#" data-mes="${p}"><b>${esc(mesLegible(p))}</b></a>:
+          ${esc(porMes[p].join(', '))}</div>`).join('')}</div>`
+    : `<p style="color:#2F855A;margin-bottom:12px">✅ Todos los meses cerrados tienen sus gastos fijos anotados.</p>`;
+  $$('#gfAtrasados [data-mes]').forEach(a => a.onclick = ev => {
+    ev.preventDefault(); GF_PERIODO = a.dataset.mes; $('#gfMes').value = GF_PERIODO; cargarGastosFijos(); });
+
+  const E = {
+    registrado: g => `<span class="pill" style="background:#F0FFF4;color:#2F855A">✅ anotado</span> ${clp(g.pagado)}`,
+    pendiente: () => `<span class="pill" style="background:#FFF5F5;color:#C53030">⏳ falta anotar</span>`,
+    omitido: g => `<span class="pill">➖ no hubo</span> <span class="muted">${esc(g.omitido_nota)}</span>`,
+  };
+  $('#gfTabla').innerHTML = `<tr><th>${esc(mesLegible(GF_PERIODO))}</th><th>Proveedor</th><th>Estado</th><th></th></tr>` +
+    (j.estado.length ? j.estado.map((g, k) => `<tr>
+      <td>${esc(g.nombre)}</td><td class="muted">${esc(g.proveedor_nombre || '—')}</td>
+      <td>${E[g.estado](g)}</td>
+      <td class="right">${g.estado === 'pendiente'
+        ? `<button class="btn gold sm" data-anotar="${k}">Anotar pago</button> <button class="btn ghost sm" data-omitir="${k}">No hubo</button>`
+        : g.estado === 'omitido' ? `<button class="btn ghost sm" data-deshacer="${k}">Deshacer</button>`
+        : `<button class="btn ghost sm" data-ver="${g.pagos[0].id}">Ver</button> <button class="btn ghost sm" data-anotar="${k}" title="Otro pago del mismo mes">+</button>`}</td></tr>`).join('')
+      : `<tr><td colspan="4" class="empty">No hay gastos fijos que se exijan este mes. Agrégalos abajo.</td></tr>`);
+  $$('#gfTabla [data-anotar]').forEach(b => b.onclick = () => anotarGastoFijo(j.estado[b.dataset.anotar]));
+  $$('#gfTabla [data-ver]').forEach(b => b.onclick = () => verCompra(b.dataset.ver));
+  $$('#gfTabla [data-omitir]').forEach(b => b.onclick = async () => {
+    const g = j.estado[b.dataset.omitir];
+    const nota = prompt(`${g.nombre} — ${mesLegible(GF_PERIODO)}: ¿por qué no hay pago?\n(Ej: se pagó en agosto junto con julio)`);
+    if (!nota) return;
+    try { await api('/api/compras/gastos-fijos/omitir', { method: 'POST', body: { id: g.id, periodo: GF_PERIODO, nota } }); cargarGastosFijos(); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+  $$('#gfTabla [data-deshacer]').forEach(b => b.onclick = async () => {
+    const g = j.estado[b.dataset.deshacer];
+    try { await api('/api/compras/gastos-fijos/omitir', { method: 'POST', body: { id: g.id, periodo: GF_PERIODO, deshacer: true } }); cargarGastosFijos(); }
+    catch (e) { toast(e.message, 'err'); }
+  });
+
+  $('#gfLista').innerHTML = `<tr><th>Gasto fijo</th><th>Proveedor</th><th>Categoría</th><th>Desde</th><th class="num">Monto de referencia</th><th></th></tr>` +
+    (j.lista.length ? j.lista.map((o, k) => `<tr${o.activo ? '' : ' style="opacity:.5"'}>
+      <td>${esc(o.nombre)}${o.activo ? '' : ' <span class="pill low">inactivo</span>'}</td>
+      <td>${esc(o.proveedor_nombre || '—')}</td><td class="muted">${esc(o.categoria_nombre || '—')}</td>
+      <td>${esc(mesLegible(o.desde))}</td><td class="num">${o.monto_ref ? clp(o.monto_ref) : '—'}</td>
+      <td class="right"><button class="btn ghost sm" data-editar="${k}">Editar</button></td></tr>`).join('')
+      : `<tr><td colspan="6" class="empty">Todavía no hay gastos fijos.</td></tr>`);
+  $$('#gfLista [data-editar]').forEach(b => b.onclick = () => editarGastoFijo(j.lista[b.dataset.editar]));
+}
+
+function anotarGastoFijo(g) {
+  const m = modal(`<h3>Anotar: ${esc(g.nombre)}</h3>
+    <p class="muted" style="margin-bottom:12px">Corresponde a <b>${esc(mesLegible(GF_PERIODO))}</b> ·
+      ${esc(g.proveedor_nombre || '')} · ${esc(g.categoria_nombre || 'sin categoría')}</p>
+    <div class="row c2">
+      <div class="field"><label>Monto (CLP)</label><input id="agMonto" type="number" min="0" step="1" value="${g.monto_sugerido || ''}"></div>
+      <div class="field"><label>Fecha de pago</label><input id="agFecha" type="date" value="${hoyCL()}"></div>
+    </div>
+    <div class="row c2">
+      <div class="field"><label>Forma de pago</label><select id="agPago">${optsPago('transferencia')}</select></div>
+      <div class="field"><label>N° documento (opcional)</label><input id="agDoc"></div>
+    </div>
+    <div class="field"><label>Nota (opcional)</label><input id="agNota" placeholder="${esc(g.nombre)}"></div>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="agOk">Guardar</button></div>`);
+  m.querySelector('#agOk').onclick = async () => {
+    const monto = Number(m.querySelector('#agMonto').value);
+    if (!(monto > 0)) return toast('Falta el monto', 'err');
+    try {
+      await api('/api/compras/gastos-fijos/registrar', { method: 'POST', body: { id: g.id, periodo: GF_PERIODO, monto,
+        fecha: m.querySelector('#agFecha').value, forma_pago: m.querySelector('#agPago').value,
+        nro_doc: m.querySelector('#agDoc').value, notas: m.querySelector('#agNota').value } });
+      closeModal(); toast('Anotado ✓', 'ok'); cargarGastosFijos();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+function editarGastoFijo(o) {
+  const nuevo = !o.id;
+  const m = modal(`<h3>${nuevo ? 'Nuevo gasto fijo' : 'Editar gasto fijo'}</h3>
+    <div class="field"><label>Nombre</label><input id="egN" value="${esc(o.nombre || '')}" placeholder="Ej: Arriendo clínica"></div>
+    <div class="row c2">
+      <div class="field"><label>Proveedor (con él se reconoce el pago)</label><select id="egProv"><option value="">—</option>
+        ${(CACHE.proveedores || []).map(p => `<option value="${p.id}" ${String(p.id) === String(o.proveedor_id) ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoría</label><select id="egCat"><option value="">(sin categoría)</option>${optsCategorias(o.categoria_id)}</select></div>
+    </div>
+    <div class="row c2">
+      <div class="field"><label>Se exige desde</label><input id="egDesde" type="month" value="${esc(o.desde || mesHoyCL())}"></div>
+      <div class="field"><label>Monto de referencia (opcional)</label><input id="egMonto" type="number" min="0" step="1" value="${o.monto_ref || ''}"></div>
+    </div>
+    <div class="field"><label>Notas</label><input id="egNotas" value="${esc(o.notas || '')}"></div>
+    ${nuevo ? '' : `<label style="display:flex;gap:8px;margin:4px 0 8px"><input type="checkbox" id="egActivo" ${o.activo ? 'checked' : ''}> Activo (se exige cada mes)</label>`}
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="egOk">Guardar</button></div>`);
+  m.querySelector('#egOk').onclick = async () => {
+    const body = { nombre: m.querySelector('#egN').value, proveedor_id: m.querySelector('#egProv').value || null,
+      categoria_id: m.querySelector('#egCat').value || null, desde: m.querySelector('#egDesde').value,
+      monto_ref: Number(m.querySelector('#egMonto').value) || 0, notas: m.querySelector('#egNotas').value };
+    if (!nuevo) { body.id = o.id; body.activo = m.querySelector('#egActivo').checked; }
+    try {
+      await api('/api/compras/gastos-fijos' + (nuevo ? '' : '/actualizar'), { method: 'POST', body });
+      closeModal(); toast('Guardado ✓', 'ok'); cargarGastosFijos();
+    } catch (e) { toast(e.message, 'err'); }
+  };
 }
 
 function editarCostosCompra(c) {

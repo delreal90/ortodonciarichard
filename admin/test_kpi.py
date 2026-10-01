@@ -887,6 +887,33 @@ class TestMargenHonesto(TestPlataGastos):
                           c['margen_por_hora']), (2.0, 150000, 200000, -50000))
 
 
+
+class TestGastosFijosEnElMargen(TestPlataGastos):
+    """Un mes al que le falta un gasto fijo (arriendo, honorarios) no entra al margen,
+    aunque su administración parezca normal."""
+
+    def test_mes_sin_un_gasto_fijo_queda_incompleto(self):
+        duena = self.compras.crear_proveedor('Dueña')
+        self.compras.crear_obligatorio('Arriendo', duena, self.sueldos, 0, '2026-04')
+        self.compras.crear_compra({'fecha': '2026-04-28', 'proveedor_id': duena,
+                                   'categoria_id': self.sueldos, 'total': 500000}, [])
+        kpi.registrar_ingresos([self._dte('1', '2026-04-15', 2000000),
+                                self._dte('2', '2026-05-15', 2000000)])
+        r = kpi.plata('2026-04-01', '2026-05-31')
+        self.assertEqual(r['comparacion']['meses'], ['2026-04'])
+        exc = r['meses_excluidos_margen'][0]
+        self.assertEqual((exc['mes'], exc['motivo']), ('2026-05', 'incompleto'))
+        self.assertIn('Arriendo', exc['detalle'])
+
+    def test_lo_que_no_es_gasto_se_informa_aparte(self):
+        cid = self.compras.crear_compra({'fecha': '2026-04-10', 'categoria_id': self.insumos,
+                                         'total': 900000}, [])
+        self.compras.marcar_naturaleza(cid, 'inversion')
+        r = kpi.plata('2026-04-01', '2026-04-30')
+        self.assertEqual(r['gastos'], 0)
+        self.assertEqual(r['fuera_de_gastos']['inversion']['total'], 900000)
+
+
 class TestCapacidad(TestPlataGastos):
     """El costo hora sillón CLÁSICO: dividido por las horas de agenda abierta, no por
     las que se llenaron. Solo existe desde que se captura `disponibilidad`."""
@@ -1143,7 +1170,8 @@ def suite():
                 TestReclasificar, TestDestinoPrimeraConsulta, TestFugas,
                 TestOcupacion, TestCartera, TestPacientesNuevos, TestOrigen, TestIngresos, TestPlataGastos, TestResumenComparacion,
                 TestCalidadDatos, TestEsquema, TestControlesProgramados,
-                TestMargenHonesto, TestCapacidad):
+                TestMargenHonesto, TestCapacidad,
+                TestGastosFijosEnElMargen):
         s.addTests(loader.loadTestsFromTestCase(cls))
     return s
 

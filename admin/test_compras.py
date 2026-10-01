@@ -889,5 +889,135 @@ class TestInventarioSinHistorialNiRecurrentes(_Base):
         self.assertTrue(compras.listar_suscripciones()[0]['activa'])
 
 
+
+class TestNaturaleza(_Base):
+    """Lo que no es gasto del mes (inversión, ahorro, duplicado) se marca, no se borra,
+    y queda fuera de los totales. Caso real: los dos Excel que se llevaron en paralelo
+    dejaron compras anotadas dos veces, y un sillón dental hundía el margen de julio."""
+
+    def setUp(self):
+        super().setUp()
+        self.cat = compras.crear_categoria('Insumos', 'operacion')
+        self.a = compras.crear_compra({'fecha': '2026-07-10', 'categoria_id': self.cat, 'total': 100000}, [])
+        self.b = compras.crear_compra({'fecha': '2026-07-11', 'categoria_id': self.cat, 'total': 100000}, [])
+        self.silla = compras.crear_compra({'fecha': '2026-07-12', 'categoria_id': self.cat, 'total': 9000000}, [])
+
+    def test_solo_los_gastos_suman(self):
+        compras.marcar_naturaleza(self.b, 'duplicado', 'es la #a')
+        compras.marcar_naturaleza(self.silla, 'inversion')
+        r = compras.resumen_gastos('2026-07-01', '2026-07-31')
+        self.assertEqual(r['total'], 100000)
+        self.assertEqual(r['fuera_de_gastos']['inversion']['total'], 9000000)
+        self.assertEqual(r['fuera_de_gastos']['duplicado']['n'], 1)
+        self.assertEqual(sum(x['total'] for x in compras.gasto_por_mes_ambito()), 100000)
+
+    def test_no_se_borra_y_se_puede_deshacer(self):
+        compras.marcar_naturaleza(self.b, 'duplicado')
+        self.assertIn(self.b, {c['id'] for c in compras.listar_compras()})
+        compras.marcar_naturaleza(self.b, 'gasto')
+        self.assertEqual(compras.resumen_gastos('2026-07-01', '2026-07-31')['total'], 9200000)
+
+    def test_naturaleza_invalida(self):
+        with self.assertRaises(ValueError):
+            compras.marcar_naturaleza(self.a, 'cualquiera')
+
+
+class TestCorregirItem(_Base):
+    """El Excel de inventario anotó 100 cajas de láminas cuando era 1 caja de 100:
+    $20.490.000 en vez de $204.900, cuatro veces."""
+
+    def setUp(self):
+        super().setUp()
+        self.p = compras.crear_producto('Lámina Essix (100)', unidad='caja')
+
+    def test_corrige_total_y_stock(self):
+        cid = compras.crear_compra({'fecha': '2026-07-07', 'moneda': 'CLP'},
+                                   [{'producto_id': self.p, 'cantidad': 100, 'precio_unitario': 204900}])
+        item = compras.obtener_compra(cid)['items'][0]
+        r = compras.corregir_item(item['id'], cantidad=1)
+        self.assertEqual(r['total_clp'], 204900)
+        prod = next(x for x in compras.listar_productos() if x['id'] == self.p)
+        self.assertEqual(prod['stock_actual'], 1)          # sumó 100, ahora 1
+
+    def test_una_compra_del_historico_no_toca_el_stock(self):
+        """El histórico importado nunca sumó stock: corregirlo no puede restar."""
+        cid = compras.crear_compra({'fecha': '2026-07-07', 'moneda': 'CLP'},
+                                   [{'producto_id': self.p, 'cantidad': 100, 'precio_unitario': 204900}])
+        con = compras._conn()
+        con.execute('DELETE FROM movimientos_stock WHERE compra_id=?', (cid,))
+        con.execute('UPDATE productos SET stock_actual=0 WHERE id=?', (self.p,))
+        con.commit(); con.close()
+        compras.corregir_item(compras.obtener_compra(cid)['items'][0]['id'], cantidad=1)
+        prod = next(x for x in compras.listar_productos() if x['id'] == self.p)
+        self.assertEqual(prod['stock_actual'], 0)
+
+    def test_cantidad_invalida(self):
+        cid = compras.crear_compra({'fecha': '2026-07-07'},
+                                   [{'producto_id': self.p, 'cantidad': 2, 'precio_unitario': 10}])
+        with self.assertRaises(ValueError):
+            compras.corregir_item(compras.obtener_compra(cid)['items'][0]['id'], cantidad=0)
+
+
+class TestGastosFijos(_Base):
+    """Arriendo, sueldos, PreviRed, PPM, honorarios: salen todos los meses. Un mes sin
+    el arriendo anotado se veía 12 millones más barato y el margen mentía."""
+
+    def setUp(self):
+        super().setUp()
+        self.cat = compras.crear_categoria('Otros', 'administracion')
+        self.duena = compras.crear_proveedor('Dueña del local')
+        self.arr = compras.crear_obligatorio('Arriendo', self.duena, self.cat, 12000000, '2026-06')
+
+    def _pago(self, fecha, total=12000000, **extra):
+        return compras.crear_compra({'fecha': fecha, 'proveedor_id': self.duena,
+                                     'categoria_id': self.cat, 'total': total, **extra}, [])
+
+    def test_un_pago_del_proveedor_en_el_mes_lo_da_por_anotado(self):
+        self._pago('2026-06-30')
+        est = compras.estado_obligatorios('2026-06')[0]
+        self.assertEqual((est['estado'], est['pagado']), ('registrado', 12000000))
+        self.assertEqual(compras.estado_obligatorios('2026-07')[0]['estado'], 'pendiente')
+
+    def test_atrasados_son_solo_meses_cerrados(self):
+        self._pago('2026-06-30')
+        from datetime import date as _d
+        atr = compras.obligatorios_atrasados(hoy=_d(2026, 9, 15))
+        self.assertEqual([a['periodo'] for a in atr], ['2026-07', '2026-08'])   # sep en curso
+
+    def test_no_se_exige_antes_de_su_inicio(self):
+        self.assertEqual(compras.estado_obligatorios('2026-05'), [])
+
+    def test_anotar_desde_la_lista_cubre_el_mes_aunque_se_pague_despues(self):
+        """El arriendo de julio pagado el 3 de agosto cubre julio, no agosto."""
+        compras.registrar_obligatorio(self.arr, '2026-07', 12100000, fecha='2026-08-03')
+        self.assertEqual(compras.estado_obligatorios('2026-07')[0]['estado'], 'registrado')
+        self.assertEqual(compras.estado_obligatorios('2026-08')[0]['estado'], 'pendiente')
+
+    def test_omitir_con_nota_y_deshacer(self):
+        with self.assertRaises(ValueError):
+            compras.omitir_obligatorio(self.arr, '2026-07', '')     # sin nota no
+        compras.omitir_obligatorio(self.arr, '2026-07', 'pagado con agosto')
+        self.assertEqual(compras.estado_obligatorios('2026-07')[0]['estado'], 'omitido')
+        compras.omitir_obligatorio(self.arr, '2026-07', deshacer=True)
+        self.assertEqual(compras.estado_obligatorios('2026-07')[0]['estado'], 'pendiente')
+
+    def test_un_duplicado_no_cuenta_como_pago(self):
+        cid = self._pago('2026-06-30')
+        compras.marcar_naturaleza(cid, 'duplicado')
+        self.assertEqual(compras.estado_obligatorios('2026-06')[0]['estado'], 'pendiente')
+
+    def test_faltantes_por_mes_para_el_panel(self):
+        self._pago('2026-06-30')
+        self.assertEqual(compras.faltantes_por_mes(['2026-06', '2026-07']), {'2026-07': ['Arriendo']})
+
+    def test_monto_sugerido_es_el_ultimo_pagado(self):
+        self._pago('2026-06-30', total=12450000)
+        self.assertEqual(compras.estado_obligatorios('2026-07')[0]['monto_sugerido'], 12450000)
+
+    def test_inactivo_no_se_exige(self):
+        compras.actualizar_obligatorio(self.arr, {'activo': False})
+        self.assertEqual(compras.estado_obligatorios('2026-07'), [])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
