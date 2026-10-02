@@ -1750,8 +1750,49 @@ def _minutos_por_mes(desde, hasta, doctor):
 CAPACIDAD_COBERTURA_MIN = 0.9   # un mes cuenta si se capturó al menos el 90% de sus días hábiles
 
 
+def _bloques15(hora, duracion):
+    """'10:00' + 30 min -> {'10:00', '10:15'}: los bloques de 15 minutos de una cita."""
+    if not hora or len(hora) < 5:
+        return set()
+    try:
+        m = int(hora[:2]) * 60 + int(hora[3:5])
+    except ValueError:
+        return set()
+    n = max(1, -(-int(duracion or 15) // 15))
+    return {f'{(m + 15 * k) // 60:02d}:{(m + 15 * k) % 60:02d}' for k in range(n)}
+
+
+def _hora_cierre():
+    """El cierre normal de la clínica ('19:30'), del config de la agenda."""
+    try:
+        return _scheduling_cfg()['horario'].get('cierre', '19:30')
+    except Exception:
+        return '19:30'
+
+
 def capacidad(desde=None, hasta=None, doctor=None):
-    """Horas disponibles, atendidas e ingresos por doctor en los días con captura.
+    """Horas de agenda ABIERTA, horas con pacientes e ingresos por doctor, en los días
+    con captura de `disponibilidad`.
+
+    Agenda abierta de un día = las horas que DentiDesk ofrecía LIBRES a las 03:00
+    (`min_libres`: ya descuenta su horario, bloqueos, feriados y vacaciones) + las
+    horas en que ese doctor tenía citas. Las citas se toman de la tabla `citas`, con
+    su estado final, y NO del `min_ocupados` de la captura, por tres trampas medidas
+    en septiembre de 2026 (con la captura, Rodrigo daba 132 h y quedaba arriba de
+    Alberto; corregido, 118 contra 115):
+
+      · Recepción arrastra las citas reagendadas a las 20:00 o más tarde para liberar
+        el bloque original. Esas citas no ocurren y estaban FUERA del horario: sumaban
+        13,5 h de «agenda abierta» falsa a Rodrigo y 8 h a Alberto en un mes. Después
+        del cierre solo cuenta una cita que de verdad ocurrió.
+      · Una cita CANCELADA libera su bloque, así que DentiDesk ya lo cuenta como libre:
+        sumarla otra vez como ocupada contaba esa hora dos veces.
+      · Dos pacientes a la misma hora (dos sillones) son UNA hora de agenda, no dos.
+        Por lo mismo, las «horas con pacientes» son horas de reloj: si se sumaran las
+        duraciones, la ocupación podría pasar de 100%.
+
+    Si la tabla `citas` no tiene nada de ese doctor ese día (la cosecha falló), se usa
+    el `min_ocupados` de la captura como respaldo.
 
     ⚠️ La producción por hora disponible solo mira los días desde la primera boleta
     cargada: antes de eso no hay ingresos y el número saldría artificialmente bajo."""
@@ -1767,46 +1808,69 @@ def capacidad(desde=None, hasta=None, doctor=None):
         cond.append('d.doctor = ?')
         p.append(doctor)
     w = ' AND '.join(cond)
+    cierre = _hora_cierre()
     con = _conn()
     try:
         primer_ingreso = con.execute('SELECT MIN(fecha) FROM ingresos').fetchone()[0]
-        base = _lista(con, f"""
-            SELECT d.doctor, COUNT(*) dias, SUM(d.min_libres + d.min_ocupados) min_disp,
-                   MIN(d.fecha) desde, MAX(d.fecha) hasta
-            FROM disponibilidad d WHERE {w} GROUP BY d.doctor""", p)
-        atend = {r['doctor']: r['m'] or 0 for r in con.execute(f"""
-            SELECT c.doctor, SUM(COALESCE(c.duracion,0)) m
-            FROM citas c JOIN disponibilidad d ON d.fecha = c.fecha AND d.doctor = c.doctor
-            WHERE {w} AND {_SQL_OCURRIO} GROUP BY c.doctor""", p)}
-        con_ing, ing = {}, {}
+        dias = _lista(con, f"SELECT d.doctor, d.fecha, d.min_libres, d.min_ocupados "
+                           f"FROM disponibilidad d WHERE {w}", p)
+        citas = {}
+        for r in con.execute(f"""
+                SELECT c.doctor, c.fecha, c.hora, c.duracion, c.estado_norm
+                FROM citas c JOIN disponibilidad d ON d.fecha = c.fecha AND d.doctor = c.doctor
+                WHERE {w}""", p):
+            citas.setdefault((r['doctor'], r['fecha']), []).append(r)
+        ing = {}
         if primer_ingreso:
-            w2, p2 = w + ' AND d.fecha >= ?', p + [primer_ingreso]
-            con_ing = {r['doctor']: r['m'] or 0 for r in con.execute(f"""
-                SELECT d.doctor, SUM(d.min_libres + d.min_ocupados) m
-                FROM disponibilidad d WHERE {w2} GROUP BY d.doctor""", p2)}
             ing = {r['doctor']: r['m'] or 0 for r in con.execute(f"""
                 SELECT i.doctor, SUM(i.monto) m
                 FROM ingresos i JOIN disponibilidad d ON d.fecha = i.fecha AND d.doctor = i.doctor
-                WHERE {w2} GROUP BY i.doctor""", p2)}
-        por_mes = {r['mes']: {'dias': r['dias'], 'min_disp': r['m'] or 0} for r in con.execute(f"""
-            SELECT substr(d.fecha,1,7) mes, COUNT(DISTINCT d.fecha) dias,
-                   SUM(d.min_libres + d.min_ocupados) m
-            FROM disponibilidad d WHERE {w} GROUP BY 1""", p)}
+                WHERE {w} AND d.fecha >= ? GROUP BY i.doctor""", p + [primer_ingreso])}
     finally:
         con.close()
-    for f in base:
-        disp = f['min_disp'] or 0
-        f['horas_disponibles'] = round(disp / 60, 1)
-        f['horas_atendidas'] = round(atend.get(f['doctor'], 0) / 60, 1)
-        f['pct_ocupacion'] = _pct(atend.get(f['doctor'], 0), disp)
-        h_ing = con_ing.get(f['doctor'], 0) / 60
-        f['ingresos'] = ing.get(f['doctor'], 0)
-        f['produccion_por_hora_disponible'] = (round(f['ingresos'] / h_ing)
-                                               if h_ing and f['ingresos'] else None)
+
+    por_doc, por_mes = {}, {}
+    for dia in dias:
+        doc, f = dia['doctor'], dia['fecha']
+        abiertas, atendidas = set(), set()
+        for c in citas.get((doc, f), []):
+            b = _bloques15(c['hora'], c['duracion'])
+            if c['estado_norm'] in ESTADOS_OCURRIO:
+                atendidas |= b
+                abiertas |= b
+            elif c['estado_norm'] != 'cancelada':
+                abiertas |= {x for x in b if x < cierre}
+        min_cit = len(abiertas) * 15 if (doc, f) in citas else (dia['min_ocupados'] or 0)
+        disp = (dia['min_libres'] or 0) + min_cit
+        x = por_doc.setdefault(doc, {'doctor': doc, 'dias': 0, 'min_disp': 0, 'min_atend': 0,
+                                     'min_disp_con_ing': 0, 'desde': f, 'hasta': f})
+        x['dias'] += 1
+        x['min_disp'] += disp
+        x['min_atend'] += len(atendidas) * 15
+        x['desde'], x['hasta'] = min(x['desde'], f), max(x['hasta'], f)
+        if primer_ingreso and f >= primer_ingreso:
+            x['min_disp_con_ing'] += disp
+        m = por_mes.setdefault(f[:7], {'fechas': set(), 'min_disp': 0})
+        m['fechas'].add(f)
+        m['min_disp'] += disp
+
+    base = []
+    for x in por_doc.values():
+        h_ing = x.pop('min_disp_con_ing') / 60
+        x['horas_disponibles'] = round(x['min_disp'] / 60, 1)
+        x['horas_atendidas'] = round(x['min_atend'] / 60, 1)
+        x['pct_ocupacion'] = _pct(x.pop('min_atend'), x['min_disp'])
+        x['ingresos'] = ing.get(x['doctor'], 0)
+        x['produccion_por_hora_disponible'] = (round(x['ingresos'] / h_ing)
+                                               if h_ing and x['ingresos'] else None)
+        base.append(x)
     base.sort(key=lambda x: -(x['min_disp'] or 0))
-    return {'por_doctor': base, 'por_mes': por_mes,
+    return {'por_doctor': base,
+            'por_mes': {k: {'dias': len(v['fechas']), 'min_disp': v['min_disp']}
+                        for k, v in por_mes.items()},
             'desde': min((f['desde'] for f in base), default=None),
-            'primer_ingreso': primer_ingreso}
+            'primer_ingreso': primer_ingreso,
+            'cierre': cierre}
 
 
 def _mes_cubierto(mes, dias_capturados):

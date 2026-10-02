@@ -1537,6 +1537,19 @@ Tres cambios en `kpi.plata()`, cada uno con su prueba (`TestMargenHonesto`, `Tes
    capturado (≥90% de sus días hábiles) y con gastos completos: dividir el gasto de un mes por la
    mitad de sus horas lo duplicaría.
 
+> 🔧 **Corregido el 2026-10-02:** la agenda abierta sumaba el `min_ocupados` de la captura, que
+> cuenta CUALQUIER cita. Septiembre daba a Rodrigo más horas que a Alberto (132 contra 124) y no
+> cuadraba. Tres trampas: (1) recepción arrastra las citas **reagendadas a las 20:00** o más tarde
+> para liberar el bloque original — no ocurren y están fuera del horario, y sumaban 13,5 h falsas a
+> Rodrigo y 8 h a Alberto en el mes; (2) una cita **cancelada** libera su bloque y DentiDesk ya la
+> cuenta libre, así que sumarla era contarla dos veces; (3) **dos pacientes a la vez** se sumaban
+> como dos horas. Ahora `capacidad()` toma `min_libres` de la captura + las citas de la tabla
+> `citas` con su estado final: sin canceladas, después del cierre (`horario.cierre`, 19:30) solo
+> las que ocurrieron, y como horas de reloj (unión de bloques de 15 min). «Con pacientes» también
+> es horas de reloj. Corregido: Rodrigo 118 h, Alberto 115 h. Como se calcula al consultar, los
+> días ya capturados se corrigen solos. Si la cosecha no trajo las citas de un día, se usa
+> `min_ocupados` de respaldo.
+
 ⚠️ **«Gasto por hora atendida» (todo el período) y el de `comparacion` NO son el mismo número**:
 el primero divide por todas las horas del rango; el segundo, solo por las de los meses que
 entran al margen. Por eso el panel pone el par ingreso/gasto en un recuadro aparte.

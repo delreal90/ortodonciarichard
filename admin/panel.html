@@ -2333,6 +2333,10 @@ function _kpiCapacidad(cap, filtroDoctor) {
     <p style="font-size:.76rem;color:#718096;margin-bottom:8px">
       Lo que se usa normalmente para el <strong>costo hora sillón</strong>: el gasto dividido por las horas en que
       la agenda está <strong>abierta</strong>, se llenen o no. Acá un «sillón» es la agenda de un doctor.
+      <strong>Agenda abierta</strong> = las horas que DentiDesk ofrecía libres esa mañana (ya descuenta su horario,
+      bloqueos y vacaciones) + las horas con citas, sin contar las canceladas ni las reagendadas que se mueven
+      después de las ${_esc(cap.cierre || '19:30')}. <strong>Con pacientes</strong> = horas de reloj con al menos un
+      paciente atendido: dos pacientes a la vez cuentan una hora.
       Solo existe desde que el sistema guarda cada día las horas libres de cada doctor
       ${cap.desde ? `(${_esc(cap.desde)})` : ''}: las de días pasados no se pueden pedir después.</p>`;
   const c = cap.costo_por_hora_disponible;
@@ -2348,7 +2352,7 @@ function _kpiCapacidad(cap, filtroDoctor) {
   if (!docs.length) return h + '<p style="font-size:.78rem;color:#a0aec0">Sin días capturados en este período.</p>';
   h += `<div style="overflow-x:auto"><table style="width:100%;font-size:.8rem;border-collapse:collapse">
     <tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Días</th><th>Agenda abierta</th>
-    <th>Atendidas</th><th>% ocupación</th><th title="Boletas del doctor dividido por sus horas de agenda abierta, desde la primera boleta cargada">Ingreso por hora disponible</th></tr>`;
+    <th>Con pacientes</th><th>% ocupación</th><th title="Boletas del doctor dividido por sus horas de agenda abierta, desde la primera boleta cargada">Ingreso por hora disponible</th></tr>`;
   docs.forEach(d => {
     h += `<tr style="border-top:1px solid #edf2f7"><td style="padding:5px">${_esc(_kpiDoc(d.doctor))}</td>
       <td>${d.dias}</td><td>${_n(d.horas_disponibles)} h</td><td>${_n(d.horas_atendidas)} h</td>

@@ -965,10 +965,51 @@ class TestCapacidad(TestPlataGastos):
     def test_costo_por_hora_disponible_solo_con_el_mes_capturado_entero(self):
         dias = kpi._dias_habiles(date(2026, 4, 1), date(2026, 4, 30))
         for d in dias:
-            self._disp(d.isoformat(), 'alberto', 120, 60)       # 3 h por día
+            self._disp(d.isoformat(), 'alberto', 180, 0)        # 3 h libres por día
         self._gasto('2026-04-28', len(dias) * 3 * 10000, self.sueldos)
         c = kpi.plata('2026-04-01', '2026-04-30')['capacidad']['costo_por_hora_disponible']
         self.assertEqual((c['meses'], c['costo_por_hora']), (['2026-04'], 10000))
+
+    def test_una_cita_reagendada_arrastrada_a_las_20_no_es_agenda_abierta(self):
+        """Recepción arrastra las reagendadas a las 20:00 para liberar el bloque: esa
+        hora no ocurrió y está fuera del horario (13,5 h falsas a Rodrigo en sept-2026)."""
+        self._disp('2026-04-15', 'rodrigo', 60, 0)
+        self.guardar([_cita(1, '2026-04-15', doctor='Rodrigo Oyonarte', hora='20:00:00',
+                            duracion=60, estado='Re-agendado', id_status='2132')])
+        d = kpi.capacidad('2026-04-01', '2026-04-30')['por_doctor'][0]
+        self.assertEqual(d['horas_disponibles'], 1.0)
+
+    def test_una_reagendada_dentro_del_horario_si_es_agenda_abierta(self):
+        """DentiDesk NO libera el bloque de una cita «Re-agendado»: esa hora estaba abierta."""
+        self._disp('2026-04-15', 'rodrigo', 60, 0)
+        self.guardar([_cita(1, '2026-04-15', doctor='Rodrigo Oyonarte', hora='11:00:00',
+                            duracion=60, estado='Re-agendado', id_status='2132')])
+        self.assertEqual(kpi.capacidad('2026-04-01', '2026-04-30')['por_doctor'][0]['horas_disponibles'], 2.0)
+
+    def test_una_cancelada_no_se_cuenta_dos_veces(self):
+        """Cancelar libera el bloque: DentiDesk ya lo dio como libre."""
+        self._disp('2026-04-15', 'alberto', 120, 0)
+        self.guardar([_cita(1, '2026-04-15', hora='10:00:00', duracion=60,
+                            estado='Hora Cancelada', id_status='2122')])
+        self.assertEqual(kpi.capacidad('2026-04-01', '2026-04-30')['por_doctor'][0]['horas_disponibles'], 2.0)
+
+    def test_dos_pacientes_a_la_vez_son_una_hora(self):
+        """Dos sillones a la misma hora: una hora de agenda y una hora con pacientes."""
+        self._disp('2026-04-15', 'rodrigo', 0, 0 + 60)
+        self.guardar([_cita(1, '2026-04-15', rut='1', doctor='Rodrigo Oyonarte', hora='10:00:00', duracion=60),
+                      _cita(2, '2026-04-15', rut='2', doctor='Rodrigo Oyonarte', hora='10:00:00', duracion=60)])
+        d = kpi.capacidad('2026-04-01', '2026-04-30')['por_doctor'][0]
+        self.assertEqual((d['horas_disponibles'], d['horas_atendidas'], d['pct_ocupacion']), (1.0, 1.0, 100.0))
+
+    def test_una_cita_atendida_despues_del_cierre_si_cuenta(self):
+        self._disp('2026-04-15', 'rodrigo', 0, 60)
+        self.guardar([_cita(1, '2026-04-15', doctor='Rodrigo Oyonarte', hora='19:45:00', duracion=30)])
+        self.assertEqual(kpi.capacidad('2026-04-01', '2026-04-30')['por_doctor'][0]['horas_disponibles'], 0.5)
+
+    def test_sin_citas_en_la_base_usa_lo_capturado(self):
+        """Si la cosecha de la agenda falló ese día, no se pierde la hora ocupada."""
+        self._disp('2026-04-15', 'alberto', 60, 120)
+        self.assertEqual(kpi.capacidad('2026-04-01', '2026-04-30')['por_doctor'][0]['horas_disponibles'], 3.0)
 
     def test_un_mes_capturado_a_medias_no_da_costo(self):
         """Dividir el gasto de un mes entero por la mitad de sus horas lo duplicaría."""
