@@ -956,6 +956,15 @@ class TestCapacidad(TestPlataGastos):
         self.assertEqual(d['pct_ocupacion'], 33.3)
         self.assertEqual(d['produccion_por_hora_disponible'], 30000)
 
+    def test_dice_que_periodo_midio_de_verdad(self):
+        """Elegir «1 jul – 30 sep» y ver un % que solo mide desde la primera captura
+        confundía: se informa lo medido y lo pedido."""
+        self._disp('2026-04-15', 'alberto', 120, 0)
+        self._disp('2026-04-20', 'alberto', 120, 0)
+        c = kpi.capacidad('2026-03-01', '2026-04-30')
+        self.assertEqual((c['desde'], c['hasta']), ('2026-04-15', '2026-04-20'))
+        self.assertEqual((c['pedido_desde'], c['pedido_hasta']), ('2026-03-01', '2026-04-30'))
+
     def test_un_dia_sin_agenda_abierta_o_futuro_no_cuenta(self):
         self._disp('2026-04-15', 'alberto', 0, 0)               # no atendió ese día
         manana = (kpi.fechas.hoy_chile() + timedelta(days=1)).isoformat()

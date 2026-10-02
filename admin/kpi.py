@@ -1868,7 +1868,13 @@ def capacidad(desde=None, hasta=None, doctor=None):
     return {'por_doctor': base,
             'por_mes': {k: {'dias': len(v['fechas']), 'min_disp': v['min_disp']}
                         for k, v in por_mes.items()},
+            # Lo que de verdad se midió y lo que se pidió: el panel avisa cuando el rango
+            # elegido parte antes de la captura (antes del 2026-08-25 no hay registro de
+            # agenda abierta) y la cifra cubre menos días de los que parece.
             'desde': min((f['desde'] for f in base), default=None),
+            'hasta': max((f['hasta'] for f in base), default=None),
+            'pedido_desde': _iso(desde) if desde else None,
+            'pedido_hasta': _iso(hasta) if hasta else None,
             'primer_ingreso': primer_ingreso,
             'cierre': cierre}
 

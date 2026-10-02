@@ -2326,6 +2326,13 @@ async function loadKpi() {
 // boletas: acá no se resta nada, para no repetir esa regla en dos lados.
 // Horas de agenda ABIERTA por doctor: el denominador del costo hora sillón clásico.
 // Todo lo calcula el backend (kpi.capacidad); acá solo se pinta.
+// '2026-08-25' -> '25 ago 2026' (o '25 ago' con corta=true).
+function _kpiFecha(iso, corta) {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(iso || '')) return iso || '—';
+  const m = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][+iso.slice(5, 7) - 1];
+  return `${+iso.slice(8, 10)} ${m}${corta ? '' : ' ' + iso.slice(0, 4)}`;
+}
+
 function _kpiCapacidad(cap, filtroDoctor) {
   const navy = '#1A2E4A';
   if (!cap) return '';
@@ -2337,8 +2344,18 @@ function _kpiCapacidad(cap, filtroDoctor) {
       bloqueos y vacaciones) + las horas con citas, sin contar las canceladas ni las reagendadas que se mueven
       después de las ${_esc(cap.cierre || '19:30')}. <strong>Con pacientes</strong> = horas de reloj con al menos un
       paciente atendido: dos pacientes a la vez cuentan una hora.
-      Solo existe desde que el sistema guarda cada día las horas libres de cada doctor
-      ${cap.desde ? `(${_esc(cap.desde)})` : ''}: las de días pasados no se pueden pedir después.</p>`;
+      Solo existe desde que el sistema guarda cada día las horas libres de cada doctor (25 de agosto de 2026):
+      las de días pasados no se pueden pedir después.</p>`;
+  // Qué período cubren DE VERDAD estas cifras. Elegir «1 jul – 30 sep» y ver un % que
+  // solo mide desde el 25 de agosto confundía: se dice arriba de la tabla, con fechas.
+  if (cap.desde) {
+    const parteDespues = cap.pedido_desde && cap.desde > cap.pedido_desde;
+    h += `<p style="font-size:.8rem;margin-bottom:8px;${parteDespues ? 'background:#fffbeb;padding:8px 10px;border-radius:4px;color:#975a16' : 'color:#4A5568'}">
+      📅 <strong>Medido del ${_esc(_kpiFecha(cap.desde))} al ${_esc(_kpiFecha(cap.hasta))}</strong>
+      (solo días con la agenda abierta).${parteDespues ? ` El período elegido parte el ${_esc(_kpiFecha(cap.pedido_desde))},
+      pero antes del ${_esc(_kpiFecha(cap.desde))} no hay registro de agenda abierta: <strong>estas cifras no
+      incluyen esos días</strong> y no se comparan con las del resto del panel, que sí los incluyen.` : ''}</p>`;
+  }
   const c = cap.costo_por_hora_disponible;
   if (!filtroDoctor) {
     h += c
@@ -2351,10 +2368,11 @@ function _kpiCapacidad(cap, filtroDoctor) {
   const docs = cap.por_doctor || [];
   if (!docs.length) return h + '<p style="font-size:.78rem;color:#a0aec0">Sin días capturados en este período.</p>';
   h += `<div style="overflow-x:auto"><table style="width:100%;font-size:.8rem;border-collapse:collapse">
-    <tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Días</th><th>Agenda abierta</th>
+    <tr style="color:#718096;text-align:left"><th style="padding:4px">Doctor</th><th>Período</th><th>Días</th><th>Agenda abierta</th>
     <th>Con pacientes</th><th>% ocupación</th><th title="Boletas del doctor dividido por sus horas de agenda abierta, desde la primera boleta cargada">Ingreso por hora disponible</th></tr>`;
   docs.forEach(d => {
     h += `<tr style="border-top:1px solid #edf2f7"><td style="padding:5px">${_esc(_kpiDoc(d.doctor))}</td>
+      <td style="white-space:nowrap;color:#718096">${_esc(_kpiFecha(d.desde, true))} – ${_esc(_kpiFecha(d.hasta, true))}</td>
       <td>${d.dias}</td><td>${_n(d.horas_disponibles)} h</td><td>${_n(d.horas_atendidas)} h</td>
       <td>${d.pct_ocupacion === null ? '—' : _n(d.pct_ocupacion) + '%'}</td>
       <td>${d.produccion_por_hora_disponible === null ? '—' : _clp(d.produccion_por_hora_disponible)}</td></tr>`;
