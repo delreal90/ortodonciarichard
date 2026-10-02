@@ -868,6 +868,27 @@ class TestMargenHonesto(TestPlataGastos):
         mayo = next(m for m in r['serie_mensual'] if m['mes'] == '2026-05')
         self.assertIsNone(mayo['margen'])                    # ni en la serie mensual
 
+    def test_margen_por_mes_trae_el_porcentaje_y_el_motivo_cuando_falta(self):
+        """La tabla «Margen por mes» del panel: cada mes con su % y, si no hay margen,
+        por qué — lo escribe el servidor para que el panel no repita las reglas."""
+        self._sueldos_historicos(['2026-01', '2026-02', '2026-03', '2026-04'])
+        self._gasto('2026-05-28', 50000, self.sueldos)            # mayo, a medio cargar
+        kpi.registrar_ingresos([self._dte('1', '2026-04-15', 1000000),
+                                self._dte('2', '2026-05-15', 1000000)])
+        filas = {m['mes']: m for m in kpi.plata('2026-03-01', '2026-05-31')['serie_mensual']}
+        self.assertEqual((filas['2026-04']['margen'], filas['2026-04']['margen_pct']), (600000, 60.0))
+        self.assertEqual(filas['2026-04']['sin_margen'], '')
+        self.assertIsNone(filas['2026-05']['margen_pct'])
+        self.assertIn('sueldos, impuestos', filas['2026-05']['sin_margen'])
+        self.assertEqual(filas['2026-03']['sin_margen'], 'sin boletas cargadas')
+
+    def test_margen_por_mes_con_doctor_elegido_dice_por_que_no_hay(self):
+        self._gasto('2026-04-28', 100000, self.sueldos)
+        kpi.registrar_ingresos([self._dte('1', '2026-04-15', 1000000)])
+        fila = kpi.plata('2026-04-01', '2026-04-30', doctor='alberto')['serie_mensual'][0]
+        self.assertIsNone(fila['margen'])
+        self.assertIn('doctor', fila['sin_margen'])
+
     def test_un_gasto_grande_se_marca_atipico_pero_cuenta(self):
         """Una compra grande es real: se avisa para no leerla como tendencia, no se esconde."""
         self._sueldos_historicos(['2026-01', '2026-02', '2026-03', '2026-04'], 100000)

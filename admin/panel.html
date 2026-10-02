@@ -2360,6 +2360,37 @@ function _kpiCapacidad(cap, filtroDoctor) {
     a nadie y quedan sin doctor.</p>`;
 }
 
+// El margen de cada mes, uno al lado del otro. Solo los meses con boletas (sin ingresos
+// no hay margen que mostrar). El margen, el % y el motivo cuando falta los calcula el
+// servidor (kpi.plata): acá solo se pinta.
+function _kpiMargenPorMes(pla) {
+  const rojo = '#e53e3e', verde = '#2f855a';
+  if (pla.filtro_doctor) return '';
+  const meses = (pla.serie_mensual || []).filter(m => m.ingresos !== null && m.ingresos !== undefined);
+  if (!meses.length) return '';
+  const color = v => v === null || v === undefined ? '#a0aec0' : (v >= 0 ? verde : rojo);
+  let h = `<h4 style="margin:14px 0 4px;font-size:.85rem;color:#4A5568">Margen por mes</h4>
+    <div style="overflow-x:auto"><table style="width:100%;font-size:.8rem;border-collapse:collapse">
+    <tr style="color:#718096;text-align:left"><th style="padding:4px">Mes</th><th style="text-align:right">Ingresos</th>
+      <th style="text-align:right">Gastos</th><th style="text-align:right">Margen</th><th style="text-align:right">%</th>
+      <th style="padding-left:12px">Nota</th></tr>`;
+  meses.forEach(m => {
+    const hay = m.margen !== null && m.margen !== undefined;
+    h += `<tr style="border-top:1px solid #edf2f7">
+      <td style="padding:5px 4px;white-space:nowrap">${_esc(_kpiMesLegible(m.mes))}</td>
+      <td style="text-align:right">${_clp(m.ingresos)}</td>
+      <td style="text-align:right">${_clp(m.gastos)}</td>
+      <td style="text-align:right;font-weight:600;color:${color(m.margen)}">${hay ? _clp(m.margen) : '—'}</td>
+      <td style="text-align:right;color:${color(m.margen_pct)}">${hay && m.margen_pct !== null ? _n(m.margen_pct) + '%' : '—'}</td>
+      <td style="padding-left:12px;font-size:.74rem;color:#718096">${hay
+        ? (m.atipico ? 'gasto fuera de lo habitual' : '')
+        : `<span style="color:#975a16">${_esc(m.sin_margen || '')}</span>`}</td></tr>`;
+  });
+  return h + `</table></div><p style="font-size:.74rem;color:#a0aec0;margin-top:4px">
+    Los gastos van en el mes en que se pagaron: un pago atrasado (gastos comunes de dos meses, honorarios del
+    mes anterior) carga el mes en que salió. Por eso un mes suelto puede verse mejor o peor que el promedio.</p>`;
+}
+
 function _kpiPlata(pla) {
   const navy = '#1A2E4A', gold = '#C9A84C', rojo = '#e53e3e', verde = '#2f855a';
   if (!pla || pla.gastos === null || pla.gastos === undefined) {
@@ -2456,6 +2487,7 @@ function _kpiPlata(pla) {
     h += `<h4 style="margin:10px 0 4px;font-size:.85rem;color:#4A5568">Ingresos por mes</h4>
       ${_kpiSerie(pla.serie_mensual.filter(m => m.ingresos !== null), 'ingresos', verde, _clp)}`;
   }
+  h += _kpiMargenPorMes(pla);
   h += _kpiCapacidad(pla.capacidad, pla.filtro_doctor);
   const top = pla.gastos_top_categorias || [];
   if (top.length) {

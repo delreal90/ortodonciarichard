@@ -1937,6 +1937,20 @@ def plata(desde=None, hasta=None, doctor=None):
         fila['horas'] = round(min_mes.get(fila['mes'], 0) / 60, 1)
         if fila['estado_gastos'] != 'completo':
             fila['margen'] = None
+        # Para la tabla «Margen por mes»: el % y, si no hay margen, POR QUÉ. El motivo lo
+        # escribe el servidor para que el panel no repita estas reglas.
+        fila['margen_pct'] = (_pct(fila['margen'], fila['ingresos'])
+                              if fila['margen'] is not None and (fila['ingresos'] or 0) > 0 else None)
+        if fila['margen'] is not None:
+            fila['sin_margen'] = ''
+        elif doctor:
+            fila['sin_margen'] = 'con un doctor elegido no se calcula margen'
+        elif fila['ingresos'] is None:
+            fila['sin_margen'] = 'sin boletas cargadas'
+        elif g is None:
+            fila['sin_margen'] = 'no se pudieron leer los gastos'
+        else:
+            fila['sin_margen'] = e.get('detalle') or 'gastos incompletos'
 
     margen = margen_pct = gastos_cubiertos = comparacion = None
     if comparables:
