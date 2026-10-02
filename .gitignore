@@ -172,3 +172,4 @@ admin/llamadas_registro.json
 admin/fichas_perfil.json
 admin/referidos_config.json
 admin/geocache.json
+admin/geocodificar_estado.json

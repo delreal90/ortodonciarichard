@@ -2305,19 +2305,40 @@ async function perfilAlias() {
 }
 
 async function perfilGeoEstado() {
+  const caja = document.getElementById('pf-geo-estado');
   try {
     const r = await _pfFetch('/api/perfil/estado');
     const g = r.geocodificacion || {};
-    document.getElementById('pf-geo-estado').textContent =
-      `${_pfNum(g.encontradas)} direcciones ubicadas · ${_pfNum(g.no_encontradas)} no encontradas · ` +
+    const u = g.ultima_corrida;
+    let txt = `${_pfNum(g.encontradas)} direcciones ubicadas · ${_pfNum(g.no_encontradas)} no encontradas · ` +
       `${_pfNum(g.pendientes)} por ubicar (se ubican solas cada noche).`;
-  } catch (e) { /* el estado es un extra */ }
+    let err = '';
+    if (u && u.en_curso) {
+      txt = `⏳ Ubicando direcciones: ${_pfNum(u.consultadas)} de ${_pfNum(u.total)} ` +
+        `(${_pfNum(u.encontradas)} encontradas). ` + txt;
+    } else if (u && u.fin) {
+      txt += ` Última corrida (${_esc(u.fin.replace('T', ' ').slice(0, 16))}): ` +
+        `${_pfNum(u.encontradas)} ubicadas de ${_pfNum(u.consultadas)} consultadas.`;
+      if (u.error) err = ' ⚠️ Se detuvo: ' + u.error;
+    }
+    caja.innerHTML = _esc(txt) + (err ? `<span style="color:#c53030">${_esc(err)}</span>` : '');
+    // Mientras trabaja, se refresca solo; al terminar, recarga el mapa.
+    clearTimeout(PF.geoTimer);
+    if (u && u.en_curso) {
+      PF.geoCorriendo = true;
+      PF.geoTimer = setTimeout(perfilGeoEstado, 15000);
+    } else if (PF.geoCorriendo) {
+      PF.geoCorriendo = false;
+      perfilMapa();
+    }
+  } catch (e) { caja.textContent = e.message; }
 }
 
 async function perfilGeocodificar() {
   try {
     const r = await _pfFetch('/api/perfil/geocodificar/run', { method: 'POST', body: { maximo: 300 } });
     document.getElementById('pf-geo-estado').textContent = r.mensaje || r.error || '';
+    setTimeout(perfilGeoEstado, 4000);
   } catch (e) { alert(e.message); }
 }
 

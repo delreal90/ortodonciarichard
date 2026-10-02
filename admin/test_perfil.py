@@ -281,6 +281,42 @@ class TestCorrer(unittest.TestCase):
         self.assertFalse(r['ok'])
         self.assertNotIn('Almendros', r['error'])
 
+    def test_un_error_suelto_no_corta_la_corrida(self):
+        """Un timeout aislado se salta; las demas direcciones se ubican igual."""
+        llamadas = []
+
+        def a_veces(calle, comuna):
+            llamadas.append(calle)
+            if len(llamadas) == 1:
+                raise TimeoutError()
+            return [VITACURA]
+        r = geo.correr(maximo=10, consultar=a_veces, pausa=0,
+                       direcciones=[('Uno 1', 'Vitacura'), ('Dos 2', 'Vitacura')])
+        self.assertEqual((r['ok'], r['consultadas']), (True, 1))
+
+    def test_tres_errores_seguidos_cortan_y_quedan_en_el_estado(self):
+        """El rechazo de OpenStreetMap tiene que verse en el panel, no solo en el
+        log de Render (2026-10-02: el boton 'no hacia nada')."""
+        import urllib.error
+
+        def rechazo(calle, comuna):
+            raise urllib.error.HTTPError('u', 403, 'Forbidden', {}, None)
+        dirs = [('Calle %d 1' % i, 'Vitacura') for i in range(10)]
+        r = geo.correr(maximo=10, consultar=rechazo, pausa=0, direcciones=dirs)
+        self.assertFalse(r['ok'])
+        self.assertIn('403', r['error'])
+        st = geo.estado()['ultima_corrida']
+        self.assertFalse(st['en_curso'])
+        self.assertIn('403', st['error'])
+        self.assertNotIn('Calle', json.dumps(st))
+
+    def test_una_sola_corrida_a_la_vez(self):
+        with geo._CORRIENDO:
+            r = geo.correr(maximo=10, consultar=lambda c, n: [VITACURA], pausa=0,
+                           direcciones=[('Uno 1', 'Vitacura')])
+        self.assertIn('en curso', r['error'])
+        self.assertEqual(geo.cache(), {})
+
     def test_ubicacion_sin_red(self):
         cache = {'los almendros 123|vitacura': {'lat': VITACURA[0], 'lon': VITACURA[1],
                                                 'comuna': 'vitacura', 'precision': 'calle'}}

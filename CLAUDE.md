@@ -1059,8 +1059,8 @@ Estadísticas, tarjeta "📋 Ficha de primera consulta"). Endpoints (ADMIN_TOKEN
 
 **Verificado 2026-07-28** contra el Sheet real: 634 respuestas → 625 fichas (dedup), 610 RUT
 válidos (15 basura descartados), merge idempotente, y el correo existente NO se pisa.
-Pruebas en `test_fichas.py` (10, sin red). **Pendiente para producción:** setear
-`FICHA_SHEET_ID` como env var en Render (encenderlo).
+Pruebas en `test_fichas.py` (10, sin red). `FICHA_SHEET_ID` **ya está seteada en
+Render** (confirmado por el usuario el 2026-10-02): la sincronización corre en producción.
 
 **Posible mejora futura:** ~132 respuestas traen "¿Tiene Seguro Complementario? ¿Cuál?" — se
 podría alimentar la precarga de aseguradora del módulo de seguros, pero es texto libre
@@ -4539,9 +4539,11 @@ contacto. Ahora también lee las de perfil, por **substring del título** (como 
 y las guarda **reemplazando** `fichas_perfil.json` en cada sincronización (el Sheet manda).
 ⚠️ Lo clínico del formulario (antecedentes, apnea) **sigue sin leerse**.
 
-⚠️ **En producción depende de `FICHA_SHEET_ID`**, que todavía no está seteada en Render
-(ver *Ficha de Primera Consulta*). Sin ella el perfil funciona con la agenda, la base y la
-geografía, pero **canal, recomendadores e intereses quedan vacíos**.
+⚠️ **Depende de `FICHA_SHEET_ID`** (ya seteada en Render). Sin ella el perfil funciona con
+la agenda, la base y la geografía, pero **canal, recomendadores e intereses quedan vacíos**.
+Las preguntas de perfil se leen recién desde el deploy del 2026-10-02: hasta la primera
+sincronización posterior (cada 12 h, o «Sincronizar ahora» en Estadísticas),
+`fichas_perfil.json` no existe.
 
 ### «¿Quién le recomendó?» — `referidos.py`
 
@@ -4642,8 +4644,8 @@ inventados** (repo público): copian la forma de las respuestas reales.
 
 ### Pendiente
 
-1. Setear `FICHA_SHEET_ID` en Render (sin eso no hay canal ni intereses en producción).
-2. Desplegar y dejar correr las primeras noches de geocodificación (o apretar el botón).
+1. ~~Setear `FICHA_SHEET_ID` en Render~~ — ya estaba. ~~Desplegar~~ — hecho 2026-10-02.
+2. Dejar correr las primeras noches de geocodificación (o apretar el botón).
 3. Revisar la cola «por confirmar» (~120 textos al partir) y unir alias de dentistas que el
    sistema no unió solo.
 4. Fase 2: cifras de Instagram/Google Analytics cargadas a mano, y comparar «quién nos

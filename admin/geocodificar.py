@@ -50,6 +50,7 @@ import json
 import math
 import os
 import re
+import threading
 import time
 from datetime import date
 import urllib.parse
@@ -66,6 +67,8 @@ _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 _DIR / 'patient_index.json')).parent
 _CACHE = jsonstore.JsonStore(
     Path(os.environ.get('GEOCACHE_PATH', _BASE_DIR / 'geocache.json')), default={})
+# La ultima corrida (o la que va en curso), para el panel. Sin direcciones.
+_ESTADO = jsonstore.JsonStore(_BASE_DIR / 'geocodificar_estado.json', default={})
 
 NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
 USER_AGENT = ('OrtodonciaRichard-perfil/1.0 (+https://www.ortodonciarichard.cl; '
@@ -339,31 +342,95 @@ def direcciones_de_pacientes():
             for r in pacientes._load_index().values()]
 
 
+# Cuantos errores SEGUIDOS cortan una corrida. Uno suelto (un timeout) no la
+# corta: se espera y se sigue. Tres seguidos es que el servicio no esta
+# respondiendo (o nos esta rechazando) y seguir golpeandolo empeora las cosas.
+MAX_ERRORES_SEGUIDOS = 3
+
+# Una sola corrida a la vez (el boton del panel y la de la noche no se cruzan:
+# dos hilos a 1 consulta/segundo cada uno violan la politica de Nominatim).
+_CORRIENDO = threading.Lock()
+
+
+def _describir_error(e):
+    """Que paso, SIN la direccion: tipo de error y, si lo hay, el codigo HTTP.
+    Esto es lo que se muestra en el panel y se guarda en el estado."""
+    import urllib.error
+    if isinstance(e, urllib.error.HTTPError):
+        return 'HTTP %s (%s)' % (e.code, {403: 'OpenStreetMap rechazo la consulta',
+                                          429: 'demasiadas consultas',
+                                          503: 'servicio no disponible'}.get(e.code, 'error'))
+    if isinstance(e, urllib.error.URLError):
+        return 'sin conexion (%s)' % type(getattr(e, 'reason', e)).__name__
+    return type(e).__name__
+
+
 def correr(maximo=800, consultar=None, pausa=PAUSA_S, direcciones=None):
     """Geocodifica hasta `maximo` direcciones nuevas. Lo llama el loop nocturno
     y el boton del panel. Guarda cada resultado al tiro: si Render se reinicia a
     mitad, lo hecho no se repite.
 
-    Nunca lanza hacia afuera: un error de red corta la corrida y se informa.
+    ⚠️ Deja su avance y su resultado en `geocodificar_estado.json`. Corre en un
+    hilo aparte, y sin esto un fallo solo quedaba en el log de Render: el panel
+    se veia como si el boton no hiciera nada (paso el 2026-10-02).
+
+    Nunca lanza hacia afuera: un error de red se reintenta, y tres seguidos
+    cortan la corrida y se informan.
     """
-    lista = pendientes(direcciones if direcciones is not None
-                       else direcciones_de_pacientes())
-    hechas = encontradas = 0
+    if not _CORRIENDO.acquire(blocking=False):
+        return {'ok': False, 'error': 'ya hay una corrida en curso', 'consultadas': 0,
+                'encontradas': 0, 'pendientes': None}
+    try:
+        return _correr(maximo, consultar, pausa, direcciones)
+    finally:
+        _CORRIENDO.release()
+
+
+def en_curso():
+    return _CORRIENDO.locked()
+
+
+def _correr(maximo, consultar, pausa, direcciones):
+    inicio = fechas.ahora_chile().isoformat(timespec='seconds')
+    hechas = encontradas = seguidos = 0
     error = ''
+    try:
+        lista = pendientes(direcciones if direcciones is not None
+                           else direcciones_de_pacientes())
+    except Exception as e:
+        lista = []
+        error = 'no se pudo leer la base de pacientes: %s' % type(e).__name__
+    total = min(len(lista), maximo)
+    _ESTADO.save({'en_curso': True, 'inicio': inicio, 'total': total,
+                  'consultadas': 0, 'encontradas': 0, 'error': ''})
+
     for k, direccion, comuna_escrita in lista[:maximo]:
         try:
             reg = resolver(direccion, comuna_escrita, consultar=consultar)
         except Exception as e:
             # ⚠️ Sin la direccion en el mensaje: el log no es lugar para ella.
-            error = type(e).__name__
-            break
+            error = _describir_error(e)
+            seguidos += 1
+            if seguidos >= MAX_ERRORES_SEGUIDOS:
+                break
+            if pausa:
+                time.sleep(pausa * 10)
+            continue
+        seguidos = 0
+        error = ''
         _CACHE.actualizar(lambda c, k=k, reg=reg: {**c, k: reg})
         hechas += 1
         encontradas += 0 if reg.get('fallo') else 1
+        if hechas % 20 == 0:
+            _ESTADO.actualizar(lambda st, h=hechas, f=encontradas:
+                               {**st, 'consultadas': h, 'encontradas': f})
         if pausa:
             time.sleep(pausa)
-    return {'ok': not error, 'error': error, 'consultadas': hechas,
-            'encontradas': encontradas, 'pendientes': max(0, len(lista) - hechas)}
+    res = {'ok': not error, 'error': error, 'consultadas': hechas,
+           'encontradas': encontradas, 'pendientes': max(0, len(lista) - hechas)}
+    _ESTADO.save({'en_curso': False, 'inicio': inicio, 'total': total,
+                  'fin': fechas.ahora_chile().isoformat(timespec='seconds'), **res})
+    return res
 
 
 def estado():
@@ -374,7 +441,8 @@ def estado():
     except Exception:
         pend = None
     return {'en_cache': len(cache), 'encontradas': ok,
-            'no_encontradas': len(cache) - ok, 'pendientes': pend}
+            'no_encontradas': len(cache) - ok, 'pendientes': pend,
+            'ultima_corrida': _ESTADO.load() or None}
 
 
 def cache():

@@ -6596,6 +6596,9 @@ def perfil_geocodificar_run():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     import threading
     import geocodificar
+    if geocodificar.en_curso():
+        return jsonify({'ok': True, 'mensaje': 'Ya se están ubicando direcciones; '
+                        'el avance aparece abajo.'})
     maximo = min(int((request.json or {}).get('maximo') or 300), 1500)
 
     def _correr():
