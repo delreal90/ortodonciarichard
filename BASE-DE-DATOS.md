@@ -72,6 +72,9 @@ corre solo.
 | `fotos_finales_registro.json` | `fotos_finales.py` | Candidatos a collage post-tratamiento | — |
 | `seguimiento_pc_registro.json` | `seguimiento_pc.py` | Seguimiento de primeras consultas | — |
 | `reactivacion_registro.json` | `reactivacion.py` | Campañas de reactivación | — |
+| `fichas_perfil.json` | `fichas.py` | Lo que cada paciente contestó en la ficha de primera consulta que no es contacto: quién lo recomendó, dentista habitual, hobbies, colegio, profesión, motivación. Proyectado a la tabla **`fichas_perfil`** (ya clasificado por `referidos.py`) | ~650 (2026-10-02) |
+| `referidos_config.json` | `referidos.py` | Lo que el panel enseñó: cómo leer cada respuesta, alias de dentistas | — |
+| `geocache.json` | `geocodificar.py` | Dirección normalizada → coordenada (**sin RUT**). Proyectado, cruzado con el índice, a la tabla **`ubicaciones`** | crece ~800/noche |
 | Otros | `confirmaciones`, `recordatorios_wa`, `link_agenda`, `link_aseguradora`, `reagenda_pendientes`, `paciente_estado`, `backup`, `fichas_estado` | Registros operativos y anti-duplicados | — |
 
 ### Fuera del backend

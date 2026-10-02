@@ -55,6 +55,14 @@ _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                 Path(__file__).parent / 'patient_index.json')).parent
 _ESTADO = jsonstore.JsonStore(_BASE_DIR / 'fichas_estado.json', default={})
 
+# Lo que el paciente contesto sobre SI MISMO y no es contacto: quien lo
+# recomendo, su dentista habitual, hobbies, colegio, profesion, motivacion.
+# Lo consume perfil.py (perfil de pacientes). {rut_limpio: {...}}. Lleva nombres
+# de terceros (quien recomendo) -> disco persistente, gitignored, nunca a git.
+_PERFIL = jsonstore.JsonStore(
+    Path(os.environ.get('FICHAS_PERFIL_PATH', _BASE_DIR / 'fichas_perfil.json')),
+    default={})
+
 
 # ── Mapeo de columnas (por TITULO, tolerante a reordenar) ────────────────────
 # Cada campo logico -> lista de titulos posibles, EN ORDEN DE PRIORIDAD. Se
@@ -117,6 +125,43 @@ def _mapear_aseguradora(texto):
     claves = {_norm_letras(a['key']): a['key']
               for a in seguros.listar_aseguradoras(solo_activas=False)}
     return claves.get(norm, '')
+
+
+# Preguntas del formulario que alimentan el PERFIL del paciente (perfil.py).
+# Por SUBSTRING del titulo normalizado, como el seguro: sus titulos son largos,
+# llevan signos de pregunta y el usuario los edita. Si un titulo cambia, ese
+# campo queda vacio y el resto sigue andando.
+#
+# ⚠️ Lo CLINICO del formulario (antecedentes, apnea) sigue sin leerse: es de
+# DentiDesk y no tiene nada que hacer en un analisis de como llegan los pacientes.
+_PERFIL_TITULOS = {
+    'fecha_form':  'marca temporal',
+    'recomendo':   'quien le recomendo',
+    'dentista':    'quien es su dentista habitual',
+    'familiar':    'algun familiar suyo ha sido tratado',
+    'hobbies':     'hobbies',
+    'colegio':     'nombre del colegio',
+    'curso':       'curso / carrera',
+    'profesion':   'profesion / actividad',
+    'universidad': 'universidad / carrera',
+    'motivacion':  'principal motivacion',
+}
+
+
+def _indices_perfil(headers):
+    """campo -> lista de indices cuyo titulo CONTIENE el substring del campo."""
+    norm = [_norm(h) for h in headers]
+    return {campo: [i for i, h in enumerate(norm) if sub in h]
+            for campo, sub in _PERFIL_TITULOS.items()}
+
+
+def _fecha_form(txt):
+    """'20/08/2021 15:36:50' (marca temporal de Forms) -> '2021-08-20', o ''."""
+    try:
+        d, m, a = (txt or '').split()[0].split('/')
+        return '%04d-%02d-%02d' % (int(a), int(m), int(d))
+    except Exception:
+        return ''
 
 
 def _mapa(headers):
@@ -196,6 +241,7 @@ def interpretar(headers, filas):
     mapa = _mapa(headers)
     idx = {c: _indices(mapa, c) for c in _CAMPOS}
     idx_seguro = _indice_seguro(headers)
+    idx_perfil = _indices_perfil(headers)
     if not idx_seguro:
         print('[fichas] columna de seguro complementario no encontrada en el Sheet; '
               'seguro_key quedara vacio en todas las fichas')
@@ -230,11 +276,38 @@ def interpretar(headers, filas):
             # + rut/email) -- lo consume aparte seguros.asignar_si_vacio() en
             # fichas.sincronizar(). Ver seguros.py.
             'seguro_key':        _mapear_aseguradora(_valor(row, idx_seguro)),
+            # Tampoco pasa por merge_fichas: va a fichas_perfil.json (perfil.py).
+            'perfil':            _perfil_de(row, idx_perfil),
         }
         # Clave por RUT limpio; las respuestas mas nuevas pisan a las viejas.
         por_rut[pacientes._limpiar_rut(rut_txt)] = ficha
 
     return list(por_rut.values()), sin_rut_valido
+
+
+def _perfil_de(row, idx):
+    p = {c: _valor(row, idx.get(c, [])) for c in _PERFIL_TITULOS}
+    p['fecha_form'] = _fecha_form(p['fecha_form'])
+    return p
+
+
+def guardar_perfiles(fichas):
+    """Reemplaza fichas_perfil.json con lo que trae el Sheet. Se REEMPLAZA (no
+    se mezcla): el Sheet es la fuente y si alguien borra una respuesta ahi,
+    tiene que dejar de contarse aca."""
+    import pacientes
+    datos = {}
+    for f in fichas:
+        rut = pacientes._limpiar_rut(f.get('rut', ''))
+        if rut and f.get('perfil'):
+            datos[rut] = f['perfil']
+    _PERFIL.save(datos)
+    return len(datos)
+
+
+def perfiles():
+    """{rut: {fecha_form, recomendo, dentista, familiar, hobbies, colegio, ...}}"""
+    return _PERFIL.load()
 
 
 # ── Sincronizacion (lo que llama el scheduler y el boton del panel) ──────────
@@ -266,8 +339,15 @@ def sincronizar(sheet_id=None):
         except Exception as e:
             print(f'[fichas] fallo asignando aseguradoras (no afecta el merge de pacientes): {e!r}')
 
+        perfiles_guardados = 0
+        try:
+            perfiles_guardados = guardar_perfiles(fichas)
+        except Exception as e:
+            print(f'[fichas] fallo guardando perfiles (no afecta el merge): {e!r}')
+
         resumen = {'ok': True, 'respuestas': len(filas), 'fichas': len(fichas), **res,
                    'seguros_asignados': seguros_asignados,
+                   'perfiles': perfiles_guardados,
                    'cuando': fechas.ahora_chile().isoformat(timespec='seconds')}
     except Exception as e:
         resumen = {'ok': False, 'error': str(e),

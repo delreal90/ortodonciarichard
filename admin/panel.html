@@ -106,6 +106,7 @@
     <a onclick="show('agenda')" id="nav-agenda"><i class="fa fa-calendar-check"></i> Agenda online</a>
     <a onclick="show('kpi')" id="nav-kpi"><i class="fa fa-gauge-high"></i> KPIs</a>
     <a onclick="show('clinico')" id="nav-clinico"><i class="fa fa-microscope"></i> Investigación</a>
+    <a onclick="show('perfil')" id="nav-perfil"><i class="fa fa-people-group"></i> Perfil de pacientes</a>
     <a onclick="show('estadisticas')" id="nav-estadisticas"><i class="fa fa-chart-column"></i> Estadísticas</a>
     <a onclick="show('consentimientos')" id="nav-consentimientos"><i class="fa fa-file-signature"></i> Consentimientos</a>
     <a onclick="show('whatsapp')" id="nav-whatsapp"><i class="fab fa-whatsapp"></i> WhatsApp</a>
@@ -500,6 +501,82 @@
           </div>
         </div>
         <div id="kpi-mant-msg" style="margin-top:12px;font-size:.82rem"></div>
+      </div>
+    </div>
+
+    <!-- ── PERFIL DE PACIENTES ─────────────────────────────── -->
+    <div class="section" id="sec-perfil">
+      <h2>Perfil de pacientes</h2>
+      <p class="desc">Quién llega, quién inicia tratamiento, de dónde viene y quién lo trajo.
+        Cruza la agenda de 5 años, la <strong>ficha de primera consulta</strong> y el
+        <strong>Censo 2024</strong>. Todo es agregado: ningún indicador identifica a un paciente,
+        salvo el ranking de quienes nos recomiendan (para poder agradecerles).
+        Los intereses salen <strong>solo</strong> de lo que el paciente contó en nuestra ficha;
+        no se busca a nadie en redes sociales.</p>
+
+      <div class="card" style="margin-bottom:18px">
+        <h3 style="margin-bottom:12px">Conexión</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div style="flex:1;min-width:240px">
+            <label style="font-size:.82rem;color:#4A5568">Backend (producción)</label>
+            <input id="pf-url" value="https://ortodonciarichard.onrender.com"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="font-size:.82rem;color:#4A5568">Admin token</label>
+            <input id="pf-token" type="password" placeholder="ADMIN_TOKEN"
+                   style="width:100%;padding:9px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div>
+            <label style="font-size:.82rem;color:#4A5568">Primeras consultas desde</label>
+            <input id="pf-desde" type="date" style="padding:8px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <div>
+            <label style="font-size:.82rem;color:#4A5568">hasta</label>
+            <input id="pf-hasta" type="date" style="padding:8px;border:1px solid #e2e8f0;border-radius:8px">
+          </div>
+          <button class="btn btn-primary" onclick="loadPerfil()">Conectar</button>
+        </div>
+      </div>
+
+      <div id="pf-cuerpo"><div class="card">Conecta para ver el perfil.</div></div>
+
+      <div class="card" id="pf-mapa-card" style="display:none">
+        <h3>Dónde viven</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;font-size:.85rem">
+          <label>Capa
+            <select id="pf-capa" onchange="perfilMapa()">
+              <option value="calor">Mapa de calor (direcciones)</option>
+              <option value="comunas">Penetración por comuna</option>
+            </select></label>
+          <label>Quiénes
+            <select id="pf-universo" onchange="perfilMapa()">
+              <option value="todos">Todos los pacientes</option>
+              <option value="pc">Con primera consulta</option>
+            </select></label>
+          <label>Destino
+            <select id="pf-destino" onchange="perfilMapa()">
+              <option value="">Cualquiera</option>
+              <option value="inicio">Iniciaron</option>
+              <option value="perdido">No volvieron</option>
+            </select></label>
+          <label>Edad
+            <select id="pf-banda" onchange="perfilMapa()">
+              <option value="">Todas</option><option>&lt;12</option><option>12-17</option>
+              <option>18-34</option><option>35+</option>
+            </select></label>
+          <span id="pf-mapa-n" class="nota"></span>
+        </div>
+        <div id="pf-mapa" style="height:480px;border-radius:10px;border:1px solid #e2e8f0"></div>
+        <p class="nota" style="margin-top:8px;font-size:.78rem;color:#718096">
+          El calor usa solo las direcciones encontradas a nivel de calle, agrupadas en celdas de
+          ~100 m (nunca un punto por persona). La penetración es pacientes activos (con alguna
+          cita en los últimos 3 años) por cada 10.000 habitantes de la comuna (Censo 2024).
+          Mapa base y límites: © colaboradores de OpenStreetMap.</p>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-sm" onclick="perfilGeocodificar()">📍 Ubicar direcciones nuevas</button>
+          <span id="pf-geo-estado" class="nota" style="font-size:.82rem"></span>
+        </div>
       </div>
     </div>
 
@@ -1819,6 +1896,7 @@ function show(sec) {
   if (sec === 'agenda') { loadAgenda(); initPacienteEstado(); }
   if (sec === 'kpi') initKpi();
   if (sec === 'clinico') initClinico();
+  if (sec === 'perfil') initPerfil();
   if (sec === 'estadisticas') initStats();
   if (sec === 'consentimientos') initConsentimientos();
   if (sec === 'whatsapp') initWhatsapp();
@@ -2009,6 +2087,307 @@ async function pePonerMotivo(i, btn) {
 function initKpi() {
   if (!document.getElementById('kpi-desde').value) kpiRango(12);
   remotoInit('kpi-url', 'kpi-token', loadKpi);
+}
+
+// ══════════════════════════════════════════════════════
+// PERFIL DE PACIENTES (perfil.py / referidos.py / geocodificar.py)
+// ══════════════════════════════════════════════════════
+// Patrón remoto y claves COMPARTIDAS stats_url/stats_token (regla 7). Todo
+// texto que viene del backend pasa por _esc(): acá hay nombres que escribieron
+// los pacientes (quién los recomendó, su colegio), o sea texto libre ajeno.
+// Las tasas, intervalos y "hallazgos" los calcula el BACKEND; esto solo pinta.
+
+let PF = { datos: null, mapa: null, capa: null, geojson: null, canales: {} };
+
+function initPerfil() { remotoInit('pf-url', 'pf-token', loadPerfil); }
+
+async function _pfFetch(path, opciones) {
+  const r = await remotoFetch('pf-url', 'pf-token', path, opciones);
+  if (r.status === 403) throw new Error('Token inválido (403)');
+  const txt = await r.text();
+  try { return JSON.parse(txt); }
+  catch (e) { throw new Error(`${path} respondió ${r.status} y no fue JSON.`); }
+}
+
+const _pfPct = (v) => v == null ? '—' : String(v).replace('.', ',') + '%';
+const _pfNum = (v) => v == null ? '—' : Number(v).toLocaleString('es-CL');
+const _pfTabla = (cab, filas) => `<table style="width:100%;border-collapse:collapse;font-size:.84rem">
+  <thead><tr>${cab.map(c => `<th style="text-align:left;padding:6px;border-bottom:2px solid #e2e8f0;color:#4A5568;font-weight:600">${c}</th>`).join('')}</tr></thead>
+  <tbody>${filas.map(f => `<tr>${f.map(c => `<td style="padding:6px;border-bottom:1px solid #edf2f7">${c}</td>`).join('')}</tr>`).join('')
+  || `<tr><td colspan="${cab.length}" style="padding:8px;color:#718096">Sin datos.</td></tr>`}</tbody></table>`;
+
+async function loadPerfil(dim) {
+  localStorage.setItem('stats_token', remotoToken('pf-token'));
+  localStorage.setItem('stats_url', remotoUrl('pf-url'));
+  const caja = document.getElementById('pf-cuerpo');
+  caja.innerHTML = '<div class="card">Cargando…</div>';
+  const p = new URLSearchParams();
+  const de = document.getElementById('pf-desde').value, ha = document.getElementById('pf-hasta').value;
+  if (de) p.set('desde', de);
+  if (ha) p.set('hasta', ha);
+  p.set('dim', dim || (PF.datos && PF.datos.dim_inicio) || 'canal');
+  try {
+    const [d, pend] = await Promise.all([
+      _pfFetch('/api/perfil/resumen?' + p.toString()),
+      _pfFetch('/api/perfil/referidos/por-confirmar')]);
+    if (!d.ok) throw new Error(d.error || 'Error');
+    PF.datos = d;
+    PF.canales = pend.canales || {};
+    caja.innerHTML = _pfHtml(d, pend);
+    document.getElementById('pf-mapa-card').style.display = '';
+    perfilMapa();
+    perfilGeoEstado();
+  } catch (e) {
+    caja.innerHTML = `<div class="card"><span style="color:#c53030">${_esc(e.message)}</span></div>`;
+  }
+}
+
+function _pfHtml(d, pend) {
+  const q = d.calidad;
+  const tile = (n, l) => `<div style="min-width:120px"><div style="font-size:1.4rem;font-weight:700;color:#1A2E4A">${n}</div>
+      <div style="font-size:.76rem;color:#4A5568">${l}</div></div>`;
+  let h = `<div class="card"><h3>Calidad del dato</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:18px">
+      ${tile(_pfNum(q.primeras_consultas), 'primeras consultas')}
+      ${tile(_pfPct(q.con_ficha), 'llenaron la ficha')}
+      ${tile(_pfPct(q.con_edad), 'con fecha de nacimiento')}
+      ${tile(_pfPct(q.con_comuna), 'con comuna')}
+      ${tile(_pfPct(q.con_punto), 'ubicados en el mapa')}
+      ${tile(_pfNum((q.referidos || {}).por_confirmar || 0), 'recomendaciones por confirmar')}</div>
+    <p class="nota" style="margin-top:10px;font-size:.8rem;color:#718096">Lo que sale de la ficha
+      (quién recomendó, intereses) describe a quienes la llenaron, que no son todos. Las tasas de inicio
+      se calculan solo con primeras consultas de hace más de 90 días (las recientes todavía no deciden)
+      y no se muestran con menos de 5 casos.</p></div>`;
+
+  // Hallazgos
+  const hall = d.hallazgos || [];
+  h += `<div class="card"><h3>Hallazgos</h3>${hall.length
+    ? '<ul style="padding-left:18px;font-size:.9rem;line-height:1.6">' + hall.map(x =>
+        `<li>${x.tipo === 'geografia' ? '📍 ' : '📈 '}${_esc(x.texto)}</li>`).join('') + '</ul>'
+    : '<p style="color:#718096;font-size:.88rem">Todavía no hay diferencias claras (con intervalos que no se solapan). Aparecerán solas a medida que se acumulen datos.</p>'}
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:6px">Solo se escribe una frase cuando la diferencia
+      es estadísticamente clara (IC 95% sin solaparse, al menos 15 casos por lado).</p></div>`;
+
+  // Quién llega
+  const D = d.dimensiones;
+  const barras = (dim) => _barras((d.llegan[dim] || []).map(r => ({ label: r.label, total: r.n })), '#1A2E4A');
+  h += `<div class="card"><h3>Quién llega</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px">
+      ${['banda_edad', 'sexo', 'distancia', 'prevision', 'comuna', 'canal', 'familia_previa'].map(k =>
+        `<div><div style="font-weight:600;font-size:.86rem;margin-bottom:8px;color:#1A2E4A">${_esc(D[k])}</div>${barras(k)}</div>`).join('')}
+    </div>
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:8px">«Familiar ya era paciente» = alguien con el
+      mismo teléfono o correo se atendía antes de esa primera consulta (los hermanos suelen compartir el del apoderado).</p></div>`;
+
+  // Tendencia
+  const tend = (dim) => {
+    const t = d.tendencia[dim];
+    if (!t || !t.serie.length) return '';
+    return `<div style="margin-bottom:16px"><div style="font-weight:600;font-size:.86rem;margin:6px 0">${_esc(D[dim])}</div>
+      ${_pfTabla(['Año', 'n'].concat(t.valores.map(v => _esc(v.label))),
+        t.serie.map(s => [s.anio, s.n].concat(t.valores.map(v => _pfPct(s[v.valor])))))}</div>`;
+  };
+  h += `<div class="card"><h3>Cómo cambia con los años</h3>${tend('banda_edad')}${tend('distancia')}${tend('canal')}</div>`;
+
+  // Quién inicia
+  const opts = Object.entries(D).map(([k, l]) =>
+    `<option value="${k}" ${k === d.dim_inicio ? 'selected' : ''}>${_esc(l)}</option>`).join('');
+  h += `<div class="card"><h3>Quién inicia tratamiento</h3>
+    <label style="font-size:.85rem">Separar por <select onchange="loadPerfil(this.value)">${opts}</select></label>
+    <div style="margin-top:12px">${_pfTabla(['', 'Consultas', '% inicia', 'IC 95%', '% no volvió'],
+      (d.inician || []).map(r => [
+        _esc(r.label), r.n,
+        r.pct_inicio == null ? '<span style="color:#a0aec0">pocos casos</span>' :
+          `<div style="display:flex;align-items:center;gap:8px"><div style="width:110px;background:#edf2f7;border-radius:4px">
+            <div style="width:${r.pct_inicio}%;background:#C9A84C;height:12px;border-radius:4px"></div></div>${_pfPct(r.pct_inicio)}</div>`,
+        r.ic ? `${_pfPct(r.ic[0])} – ${_pfPct(r.ic[1])}` : '—',
+        _pfPct(r.pct_perdido)]))}</div>
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:6px">Si dos intervalos se solapan,
+      la diferencia puede ser azar. «Quién lo recomendó» se calcula solo con quienes llenaron la ficha.</p></div>`;
+
+  // Recomendadores
+  h += `<div class="card"><h3>Quién nos recomienda</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:22px">
+    <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Ranking de recomendadores</div>
+    ${_pfTabla(['Quién', 'Tipo', 'Trajo', 'Iniciaron', 'Último'],
+      (d.recomendadores || []).map(r => [_esc(r.nombre), _esc(PF.canales[r.canal] || r.canal),
+        r.trajo, r.cerradas ? `${r.iniciaron} de ${r.cerradas}` : '—', _esc(r.ultimo)]))}</div>
+    <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Dentistas habituales de nuestros pacientes</div>
+    ${_pfTabla(['Dentista', 'Pacientes', 'Nos derivó', 'Iniciaron'],
+      (d.dentistas_habituales || []).map(r => [_esc(r.nombre), r.pacientes, r.lo_recomendo,
+        r.cerradas ? `${r.iniciaron} de ${r.cerradas}` : '—']))}
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:6px">Un dentista con muchos pacientes
+      nuestros que casi nunca aparece como quien recomendó es una relación por cultivar.</p></div></div></div>`;
+
+  // Por confirmar
+  const opCanal = Object.entries(PF.canales).map(([k, l]) => `<option value="${k}">${_esc(l)}</option>`).join('');
+  const pen = (pend && pend.pendientes) || [];
+  h += `<div class="card"><h3>Recomendaciones por confirmar (${pen.length})</h3>
+    <p class="nota" style="font-size:.82rem;color:#4A5568;margin-bottom:10px">Respuestas a «¿quién le recomendó?»
+      que el sistema no supo leer. Lo que confirmes acá se aplica a ese texto <strong>para siempre</strong>,
+      también en fichas futuras. Si es un dentista o un paciente, escribe su nombre completo.</p>
+    ${_pfTabla(['Respuesta', 'Veces', 'Es…', 'Nombre (opcional)', ''],
+      pen.slice(0, 60).map((x, i) => [
+        _esc(x.texto), x.veces,
+        `<select id="pf-pc-canal-${i}">${opCanal.replace(`value="${x.canal}"`, `value="${x.canal}" selected`)}</select>`,
+        `<input id="pf-pc-nombre-${i}" value="${_esc(x.canal === 'persona' ? x.texto : '')}" style="padding:4px;border:1px solid #e2e8f0;border-radius:6px;width:100%">`,
+        `<button class="btn btn-sm" onclick="perfilConfirmar(${i})">Guardar</button>`]))}
+    <div style="margin-top:14px;font-size:.85rem;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+      <span>Unir nombres (misma persona escrita distinto):</span>
+      <input id="pf-alias-o" placeholder="Dra. Kesler" style="padding:5px;border:1px solid #e2e8f0;border-radius:6px">
+      <span>es</span>
+      <input id="pf-alias-d" placeholder="Daniel Kessler" style="padding:5px;border:1px solid #e2e8f0;border-radius:6px">
+      <button class="btn btn-sm" onclick="perfilAlias()">Unir</button></div></div>`;
+  PF.pendientes = pen;
+
+  // Intereses
+  const I = d.intereses || {};
+  const lista = (arr) => _pfTabla(['', 'Pacientes', '% de las fichas', '% inicia'],
+    (arr || []).map(r => [_esc(r.label), r.n, _pfPct(r.pct), _pfPct(r.pct_inicio)]));
+  h += `<div class="card"><h3>Qué les interesa (según su ficha, ${_pfNum(I.n_fichas)} fichas)</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:22px">
+      <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Hobbies y deportes</div>${lista(I.hobbies)}</div>
+      <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Colegios</div>${lista(I.colegios)}</div>
+      <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Profesión (adultos)</div>${lista(I.profesiones)}</div>
+      <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Qué los trae</div>${lista(I.motivaciones)}</div>
+    </div>
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:8px">Sirve para decidir dónde aparecer
+      (auspiciar un torneo, una charla en un colegio) y de qué hablar en redes. Es lo que cada uno escribió
+      en nuestra ficha; no se consulta ninguna otra fuente.</p></div>`;
+
+  // Valor
+  const V = d.valor || {};
+  const tv = (dim) => _pfTabla([_esc(D[dim]), 'Consultas', 'Citas después (mediana)', 'Promedio', 'Meses de relación (mediana)'],
+    (V[dim] || []).map(r => [_esc(r.label), r.n, _pfNum(r.citas_mediana), _pfNum(r.citas_promedio), _pfNum(r.meses_mediana)]));
+  h += `<div class="card"><h3>Cuánto se quedan</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:22px">
+      <div>${tv('canal')}</div><div>${tv('banda_edad')}</div><div>${tv('distancia')}</div><div>${tv('familia_previa')}</div></div>
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:8px">Citas que ocurrieron después de la primera consulta.
+      ${V.ingreso_promedio_iniciados ? 'Ingreso promedio de los que iniciaron (desde ' + _esc(V.desde_ingresos) + '): $' + _pfNum(V.ingreso_promedio_iniciados) + '.'
+        : 'Los ingresos por paciente aparecerán cuando haya suficientes boletas cargadas.'}</p></div>`;
+
+  // Comunas
+  const G = d.geografia || {};
+  h += `<div class="card"><h3>Comunas: penetración contra el Censo 2024</h3>
+    ${_pfTabla(['Comuna', 'Pacientes activos', 'Por 10.000 hab.', 'Esperado', '% de lo esperado', 'Distancia', '% con ed. superior', ''],
+      (G.comunas || []).filter(c => c.pacientes || c.potencial).slice(0, 30).map(c => [
+        _esc(c.comuna), c.pacientes, _pfNum(c.penetracion), _pfNum(c.esperada),
+        c.indice == null ? '—' : Math.round(c.indice * 100) + '%', c.distancia_km + ' km',
+        _pfPct(c.pct_educ_superior), c.potencial ? '<span style="color:#C9A84C;font-weight:700">potencial</span>' : '']))}
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:8px">«Esperado» sale de un modelo simple con la
+      distancia a la clínica y el nivel educativo de la comuna (sobre ${G.modelo ? G.modelo.n_comunas : '—'} comunas a menos de 30 km).
+      Sirve para ordenar dónde mirar, no para pronosticar. Fuentes: ${(G.fuentes || []).map(f => _esc(f.fuente.split('.')[0])).join(' · ')}.</p></div>`;
+  return h;
+}
+
+async function perfilConfirmar(i) {
+  const x = PF.pendientes[i];
+  const canal = document.getElementById('pf-pc-canal-' + i).value;
+  const nombre = document.getElementById('pf-pc-nombre-' + i).value.trim();
+  try {
+    const r = await _pfFetch('/api/perfil/referidos/confirmar', { method: 'POST',
+      body: { texto: x.texto, canal, nombre } });
+    if (!r.ok) throw new Error(r.error || 'Error');
+    loadPerfil();
+  } catch (e) { alert(e.message); }
+}
+
+async function perfilAlias() {
+  const o = document.getElementById('pf-alias-o').value.trim();
+  const dd = document.getElementById('pf-alias-d').value.trim();
+  if (!o || !dd) return;
+  try {
+    const r = await _pfFetch('/api/perfil/referidos/confirmar', { method: 'POST',
+      body: { alias_origen: o, alias_destino: dd } });
+    if (!r.ok) throw new Error(r.error || 'Error');
+    loadPerfil();
+  } catch (e) { alert(e.message); }
+}
+
+async function perfilGeoEstado() {
+  try {
+    const r = await _pfFetch('/api/perfil/estado');
+    const g = r.geocodificacion || {};
+    document.getElementById('pf-geo-estado').textContent =
+      `${_pfNum(g.encontradas)} direcciones ubicadas · ${_pfNum(g.no_encontradas)} no encontradas · ` +
+      `${_pfNum(g.pendientes)} por ubicar (se ubican solas cada noche).`;
+  } catch (e) { /* el estado es un extra */ }
+}
+
+async function perfilGeocodificar() {
+  try {
+    const r = await _pfFetch('/api/perfil/geocodificar/run', { method: 'POST', body: { maximo: 300 } });
+    document.getElementById('pf-geo-estado').textContent = r.mensaje || r.error || '';
+  } catch (e) { alert(e.message); }
+}
+
+// Leaflet se carga recién al abrir el mapa (cdnjs), para no pesarle al resto del panel.
+function _pfCargar(src, css) {
+  return new Promise((ok, mal) => {
+    if (css) {
+      const l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = src; l.onload = ok; l.onerror = mal;
+      document.head.appendChild(l); return;
+    }
+    const s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = mal; document.head.appendChild(s);
+  });
+}
+
+async function _pfLeaflet() {
+  if (window.L && window.L.heatLayer) return;
+  const base = 'https://cdnjs.cloudflare.com/ajax/libs/';
+  await _pfCargar(base + 'leaflet/1.9.4/leaflet.min.css', true);
+  await _pfCargar(base + 'leaflet/1.9.4/leaflet.min.js');
+  await _pfCargar(base + 'leaflet.heat/0.2.0/leaflet-heat.js');
+}
+
+async function perfilMapa() {
+  try { await _pfLeaflet(); } catch (e) {
+    document.getElementById('pf-mapa').textContent = 'No se pudo cargar el mapa (sin conexión a cdnjs).';
+    return;
+  }
+  if (!PF.mapa) {
+    PF.mapa = L.map('pf-mapa').setView([-33.40, -70.57], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 17, attribution: '© OpenStreetMap' }).addTo(PF.mapa);
+  }
+  if (PF.capa) { PF.mapa.removeLayer(PF.capa); PF.capa = null; }
+  const capa = document.getElementById('pf-capa').value;
+  const nota = document.getElementById('pf-mapa-n');
+  if (capa === 'comunas') {
+    if (!PF.geojson) PF.geojson = await _pfFetch('/api/perfil/comunas.geojson');
+    const pen = {};
+    ((PF.datos && PF.datos.geografia && PF.datos.geografia.comunas) || []).forEach(c => pen[c.clave] = c);
+    const max = Math.max(1, ...Object.values(pen).map(c => c.penetracion || 0));
+    PF.capa = L.geoJSON(PF.geojson, {
+      style: f => {
+        const c = pen[f.properties.clave] || {};
+        const t = Math.sqrt((c.penetracion || 0) / max);
+        return { color: c.potencial ? '#C9A84C' : '#1A2E4A', weight: c.potencial ? 3 : 1,
+                 fillColor: '#1A2E4A', fillOpacity: 0.05 + 0.7 * t };
+      },
+      onEachFeature: (f, layer) => {
+        const c = pen[f.properties.clave] || {};
+        layer.bindTooltip(`${_esc(f.properties.comuna)}: ${c.pacientes || 0} pacientes · ` +
+          `${_pfNum(c.penetracion)} por 10.000${c.potencial ? ' · potencial' : ''}`);
+      } }).addTo(PF.mapa);
+    nota.textContent = 'Borde dorado = comuna con potencial.';
+    return;
+  }
+  const p = new URLSearchParams({
+    universo: document.getElementById('pf-universo').value,
+    destino: document.getElementById('pf-destino').value,
+    banda_edad: document.getElementById('pf-banda').value });
+  try {
+    const m = await _pfFetch('/api/perfil/mapa?' + p.toString());
+    const max = Math.max(1, ...m.celdas.map(c => c[2]));
+    PF.capa = L.layerGroup([
+      L.heatLayer(m.celdas.map(c => [c[0], c[1], c[2] / max]), { radius: 18, blur: 22, maxZoom: 15 }),
+      L.circleMarker(m.clinica, { radius: 7, color: '#C9A84C', fillColor: '#C9A84C', fillOpacity: 1 })
+        .bindTooltip('Clínica')]).addTo(PF.mapa);
+    nota.textContent = `${_pfNum(m.n)} pacientes en el mapa.`;
+  } catch (e) { nota.textContent = e.message; }
 }
 
 // ══════════════════════════════════════════════════════

@@ -809,7 +809,8 @@ def pacientes_nuevos(desde=None, hasta=None, doctor=None):
         con.close()
 
 
-def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias=90):
+def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias=90,
+                               incluir_todas=False):
     """★ Qué pasó con cada Primera Consulta. Reparto en 3 destinos + los indeterminados.
 
     Esto NO es una tasa de conversión binaria, y esa es justamente la corrección que
@@ -1023,6 +1024,10 @@ def destino_primeras_consultas(desde=None, hasta=None, doctor=None, ventana_dias
         # Acotada a propósito: sobre 5 años son ~1.400 filas y el panel se vuelve
         # ilegible antes de volverse lento. Las mas recientes son las accionables.
         'reasignables': sorted(reasignables, key=lambda x: x['fecha'], reverse=True)[:300],
+        # La lista COMPLETA, sin tope, solo si se pide: la usa perfil.py para cruzar
+        # el destino de cada consulta con el perfil del paciente. Asi las reglas de
+        # ventana y de destino viven en UN solo lugar (esta funcion).
+        **({'todas': reasignables} if incluir_todas else {}),
     }
 
 

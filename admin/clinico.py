@@ -173,6 +173,41 @@ CREATE TABLE IF NOT EXISTS eventos (
     PRIMARY KEY (sistema, ref)
 );
 
+-- Perfil de pacientes (perfil.py): lo que el paciente contesto en la ficha de
+-- primera consulta que NO es contacto ni clinico, ya clasificado. Lleva nombres
+-- de terceros (quien recomendo) -> nunca sale del backend.
+CREATE TABLE IF NOT EXISTS fichas_perfil (
+    rut               TEXT PRIMARY KEY,
+    fecha_form        TEXT,
+    recomendo         TEXT,
+    canal             TEXT,
+    persona_clave     TEXT,
+    persona_nombre    TEXT,
+    persona_rut       TEXT,
+    referido_estado   TEXT,
+    dentista_habitual TEXT,
+    dentista_clave    TEXT,
+    familiar_tratado  INTEGER,
+    colegio           TEXT,
+    colegio_clave     TEXT,
+    profesion         TEXT,
+    profesion_grupo   TEXT,
+    intereses         TEXT,
+    motivacion        TEXT,
+    motivacion_grupo  TEXT
+);
+
+-- Donde vive cada paciente (geocodificar.py). precision: 'calle' = la direccion
+-- se encontro y cae en su comuna; 'comuna' = centro de la comuna declarada.
+CREATE TABLE IF NOT EXISTS ubicaciones (
+    rut          TEXT PRIMARY KEY,
+    comuna       TEXT,
+    lat          REAL,
+    lon          REAL,
+    precision    TEXT,
+    distancia_km REAL
+);
+
 CREATE TABLE IF NOT EXISTS meta (
     clave TEXT PRIMARY KEY,
     valor TEXT
@@ -197,13 +232,16 @@ CREATE INDEX IF NOT EXISTS ix_tam_rut        ON tamizajes(rut);
 CREATE INDEX IF NOT EXISTS ix_ev_rut         ON eventos(rut);
 CREATE INDEX IF NOT EXISTS ix_ev_sistema     ON eventos(sistema, tipo);
 CREATE INDEX IF NOT EXISTS ix_ev_fecha       ON eventos(fecha);
+CREATE INDEX IF NOT EXISTS ix_fp_canal       ON fichas_perfil(canal);
+CREATE INDEX IF NOT EXISTS ix_ub_comuna      ON ubicaciones(comuna);
 """
 
 # Todo lo que este modulo proyecta y por lo tanto puede borrar y rehacer.
 # ⚠️ NO incluye las tablas de kpi.py (citas, disponibilidad, ingresos,
 # snapshots): `disponibilidad` no se puede reconstruir de ninguna parte.
 TABLAS_PROYECTADAS = ('pacientes', 'informes', 'mediciones', 'oclusion',
-                      'hallazgos', 'ordenes', 'tamizajes', 'eventos')
+                      'hallazgos', 'ordenes', 'tamizajes', 'eventos',
+                      'fichas_perfil', 'ubicaciones')
 
 
 def _migrar(con):
@@ -620,8 +658,19 @@ def proyectar_todo():
 
     eventos, errores = _filas_eventos()
 
+    # El perfil de pacientes (procedencia, intereses, ubicacion). En su propio
+    # try: un fallo ahi no puede dejar sin proyectar el registro clinico.
+    fperfil, ubic = [], []
+    try:
+        import perfil
+        fperfil = perfil.filas_fichas()
+        ubic = perfil.filas_ubicaciones()
+    except Exception as e:
+        log.warning('[clinico] no se pudo proyectar el perfil de pacientes: %r', e)
+        errores['perfil'] = str(e)
+
     ruts = ({i[1] for i in informes} | {t[1] for t in tamizajes}
-            | {e[2] for e in eventos})
+            | {e[2] for e in eventos} | {f[0] for f in fperfil})
     pac = _filas_pacientes(ruts)
 
     ahora = fechas.ahora_chile().isoformat(timespec='seconds')
@@ -638,6 +687,8 @@ def proyectar_todo():
         con.executemany(_insert('ordenes'), ordenes)
         con.executemany(_insert('tamizajes', reemplazar=True), tamizajes)
         con.executemany(_insert('eventos', reemplazar=True), eventos)
+        con.executemany(_insert('fichas_perfil', reemplazar=True), fperfil)
+        con.executemany(_insert('ubicaciones', reemplazar=True), ubic)
         con.executemany('INSERT OR REPLACE INTO meta VALUES (?,?)', [
             ('ultima_proyeccion', ahora),
             ('n_informes', str(len(informes))),
@@ -655,6 +706,7 @@ def proyectar_todo():
             'oclusion': len(oclusion), 'hallazgos': len(hallazgos),
             'ordenes': len(ordenes), 'tamizajes': len(tamizajes),
             'eventos': len(eventos), 'pacientes': len(pac),
+            'fichas_perfil': len(fperfil), 'ubicaciones': len(ubic),
             'errores': errores, 'fecha': ahora}
 
 
@@ -686,6 +738,12 @@ _COLUMNAS = {
     'tamizajes': ('id', 'rut', 'fecha', 'instrumento', 'puntaje', 'alto',
                   'origen', 'informe_id'),
     'eventos': ('sistema', 'ref', 'rut', 'fecha', 'tipo', 'estado', 'datos'),
+    'fichas_perfil': ('rut', 'fecha_form', 'recomendo', 'canal', 'persona_clave',
+                      'persona_nombre', 'persona_rut', 'referido_estado',
+                      'dentista_habitual', 'dentista_clave', 'familiar_tratado',
+                      'colegio', 'colegio_clave', 'profesion', 'profesion_grupo',
+                      'intereses', 'motivacion', 'motivacion_grupo'),
+    'ubicaciones': ('rut', 'comuna', 'lat', 'lon', 'precision', 'distancia_km'),
 }
 
 

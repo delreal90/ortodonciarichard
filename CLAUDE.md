@@ -4518,6 +4518,139 @@ por hora de sillón). Correr el backfill en producción una vez desplegado.
 
 ---
 
+## Perfil de pacientes — quién llega, quién inicia, de dónde y por quién (2026-10-02)
+
+Pedido del Dr. Alberto: conocer el perfil de los pacientes para saber **cómo llegar mejor
+a ellos**, con datos propios y públicos, y que el sistema **mejore con el tiempo**. Pestaña
+**«👥 Perfil de pacientes»** del panel (patrón remoto, `stats_url`/`stats_token`).
+
+### De dónde salen los datos
+
+| Fuente | Qué aporta | Módulo |
+|---|---|---|
+| Agenda de 5 años (`citas`) | el **destino** de cada primera consulta (inicia / no volvió / en ventana) | `kpi.destino_primeras_consultas(incluir_todas=True)` — **una sola** definición de destino |
+| Ficha de primera consulta (Google Form) | «¿Quién le recomendó?», dentista habitual, familiar tratado, hobbies, colegio, profesión, motivación | `fichas.py` → `fichas_perfil.json` |
+| Índice de pacientes | edad, sexo, previsión, comuna, dirección, teléfono/correo (familias) | `pacientes.py` |
+| **Censo 2024 (INE)** + límites de OpenStreetMap | población total y de 5–19 años, escolaridad y % con educación superior **por comuna**; polígonos | `admin/datos_publicos/comunas_rm.json` (versionado, con sus fuentes) |
+| Direcciones → coordenadas | mapa de calor | `geocodificar.py` (Nominatim) |
+
+El formulario **ya traía** todas esas preguntas (57 columnas) y `fichas.py` solo leía las de
+contacto. Ahora también lee las de perfil, por **substring del título** (como el seguro),
+y las guarda **reemplazando** `fichas_perfil.json` en cada sincronización (el Sheet manda).
+⚠️ Lo clínico del formulario (antecedentes, apnea) **sigue sin leerse**.
+
+⚠️ **En producción depende de `FICHA_SHEET_ID`**, que todavía no está seteada en Render
+(ver *Ficha de Primera Consulta*). Sin ella el perfil funciona con la agenda, la base y la
+geografía, pero **canal, recomendadores e intereses quedan vacíos**.
+
+### «¿Quién le recomendó?» — `referidos.py`
+
+Medido el 2026-10-02: 663 respuestas, **450 textos distintos**. Se clasifican en canales
+(`dentista`, `doctor_clinica`, `medico`, `paciente`, `ya_paciente`, `familia`, `amigo`,
+`internet`, `propio`, `colegio`, `persona`, `sin_dato`, `otro`). Con los datos reales, el
+**81 % se clasifica solo**; el resto queda «por confirmar» en el panel.
+
+- **El directorio de dentistas no se mantiene a mano**: un nombre que aparece como
+  «dentista habitual» en 2+ fichas, o escrito con «Dr./Dra.», es dentista. ⚠️ Una **frase**
+  repetida («no tengo», «mamá fue paciente…») no lo es: se filtran las que calzan con
+  palabras clave y las de más de 4 palabras.
+- **Alias automáticos solo si son inequívocos** («Dra. Ulloa», «Tere Ulloa» → «María Teresa
+  Ulloa»: cada palabra es el comienzo de una del nombre completo y un apellido de 4+ letras
+  calza entero). Errores de tipeo: ≥ 0,9 de similitud con **un solo** dentista. Un nombre de
+  más de 3 palabras nunca es destino de un alias (son dos personas escritas juntas).
+- ⚠️ **No se adivina a una persona** (regla de `carpetas.py`): dos pacientes candidatos, o un
+  nombre de pila suelto, quedan `por_confirmar`. Nadie se recomienda a sí mismo.
+- ⚠️ **Las palabras clave van ANTES que el directorio** salvo que el texto traiga «Dr./Dra.»
+  delante de un nombre. Los doctores de la clínica van antes que todo («conozco a Rodrigo
+  Oyonarte»); «Del Real» a secas es la clínica, sin elegir doctor.
+- **Aprende**: lo que se confirma en el panel se guarda **por texto normalizado** en
+  `referidos_config.json` y se aplica para siempre, también a fichas futuras; un dentista
+  confirmado entra al directorio. Todo se reclasifica en cada proyección nocturna.
+
+### Geografía — `geocodificar.py`
+
+- **Nominatim (OpenStreetMap)**, aprobado por el usuario el 2026-10-02 y declarado en
+  `privacidad.html`. Se envía **solo calle + número + comuna** (`limpiar_direccion` saca el
+  depto y el punto de miles). Nunca nombre ni RUT, y la dirección **no se loguea** (tampoco
+  en el error de red). 1 consulta/segundo con User-Agent identificado (política de Nominatim).
+- `geocache.json` va **por dirección normalizada, sin RUT**: cada dirección se consulta una
+  vez en la vida; las no encontradas se reintentan a los 90 días.
+- ⚠️ **Un punto se valida antes de creerlo**: si no cae (point-in-polygon) en la comuna que el
+  paciente declaró, se descarta y el paciente va al centro de su comuna con
+  `precision='comuna'`. Excepción: quien escribe «Santiago» casi siempre quiere decir la
+  ciudad, así que ahí manda la comuna donde cae el punto; sin punto, no se ubica.
+- `_loop_geocodificar` (01:00–03:00, ≤ 800 por noche ≈ 15 min) deja las coordenadas listas
+  para la proyección de las 03:20. La primera carga (~4.000 direcciones) toma unas 5 noches;
+  el botón «📍 Ubicar direcciones nuevas» del panel adelanta lotes de 300.
+- La clínica: `CLINICA = (-33.3859, -70.5308)` (Paul Harris 10.349, geocodificada).
+
+### Base de datos (regla 9)
+
+Dos tablas tipadas nuevas en `clinica.db`, proyectadas por `clinico.proyectar_todo()` desde
+los JSON (en su propio `try`: un fallo no tumba la proyección clínica): `fichas_perfil`
+(respuestas ya clasificadas) y `ubicaciones` (comuna, lat/lon, precisión, distancia). Están
+en `TABLAS_PROYECTADAS` → se reconstruyen enteras cada noche. `perfil.guardar_snapshot()`
+deja una foto mensual en `snapshots` (clave `perfil`) para ver tendencias. Los JSON nuevos
+están en `.gitignore` y `backup.py` los respalda solos (`*.json`).
+
+### El análisis — `perfil.py` (cero red)
+
+Una fila por primera consulta con todo lo que se sabe del paciente. De ahí: **quién llega**
+(edad a la fecha de la consulta, sexo, distancia, comuna, previsión, canal, si un familiar ya
+era paciente), **cómo cambia por año**, **quién inicia** (con IC 95 % de Wilson),
+**recomendadores**, **dentistas habituales**, **intereses**, **cuánto se quedan** y
+**comunas con potencial**.
+
+- ⚠️ **Tasas solo sobre cohortes cerradas** (`en_ventana` fuera, mismo criterio que el arreglo
+  del sesgo de supervivencia) y **nunca con menos de 5 casos**.
+- ⚠️ **«Hallazgos» solo cuando el IC 95 % no se solapa** con el del resto y hay ≥ 15 casos por
+  lado. Primer hallazgo con datos reales: **los de 12–17 años inician más** (65 % vs 50 %).
+- **«Familiar ya era paciente»** sale de la base, no de la ficha: pacientes que comparten
+  teléfono o correo (los hermanos suelen tener el del apoderado), unidos por componentes.
+- **Comunas con potencial**: penetración = pacientes activos (cita en 36 meses) por 10.000
+  hab.; un modelo log-lineal con distancia y % de educación superior (comunas a ≤ 30 km) da
+  la esperada. ⚠️ Es para **ordenar dónde mirar**, no para pronosticar. Una comuna solo se
+  marca si está bajo el 60 % de lo esperado, a ≤ 15 km, con ≥ 10.000 jóvenes de 5–19 y **le
+  faltan al menos 10 pacientes** (un 0 % donde se esperaban 2 es ruido).
+- **El mapa**: celdas de ~100 m con conteo, **sin RUT**, solo direcciones geocodificadas a
+  nivel de calle (las de precisión «comuna» se apilarían en el centro y dibujarían un barrio
+  falso). Capa alternativa: coroplético de penetración por comuna (borde dorado = potencial).
+  Leaflet + leaflet.heat se cargan desde cdnjs recién al abrir la pestaña.
+
+### ⚠️ Intereses: SOLO lo que el paciente contó
+
+El usuario preguntó por buscar intereses en LinkedIn/Facebook. **Se descartó**: cruzar la
+ficha con redes sería tratar datos de salud para marketing sin consentimiento (Ley 21.719) y
+violaría los términos de esas plataformas — justo lo que se leería como «la clínica nos
+espía». Los intereses salen de **nuestra ficha** (hobbies, colegio, profesión, motivación),
+que el paciente llenó para nosotros, y se muestran **agregados**. Lo que las plataformas sí
+entregan agregado y con consentimiento (Insights de Instagram/Facebook, Google Analytics)
+queda como fase 2: una tarjeta para cargar esas cifras a mano por mes.
+
+### Endpoints (todos `ADMIN_TOKEN`, regla 4)
+
+`GET /api/perfil/resumen?dim=&desde=&hasta=` · `GET /api/perfil/mapa?universo=&destino=&banda_edad=`
+· `GET /api/perfil/comunas.geojson` · `GET /api/perfil/referidos/por-confirmar` ·
+`POST /api/perfil/referidos/confirmar` `{texto, canal, nombre?}` | `{olvidar, texto}` |
+`{alias_origen, alias_destino}` (reproyecta al tiro) · `POST /api/perfil/geocodificar/run`
+`{maximo}` (hilo aparte) · `GET /api/perfil/estado`.
+
+### Pruebas
+
+`test_perfil.py` — 40, cero red (Nominatim interceptado). 🔒 **Todos los nombres son
+inventados** (repo público): copian la forma de las respuestas reales.
+
+### Pendiente
+
+1. Setear `FICHA_SHEET_ID` en Render (sin eso no hay canal ni intereses en producción).
+2. Desplegar y dejar correr las primeras noches de geocodificación (o apretar el botón).
+3. Revisar la cola «por confirmar» (~120 textos al partir) y unir alias de dentistas que el
+   sistema no unió solo.
+4. Fase 2: cifras de Instagram/Google Analytics cargadas a mano, y comparar «quién nos
+   sigue» con «quién se atiende».
+
+---
+
 ## WhatsApp MCP — Configuración
 
 El MCP de WhatsApp está **instalado y funcionando**. Permite a Claude leer y enviar mensajes de WhatsApp.

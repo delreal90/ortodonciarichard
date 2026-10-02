@@ -54,6 +54,7 @@ SUITES = [
     ('kpi',          'test_kpi.py',          'datamart de KPIs: destino de la primera consulta, fugas y ocupacion'),
     ('basedatos',    'test_basedatos.py',    'el archivo de la base: el renombre a clinica.db no pierde datos'),
     ('clinico',      'test_clinico.py',      'proyeccion clinica: percentiles, clases por lado y el contador de muestra'),
+    ('perfil',       'test_perfil.py',       'perfil de pacientes: referidos sin adivinar, geocodificacion sin RUT, tasas solo de cohortes cerradas'),
     ('loops',        'test_loops.py',        'los hilos del scheduler: ninguna variable se lee antes de existir'),
     ('carpetas',     'test_carpetas.py',     'carpeta de fotos del paciente: la inicial suelta no es un comodin'),
     ('llamadas',     'test_llamadas.py',     'llamadas de WhatsApp que nadie puede contestar: rechazar, responder, avisar'),

@@ -719,6 +719,7 @@ import reactivacion
 import reporte_semanal
 import kpi              # datamart de KPIs (copia local de la agenda), ver kpi.py
 import clinico          # capa clinica y de eventos sobre la MISMA base, ver clinico.py
+import basedatos        # duenio del archivo clinica.db (perfil de pacientes)
 import backup
 import vigilante_respaldos
 from datetime import date, datetime, timedelta
@@ -6483,6 +6484,143 @@ def clinico_export():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PERFIL DE PACIENTES  (perfil.py + referidos.py + geocodificar.py)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Quien llega, quien inicia, de donde viene y quien lo trajo. Todo AGREGADO salvo
+# el ranking de recomendadores. Todas con ADMIN_TOKEN (regla 4): ninguna es publica.
+
+def _perfil_listo():
+    """Reproyecta si el registro de informes cambio (mismo criterio que
+    /api/clinico/estado). El perfil se reproyecta entero cada noche; esto solo
+    evita mostrar una base a medio armar el primer dia."""
+    try:
+        con = basedatos.conectar()
+        try:
+            n = con.execute('SELECT COUNT(*) FROM fichas_perfil').fetchone()[0]
+        finally:
+            con.close()
+        if not n:
+            clinico.proyectar_todo()
+    except Exception as e:
+        log.warning('[perfil] proyeccion al vuelo fallo: %r', e)
+
+
+@app.route('/api/perfil/resumen', methods=['GET'])
+def perfil_resumen():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import perfil
+    _perfil_listo()
+    dim = (request.args.get('dim') or 'canal').strip()
+    if dim not in perfil.DIMENSIONES:
+        dim = 'canal'
+    try:
+        return jsonify({'ok': True, **perfil.resumen(
+            desde=request.args.get('desde') or None,
+            hasta=request.args.get('hasta') or None, dim_inicio=dim)})
+    except Exception as e:
+        log.warning('[perfil] resumen fallo: %r', e)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/perfil/mapa', methods=['GET'])
+def perfil_mapa():
+    """Celdas de ~100 m con cuantos pacientes viven ahi. Sin RUT."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import perfil
+    filtro = {k: (request.args.get(k) or '').strip()
+              for k in ('universo', 'destino', 'canal', 'banda_edad')}
+    return jsonify({'ok': True, **perfil.mapa(filtro)})
+
+
+@app.route('/api/perfil/comunas.geojson', methods=['GET'])
+def perfil_comunas_geojson():
+    """Limites de las comunas de la RM (datos publicos de OpenStreetMap)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import perfil
+    return jsonify(perfil.comunas_geojson())
+
+
+@app.route('/api/perfil/referidos/por-confirmar', methods=['GET'])
+def perfil_referidos_pendientes():
+    """Respuestas a "¿quien le recomendo?" que el sistema no supo leer."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import fichas
+    import pacientes
+    import referidos
+    perf = fichas.perfiles()
+    clasif, _ctx = referidos.clasificar_todas(perf, pacientes._load_index())
+    cfg = referidos.config()
+    return jsonify({'ok': True, 'pendientes': referidos.por_confirmar(perf, clasif),
+                    'confirmados': [{'norm': k, **v} for k, v in
+                                    sorted(cfg['confirmados'].items())],
+                    'alias': cfg['alias'], 'canales': referidos.ETIQUETAS})
+
+
+@app.route('/api/perfil/referidos/confirmar', methods=['POST'])
+def perfil_referidos_confirmar():
+    """Ensena al sistema como leer un texto. body: {texto, canal, nombre?, rut?,
+    olvidar?} o {alias_origen, alias_destino}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import referidos
+    d = request.json or {}
+    try:
+        if d.get('alias_origen'):
+            referidos.fijar_alias(d['alias_origen'], d.get('alias_destino') or '')
+        elif d.get('olvidar'):
+            referidos.olvidar(d.get('texto') or '')
+        else:
+            referidos.confirmar(d.get('texto') or '', (d.get('canal') or '').strip(),
+                                nombre=d.get('nombre') or '', rut=d.get('rut') or '')
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    # Se reproyecta al tiro: si no, el panel sigue mostrando el texto como
+    # pendiente hasta la noche y parece que el boton no hizo nada.
+    try:
+        clinico.proyectar_todo()
+    except Exception as e:
+        log.warning('[perfil] reproyeccion tras confirmar fallo: %r', e)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/perfil/geocodificar/run', methods=['POST'])
+def perfil_geocodificar_run():
+    """Geocodifica un lote de direcciones nuevas en segundo plano (1 por segundo,
+    politica de Nominatim). Responde al tiro."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import threading
+    import geocodificar
+    maximo = min(int((request.json or {}).get('maximo') or 300), 1500)
+
+    def _correr():
+        r = geocodificar.correr(maximo=maximo)
+        print('[geocodificar] manual', r)
+        try:
+            clinico.proyectar_todo()
+        except Exception as e:
+            print('[geocodificar] reproyeccion fallo:', e)
+    threading.Thread(target=_correr, daemon=True).start()
+    return jsonify({'ok': True, 'mensaje': 'Geocodificando hasta %d direcciones '
+                    '(~%d min). Vuelve a cargar despues.' % (maximo, maximo // 55 + 1)})
+
+
+@app.route('/api/perfil/estado', methods=['GET'])
+def perfil_estado():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import fichas
+    import geocodificar
+    return jsonify({'ok': True, 'geocodificacion': geocodificar.estado(),
+                    'fichas': fichas.estado()})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CUMPLEANOS  (equipo + pacientes — modulo cumpleanos.py)
 # ══════════════════════════════════════════════════════════════════════════════
 #
@@ -8238,9 +8376,42 @@ def _loop_kpi_cosecha():
                     print('[clinico-proyeccion]', slot, clinico.proyectar_todo())
                 except Exception as e:
                     print('[clinico-proyeccion] error:', e)
+                # La foto mensual del perfil de pacientes (tendencias). Va despues
+                # de la proyeccion para leer lo recien proyectado.
+                try:
+                    import perfil
+                    print('[perfil-snapshot]', perfil.guardar_snapshot())
+                except Exception as e:
+                    print('[perfil-snapshot] error:', e)
         except Exception as e:
             print('[kpi-cosecha] error:', e)
         time.sleep(40)
+
+
+# Geocodificacion nocturna de direcciones nuevas (OpenStreetMap). Termina antes
+# de la proyeccion de las 03:20, que es la que lleva las coordenadas a la base.
+_GEO_HORA = '01:00'
+_GEO_LIMITE = '03:00'
+_GEO_MAX_NOCHE = 800    # ~15 min a 1 consulta por segundo
+
+
+def _loop_geocodificar():
+    """Convierte en coordenadas las direcciones de pacientes nuevos, una vez por
+    noche. Sin red hacia nada que no sea Nominatim, y sin RUT (ver
+    geocodificar.py). No depende de DentiDesk."""
+    import time
+    import geocodificar
+    ya_corrio = None
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            slot = ahora.strftime('%H:%M')
+            if _GEO_HORA <= slot < _GEO_LIMITE and ya_corrio != ahora.date():
+                ya_corrio = ahora.date()
+                print('[geocodificar]', slot, geocodificar.correr(maximo=_GEO_MAX_NOCHE))
+        except Exception as e:
+            print('[geocodificar] error:', e)
+        time.sleep(60)
 
 
 def _loop_reactivacion():
@@ -8739,6 +8910,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_reactivacion, daemon=True).start()
     threading.Thread(target=_loop_reporte_semanal, daemon=True).start()
     threading.Thread(target=_loop_kpi_cosecha, daemon=True).start()
+    threading.Thread(target=_loop_geocodificar, daemon=True).start()
     threading.Thread(target=_loop_backup, daemon=True).start()
     threading.Thread(target=_loop_vigilante_respaldos, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()

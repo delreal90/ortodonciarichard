@@ -163,3 +163,12 @@ dentidesk-assistant/
 
 # Llamadas de WhatsApp que nadie pudo contestar: lleva RUT y telefono.
 admin/llamadas_registro.json
+
+# Perfil de pacientes (perfil.py / referidos.py / geocodificar.py) — NUNCA a git.
+# fichas_perfil: lo que contestó cada paciente en la ficha (con nombres de quien
+# lo recomendó). referidos_config: confirmaciones del panel (nombres de terceros).
+# geocache: direcciones de pacientes con su coordenada (sin RUT, pero son casas).
+# En Render viven en el disco persistente; backup.py los respalda solos (*.json).
+admin/fichas_perfil.json
+admin/referidos_config.json
+admin/geocache.json
