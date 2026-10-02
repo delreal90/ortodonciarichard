@@ -2126,6 +2126,7 @@ async function loadPerfil(dim) {
   if (de) p.set('desde', de);
   if (ha) p.set('hasta', ha);
   p.set('dim', dim || (PF.datos && PF.datos.dim_inicio) || 'canal');
+  if (PF.doctor) p.set('doctor', PF.doctor);
   try {
     const [d, pend] = await Promise.all([
       _pfFetch('/api/perfil/resumen?' + p.toString()),
@@ -2205,19 +2206,26 @@ function _pfHtml(d, pend) {
     <p class="nota" style="font-size:.78rem;color:#718096;margin-top:6px">Si dos intervalos se solapan,
       la diferencia puede ser azar. «Quién lo recomendó» se calcula solo con quienes llenaron la ficha.</p></div>`;
 
-  // Recomendadores
+  // Recomendadores (con filtro por doctor: cada paciente llega con su doctor ya asignado)
+  const _doc = (k) => k ? 'Dr. ' + k.charAt(0).toUpperCase() + k.slice(1) : '';
+  const opDoc = ['<option value="">Toda la clínica</option>'].concat((d.doctores || []).map(k =>
+    `<option value="${_esc(k)}" ${k === d.doctor ? 'selected' : ''}>${_esc(_doc(k))}</option>`)).join('');
+  const otros = (r) => Object.entries(r.a_otros || {}).map(([k, n]) => `${_esc(_doc(k))}: ${n}`).join(' · ') || '—';
   h += `<div class="card"><h3>Quién nos recomienda</h3>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:22px">
-    <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Ranking de recomendadores</div>
-    ${_pfTabla(['Quién', 'Tipo', 'Trajo', 'Iniciaron', 'Último'],
+    <label style="font-size:.85rem">Pacientes de <select onchange="perfilDoctor(this.value)">${opDoc}</select></label>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:22px;margin-top:12px">
+    <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Ranking de recomendadores${d.doctor ? ' — ' + _esc(_doc(d.doctor)) : ''}</div>
+    ${_pfTabla(['Quién', 'Tipo', 'Trajo', 'Iniciaron', 'Este año', 'Año pasado', d.doctor ? 'También deriva a' : 'Por doctor', 'Último'],
       (d.recomendadores || []).map(r => [_esc(r.nombre), _esc(PF.canales[r.canal] || r.canal),
-        r.trajo, r.cerradas ? `${r.iniciaron} de ${r.cerradas}` : '—', _esc(r.ultimo)]))}</div>
-    <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Dentistas habituales de nuestros pacientes</div>
-    ${_pfTabla(['Dentista', 'Pacientes', 'Nos derivó', 'Iniciaron'],
+        r.trajo, r.cerradas ? `${r.iniciaron} de ${r.cerradas}` : '—', r.este_anio, r.anio_anterior,
+        otros(r), _esc(r.ultimo)]))}</div>
+    <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Dentistas habituales de ${d.doctor ? 'sus' : 'nuestros'} pacientes</div>
+    ${_pfTabla(['Dentista', 'Pacientes', 'Los derivó', 'Iniciaron'],
       (d.dentistas_habituales || []).map(r => [_esc(r.nombre), r.pacientes, r.lo_recomendo,
         r.cerradas ? `${r.iniciaron} de ${r.cerradas}` : '—']))}
-    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:6px">Un dentista con muchos pacientes
-      nuestros que casi nunca aparece como quien recomendó es una relación por cultivar.</p></div></div></div>`;
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:6px">Un dentista con varios pacientes
+      que nunca aparece como quien los recomendó es una relación por cultivar. Solo cuentan las primeras
+      consultas que llenaron la ficha.</p></div></div></div>`;
 
   // Por confirmar
   const opCanal = Object.entries(PF.canales).map(([k, l]) => `<option value="${k}">${_esc(l)}</option>`).join('');
@@ -2279,6 +2287,8 @@ function _pfHtml(d, pend) {
       Sirve para ordenar dónde mirar, no para pronosticar. Fuentes: ${(G.fuentes || []).map(f => _esc(f.fuente.split('.')[0])).join(' · ')}.</p></div>`;
   return h;
 }
+
+function perfilDoctor(k) { PF.doctor = k; loadPerfil(); }
 
 async function perfilConfirmar(i) {
   const x = PF.pendientes[i];

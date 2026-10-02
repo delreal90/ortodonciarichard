@@ -484,6 +484,26 @@ class TestPerfilSobreLaBase(unittest.TestCase):
         self.assertEqual(i['hobbies'][0]['label'], 'Fútbol')
         self.assertEqual(i['colegios'][0]['n'], 40)
 
+    def test_recomendadores_por_doctor(self):
+        filas = perfil.base()
+        # Dos de los recomendados por la dentista pasan a otro doctor.
+        movidas = 0
+        for f in filas:
+            if f['ficha'] and f['ficha']['canal'] == 'dentista' and movidas < 2:
+                f['doctor'] = 'rodrigo'
+                movidas += 1
+        al = perfil.recomendadores(filas, doctor='alberto')
+        self.assertEqual(al[0]['trajo'], 18)
+        self.assertEqual(al[0]['a_otros'], {'rodrigo': 2})
+        ro = perfil.recomendadores(filas, doctor='rodrigo')
+        self.assertEqual(ro[0]['trajo'], 2)
+        self.assertEqual(perfil.recomendadores(filas, doctor='octavio'), [])
+        # Sin filtro, el reparto completo por doctor.
+        todos = perfil.recomendadores(filas)
+        self.assertEqual(todos[0]['a_otros'], {'alberto': 18, 'rodrigo': 2})
+        self.assertEqual(sum(r['pacientes'] for r in
+                             perfil.dentistas_habituales(filas, doctor='octavio')), 0)
+
     def test_resumen_completo_y_snapshot(self):
         r = perfil.resumen()
         for k in ('calidad', 'llegan', 'tendencia', 'inician', 'recomendadores',

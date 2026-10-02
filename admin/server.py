@@ -6518,7 +6518,8 @@ def perfil_resumen():
     try:
         return jsonify({'ok': True, **perfil.resumen(
             desde=request.args.get('desde') or None,
-            hasta=request.args.get('hasta') or None, dim_inicio=dim)})
+            hasta=request.args.get('hasta') or None, dim_inicio=dim,
+            doctor=(request.args.get('doctor') or '').strip()[:30])})
     except Exception as e:
         log.warning('[perfil] resumen fallo: %r', e)
         return jsonify({'ok': False, 'error': str(e)}), 500

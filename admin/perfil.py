@@ -466,8 +466,18 @@ def por_anio(filas, dim):
             'serie': serie}
 
 
-def recomendadores(filas, top=30):
-    """Quien trae pacientes (dentistas, doctores, medicos, pacientes)."""
+def recomendadores(filas, top=30, doctor=''):
+    """Quien trae pacientes (dentistas, doctores, medicos, pacientes).
+
+    Con `doctor`, el ranking es el de ESE doctor (pedido del Dr. Alberto,
+    2026-10-02: "practicamente todos llegan con el doctor ya asignado"). Igual
+    se informa a quien MAS deriva cada uno (`a_otros`): el dentista que reparte
+    entre varios doctores es otra relacion que el que deriva solo a uno, y uno
+    que le deriva a un doctor que esta reduciendo su agenda es una relacion que
+    hay que traspasar.
+    """
+    anio = str(fechas.hoy_chile().year)
+    anterior = str(int(anio) - 1)
     g = {}
     for f in filas:
         fi = f['ficha']
@@ -477,25 +487,36 @@ def recomendadores(filas, top=30):
         k = (fi['canal'], fi['persona_clave'])
         r = g.setdefault(k, {'canal': fi['canal'], 'clave': fi['persona_clave'],
                              'nombre': fi['persona_nombre'] or fi['persona_clave'].title(),
-                             'trajo': 0, 'cerradas': 0, 'iniciaron': 0, 'ultimo': ''})
+                             'trajo': 0, 'cerradas': 0, 'iniciaron': 0, 'ultimo': '',
+                             'este_anio': 0, 'anio_anterior': 0, 'por_doctor': {}})
+        doc = f['doctor'] or '—'
+        r['por_doctor'][doc] = r['por_doctor'].get(doc, 0) + 1
+        if doctor and f['doctor'] != doctor:
+            continue
         r['trajo'] += 1
         r['ultimo'] = max(r['ultimo'], f['fecha'])
+        r['este_anio'] += 1 if f['anio'] == anio else 0
+        r['anio_anterior'] += 1 if f['anio'] == anterior else 0
         if f['cerrado']:
             r['cerradas'] += 1
             r['iniciaron'] += 1 if f['inicio'] else 0
-    out = sorted(g.values(), key=lambda r: (-r['trajo'], -r['iniciaron'], r['nombre']))
+    out = [r for r in g.values() if r['trajo']]
     for r in out:
-        r['pct_inicio'] = round(100 * r['iniciaron'] / r['cerradas'], 1) \
-            if r['cerradas'] >= MIN_N else None
+        r['a_otros'] = {d: n for d, n in sorted(r['por_doctor'].items(), key=lambda x: -x[1])
+                        if not doctor or d != doctor}
+        r['pct_inicio'] = round(100 * r['iniciaron'] / r['cerradas'], 1)             if r['cerradas'] >= MIN_N else None
+    out.sort(key=lambda r: (-r['trajo'], -r['iniciaron'], r['nombre']))
     return out[:top]
 
 
-def dentistas_habituales(filas, top=25):
-    """La red de dentistas de nuestros pacientes, hayan derivado o no."""
+def dentistas_habituales(filas, top=25, doctor=''):
+    """La red de dentistas de nuestros pacientes, hayan derivado o no. Con
+    `doctor`, solo los pacientes de ese doctor: un dentista con varios pacientes
+    tuyos que nunca te ha derivado es una relacion que existe y no rinde."""
     g = {}
     for f in filas:
         fi = f['ficha']
-        if not fi or not fi['dentista_clave']:
+        if not fi or not fi['dentista_clave'] or (doctor and f['doctor'] != doctor):
             continue
         r = g.setdefault(fi['dentista_clave'], {
             'nombre': fi['dentista_clave'].title(), 'pacientes': 0, 'lo_recomendo': 0,
@@ -506,7 +527,7 @@ def dentistas_habituales(filas, top=25):
         if f['cerrado']:
             r['cerradas'] += 1
             r['iniciaron'] += 1 if f['inicio'] else 0
-    return sorted(g.values(), key=lambda r: -r['pacientes'])[:top]
+    return sorted(g.values(), key=lambda r: (-r['pacientes'], r['nombre']))[:top]
 
 
 def intereses(filas):
@@ -806,7 +827,7 @@ def calidad(filas):
     }
 
 
-def resumen(desde=None, hasta=None, dim_inicio='canal'):
+def resumen(desde=None, hasta=None, dim_inicio='canal', doctor=''):
     """Todo lo que pinta la pestaña del panel, en una llamada."""
     filas = base(desde, hasta)
     geo_res = geografia()
@@ -823,8 +844,10 @@ def resumen(desde=None, hasta=None, dim_inicio='canal'):
         'inician': conversion(filas if dim_inicio != 'canal' else con_ficha, dim_inicio,
                               top=15),
         'dim_inicio': dim_inicio,
-        'recomendadores': recomendadores(filas),
-        'dentistas_habituales': dentistas_habituales(filas),
+        'recomendadores': recomendadores(filas, doctor=doctor),
+        'dentistas_habituales': dentistas_habituales(filas, doctor=doctor),
+        'doctor': doctor,
+        'doctores': sorted({f['doctor'] for f in filas if f['doctor']}),
         'intereses': intereses(filas),
         'valor': valor(filas),
         'geografia': geo_res,
