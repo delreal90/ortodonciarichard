@@ -2535,6 +2535,28 @@ function _clp(n) {
 // La lista viva se guarda acá y los botones la referencian por POSICIÓN: interpolar
 // el RUT dentro de un onclick es lo que causó el XSS de la pestaña Equipo.
 let KPI_EN_CURSO = [];
+// Filtro de la tabla «Revisar y corregir destinos» por «Cómo está hoy». Vive fuera del
+// render para sobrevivir a la recarga que sigue a cada reasignación.
+let KPI_FILTRO_DESTINO = '';
+const KPI_FILTROS_DESTINO = [
+  ['en_ventana', 'En curso'], ['perdido', 'Perdido'], ['siguio', 'Volvió sin iniciar'],
+  ['control_programado', 'Control programado'], ['no_inicia', 'Avisó que no inicia'],
+  ['no_requiere', 'No requiere seguimiento'], ['inicio', 'En tratamiento'],
+];
+
+function kpiFiltrarDestino(destino) {
+  KPI_FILTRO_DESTINO = destino;
+  let visibles = 0;
+  document.querySelectorAll('#kpi-tabla-destinos tr[data-destino]').forEach(tr => {
+    const ver = !destino || tr.dataset.destino === destino;
+    tr.style.display = ver ? '' : 'none';
+    if (ver) visibles++;
+  });
+  document.querySelectorAll('#kpi-filtro-destino button').forEach(b =>
+    b.classList.toggle('btn-primary', b.dataset.destino === destino));
+  const vacio = document.getElementById('kpi-filtro-vacio');
+  if (vacio) vacio.style.display = visibles ? 'none' : '';
+}
 
 function _kpiCursoMsg(txt, ok) {
   const el = document.getElementById('kpi-curso-msg');
@@ -2865,9 +2887,21 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
         Si el sistema clasificó mal a alguien —porque lo que pasó está escrito en la evolución
         y no en la agenda— corrígelo acá. Al marcarlo, deja de contarse como fuga y el sistema
         deja de escribirle. ${ok ? `<br><span style="color:${verde}">${ok} ya están en tratamiento y no necesitan revisión.</span>` : ''}</p>
-      <div style="overflow-x:auto"><table style="width:100%;font-size:.82rem;border-collapse:collapse">
+      ${(() => {
+        // Un botón por estado, con cuántos hay. Solo los estados que tienen pacientes.
+        const n = {};
+        lista.forEach(x => { n[x.destino] = (n[x.destino] || 0) + 1; });
+        if (KPI_FILTRO_DESTINO && !n[KPI_FILTRO_DESTINO]) KPI_FILTRO_DESTINO = '';
+        const b = (d, txt, k) => `<button class="btn btn-sm${KPI_FILTRO_DESTINO === d ? ' btn-primary' : ''}"
+          data-destino="${d}" onclick="kpiFiltrarDestino('${d}')">${_esc(txt)} (${k})</button>`;
+        return `<div id="kpi-filtro-destino" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          <span style="font-size:.78rem;color:#718096;align-self:center">Cómo está hoy:</span>
+          ${b('', 'Todos', lista.length)}
+          ${KPI_FILTROS_DESTINO.filter(([d]) => n[d]).map(([d, t]) => b(d, t, n[d])).join('')}</div>`;
+      })()}
+      <div style="overflow-x:auto"><table id="kpi-tabla-destinos" style="width:100%;font-size:.82rem;border-collapse:collapse">
         <tr style="color:#718096;text-align:left">
-          <th style="padding:4px">Paciente</th><th>Consulta</th><th>Doctor</th>
+          <th style="padding:4px">Paciente</th><th style="padding:4px 8px">Consulta</th><th style="padding:4px 8px">Doctor</th>
           <th>Cómo está hoy</th><th style="text-align:right">Reasignar a</th></tr>`;
     const ETIQ = {
       inicio:             [`<span style="color:${verde};font-weight:600">En tratamiento</span>`, 'ya inició'],
@@ -2897,14 +2931,16 @@ function renderKpi(r, serie, pc, ocu, fug, car, pla) {
           ? `<button class="btn btn-sm btn-danger" onclick="kpiDestino(${i},'')" title="Volver a la clasificación automática">↩︎ Deshacer</button>`
           : `<button class="btn btn-sm" onclick="kpiNoMolestar(${i})" title="Solo dejar de contactarlo, sin fijar un desenlace">🔕 No contactar</button>`,
       ].join(' ');
-      h += `<tr style="border-top:1px solid #edf2f7">
+      const oculta = KPI_FILTRO_DESTINO && x.destino !== KPI_FILTRO_DESTINO;
+      h += `<tr data-destino="${_esc(x.destino)}" style="border-top:1px solid #edf2f7${oculta ? ';display:none' : ''}">
         <td style="padding:6px">${_esc(x.nombre || x.rut || '—')}</td>
-        <td>${_esc(x.fecha)}</td>
-        <td>${_esc(_kpiDoc(x.doctor))}</td>
+        <td style="padding:4px 8px;white-space:nowrap">${_esc(x.fecha)}</td>
+        <td style="padding:4px 8px">${_esc(_kpiDoc(x.doctor))}</td>
         <td>${et}${manual}${nota ? `<br><span style="font-size:.7rem;color:#a0aec0">${_esc(nota)}</span>` : ''}</td>
         <td style="text-align:right;white-space:nowrap">${acciones}</td></tr>`;
     });
-    h += '</table></div><div id="kpi-curso-msg" style="margin-top:10px;font-size:.82rem"></div></div>';
+    h += `</table></div><p id="kpi-filtro-vacio" style="display:none;font-size:.8rem;color:#a0aec0;margin-top:8px">
+      Nadie en ese estado.</p><div id="kpi-curso-msg" style="margin-top:10px;font-size:.82rem"></div></div>`;
   }
 
   if (pc.por_doctor && pc.por_doctor.length > 1) {
