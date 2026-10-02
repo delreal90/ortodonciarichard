@@ -2369,19 +2369,20 @@ function _kpiMargenPorMes(pla) {
   const meses = (pla.serie_mensual || []).filter(m => m.ingresos !== null && m.ingresos !== undefined);
   if (!meses.length) return '';
   const color = v => v === null || v === undefined ? '#a0aec0' : (v >= 0 ? verde : rojo);
+  const NUM = 'text-align:right;padding-left:14px;white-space:nowrap';
   let h = `<h4 style="margin:14px 0 4px;font-size:.85rem;color:#4A5568">Margen por mes</h4>
     <div style="overflow-x:auto"><table style="width:100%;font-size:.8rem;border-collapse:collapse">
-    <tr style="color:#718096;text-align:left"><th style="padding:4px">Mes</th><th style="text-align:right">Ingresos</th>
-      <th style="text-align:right">Gastos</th><th style="text-align:right">Margen</th><th style="text-align:right">%</th>
+    <tr style="color:#718096;text-align:left"><th style="padding:4px">Mes</th><th style="${NUM}">Ingresos</th>
+      <th style="${NUM}">Gastos</th><th style="${NUM}">Margen</th><th style="${NUM}">%</th>
       <th style="padding-left:12px">Nota</th></tr>`;
   meses.forEach(m => {
     const hay = m.margen !== null && m.margen !== undefined;
     h += `<tr style="border-top:1px solid #edf2f7">
       <td style="padding:5px 4px;white-space:nowrap">${_esc(_kpiMesLegible(m.mes))}</td>
-      <td style="text-align:right">${_clp(m.ingresos)}</td>
-      <td style="text-align:right">${_clp(m.gastos)}</td>
-      <td style="text-align:right;font-weight:600;color:${color(m.margen)}">${hay ? _clp(m.margen) : '—'}</td>
-      <td style="text-align:right;color:${color(m.margen_pct)}">${hay && m.margen_pct !== null ? _n(m.margen_pct) + '%' : '—'}</td>
+      <td style="${NUM}">${_clp(m.ingresos)}</td>
+      <td style="${NUM}">${_clp(m.gastos)}</td>
+      <td style="${NUM};font-weight:600;color:${color(m.margen)}">${hay ? _clp(m.margen) : '—'}</td>
+      <td style="${NUM};color:${color(m.margen_pct)}">${hay && m.margen_pct !== null ? _n(m.margen_pct) + '%' : '—'}</td>
       <td style="padding-left:12px;font-size:.74rem;color:#718096">${hay
         ? (m.atipico ? 'gasto fuera de lo habitual' : '')
         : `<span style="color:#975a16">${_esc(m.sin_margen || '')}</span>`}</td></tr>`;
