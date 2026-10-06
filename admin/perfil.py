@@ -60,6 +60,36 @@ BANDAS_EDAD = (('<12', 0, 11), ('12-17', 12, 17), ('18-34', 18, 34), ('35+', 35,
 TRAMOS_KM = ((0, 3, '0-3 km'), (3, 6, '3-6 km'), (6, 10, '6-10 km'),
              (10, 20, '10-20 km'), (20, 9999, '20+ km'))
 
+# Estado del paciente (kpi.estado_pacientes) y como se agrupa en el panel.
+ETIQUETAS_ESTADO = {
+    'en_tratamiento': 'En tratamiento',
+    'terminado': 'Terminado (alta / contención)',
+    'abandono': 'Abandonó el tratamiento',
+    'pc_perdida': 'No volvió tras la primera consulta',
+    'pc_en_curso': 'Primera consulta en curso / en observación',
+    'otro': 'Otros (sin tratamiento de ortodoncia)',
+}
+# "Perdidos" del panel = los dos que se fueron sin terminar.
+GRUPOS_ESTADO = {'perdidos': ('abandono', 'pc_perdida')}
+
+
+def _estados_de(filtro_estado):
+    if not filtro_estado:
+        return None
+    return set(GRUPOS_ESTADO.get(filtro_estado, (filtro_estado,)))
+
+
+def pacientes_filtrados(doctor='', estado='', estados=None):
+    """RUTs de los pacientes de ese doctor y en ese estado (o grupo de estados).
+    `estados` permite pasar kpi.estado_pacientes() ya calculado."""
+    import kpi
+    estados = kpi.estado_pacientes() if estados is None else estados
+    quiero = _estados_de(estado)
+    return {rut for rut, e in estados.items()
+            if (not doctor or e['doctor'] == doctor)
+            and (quiero is None or e['estado'] in quiero)}
+
+
 DIMENSIONES = {
     'canal': 'Quién lo recomendó',
     'banda_edad': 'Edad',
@@ -642,8 +672,12 @@ def _ols(xs, ys):
     return [b[i] / A[i][i] for i in range(k)]
 
 
-def geografia():
+def geografia(doctor='', estado='', estados=None):
     """Penetracion por comuna contra el Censo 2024, y donde hay POTENCIAL.
+
+    Sin filtros cuenta a los pacientes ACTIVOS (cita en 36 meses). Con doctor o
+    estado, cuenta a los pacientes de ese doctor / en ese estado (p. ej. "donde
+    viven mis pacientes terminados"), de toda la historia.
 
     Penetracion = pacientes activos (alguna cita que ocurrio en los ultimos 36
     meses) por cada 10.000 habitantes. 'Esperada' = lo que predice un modelo
@@ -659,9 +693,12 @@ def geografia():
     corte = (fechas.hoy_chile() - timedelta(days=int(MESES_ACTIVO * 30.4))).isoformat()
     con = basedatos.conectar()
     try:
-        activos = {r['rut'] for r in con.execute(
-            "SELECT DISTINCT rut FROM citas WHERE rut<>'' AND fecha>=? AND %s"
-            % kpi._SQL_OCURRIO, (corte,))}
+        if doctor or estado:
+            activos = pacientes_filtrados(doctor, estado, estados)
+        else:
+            activos = {r['rut'] for r in con.execute(
+                "SELECT DISTINCT rut FROM citas WHERE rut<>'' AND fecha>=? AND %s"
+                % kpi._SQL_OCURRIO, (corte,))}
         ubic = list(con.execute('SELECT rut, comuna, precision FROM ubicaciones'))
     finally:
         con.close()
@@ -736,6 +773,8 @@ def mapa(filtro=None):
                                              ('destino', 'canal', 'banda_edad')):
         ruts = set()
         for f in base():
+            if filtro.get('doctor_pc') and f['doctor'] != filtro['doctor_pc']:
+                continue
             if filtro.get('destino') and f['destino'] != filtro['destino']:
                 continue
             if filtro.get('canal') and f['canal'] != filtro['canal']:
@@ -745,6 +784,9 @@ def mapa(filtro=None):
             ruts.add(f['rut'])
     else:
         ruts = set(ubi)
+    # Estado y doctor del PACIENTE (no de una primera consulta).
+    if filtro.get('estado') or filtro.get('doctor'):
+        ruts &= pacientes_filtrados(filtro.get('doctor', ''), filtro.get('estado', ''))
     celdas = {}
     for rut in ruts:
         if rut in ubi:
@@ -753,6 +795,47 @@ def mapa(filtro=None):
     import geocodificar as geo
     return {'celdas': [[la, lo, n] for (la, lo), n in celdas.items()],
             'n': sum(celdas.values()), 'clinica': list(geo.CLINICA)}
+
+
+def cartera(doctor='', estados=None):
+    """Cuantos pacientes hay en cada estado y como son (edad hoy, comuna).
+    El insumo para decidir a quien y donde hablarle."""
+    import kpi
+    import geocodificar as geo
+    estados = kpi.estado_pacientes() if estados is None else estados
+    con = basedatos.conectar()
+    try:
+        nac = {r['rut']: r['fecha_nacimiento'] for r in con.execute(
+            "SELECT rut, fecha_nacimiento FROM pacientes WHERE fecha_nacimiento<>''")}
+        comuna = {r['rut']: r['comuna'] for r in con.execute(
+            "SELECT rut, comuna FROM ubicaciones WHERE comuna<>''")}
+    finally:
+        con.close()
+    hoy = fechas.hoy_chile().isoformat()
+    nombres = geo.por_clave()
+    bandas = [b[0] for b in BANDAS_EDAD]
+    g = {}
+    for rut, e in estados.items():
+        if doctor and e['doctor'] != doctor:
+            continue
+        r = g.setdefault(e['estado'], {
+            'estado': e['estado'], 'label': ETIQUETAS_ESTADO.get(e['estado'], e['estado']),
+            'n': 0, 'edades': {}, 'comunas': {}})
+        r['n'] += 1
+        b = _banda(_edad(nac.get(rut) or '', hoy)) or 'Sin dato'
+        r['edades'][b] = r['edades'].get(b, 0) + 1
+        c = comuna.get(rut)
+        c = nombres[c]['comuna'] if c in nombres else 'Sin dato'
+        r['comunas'][c] = r['comunas'].get(c, 0) + 1
+    orden = list(ETIQUETAS_ESTADO)
+    out = sorted(g.values(), key=lambda r: orden.index(r['estado'])
+                 if r['estado'] in orden else 99)
+    for r in out:
+        r['edades'] = [{'label': k, 'n': v} for k, v in sorted(
+            r['edades'].items(), key=lambda x: bandas.index(x[0]) if x[0] in bandas else 9)]
+        r['comunas'] = [{'label': k, 'n': v} for k, v in sorted(
+            r['comunas'].items(), key=lambda x: (x[0] == 'Sin dato', -x[1]))][:6]
+    return {'estados': out, 'total': sum(r['n'] for r in out)}
 
 
 def comunas_geojson():
@@ -832,10 +915,17 @@ def calidad(filas):
     }
 
 
-def resumen(desde=None, hasta=None, dim_inicio='canal', doctor=''):
-    """Todo lo que pinta la pestaña del panel, en una llamada."""
-    filas = base(desde, hasta)
-    geo_res = geografia()
+def resumen(desde=None, hasta=None, dim_inicio='canal', doctor='', estado=''):
+    """Todo lo que pinta la pestaña del panel, en una llamada.
+
+    `doctor` filtra TODO: las primeras consultas por el doctor de la consulta, y
+    la cartera y las comunas por el doctor del paciente. `estado` filtra las
+    comunas (el mapa lo pide aparte)."""
+    import kpi
+    todas = base(desde, hasta)
+    filas = [f for f in todas if f['doctor'] == doctor] if doctor else todas
+    estados = kpi.estado_pacientes()
+    geo_res = geografia(doctor, estado, estados)
     con_ficha = [f for f in filas if f['tiene_ficha']]
     return {
         'calidad': calidad(filas),
@@ -849,10 +939,15 @@ def resumen(desde=None, hasta=None, dim_inicio='canal', doctor=''):
         'inician': conversion(filas if dim_inicio != 'canal' else con_ficha, dim_inicio,
                               top=15),
         'dim_inicio': dim_inicio,
-        'recomendadores': recomendadores(filas, doctor=doctor),
-        'dentistas_habituales': dentistas_habituales(filas, doctor=doctor),
+        # Con TODAS las consultas: el ranking de un doctor igual informa a que
+        # otros doctores deriva cada uno.
+        'recomendadores': recomendadores(todas, doctor=doctor),
+        'dentistas_habituales': dentistas_habituales(todas, doctor=doctor),
         'doctor': doctor,
-        'doctores': sorted({f['doctor'] for f in filas if f['doctor']}),
+        'estado': estado,
+        'doctores': sorted({f['doctor'] for f in todas if f['doctor']}),
+        'estados': dict(ETIQUETAS_ESTADO, perdidos='Perdidos (abandono + no volvió)'),
+        'cartera': cartera(doctor, estados),
         'intereses': intereses(filas),
         'valor': valor(filas),
         'geografia': geo_res,

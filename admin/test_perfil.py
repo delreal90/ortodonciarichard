@@ -545,6 +545,144 @@ class TestPerfilSobreLaBase(unittest.TestCase):
             self.assertIn(k, r)
         self.assertEqual(len(r['geografia']['comunas']), 52)
         self.assertEqual(perfil.guardar_snapshot(), 50.0)
+        self.assertIn('cartera', r)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Estado de cada paciente (kpi.estado_pacientes) y los filtros
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEstadoPacientes(unittest.TestCase):
+
+    CFG = {'doctores': {'alberto': {'professional_name': 'Alberto Del Real'},
+                        'rodrigo': {'professional_name': 'Rodrigo Oyonarte'}}}
+
+    def setUp(self):
+        kpi.init_db()
+        clinico.init_db()
+        con = kpi._conn()
+        con.execute('DELETE FROM citas')
+        con.commit()
+        con.close()
+        self._orig = kpi._destinos_manuales_map
+        kpi._destinos_manuales_map = lambda: {}
+        self.n = 0
+        self.citas = []
+
+    def tearDown(self):
+        kpi._destinos_manuales_map = self._orig
+
+    def cita(self, rut, delta, motivo, doctor='Alberto Del Real', estado='Atendido',
+             id_status='2125'):
+        self.n += 1
+        self.citas.append({
+            'IdAgenda': str(self.n), 'Date': _dia(delta), 'time': '10:00:00',
+            'duration': 30, 'ProfessionalName': doctor, 'Reason': motivo,
+            'IdStatus': id_status, 'Status': estado, 'PatientDocument': rut,
+            'CreateDate': '2020-01-01 09:00:00', 'BookedBy': ''})
+
+    def estados(self):
+        kpi.guardar_citas(self.citas, self.CFG)
+        return kpi.estado_pacientes()
+
+    def test_cada_estado(self):
+        self.cita('1', -400, 'Montaje Total')
+        self.cita('1', -30, 'Retiro Total')                  # alta
+        self.cita('2', -500, 'Montaje Total')
+        self.cita('2', -400, 'Control Pasivo')               # contencion = terminado
+        self.cita('3', -300, 'Montaje Total')
+        self.cita('3', -60, 'Retenedor Fijo')                # retenedor fijo = fin
+        self.cita('4', -200, 'Montaje Total')
+        self.cita('4', -40, 'Control  Fijo')                 # en tratamiento
+        self.cita('5', -400, 'Control  Fijo')                # nada en 6 meses -> abandono
+        self.cita('6', -400, 'Control  Fijo')
+        self.cita('6', 10, 'Control  Fijo', estado='No confirmado', id_status='2120')  # hora futura
+        self.cita('7', -300, 'Primera Consulta')             # nunca volvio
+        self.cita('8', -20, 'Primera Consulta')              # en ventana
+        self.cita('9', -100, 'Control Plano Relajación')     # no es ortodoncia
+        e = self.estados()
+        esperado = {'1': 'terminado', '2': 'terminado', '3': 'terminado',
+                    '4': 'en_tratamiento', '5': 'abandono', '6': 'en_tratamiento',
+                    '7': 'pc_perdida', '8': 'pc_en_curso', '9': 'otro'}
+        self.assertEqual({r: e[r]['estado'] for r in esperado}, esperado)
+
+    def test_doctor_del_paciente_es_el_del_tratamiento(self):
+        self.cita('1', -200, 'Montaje Total', doctor='Alberto Del Real')
+        self.cita('1', -20, 'Primera Consulta', doctor='Rodrigo Oyonarte')
+        self.cita('1', -10, 'Control  Fijo', doctor='Alberto Del Real')
+        self.assertEqual(self.estados()['1']['doctor'], 'alberto')
+
+    def test_filtros_y_cartera(self):
+        self.cita('1', -10, 'Control  Fijo')
+        self.cita('2', -30, 'Retiro Total')
+        self.cita('3', -300, 'Primera Consulta', doctor='Rodrigo Oyonarte')
+        self.cita('4', -400, 'Control  Fijo')
+        e = self.estados()
+        self.assertEqual(perfil.pacientes_filtrados('alberto', '', e), {'1', '2', '4'})
+        self.assertEqual(perfil.pacientes_filtrados('', 'perdidos', e), {'3', '4'})
+        self.assertEqual(perfil.pacientes_filtrados('alberto', 'perdidos', e), {'4'})
+        c = perfil.cartera('alberto', e)
+        self.assertEqual(c['total'], 3)
+        self.assertEqual({x['estado']: x['n'] for x in c['estados']},
+                         {'en_tratamiento': 1, 'terminado': 1, 'abandono': 1})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# El listado de pacientes que manda la extension F2
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestListado(unittest.TestCase):
+
+    def setUp(self):
+        pacientes._save_index({
+            '111111111': {'nombres': 'Ana', 'apellidos': 'Soto', 'email': 'a@x.cl',
+                          'telefono': '', 'direccion': 'Vieja 1', 'comuna': 'Vitacura',
+                          'prevision': ''},
+        })
+
+    def fila(self, rut, **k):
+        base = {'nombre': 'Soto Ana', 'rut': rut, 'genero': 'Femenino',
+                'telefono': '', 'correo': '', 'direccion': '', 'comuna': '',
+                'convenio': '', 'prevision': ''}
+        base.update(k)
+        return base
+
+    def test_actualiza_sin_borrar_con_vacio(self):
+        res = pacientes.importar_listado([
+            self.fila('11.111.111-1', direccion='Nueva 2', comuna='Las Condes',
+                      prevision='ISAPRE COLMENA'),
+            self.fila('22.222.222-2', nombre='Rojas Luis', direccion='Otra 3')])
+        idx = pacientes._load_index()
+        a = idx['111111111']
+        self.assertEqual((a['direccion'], a['comuna'], a['prevision'], a['email']),
+                         ('Nueva 2', 'Las Condes', 'ISAPRE COLMENA', 'a@x.cl'))
+        self.assertEqual(res['nuevos'], 1)
+        self.assertEqual(res['direcciones_cambiadas'], 2)
+        # Una fila con la direccion vacia no la borra.
+        pacientes.importar_listado([self.fila('11.111.111-1')])
+        self.assertEqual(pacientes._load_index()['111111111']['direccion'], 'Nueva 2')
+
+    def test_rut_basurero_se_descarta(self):
+        filas = [self.fila('46266', nombre='Bloqueo %d' % i) for i in range(5)]
+        res = pacientes.importar_listado(filas)
+        self.assertEqual(res['descartados'], 5)
+        self.assertNotIn('46266', pacientes._load_index())
+
+    def test_direcciones_de_seguros_solo_si_falta(self):
+        import seguros
+        seguros._save(seguros.PACIENTES_PATH, {
+            '111111111': {'datos_extra': {'direccion': 'De Seguros 9'}}})
+        idx = pacientes._load_index()
+        idx['111111111']['direccion'] = ''
+        idx['333333333'] = {'nombres': 'X', 'apellidos': 'Y', 'direccion': 'Propia 1'}
+        pacientes._save_index(idx)
+        seguros._save(seguros.PACIENTES_PATH, {
+            '111111111': {'datos_extra': {'direccion': 'De Seguros 9'}},
+            '333333333': {'datos_extra': {'direccion': 'No Pisa 2'}}})
+        self.assertEqual(pacientes.direcciones_desde_seguros()['sumadas'], 1)
+        idx = pacientes._load_index()
+        self.assertEqual(idx['111111111']['direccion'], 'De Seguros 9')
+        self.assertEqual(idx['333333333']['direccion'], 'Propia 1')
 
 
 if __name__ == '__main__':

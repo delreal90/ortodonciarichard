@@ -1390,6 +1390,34 @@ def fichas_estado():
     return jsonify({'ok': True, **fichas.estado()})
 
 
+@app.route('/api/pacientes/listado', methods=['GET', 'POST'])
+def pacientes_listado():
+    """El "Listado de pacientes" de DentiDesk que manda la extension F2 una vez
+    al dia (direccion, comuna, prevision... de TODOS los pacientes).
+    GET  -> {hoy_ya}: si otro PC ya lo mando hoy, la extension no lo vuelve a leer.
+    POST {filas: [...]} -> importa (misma regla que el Excel: no borra con vacio)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import jsonstore
+    import pacientes
+    estado_path = Path(os.environ.get('PATIENT_INDEX_PATH', 'patient_index.json')
+                       ).parent / 'listado_pacientes_estado.json'
+    store = jsonstore.JsonStore(estado_path, default={})
+    hoy = fechas.hoy_chile().isoformat()
+    if request.method == 'GET':
+        st = store.load() or {}
+        return jsonify({'ok': True, 'hoy_ya': st.get('fecha') == hoy, 'ultima': st})
+    filas = (request.json or {}).get('filas')
+    if not isinstance(filas, list) or len(filas) < 100:
+        # Un listado de menos de 100 pacientes es una lectura fallida (sesion
+        # vencida, pagina de error), no la cartera de la clinica.
+        return jsonify({'ok': False, 'error': 'listado vacio o incompleto'}), 400
+    res = pacientes.importar_listado(filas[:20000])
+    store.save({'fecha': hoy, 'cuando': fechas.ahora_chile().isoformat(timespec='seconds'),
+                'filas': len(filas), **res})
+    return jsonify({'ok': True, **res})
+
+
 @app.route('/api/pacientes/reset', methods=['POST'])
 def pacientes_reset():
     """Vacia la base de pacientes (para resembrar desde cero). Protegido."""
@@ -6519,7 +6547,8 @@ def perfil_resumen():
         return jsonify({'ok': True, **perfil.resumen(
             desde=request.args.get('desde') or None,
             hasta=request.args.get('hasta') or None, dim_inicio=dim,
-            doctor=(request.args.get('doctor') or '').strip()[:30])})
+            doctor=(request.args.get('doctor') or '').strip()[:30],
+            estado=(request.args.get('estado') or '').strip()[:30])})
     except Exception as e:
         log.warning('[perfil] resumen fallo: %r', e)
         return jsonify({'ok': False, 'error': str(e)}), 500
@@ -6532,7 +6561,8 @@ def perfil_mapa():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     import perfil
     filtro = {k: (request.args.get(k) or '').strip()
-              for k in ('universo', 'destino', 'canal', 'banda_edad', 'aproximadas')}
+              for k in ('universo', 'destino', 'canal', 'banda_edad', 'aproximadas',
+                        'estado', 'doctor', 'doctor_pc')}
     return jsonify({'ok': True, **perfil.mapa(filtro)})
 
 
@@ -8412,6 +8442,13 @@ def _loop_geocodificar():
             slot = ahora.strftime('%H:%M')
             if _GEO_HORA <= slot < _GEO_LIMITE and ya_corrio != ahora.date():
                 ya_corrio = ahora.date()
+                # Primero las direcciones que recepcion escribio en formularios de
+                # seguro (solo donde a la base le falta), para ubicarlas esta noche.
+                try:
+                    import pacientes
+                    print('[direcciones-seguros]', pacientes.direcciones_desde_seguros())
+                except Exception as e:
+                    print('[direcciones-seguros] error:', e)
                 print('[geocodificar]', slot, geocodificar.correr(maximo=_GEO_MAX_NOCHE))
         except Exception as e:
             print('[geocodificar] error:', e)

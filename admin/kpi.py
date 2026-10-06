@@ -1388,6 +1388,114 @@ def tasa_confirmacion_vigente(doctor=None):
 
 # ── Cartera ──────────────────────────────────────────────────────────────────
 
+# ── Estado de cada paciente (perfil de pacientes) ───────────────────────────
+
+# Los estados posibles, en el orden en que se muestran.
+ESTADOS_PACIENTE = ('en_tratamiento', 'terminado', 'abandono', 'pc_perdida',
+                    'pc_en_curso', 'otro')
+
+# Meses sin actividad (y sin hora futura) para dar por abandonado un tratamiento.
+# Mismo valor por defecto que reactivacion.py ('meses_abandono').
+MESES_ABANDONO = 6
+
+# Categorias que prueban que el paciente estaba EN tratamiento. 'control' cuenta
+# porque la base parte en 2021: quien inicio antes solo aparece con sus controles.
+_CAT_TRATAMIENTO = ('inicio_fijos', 'inicio_alineadores', 'control', 'fin_fase')
+
+# ⚠️ 'retenedor fijo' esta en _INICIO_APARATOS (cuenta como inicio para el embudo
+# comercial) y en control_dental._FIN_DEFINITIVO (fin de tratamiento). Para el
+# ESTADO del paciente manda lo segundo: un retenedor fijo se pone al terminar.
+#
+# 'control pasivo' es CONTENCION (el paciente ya termino: mismo criterio que
+# paciente_estado.py, que lo pone en 'pasivo'). Medido 2026-10-06: sin esto, 798
+# pacientes en contencion aparecian como "abandono" por no venir en 6 meses.
+_FIN_POR_MOTIVO = {'retenedor fijo', 'control pasivo'}
+
+# No son tratamiento de ortodoncia (bruxismo): no prueban que el paciente este
+# "en tratamiento" ni lo dejan en "abandono" por no volver.
+_NO_ORTODONCIA = {'control plano relajacion', 'plano relajacion'}
+
+
+def estado_pacientes(hoy=None, meses_abandono=MESES_ABANDONO):
+    """{rut: {'estado', 'doctor', 'ultima_cita', 'detalle'}} para TODOS los
+    pacientes de la agenda (5 anos), con una sola definicion:
+
+      terminado       su ultimo fin de tratamiento (retiro, contencion, retenedor
+                      fijo) es igual o posterior a su ultima cita de tratamiento
+      en_tratamiento  tuvo tratamiento sin alta, y vino en los ultimos
+                      `meses_abandono` meses o tiene hora futura
+      abandono        tuvo tratamiento sin alta, y nada de lo anterior
+      pc_perdida      sin tratamiento: su ultima primera consulta quedo en
+                      'perdido' o 'no_inicia' (destino_primeras_consultas, que
+                      respeta lo que el doctor marco a mano)
+      pc_en_curso     sin tratamiento: primera consulta en ventana, en observacion
+                      ('siguio') o con control programado
+      otro            el resto (p. ej. pacientes de rehabilitacion)
+
+    Doctor del paciente: el de su ultima cita de tratamiento; si no tuvo, el de su
+    ultima cita ocurrida (sin el auxiliar de radiologia).
+    """
+    hoy = hoy or fechas.hoy_chile()
+    hoy_iso = hoy.isoformat()
+    corte = control_dental.sumar_meses(hoy, -meses_abandono).isoformat()
+    con = _conn()
+    try:
+        filas = con.execute(
+            f"SELECT rut, fecha, categoria, motivo, doctor, estado_norm FROM citas "
+            f"WHERE rut<>'' AND ({_SQL_OCURRIO} OR (fecha > ? AND {_SQL_CUENTA})) "
+            f"ORDER BY fecha", (hoy_iso,)).fetchall()
+    finally:
+        con.close()
+
+    por = {}
+    for r in filas:
+        p = por.setdefault(r['rut'], {'ult_fin': '', 'ult_trat': '', 'doc_trat': '',
+                                      'ultima': '', 'doc_ultima': '', 'futura': False})
+        if r['fecha'] > hoy_iso:
+            p['futura'] = True
+            continue
+        cat = r['categoria']
+        motivo = _normalizar(r['motivo'])
+        if motivo in _FIN_POR_MOTIVO:
+            cat = 'fin_definitivo'
+        elif motivo in _NO_ORTODONCIA:
+            cat = 'otro'
+        if cat == 'fin_definitivo':
+            p['ult_fin'] = r['fecha']
+            p['doc_trat'] = r['doctor'] or p['doc_trat']
+        elif cat in _CAT_TRATAMIENTO:
+            p['ult_trat'] = r['fecha']
+            p['doc_trat'] = r['doctor'] or p['doc_trat']
+        if r['doctor'] and r['doctor'] != 'rx':
+            p['ultima'] = r['fecha']
+            p['doc_ultima'] = r['doctor']
+
+    # La ultima primera consulta de cada RUT, con su destino.
+    destino_pc = {}
+    for x in destino_primeras_consultas(incluir_todas=True).get('todas', []):
+        if x['fecha'] >= destino_pc.get(x['rut'], ('',))[0]:
+            destino_pc[x['rut']] = (x['fecha'], x['destino'])
+
+    out = {}
+    for rut, p in por.items():
+        if p['ult_fin'] and p['ult_fin'] >= p['ult_trat']:
+            estado = 'terminado'
+        elif p['ult_trat']:
+            estado = ('en_tratamiento' if p['futura'] or p['ultima'] >= corte
+                      else 'abandono')
+        else:
+            dest = destino_pc.get(rut, ('', ''))[1]
+            if dest in ('perdido', 'no_inicia'):
+                estado = 'pc_perdida'
+            elif dest in ('en_ventana', 'siguio', 'control_programado'):
+                estado = 'pc_en_curso'
+            else:
+                estado = 'otro'
+        out[rut] = {'estado': estado, 'doctor': p['doc_trat'] or p['doc_ultima'],
+                    'ultima_cita': p['ultima']}
+    return out
+
+
 def cartera(desde=None, hasta=None, doctor=None, dias_activo=90):
     """Inicios vs altas (el flujo neto) y tamaño de la cartera activa.
 

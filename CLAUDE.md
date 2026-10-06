@@ -4637,9 +4637,68 @@ queda como fase 2: una tarjeta para cargar esas cifras a mano por mes.
 `{alias_origen, alias_destino}` (reproyecta al tiro) · `POST /api/perfil/geocodificar/run`
 `{maximo}` (hilo aparte) · `GET /api/perfil/estado`.
 
+### Precisión de la ubicación: «número» vs «solo calle» (2026-10-06)
+
+Cuando OpenStreetMap no conoce el número de la casa, Nominatim devuelve **un mismo punto
+para toda la calle** («Quebrada Honda 1200» y «2500» caen en la misma esquina): todos los
+pacientes de esa calle se apilaban en un punto. Ahora cada registro de `geocache.json` lleva
+`precision` = `numero` | `calle` (pide `addressdetails` y mira `house_number`) y `v`
+(`VERSION_CACHE = 2`); los registros sin versión se vuelven a consultar. **El mapa de calor
+usa solo `numero`**; la casilla «Incluir aproximadas» suma `calle`. Medido sobre 57
+direcciones reales: 35 % con número, 46 % solo calle, 19 % no encontradas. Google daría más
+precisión, pero exige tarjeta, borrar coordenadas cada 30 días y mostrarlas solo sobre un mapa
+de Google: el usuario decidió seguir con OpenStreetMap.
+
+### Estado de cada paciente — `kpi.estado_pacientes()` (2026-10-06)
+
+Una sola definición por RUT, sobre la tabla `citas` (5 años, todos los pacientes):
+`en_tratamiento` · `terminado` · `abandono` · `pc_perdida` · `pc_en_curso` · `otro` (ver el
+docstring). El doctor del paciente es el de su última cita de tratamiento.
+- ⚠️ **«Control Pasivo» es contención (fin), no tratamiento.** Sin esto, 798 pacientes en
+  contención salían como «abandono» por no venir en 6 meses. Mismo criterio que
+  `paciente_estado.py`. Va en `kpi._FIN_POR_MOTIVO` junto a «retenedor fijo» (que el embudo
+  comercial cuenta como inicio, pero para el estado es el fin del tratamiento).
+- ⚠️ **«Control plano relajación» no es ortodoncia** (bruxismo): `kpi._NO_ORTODONCIA`.
+- ⚠️ «Control Removible» cuenta como tratamiento activo — **sin confirmar** con el Dr.;
+  si en la clínica suele ser contención, se mueve a `_FIN_POR_MOTIVO`.
+- `control` cuenta como prueba de tratamiento porque la base parte en 2021: quien inició
+  antes solo aparece con sus controles.
+
+**Filtros de la pestaña:** selector global de **doctor** (todo: primeras consultas por el
+doctor de la consulta; cartera, mapa y comunas por el doctor del paciente) y **situación del
+paciente** en mapa y comunas (con «Perdidos» = abandono + no volvió). Tarjeta **«Cartera
+actual»**: pacientes por estado, con edad y comunas. `perfil.pacientes_filtrados()`,
+`perfil.cartera()`. El ranking de recomendadores se calcula con TODAS las consultas aunque se
+filtre por doctor (para poder decir a qué otros doctores deriva cada uno).
+
+### Direcciones: el «Listado de pacientes» de DentiDesk, cada día, desde la extensión F2
+
+La base de producción se sembró con el Excel de junio y no se había vuelto a cargar: los
+pacientes nuevos no tenían dirección. Ahora la **extensión F2** (`tickListadoPacientes`, al
+final de `content.js`) lee una vez al día el reporte **Reportes → «Listado de pacientes»**
+con la sesión del navegador — un `POST` a `reportes_resultados.php` con solo
+`reporte_2=listado_pacientes` trae `#tabla_pacientes` con ~4.800 pacientes en 1,5 s, mismas
+columnas que el Excel (verificado 2026-10-06) — y lo manda a `POST /api/pacientes/listado`.
+- El backend reusa el núcleo del import del Excel (`pacientes._importar_filas`, extraído de
+  `importar_export_excel`): actualiza lo que viene con valor, **nunca borra con un vacío**,
+  descarta el RUT-basurero. Devuelve `direcciones_cambiadas` (se ubican esa noche).
+- **Una vez al día en toda la clínica:** antes de leer, la extensión pregunta
+  `GET /api/pacientes/listado` → `hoy_ya`. Menos de 100 filas = lectura fallida → 400.
+- ⚠️ **No se hace desde el runbook de evoluciones** (era el plan): la página de DentiDesk no
+  puede mandarle datos al backend (CORS no admite `app.dentidesk.cl`, y abrirlo pondría el
+  ADMIN_TOKEN en el contexto de una página ajena), y la salida de `javascript_tool` corta a
+  ~1.500 caracteres. La extensión ya tiene el patrón (`ASISTENTE_API` desde background.js).
+- La dirección también vive en la ficha (`ficha.php?id_paciente=` → `#direccion`,
+  `#comuna` select), por si algún día hace falta paciente por paciente.
+- Además, la noche agrega las direcciones que recepción escribió en formularios de seguro
+  (`pacientes.direcciones_desde_seguros()`, solo si a la base le falta).
+- 🐛 De paso: el envío diario de **ingresos** (`tickIngresosKpi`) leía `window.DD_CONFIG`,
+  que no existe (es `DDASIS_CONFIG`): en un PC sin nada escrito en el panel ⚙ no mandaba
+  nunca. Ahora usa `DEFAULT_API`/`DEFAULT_TOKEN` como el resto de la extensión.
+
 ### Pruebas
 
-`test_perfil.py` — 40, cero red (Nominatim interceptado). 🔒 **Todos los nombres son
+`test_perfil.py` — 53, cero red (Nominatim interceptado). 🔒 **Todos los nombres son
 inventados** (repo público): copian la forma de las respuestas reales.
 
 ### Pendiente

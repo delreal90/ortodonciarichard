@@ -535,6 +535,12 @@
             <label style="font-size:.82rem;color:#4A5568">hasta</label>
             <input id="pf-hasta" type="date" style="padding:8px;border:1px solid #e2e8f0;border-radius:8px">
           </div>
+          <div>
+            <label style="font-size:.82rem;color:#4A5568">Doctor</label>
+            <select id="pf-doctor" onchange="perfilDoctor(this.value)"
+                    style="padding:8px;border:1px solid #e2e8f0;border-radius:8px">
+              <option value="">Toda la clínica</option></select>
+          </div>
           <button class="btn btn-primary" onclick="loadPerfil()">Conectar</button>
         </div>
       </div>
@@ -548,6 +554,16 @@
             <select id="pf-capa" onchange="perfilMapa()">
               <option value="calor">Mapa de calor (direcciones)</option>
               <option value="comunas">Penetración por comuna</option>
+            </select></label>
+          <label>Situación del paciente
+            <select id="pf-estado" onchange="loadPerfil()">
+              <option value="">Todos</option>
+              <option value="en_tratamiento">En tratamiento</option>
+              <option value="terminado">Terminados</option>
+              <option value="perdidos">Perdidos (abandono + no volvió)</option>
+              <option value="abandono">Abandonó el tratamiento</option>
+              <option value="pc_perdida">No volvió tras la primera consulta</option>
+              <option value="pc_en_curso">Primera consulta en curso</option>
             </select></label>
           <label>Quiénes
             <select id="pf-universo" onchange="perfilMapa()">
@@ -2131,12 +2147,18 @@ async function loadPerfil(dim) {
   if (ha) p.set('hasta', ha);
   p.set('dim', dim || (PF.datos && PF.datos.dim_inicio) || 'canal');
   if (PF.doctor) p.set('doctor', PF.doctor);
+  const est = document.getElementById('pf-estado').value;
+  if (est) p.set('estado', est);
   try {
     const [d, pend] = await Promise.all([
       _pfFetch('/api/perfil/resumen?' + p.toString()),
       _pfFetch('/api/perfil/referidos/por-confirmar')]);
     if (!d.ok) throw new Error(d.error || 'Error');
     PF.datos = d;
+    // El selector global de doctor se llena con los doctores que trae la base.
+    const sd = document.getElementById('pf-doctor');
+    sd.innerHTML = '<option value="">Toda la clínica</option>' + (d.doctores || []).map(k =>
+      `<option value="${_esc(k)}" ${k === d.doctor ? 'selected' : ''}>Dr. ${_esc(k.charAt(0).toUpperCase() + k.slice(1))}</option>`).join('');
     PF.canales = pend.canales || {};
     caja.innerHTML = _pfHtml(d, pend);
     document.getElementById('pf-mapa-card').style.display = '';
@@ -2163,6 +2185,21 @@ function _pfHtml(d, pend) {
       (quién recomendó, intereses) describe a quienes la llenaron, que no son todos. Las tasas de inicio
       se calculan solo con primeras consultas de hace más de 90 días (las recientes todavía no deciden)
       y no se muestran con menos de 5 casos.</p></div>`;
+
+  // Cartera actual: cuantos pacientes hay en cada situacion y como son.
+  const C = d.cartera || { estados: [], total: 0 };
+  const mini = (arr) => (arr || []).map(x => `${_esc(x.label)}: ${x.n}`).join(' · ');
+  h += `<div class="card"><h3>Cartera actual${d.doctor ? ' — Dr. ' + _esc(d.doctor.charAt(0).toUpperCase() + d.doctor.slice(1)) : ''}
+      (${_pfNum(C.total)} pacientes)</h3>
+    ${_pfTabla(['Situación', 'Pacientes', 'Edad hoy', 'Dónde viven', ''],
+      C.estados.map(e => [_esc(e.label), `<strong>${_pfNum(e.n)}</strong>`,
+        `<span style="font-size:.78rem">${mini(e.edades)}</span>`,
+        `<span style="font-size:.78rem">${mini(e.comunas)}</span>`,
+        `<button class="btn btn-sm" onclick="perfilVerEstado('${_esc(e.estado)}')">Ver en el mapa</button>`]))}
+    <p class="nota" style="font-size:.78rem;color:#718096;margin-top:6px">En tratamiento = tuvo tratamiento sin
+      alta y vino en los últimos 6 meses (o tiene hora). Terminado = su último registro es un retiro, un
+      retenedor fijo o un control de contención. Abandonó = tuvo tratamiento sin alta y lleva más de 6 meses
+      sin venir ni hora agendada. El doctor del paciente es el de su última cita de tratamiento.</p></div>`;
 
   // Hallazgos
   const hall = d.hallazgos || [];
@@ -2212,11 +2249,9 @@ function _pfHtml(d, pend) {
 
   // Recomendadores (con filtro por doctor: cada paciente llega con su doctor ya asignado)
   const _doc = (k) => k ? 'Dr. ' + k.charAt(0).toUpperCase() + k.slice(1) : '';
-  const opDoc = ['<option value="">Toda la clínica</option>'].concat((d.doctores || []).map(k =>
-    `<option value="${_esc(k)}" ${k === d.doctor ? 'selected' : ''}>${_esc(_doc(k))}</option>`)).join('');
   const otros = (r) => Object.entries(r.a_otros || {}).map(([k, n]) => `${_esc(_doc(k))}: ${n}`).join(' · ') || '—';
   h += `<div class="card"><h3>Quién nos recomienda</h3>
-    <label style="font-size:.85rem">Pacientes de <select onchange="perfilDoctor(this.value)">${opDoc}</select></label>
+    <p class="nota" style="font-size:.82rem;color:#4A5568">El doctor se elige arriba, junto a la conexión.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:22px;margin-top:12px">
     <div><div style="font-weight:600;font-size:.86rem;margin-bottom:6px">Ranking de recomendadores${d.doctor ? ' — ' + _esc(_doc(d.doctor)) : ''}</div>
     ${_pfTabla(['Quién', 'Tipo', 'Trajo', 'Iniciaron', 'Este año', 'Año pasado', d.doctor ? 'También deriva a' : 'Por doctor', 'Último'],
@@ -2293,6 +2328,11 @@ function _pfHtml(d, pend) {
 }
 
 function perfilDoctor(k) { PF.doctor = k; loadPerfil(); }
+
+function perfilVerEstado(est) {
+  document.getElementById('pf-estado').value = est;
+  loadPerfil().then(() => document.getElementById('pf-mapa-card').scrollIntoView({ behavior: 'smooth' }));
+}
 
 async function perfilConfirmar(i) {
   const x = PF.pendientes[i];
@@ -2414,7 +2454,9 @@ async function perfilMapa() {
     universo: document.getElementById('pf-universo').value,
     destino: document.getElementById('pf-destino').value,
     banda_edad: document.getElementById('pf-banda').value,
-    aproximadas: document.getElementById('pf-aprox').checked ? '1' : '' });
+    aproximadas: document.getElementById('pf-aprox').checked ? '1' : '',
+    estado: document.getElementById('pf-estado').value,
+    doctor: PF.doctor || '', doctor_pc: PF.doctor || '' });
   try {
     const m = await _pfFetch('/api/perfil/mapa?' + p.toString());
     const max = Math.max(1, ...m.celdas.map(c => c[2]));

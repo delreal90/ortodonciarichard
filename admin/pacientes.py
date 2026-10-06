@@ -351,6 +351,18 @@ def importar_export_excel(path, reemplazar=False):
     # apenas pasan los meses y nadie se acuerda de que esta podrido) -- mejor
     # ni tenerlo en la base que confiar en un dato que miente solo.
 
+    cols = {'nom': c_nom, 'rut': c_rut, 'tel': c_tel, 'mail': c_mail, 'gen': c_gen,
+            'dir': c_dir, 'com': c_com, 'prev': c_prev, 'conv': c_conv}
+    return _importar_filas(list(rows), cols, reemplazar)
+
+
+def _importar_filas(filas, cols, reemplazar=False):
+    """Nucleo comun del Excel del panel y del listado que manda la extension F2
+    (`importar_listado`): las mismas columnas del reporte "Listado de pacientes"
+    de DentiDesk. `cols` = indice de cada columna en las filas."""
+    c_nom, c_rut, c_tel, c_mail = cols['nom'], cols['rut'], cols['tel'], cols['mail']
+    c_gen, c_dir, c_com = cols['gen'], cols['dir'], cols['com']
+    c_prev, c_conv = cols['prev'], cols['conv']
     # RUT-BASURERO: el export de DentiDesk usa un RUT falso compartido para
     # todo lo que no es un paciente real -- bloqueos de agenda, reuniones,
     # fichas de prueba ('BLOQUEO BLOQUEO', 'SORTCH REUNION', 'xxxxx') -- y
@@ -364,7 +376,6 @@ def importar_export_excel(path, reemplazar=False):
     # pasaporte, que son pacientes legitimos y para los que la base sirve
     # igual (los reconoce por su documento tal cual). Un documento repetido
     # con >3 nombres distintos, en cambio, no es un paciente: es un basurero.
-    filas = list(rows)
     _nombres_por_rut = {}
     for r in filas:
         rut_k = _limpiar_rut(str(r[c_rut]) if c_rut is not None and r[c_rut] else '')
@@ -416,6 +427,37 @@ def importar_export_excel(path, reemplazar=False):
     # que hay un RUT nuevo haciendo de basurero), no de que se perdieron
     # pacientes.
     return {'total': len(idx), 'nuevos': agregados, 'descartados': descartados}
+
+# Orden de las columnas en las filas que manda la extension (el mismo del reporte).
+_COLS_LISTADO = ('nombre', 'rut', 'genero', 'telefono', 'correo', 'direccion',
+                 'comuna', 'convenio', 'prevision')
+
+
+def importar_listado(items):
+    """El reporte "Listado de pacientes" de DentiDesk, leido por la extension F2
+    con la sesion del navegador (reportes_resultados.php, reporte_2=
+    listado_pacientes: verificado 2026-10-06, 4.828 pacientes en 1,5 s). Es el
+    MISMO contenido que el Excel que se cargo a mano en junio, pero llega solo
+    una vez al dia: direcciones nuevas, cambios de casa, prevision.
+
+    `items` = [{nombre, rut, genero, telefono, correo, direccion, comuna,
+    convenio, prevision}]. Misma regla que el Excel: actualiza lo que viene con
+    valor, nunca borra con un vacio. Devuelve tambien cuantas direcciones
+    cambiaron (son las que esa noche se ubican en el mapa).
+    """
+    antes = {r: (v.get('direccion') or '', v.get('comuna') or '')
+             for r, v in _load_index().items()}
+    filas = [tuple(str((it or {}).get(k) or '').strip() for k in _COLS_LISTADO)
+             for it in items or []]
+    cols = {'nom': 0, 'rut': 1, 'gen': 2, 'tel': 3, 'mail': 4, 'dir': 5,
+            'com': 6, 'conv': 7, 'prev': 8}
+    res = _importar_filas(filas, cols)
+    despues = _load_index()
+    res['direcciones_cambiadas'] = sum(
+        1 for r, v in despues.items()
+        if (v.get('direccion') or '', v.get('comuna') or '') != antes.get(r, ('', ''))
+        and (v.get('direccion') or ''))
+    return res
 
 
 # ── Fecha de nacimiento (export "Listado de Cumpleanos" de DentiDesk) ─────────
@@ -635,6 +677,33 @@ def importar_cumpleanos(path, crear_nuevos=True):
 # del formulario NO entra a la base (es de DentiDesk).
 _CAMPOS_FICHA = ('nombres', 'apellidos', 'fecha_nacimiento', 'telefono',
                  'direccion', 'comuna')
+
+
+# ── Direcciones que recepcion escribio en formularios de seguro ─────────────
+
+def direcciones_desde_seguros():
+    """Suma a la base la direccion que recepcion escribio a mano en un formulario
+    de seguro (seguros_pacientes.json -> datos_extra.direccion). Solo si a la base
+    le falta: lo de seguros puede ser una direccion de facturacion."""
+    try:
+        import seguros
+        regs = seguros._store(seguros.PACIENTES_PATH).load()
+    except Exception:
+        return {'sumadas': 0}
+    sumadas = 0
+
+    def fn(idx):
+        nonlocal sumadas
+        for rut, rec_s in (regs or {}).items():
+            d = ((rec_s or {}).get('datos_extra') or {}).get('direccion', '').strip()
+            rec = idx.get(_limpiar_rut(rut))
+            if d and rec is not None and not (rec.get('direccion') or '').strip():
+                rec['direccion'] = d
+                rec['direccion_fuente'] = 'seguros'
+                sumadas += 1
+        return idx
+    _STORE.actualizar(fn)
+    return {'sumadas': sumadas}
 
 
 def merge_fichas(fichas, crear_nuevos=True):
