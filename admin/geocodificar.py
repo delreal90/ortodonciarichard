@@ -82,7 +82,18 @@ CLINICA = (-33.3859, -70.5308)
 # Caja de la Region Metropolitana (oeste, norte, este, sur) para acotar Nominatim.
 _VIEWBOX = '-71.75,-32.90,-69.75,-34.30'
 
-PRECISIONES = ('calle', 'comuna')
+# 'numero' = el punto de ESA casa (OpenStreetMap conoce el numero).
+# 'calle'  = OpenStreetMap encontro la calle pero no el numero: devuelve UN punto
+#            representativo de la calle entera, el mismo para cualquier numero.
+#            Medido 2026-10-06: "Quebrada Honda 1200" y "2500" caen en la misma
+#            esquina, y todos los pacientes de esa calle se apilaban ahi como si
+#            vivieran juntos. Por eso el mapa de calor usa solo 'numero'.
+# 'comuna' = sin direccion util: el centro de la comuna declarada.
+PRECISIONES = ('numero', 'calle', 'comuna')
+
+# Version de los registros de la cache. Los de antes de distinguir 'numero' de
+# 'calle' (sin este campo) se vuelven a consultar: no se sabe cuales eran exactos.
+VERSION_CACHE = 2
 
 
 # ── Comunas (datos publicos) ─────────────────────────────────────────────────
@@ -246,18 +257,21 @@ def clave_cache(direccion, comuna):
 
 
 def _consultar_nominatim(calle, comuna_nombre):
-    """Una consulta real. Devuelve [(lat, lon), ...] (hasta 3 candidatos)."""
+    """Una consulta real. Devuelve [(lat, lon, con_numero), ...] (hasta 3).
+    `con_numero` = OpenStreetMap devolvio ESA casa (trae house_number), no un
+    punto cualquiera de la calle."""
     q = urllib.parse.urlencode({
         'street': calle, 'city': comuna_nombre or 'Santiago', 'country': 'Chile',
         'countrycodes': 'cl', 'format': 'jsonv2', 'limit': 3,
-        'viewbox': _VIEWBOX, 'bounded': 1,
+        'viewbox': _VIEWBOX, 'bounded': 1, 'addressdetails': 1,
     })
     req = urllib.request.Request(NOMINATIM_URL + '?' + q,
                                  headers={'User-Agent': USER_AGENT,
                                           'Accept-Language': 'es'})
     with urllib.request.urlopen(req, timeout=30) as r:
         datos = json.loads(r.read().decode('utf-8'))
-    return [(float(x['lat']), float(x['lon'])) for x in datos]
+    return [(float(x['lat']), float(x['lon']),
+             bool((x.get('address') or {}).get('house_number'))) for x in datos]
 
 
 def resolver(direccion, comuna_escrita, consultar=None):
@@ -274,15 +288,24 @@ def resolver(direccion, comuna_escrita, consultar=None):
     nombre_comuna = info['comuna'] if info and declarada != COMUNA_AMBIGUA else ''
 
     candidatos = consultar(calle, nombre_comuna) if calle else []
-    for lat, lon in candidatos:
+    validos = []
+    for cand in candidatos:
+        lat, lon = cand[0], cand[1]
+        # Las pruebas inyectan (lat, lon) a secas: eso es un punto exacto.
+        con_numero = cand[2] if len(cand) > 2 else True
         donde = comuna_de_punto(lat, lon)
         if not donde:
             continue                            # fuera de la RM
         if declarada and declarada != COMUNA_AMBIGUA and donde != declarada:
             continue                            # misma calle, otra comuna
+        validos.append((not con_numero, lat, lon, donde, con_numero))
+    if validos:
+        # Entre los candidatos validos, el que trae el numero de la casa gana.
+        _, lat, lon, donde, con_numero = min(validos, key=lambda v: v[0])
         return {'lat': round(lat, 5), 'lon': round(lon, 5), 'comuna': donde,
-                'precision': 'calle', 'ts': ahora}
-    return {'fallo': True, 'comuna': declarada, 'ts': ahora}
+                'precision': 'numero' if con_numero else 'calle',
+                'v': VERSION_CACHE, 'ts': ahora}
+    return {'fallo': True, 'comuna': declarada, 'v': VERSION_CACHE, 'ts': ahora}
 
 
 def ubicacion(direccion, comuna_escrita, cache=None):
@@ -298,8 +321,10 @@ def ubicacion(direccion, comuna_escrita, cache=None):
     if direccion and tiene_numero(direccion):
         reg = cache.get(clave_cache(direccion, declarada))
         if reg and not reg.get('fallo'):
+            # Un registro viejo (sin version) no sabe si era exacto: 'calle'.
+            prec = reg.get('precision') if reg.get('v') else 'calle'
             return {'comuna': reg['comuna'], 'lat': reg['lat'], 'lon': reg['lon'],
-                    'precision': 'calle'}
+                    'precision': prec if prec in PRECISIONES else 'calle'}
     if not declarada or declarada == COMUNA_AMBIGUA:
         return {'comuna': declarada, 'lat': None, 'lon': None,
                 'precision': ''} if declarada else None
@@ -329,8 +354,9 @@ def pendientes(direcciones, cache=None):
                 dias = REINTENTAR_FALLO_DIAS
             if dias < REINTENTAR_FALLO_DIAS:
                 continue
-        elif reg:
+        elif reg and reg.get('v') == VERSION_CACHE:
             continue
+        # (un registro de version vieja se vuelve a consultar)
         out.append((k, direccion, comuna_escrita))
     return out
 
@@ -436,11 +462,16 @@ def _correr(maximo, consultar, pausa, direcciones):
 def estado():
     cache = _CACHE.load()
     ok = sum(1 for r in cache.values() if not r.get('fallo'))
+    exactas = sum(1 for r in cache.values()
+                  if r.get('v') and r.get('precision') == 'numero')
+    solo_calle = sum(1 for r in cache.values()
+                     if r.get('v') and r.get('precision') == 'calle')
     try:
         pend = len(pendientes(direcciones_de_pacientes(), cache))
     except Exception:
         pend = None
-    return {'en_cache': len(cache), 'encontradas': ok,
+    return {'en_cache': len(cache), 'encontradas': ok, 'exactas': exactas,
+            'solo_calle': solo_calle,
             'no_encontradas': len(cache) - ok, 'pendientes': pend,
             'ultima_corrida': _ESTADO.load() or None}
 

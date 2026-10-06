@@ -197,8 +197,9 @@ CREATE TABLE IF NOT EXISTS fichas_perfil (
     motivacion_grupo  TEXT
 );
 
--- Donde vive cada paciente (geocodificar.py). precision: 'calle' = la direccion
--- se encontro y cae en su comuna; 'comuna' = centro de la comuna declarada.
+-- Donde vive cada paciente (geocodificar.py). precision: 'numero' = el punto de
+-- su casa; 'calle' = OpenStreetMap no conoce el numero y da un punto de la calle
+-- (el mismo para toda la calle); 'comuna' = centro de la comuna declarada.
 CREATE TABLE IF NOT EXISTS ubicaciones (
     rut          TEXT PRIMARY KEY,
     comuna       TEXT,

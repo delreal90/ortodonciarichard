@@ -565,12 +565,16 @@
               <option value="">Todas</option><option>&lt;12</option><option>12-17</option>
               <option>18-34</option><option>35+</option>
             </select></label>
+          <label title="Direcciones donde OpenStreetMap no conoce el número de la casa: quedan en un punto cualquiera de la calle">
+            <input type="checkbox" id="pf-aprox" onchange="perfilMapa()"> Incluir aproximadas (solo calle)</label>
           <span id="pf-mapa-n" class="nota"></span>
         </div>
         <div id="pf-mapa" style="height:480px;border-radius:10px;border:1px solid #e2e8f0"></div>
         <p class="nota" style="margin-top:8px;font-size:.78rem;color:#718096">
-          El calor usa solo las direcciones encontradas a nivel de calle, agrupadas en celdas de
-          ~100 m (nunca un punto por persona). La penetración es pacientes activos (con alguna
+          El calor usa solo las direcciones ubicadas con el <strong>número de la casa</strong>, agrupadas
+          en celdas de ~100 m (nunca un punto por persona). Cuando OpenStreetMap no conoce el número,
+          da un mismo punto para toda la calle: esas quedan fuera salvo que marques «Incluir aproximadas».
+          Varias personas en una celda pueden ser vecinos de un mismo condominio o edificio. La penetración es pacientes activos (con alguna
           cita en los últimos 3 años) por cada 10.000 habitantes de la comuna (Censo 2024).
           Mapa base y límites: © colaboradores de OpenStreetMap.</p>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -2153,7 +2157,7 @@ function _pfHtml(d, pend) {
       ${tile(_pfPct(q.con_ficha), 'llenaron la ficha')}
       ${tile(_pfPct(q.con_edad), 'con fecha de nacimiento')}
       ${tile(_pfPct(q.con_comuna), 'con comuna')}
-      ${tile(_pfPct(q.con_punto), 'ubicados en el mapa')}
+      ${tile(_pfPct(q.con_punto), 'ubicados en el mapa (con número)')}
       ${tile(_pfNum((q.referidos || {}).por_confirmar || 0), 'recomendaciones por confirmar')}</div>
     <p class="nota" style="margin-top:10px;font-size:.8rem;color:#718096">Lo que sale de la ficha
       (quién recomendó, intereses) describe a quienes la llenaron, que no son todos. Las tasas de inicio
@@ -2320,7 +2324,7 @@ async function perfilGeoEstado() {
     const r = await _pfFetch('/api/perfil/estado');
     const g = r.geocodificacion || {};
     const u = g.ultima_corrida;
-    let txt = `${_pfNum(g.encontradas)} direcciones ubicadas · ${_pfNum(g.no_encontradas)} no encontradas · ` +
+    let txt = `${_pfNum(g.exactas)} ubicadas con número · ${_pfNum(g.solo_calle)} solo la calle · ${_pfNum(g.no_encontradas)} no encontradas · ` +
       `${_pfNum(g.pendientes)} por ubicar (se ubican solas cada noche).`;
     let err = '';
     if (u && u.en_curso) {
@@ -2409,7 +2413,8 @@ async function perfilMapa() {
   const p = new URLSearchParams({
     universo: document.getElementById('pf-universo').value,
     destino: document.getElementById('pf-destino').value,
-    banda_edad: document.getElementById('pf-banda').value });
+    banda_edad: document.getElementById('pf-banda').value,
+    aproximadas: document.getElementById('pf-aprox').checked ? '1' : '' });
   try {
     const m = await _pfFetch('/api/perfil/mapa?' + p.toString());
     const max = Math.max(1, ...m.celdas.map(c => c[2]));

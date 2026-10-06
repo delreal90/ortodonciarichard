@@ -716,16 +716,20 @@ def mapa(filtro=None):
     """Celdas de ~100 m con cuantos pacientes viven ahi. SIN RUT.
 
     filtro: {'universo': 'todos'|'pc', 'destino': 'inicio'|'perdido'|'',
-             'canal': ..., 'banda_edad': ...}
-    Solo usa los puntos geocodificados a nivel de CALLE: los de precision
-    'comuna' se apilarian en el centro de la comuna y dibujarian un barrio que
-    no existe.
+             'canal': ..., 'banda_edad': ..., 'aproximadas': '1'}
+    Por defecto usa SOLO los puntos con el numero de la casa ('numero'). Los de
+    'calle' (OpenStreetMap no conoce el numero: un punto para toda la calle) y
+    los de 'comuna' se apilarian en un solo lugar y dibujarian una concentracion
+    que no existe — paso con Quebrada Honda (2026-10-06). 'aproximadas' suma los
+    de 'calle', a pedido.
     """
     filtro = filtro or {}
+    precisiones = ('numero', 'calle') if filtro.get('aproximadas') else ('numero',)
     con = basedatos.conectar()
     try:
         ubi = {r['rut']: (r['lat'], r['lon']) for r in con.execute(
-            "SELECT rut, lat, lon FROM ubicaciones WHERE precision='calle'")}
+            "SELECT rut, lat, lon FROM ubicaciones WHERE precision IN (%s)"
+            % ','.join('?' * len(precisiones)), precisiones)}
     finally:
         con.close()
     if filtro.get('universo') == 'pc' or any(filtro.get(k) for k in
@@ -821,7 +825,8 @@ def calidad(filas):
         'con_ficha': pct(sum(1 for f in filas if f['tiene_ficha'])),
         'con_edad': pct(sum(1 for f in filas if f['edad'] is not None)),
         'con_comuna': pct(sum(1 for f in filas if f['comuna'])),
-        'con_punto': pct(sum(1 for f in filas if f['precision'] == 'calle')),
+        'con_punto': pct(sum(1 for f in filas if f['precision'] == 'numero')),
+        'con_punto_aprox': pct(sum(1 for f in filas if f['precision'] == 'calle')),
         'ubicaciones': {r['precision'] or 'sin_punto': r['n'] for r in ub},
         'referidos': {r['referido_estado']: r['n'] for r in fp},
     }

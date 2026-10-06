@@ -238,7 +238,30 @@ class TestResolver(unittest.TestCase):
     def test_punto_correcto(self):
         reg = geo.resolver('Los Almendros 123', 'Vitacura',
                            consultar=lambda c, n: [LA_FLORIDA, VITACURA])
-        self.assertEqual((reg['comuna'], reg['precision']), ('vitacura', 'calle'))
+        self.assertEqual((reg['comuna'], reg['precision']), ('vitacura', 'numero'))
+
+    def test_sin_numero_es_solo_calle(self):
+        """OpenStreetMap sin el numero de la casa da un punto para TODA la calle
+        (Quebrada Honda, 2026-10-06): no se puede presentar como exacto."""
+        reg = geo.resolver('Calle Larga 1200', 'Vitacura',
+                           consultar=lambda c, n: [(VITACURA[0], VITACURA[1], False)])
+        self.assertEqual(reg['precision'], 'calle')
+
+    def test_gana_el_candidato_con_numero(self):
+        reg = geo.resolver('Calle Larga 1200', 'Vitacura', consultar=lambda c, n: [
+            (VITACURA[0], VITACURA[1], False), (VITACURA[0] + 1e-4, VITACURA[1], True)])
+        self.assertEqual(reg['precision'], 'numero')
+
+    def test_registros_viejos_se_vuelven_a_consultar(self):
+        viejo = {'los almendros 123|vitacura': {'lat': VITACURA[0], 'lon': VITACURA[1],
+                                                'comuna': 'vitacura', 'precision': 'calle'}}
+        self.assertEqual(len(geo.pendientes([('Los Almendros 123', 'Vitacura')], viejo)), 1)
+        nuevo = {'los almendros 123|vitacura': dict(viejo['los almendros 123|vitacura'],
+                                                    v=geo.VERSION_CACHE)}
+        self.assertEqual(geo.pendientes([('Los Almendros 123', 'Vitacura')], nuevo), [])
+        # Mientras tanto se usa, pero como aproximado.
+        self.assertEqual(geo.ubicacion('Los Almendros 123', 'Vitacura', viejo)['precision'],
+                         'calle')
 
     def test_santiago_es_la_ciudad(self):
         reg = geo.resolver('Los Almendros 123', 'Santiago',
@@ -416,9 +439,16 @@ class TestPerfilSobreLaBase(unittest.TestCase):
             pacientes._STORE.save(indice)
         fichas._PERFIL.save(perf)
         # Geocodificadas las 10 primeras, a nivel de calle.
-        geo._CACHE.save({geo.clave_cache('Calle %d 100' % i, 'vitacura'): {
+        # Geocodificadas las 10 primeras con numero, y 3 mas solo con la calle.
+        cache = {geo.clave_cache('Calle %d 100' % i, 'vitacura'): {
             'lat': VITACURA[0] + i * 1e-5, 'lon': VITACURA[1], 'comuna': 'vitacura',
-            'precision': 'calle', 'ts': '2026-01-01T00:00:00'} for i in range(10)})
+            'precision': 'numero', 'v': geo.VERSION_CACHE, 'ts': '2026-01-01T00:00:00'}
+            for i in range(10)}
+        cache.update({geo.clave_cache('Calle %d 100' % i, 'vitacura'): {
+            'lat': VITACURA[0] + 0.01, 'lon': VITACURA[1], 'comuna': 'vitacura',
+            'precision': 'calle', 'v': geo.VERSION_CACHE, 'ts': '2026-01-01T00:00:00'}
+            for i in range(30, 33)})
+        geo._CACHE.save(cache)
         clinico.proyectar_todo()
 
     def tearDown(self):
@@ -428,7 +458,7 @@ class TestPerfilSobreLaBase(unittest.TestCase):
         con = basedatos.conectar()
         try:
             n_fp = con.execute('SELECT COUNT(*) FROM fichas_perfil').fetchone()[0]
-            n_ub = con.execute("SELECT COUNT(*) FROM ubicaciones WHERE precision='calle'"
+            n_ub = con.execute("SELECT COUNT(*) FROM ubicaciones WHERE precision='numero'"
                                ).fetchone()[0]
             canal = con.execute("SELECT canal FROM fichas_perfil WHERE rut='90000000'"
                                 ).fetchone()[0]
@@ -463,7 +493,11 @@ class TestPerfilSobreLaBase(unittest.TestCase):
 
     def test_mapa_sin_rut_y_sin_centros_de_comuna(self):
         m = perfil.mapa({'universo': 'todos'})
-        self.assertEqual(m['n'], 10)     # las 31 sin geocodificar NO se apilan
+        self.assertEqual(m['n'], 10)     # ni las de solo-calle ni las sin geocodificar
+        aprox = perfil.mapa({'universo': 'todos', 'aproximadas': '1'})
+        self.assertEqual(aprox['n'], 13)
+        # Las 3 de solo-calle caen en UNA celda: por eso no van por defecto.
+        self.assertIn(3, [c[2] for c in aprox['celdas']])
         self.assertNotIn('9000', json.dumps(m['celdas']))
         for celda in m['celdas']:
             self.assertEqual(len(celda), 3)

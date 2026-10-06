@@ -6532,7 +6532,7 @@ def perfil_mapa():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
     import perfil
     filtro = {k: (request.args.get(k) or '').strip()
-              for k in ('universo', 'destino', 'canal', 'banda_edad')}
+              for k in ('universo', 'destino', 'canal', 'banda_edad', 'aproximadas')}
     return jsonify({'ok': True, **perfil.mapa(filtro)})
 
 
