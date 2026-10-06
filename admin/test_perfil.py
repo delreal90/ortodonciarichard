@@ -662,6 +662,30 @@ class TestListado(unittest.TestCase):
         pacientes.importar_listado([self.fila('11.111.111-1')])
         self.assertEqual(pacientes._load_index()['111111111']['direccion'], 'Nueva 2')
 
+    def test_la_direccion_por_defecto_de_dentidesk_no_es_dato(self):
+        """2.680 pacientes tenian "Las Condes" en direccion Y comuna: el valor por
+        defecto de DentiDesk (2026-10-06). No se escribe, no pisa nada, no ubica."""
+        self.assertTrue(pacientes.direccion_es_relleno('Las Condes', 'Las Condes'))
+        self.assertTrue(pacientes.direccion_es_relleno('las condes', 'LAS CONDES'))
+        self.assertFalse(pacientes.direccion_es_relleno('Las Condes 123', 'Las Condes'))
+        self.assertFalse(pacientes.direccion_es_relleno('', ''))
+        # El listado diario no pisa una direccion real con el relleno.
+        pacientes.importar_listado([self.fila('11.111.111-1', direccion='Las Condes',
+                                              comuna='Las Condes')])
+        a = pacientes._load_index()['111111111']
+        self.assertEqual((a['direccion'], a['comuna']), ('Vieja 1', 'Vitacura'))
+        # Y no ubica a nadie en el centro de Las Condes por eso.
+        self.assertIsNone(geo.ubicacion('Las Condes', 'Las Condes', {}))
+
+    def test_la_ficha_reemplaza_el_relleno(self):
+        idx = pacientes._load_index()
+        idx['111111111'].update({'direccion': 'Las Condes', 'comuna': 'Las Condes'})
+        pacientes._save_index(idx)
+        pacientes.merge_fichas([{'rut': '11.111.111-1', 'direccion': 'Real 45',
+                                 'comuna': 'Lo Barnechea'}])
+        a = pacientes._load_index()['111111111']
+        self.assertEqual((a['direccion'], a['comuna']), ('Real 45', 'Lo Barnechea'))
+
     def test_rut_basurero_se_descarta(self):
         filas = [self.fila('46266', nombre='Bloqueo %d' % i) for i in range(5)]
         res = pacientes.importar_listado(filas)

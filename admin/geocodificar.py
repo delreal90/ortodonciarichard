@@ -317,6 +317,9 @@ def ubicacion(direccion, comuna_escrita, cache=None):
     poner en el centro a gente que vive en cualquier parte de la ciudad.
     """
     cache = _CACHE.load() if cache is None else cache
+    import pacientes
+    if pacientes.direccion_es_relleno(direccion, comuna_escrita):
+        return None          # el valor por defecto de DentiDesk: no sabemos donde vive
     declarada = comuna_clave(comuna_escrita)
     if direccion and tiene_numero(direccion):
         reg = cache.get(clave_cache(direccion, declarada))

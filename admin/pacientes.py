@@ -27,6 +27,7 @@ from pathlib import Path
 from datetime import date, timedelta
 
 import jsonstore
+import texto
 
 # Ruta de la base. Configurable por env para producción (p.ej. un disco
 # persistente en Render): PATIENT_INDEX_PATH=/var/data/patient_index.json
@@ -356,6 +357,20 @@ def importar_export_excel(path, reemplazar=False):
     return _importar_filas(list(rows), cols, reemplazar)
 
 
+def direccion_es_relleno(direccion, comuna):
+    """True si la "direccion" es solo el nombre de la comuna.
+
+    ⚠️ Es el valor POR DEFECTO de DentiDesk, no una direccion: medido el
+    2026-10-06, 2.680 de los 4.450 pacientes con direccion tenian "Las Condes" en
+    direccion Y en comuna (la comuna de la clinica). Tomarlo como dato inflaba a
+    Las Condes en todo el analisis por comuna, y como "dato con valor" pisaba la
+    direccion real que el paciente habia escrito en la ficha de primera consulta.
+    """
+    a = ' '.join(texto.sin_tildes(direccion or '').replace(',', ' ').split())
+    b = ' '.join(texto.sin_tildes(comuna or '').replace(',', ' ').split())
+    return bool(a) and a == b
+
+
 def _importar_filas(filas, cols, reemplazar=False):
     """Nucleo comun del Excel del panel y del listado que manda la extension F2
     (`importar_listado`): las mismas columnas del reporte "Listado de pacientes"
@@ -405,6 +420,9 @@ def _importar_filas(filas, cols, reemplazar=False):
         genero = _normalizar_genero(str(r[c_gen]) if c_gen is not None and r[c_gen] else '')
         direccion = str(r[c_dir]).strip() if c_dir is not None and r[c_dir] else ''
         comuna = str(r[c_com]).strip() if c_com is not None and r[c_com] else ''
+        if direccion_es_relleno(direccion, comuna):
+            # El valor por defecto de DentiDesk: ni direccion ni comuna (no pisa nada).
+            direccion = comuna = ''
         prevision = str(r[c_prev]).strip() if c_prev is not None and r[c_prev] else ''
         convenio = str(r[c_conv]).strip() if c_conv is not None and r[c_conv] else ''
         nuevo = {'nombres': nombres, 'apellidos': apellidos, 'email': email, 'telefono': tel,
@@ -734,9 +752,14 @@ def merge_fichas(fichas, crear_nuevos=True):
             rec = {'nombres': '', 'apellidos': '', 'email': '', 'telefono': ''}
 
         cambio = False
+        # La direccion por defecto de DentiDesk ("Las Condes" / "Las Condes") cuenta
+        # como vacia: la de la ficha es la que el paciente escribio.
+        relleno = direccion_es_relleno(rec.get('direccion'), rec.get('comuna'))
         for campo in _CAMPOS_FICHA:
             valor = (f.get(campo) or '').strip()
-            if valor and not (rec.get(campo) or '').strip():
+            vacio = not (rec.get(campo) or '').strip() or \
+                (relleno and campo in ('direccion', 'comuna') and (f.get('direccion') or '').strip())
+            if valor and vacio:
                 rec[campo] = valor
                 cambio = True
 

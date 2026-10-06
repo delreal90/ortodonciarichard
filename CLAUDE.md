@@ -4689,6 +4689,16 @@ columnas que el Excel (verificado 2026-10-06) — y lo manda a `POST /api/pacien
   clic, y con ella el content script y su temporizador: con 3 minutos el plazo no se cumplía
   mientras alguien usara DentiDesk. Primera corrida real (2026-10-06): 4.740 filas, 67
   pacientes nuevos, 246 direcciones nuevas o cambiadas, 288 filas de RUT-basurero descartadas.
+- ⚠️ **«Las Condes» / «Las Condes» es el valor POR DEFECTO de DentiDesk, no una dirección.**
+  Medido 2026-10-06: de 4.450 pacientes con algo en «Dirección», **2.680** tienen
+  exactamente «Las Condes» en dirección y comuna (la comuna de la clínica). Solo 1.770 tienen
+  una dirección real (1.728 con número, ~1.410 lugares distintos). Tomarlo como dato inflaba
+  a Las Condes en la penetración por comuna (1.664 «pacientes activos») y, por ser «un valor»,
+  el import pisaba la dirección real de la ficha. `pacientes.direccion_es_relleno()` lo
+  detecta (dirección == comuna): el import no lo escribe, `merge_fichas` lo trata como vacío
+  (la ficha lo reemplaza) y `geocodificar.ubicacion()` devuelve None (comuna desconocida).
+  Entre las direcciones reales, la distribución es Las Condes 39 % · Lo Barnechea 26 % ·
+  Vitacura 15 %.
 - **La previsión NO está en DentiDesk**: el reporte la trae vacía en 4.822 de 4.828 pacientes
   (la clínica no la registra). Por eso se sacó de la pestaña; el seguro complementario de la
   ficha es el mejor indicio disponible.
