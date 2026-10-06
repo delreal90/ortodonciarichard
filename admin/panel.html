@@ -2215,7 +2215,7 @@ function _pfHtml(d, pend) {
   const barras = (dim) => _barras((d.llegan[dim] || []).map(r => ({ label: r.label, total: r.n })), '#1A2E4A');
   h += `<div class="card"><h3>Quién llega</h3>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px">
-      ${['banda_edad', 'sexo', 'distancia', 'prevision', 'comuna', 'canal', 'familia_previa'].map(k =>
+      ${['banda_edad', 'sexo', 'distancia', 'comuna', 'canal', 'familia_previa'].map(k =>
         `<div><div style="font-weight:600;font-size:.86rem;margin-bottom:8px;color:#1A2E4A">${_esc(D[k])}</div>${barras(k)}</div>`).join('')}
     </div>
     <p class="nota" style="font-size:.78rem;color:#718096;margin-top:8px">«Familiar ya era paciente» = alguien con el

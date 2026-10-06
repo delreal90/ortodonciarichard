@@ -4684,6 +4684,14 @@ columnas que el Excel (verificado 2026-10-06) — y lo manda a `POST /api/pacien
   descarta el RUT-basurero. Devuelve `direcciones_cambiadas` (se ubican esa noche).
 - **Una vez al día en toda la clínica:** antes de leer, la extensión pregunta
   `GET /api/pacientes/listado` → `hoy_ya`. Menos de 100 filas = lectura fallida → 400.
+  Con varias pestañas abiertas, una sola lee (marca `ddListadoEnCurso` de 2 min).
+- ⚠️ **Primer intento a los 30 s, no a los 3 min.** DentiDesk recarga la página con cada
+  clic, y con ella el content script y su temporizador: con 3 minutos el plazo no se cumplía
+  mientras alguien usara DentiDesk. Primera corrida real (2026-10-06): 4.740 filas, 67
+  pacientes nuevos, 246 direcciones nuevas o cambiadas, 288 filas de RUT-basurero descartadas.
+- **La previsión NO está en DentiDesk**: el reporte la trae vacía en 4.822 de 4.828 pacientes
+  (la clínica no la registra). Por eso se sacó de la pestaña; el seguro complementario de la
+  ficha es el mejor indicio disponible.
 - ⚠️ **No se hace desde el runbook de evoluciones** (era el plan): la página de DentiDesk no
   puede mandarle datos al backend (CORS no admite `app.dentidesk.cl`, y abrirlo pondría el
   ADMIN_TOKEN en el contexto de una página ajena), y la salida de `javascript_tool` corta a

@@ -96,7 +96,7 @@ DIMENSIONES = {
     'sexo': 'Sexo',
     'distancia': 'Distancia a la clínica',
     'comuna': 'Comuna',
-    'prevision': 'Previsión',
+    # 'prevision' NO: DentiDesk la tiene en 6 de 4.828 pacientes (medido 2026-10-06).
     'doctor': 'Doctor de la primera consulta',
     'familia_previa': 'Familiar ya era paciente',
     'anio': 'Año',
@@ -853,7 +853,7 @@ def hallazgos(filas, geo_res=None):
     grupo no se solapa con el del resto. Cada una con su n."""
     out = []
     cerradas = [f for f in filas if f['cerrado']]
-    for dim in ('canal', 'banda_edad', 'distancia', 'prevision', 'sexo',
+    for dim in ('canal', 'banda_edad', 'distancia', 'sexo',
                 'familia_previa'):
         g = _contar(cerradas, dim)
         for v, xs in g.items():
@@ -932,7 +932,7 @@ def resumen(desde=None, hasta=None, dim_inicio='canal', doctor='', estado=''):
         'dimensiones': DIMENSIONES,
         'llegan': {dim: distribucion(filas if dim != 'canal' else con_ficha, dim,
                                      top=12 if dim == 'comuna' else None)
-                   for dim in ('banda_edad', 'sexo', 'distancia', 'comuna', 'prevision',
+                   for dim in ('banda_edad', 'sexo', 'distancia', 'comuna',
                                'canal', 'familia_previa')},
         'tendencia': {dim: por_anio(filas if dim != 'canal' else con_ficha, dim)
                       for dim in ('banda_edad', 'distancia', 'canal')},
