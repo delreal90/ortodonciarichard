@@ -548,6 +548,46 @@ dentidesk-assistant/          ← extensión F2 (proyecto SEPARADO, a comerciali
   manifest.json, config.js, content.js, background.js, INSTALAR.md
 ```
 
+### ⚡ Rendimiento de la agenda online — por qué se congelaba (2026-10-07)
+
+**Síntoma:** el paciente elegía motivo y veía "Ups… No pudimos cargar la disponibilidad", o
+esperaba 10-30 s. Pasaba con cualquier RUT y cualquier motivo.
+
+**Causa (medida en producción, no supuesta):** al escribir el RUT, el frontend pide
+`/api/agenda/citas-futuras` (aviso "ya tienes una hora"). `citas_futuras_paciente()` recorría
+~33 días hábiles con una autenticación + un `getAgendaDay` **nuevos por día** (~66 conexiones
+HTTPS, sin sesión ni cache). En Render eso **congelaba el servidor entero**: con un paciente,
+hasta `/api/agenda/config` tardaba 11 s (normal 0,2 s); con dos, 21 s y las consultas se
+atendían en fila; una llegó a 502 a los 31 s. ⚠️ **En local NO se reproduce** (mismo código,
+la trivial responde en 4 ms): es falta de CPU del plan de Render, no un candado en el código.
+Por eso la defensa es **no generar esas ráfagas**, no "optimizar el código".
+
+**Arreglo (commits `14a394e`, `c5ea946`, `de5d49b`):**
+- `dentidesk._HTTP`: **sesión HTTP compartida** (reusa conexiones TCP/TLS) **sin cookies**
+  (solo se reusa la conexión, no estado entre pacientes). Toda llamada nueva a DentiDesk debe
+  usar `_HTTP.post`, no `requests.post`. ⚠️ `pacientes.construir_desde_agenda` y
+  `confirmaciones.py` todavía usan `requests.post` suelto (pendiente migrar).
+- `citas_futuras_paciente` lee la agenda **cacheada** (`_get_agenda_day(..., max_age=1800)`).
+  La ventana es una sola constante, `dentidesk.CITAS_FUTURAS_DIAS = 45`.
+- `_loop_calentador` carga **primero la agenda de esos 45 días** (~1 min) y después los slots
+  de cada doctor. Tras un reinicio quedan ~2 min con días en frío; después, todo sale de memoria.
+- La poda del cache conserva los días **futuros** 30 min (`_AGENDA_DIA_RETENCION`); los pasados,
+  10 min como antes (los barridos históricos no inflan la RAM).
+- `/api/agenda/citas-futuras` cachea 60 s por RUT (reintentos, doble clic).
+- **Frontend:** los GET que fallan por red o 429/502/503/504 se **reintentan solos** hasta ~90 s
+  con aviso "estamos tardando un poco más"; **los POST nunca** (duplicaría la cita). Las fallas de
+  red muestran "Volver a intentar". `index.html` carga el JS con `?v=FECHA`: súbelo al cambiarlo.
+- Marcas "ya corrió hoy" del loop de KPIs en disco (`loops_estado.json`): un reinicio de día ya
+  no relanza la cosecha + la proyección clínica en horario de atención.
+
+**Resultado medido:** un paciente, de 11 s a **0,2-0,4 s**; dos pacientes a la vez, de 21 s a
+**0,2-2,4 s**; en el navegador real, las horas aparecen **1 s** después de elegir el motivo.
+
+**🩺 Diagnóstico:** `GET /api/salud` (público, sin datos personales) da hora de arranque,
+`uptime_s`, versión desplegada y las últimas consultas lentas (>3 s, solo el path). Si alguien
+reporta lentitud, **mirar eso primero**: un `uptime_s` chico = el servidor se acaba de reiniciar.
+En los logs de Render, las lentas salen como `lento: GET /api/... -> 200 en 8.4s`.
+
 **Reglas implementadas:** anticipación mínima 12h (salvo Urgencia); 5 motivos;
 simulación de ocupación mínima aparente determinista y consistente
 (65-70% próximos 5 hábiles / 45-55% semana sig. / 30-40% semana posterior),
