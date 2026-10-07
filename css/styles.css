@@ -1963,3 +1963,29 @@ h4 { font-size: 1rem; font-weight: 600; }
 .hero-content h1.hero-eyebrow { font-family: var(--font-body); font-size: .82rem; font-weight: 500; line-height: 1.5; text-shadow: none; margin-bottom: 20px; }
 .page-content { overflow-wrap: anywhere; }
 .modal-perfil-link { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; }
+
+/* Video de la primera consulta (portada) */
+.pc-video { margin: 28px 0 0; }
+.pc-video video { width: 100%; max-width: 560px; border-radius: 12px; background: #000; display: block; }
+.pc-video figcaption { font-size: .85rem; color: var(--text-mid); margin-top: 8px; }
+
+/* Página 404 (generada por tools/generar_paginas.py) */
+.e404 { text-align: center; }
+.e404-diente { width: 220px; height: 220px; margin: 0 auto -6px; display: block; overflow: visible; }
+.e404-cuerpo { animation: e404-bamboleo 3s ease-in-out infinite; transform-origin: 126px 230px; }
+.e404-lupa { animation: e404-busca 2.4s ease-in-out infinite; transform-origin: 160px 160px; }
+.e404-signo { font: 700 34px var(--font-head); fill: var(--gold); animation: e404-flota 2s ease-in-out infinite; }
+.e404-signo2 { animation-delay: .7s; font-size: 26px; }
+@keyframes e404-bamboleo { 0%,100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes e404-busca { 0%,100% { transform: translate(0,0) rotate(0); } 50% { transform: translate(-10px,6px) rotate(-8deg); } }
+@keyframes e404-flota { 0%,100% { transform: translateY(0); opacity: .9; } 50% { transform: translateY(-8px); opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .e404-cuerpo, .e404-lupa, .e404-signo { animation: none; } }
+.e404-num { font: 700 clamp(3.5rem, 10vw, 6rem)/1 var(--font-head); color: var(--gold) !important; margin: 0 0 6px !important; letter-spacing: .04em; }
+.page-content .e404 h1 { margin-bottom: 14px; }
+.e404-texto { max-width: 560px; margin-left: auto; margin-right: auto; font-size: 1.05rem; }
+.e404-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 22px 0 8px; }
+.e404-btns .btn { text-decoration: none !important; }
+.e404-agenda { background: var(--navy) !important; color: var(--white) !important; }
+.e404-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.e404-chip { padding: 8px 16px; border: 1px solid var(--border); border-radius: 999px; font-size: .9rem; color: var(--navy) !important; text-decoration: none !important; background: var(--white); }
+.e404-chip:hover { border-color: var(--gold); }

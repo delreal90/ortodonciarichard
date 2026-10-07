@@ -36,7 +36,7 @@ WA = 'https://wa.me/56933558189'
 def registros_main_js():
     """N° de registro por doctor, leídos de js/main.js (fuente de verdad)."""
     txt = io.open(os.path.join(RAIZ, 'js', 'main.js'), encoding='utf-8').read()
-    return dict(re.findall(r"(\w+): \{\s*name:[^}]*?registro:\s*'(\d+)'", txt, re.S))
+    return dict(re.findall(r"(\w+): \{[^{}]*?registro:\s*'(\d+)'", txt, re.S))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -305,6 +305,37 @@ REVISOR = 'alberto'
 
 TEMAS = [
     dict(
+        slug='contenciones',
+        titulo='Contenciones después de la ortodoncia: qué son y cuánto tiempo se usan',
+        corto='Contenciones',
+        descripcion='Contenciones o retenedores después de los brackets o alineadores: tipos (fija y removible), cuánto tiempo se usan, cuidados y qué hacer si se sueltan. Ortodoncia Richard, Las Condes.',
+        imagen=None,
+        respuesta='Las contenciones (también llamadas retenedores) son los aparatos que mantienen los dientes en su nueva posición al terminar el tratamiento con brackets o alineadores. Pueden ser fijas —un alambre delgado pegado por la cara interna de los dientes— o removibles —placas transparentes o de acrílico—. Los primeros 6 meses son los más críticos, pero como los dientes tienden a moverse durante toda la vida, recomendamos usarlas el mayor tiempo posible, especialmente las inferiores, con controles periódicos con el ortodoncista.',
+        secciones=[
+            ('Por qué los dientes se mueven después de la ortodoncia',
+             '<p>Al terminar el tratamiento, el hueso y las encías que rodean los dientes todavía se están adaptando a su nueva posición, y los dientes tienden a volver hacia donde estaban. Además, con el crecimiento y el envejecimiento los dientes se desplazan naturalmente hacia adelante: por eso incluso adultos que nunca usaron brackets ven aparecer apiñamiento en los dientes de adelante con los años. La contención es lo que protege el resultado.</p>'),
+            ('Tipos de contención',
+             '<ul><li><strong>Contención fija:</strong> un alambre delgado pegado por detrás de los dientes de adelante, generalmente los inferiores. No se ve, no depende de que el paciente se acuerde de usarla y actúa las 24 horas. Exige una buena higiene, porque entre el alambre y los dientes se acumula sarro.</li>'
+             '<li><strong>Contención removible:</strong> una placa transparente (tipo alineador) o de acrílico con un alambre, que se pone y se saca. Se usa según las indicaciones del ortodoncista, habitualmente de noche después de los primeros meses.</li></ul>'
+             '<p>Es frecuente combinar las dos: fija abajo y removible arriba. Cuál conviene se decide según el caso y cómo se movieron los dientes durante el tratamiento.</p>'),
+            ('Cuánto tiempo hay que usarlas',
+             '<p>Los primeros 6 meses después de sacar los brackets o terminar los alineadores son los más críticos, y ahí el uso tiene que ser riguroso. Después, nuestra recomendación es mantener las contenciones la mayor cantidad de tiempo posible —especialmente en los dientes inferiores— y no hay problema en usarlas durante toda la vida, controlándolas periódicamente según te indique tu ortodoncista.</p>'),
+            ('Cuidados',
+             '<ul><li>Cepilla bien alrededor de la contención fija y usa seda dental con enhebrador o un cepillo interdental.</li>'
+             '<li>Lava la contención removible con cepillo y agua fría o tibia, nunca caliente: se deforma.</li>'
+             '<li>Guárdala siempre en su estuche. La mayoría de las contenciones se pierden envueltas en una servilleta.</li>'
+             '<li>Asiste a los controles: en ellos revisamos que siga bien pegada o ajustada.</li></ul>'),
+            ('Si se suelta, se rompe o se pierde',
+             '<p>Avísanos lo antes posible, sin esperar al próximo control: un diente sin contención puede moverse en pocas semanas. Si la contención removible empieza a quedar apretada, es señal de que los dientes se están moviendo porque no se está usando lo suficiente. Para urgencias durante las vacaciones, revisa la sección de <a href="index.html#pacientes">urgencias</a>.</p>'),
+        ],
+        faq=[
+            ('¿Las contenciones son de por vida?', 'Pueden serlo, y no hay problema en usarlas toda la vida. Los primeros 6 meses son los más críticos; después recomendamos mantenerlas el mayor tiempo posible, sobre todo las inferiores, porque los dientes tienden a moverse con los años aunque nunca se haya usado ortodoncia.'),
+            ('¿Cuánto tiempo se usan las contenciones después de los brackets?', 'Durante los primeros 6 meses el uso tiene que ser riguroso. Después, el ortodoncista indica cuántas horas al día y por cuánto tiempo, y lo ideal es mantenerlas el mayor tiempo posible.'),
+            ('¿Contención y retenedor es lo mismo?', 'Sí. En Chile se suele decir contención; en otros países, retenedor. Ambos nombres se refieren al aparato que mantiene los dientes en su posición después de la ortodoncia.'),
+            ('¿Qué es mejor, la contención fija o la removible?', 'Depende del caso. La fija actúa todo el día y no depende del paciente, pero exige buena higiene; la removible es fácil de limpiar, pero solo funciona si se usa. Muchas veces se combinan.'),
+            ('¿Qué hago si se me soltó la contención fija?', 'Avisa a la clínica lo antes posible para pegarla. No esperes al próximo control: un diente sin contención puede moverse en pocas semanas.'),
+        ]),
+    dict(
         slug='ortodoncia-invisible-alineadores',
         titulo='Ortodoncia invisible con alineadores (Invisalign) en Las Condes',
         corto='Alineadores invisibles',
@@ -319,7 +350,7 @@ TEMAS = [
              '<p>Para adultos y adolescentes con dientes permanentes. Son especialmente cómodos para quien necesita un tratamiento discreto por su trabajo o vida social. Hay casos —ciertos problemas de mordida o de los maxilares— en que los brackets o un tratamiento combinado logran mejor resultado; eso se define en la primera consulta, con el caso a la vista y no por catálogo.</p>'),
             ('Alineadores o brackets',
              '<ul><li><strong>Alineadores:</strong> casi invisibles, se sacan para comer y cepillarse, sin alambres que rocen. Exigen disciplina: si no se usan, no funcionan.</li>'
-             '<li><strong>Brackets:</strong> fijos, no dependen de que el paciente se acuerde de usarlos; pueden ser metálicos o estéticos. También existe la <a href="ortodoncia-lingual.html">ortodoncia lingual</a>, con los brackets por dentro.</li></ul>'),
+             '<li><strong>Brackets (frenillos):</strong> fijos, no dependen de que el paciente se acuerde de usarlos; pueden ser metálicos o estéticos. También existe la <a href="ortodoncia-lingual.html">ortodoncia lingual</a>, con los brackets por dentro.</li></ul>'),
             ('Por qué con un especialista y no por correo',
              '<p>Existen empresas que envían alineadores a domicilio sin examen presencial. Sin radiografías ni controles no se pueden detectar problemas de encías, raíces o mordida, y un movimiento mal planificado puede dañarlos. La AAO recomienda que todo tratamiento de ortodoncia sea supervisado presencialmente por un ortodoncista.</p>'),
             ('Lo que investigamos',
@@ -331,6 +362,7 @@ TEMAS = [
             ('¿Puedo comer con los alineadores puestos?', 'No. Se sacan para comer y para tomar cualquier cosa que no sea agua, y se vuelven a poner después de cepillarse los dientes.'),
             ('¿Necesito contención al terminar?', 'Sí, igual que con brackets. Al terminar se usa una contención fija o removible para que los dientes no vuelvan a moverse.'),
             ('¿Sirven los alineadores para adolescentes?', 'Sí, cuando ya tienen los dientes permanentes y se comprometen a usarlos. Los padres suelen apoyar el uso diario.'),
+            ('¿Cuánto cuesta la ortodoncia con alineadores?', 'Depende del caso: de qué hay que corregir, de cuántos alineadores se necesitan y de la duración estimada. Por eso no publicamos precios; el valor, las alternativas (alineadores, brackets metálicos o estéticos, ortodoncia lingual) y las formas de pago se informan en la primera consulta, después del examen.'),
         ]),
     dict(
         slug='ortodoncia-ninos',
@@ -713,7 +745,7 @@ def generar_doctor(key, reg):
         cuerpo.append('<section><h2>Conferencias y premios</h2><ul>%s</ul></section>' % filas)
     if key in ORTODONCISTAS:
         temas = ''.join('<li><a href="%s.html">%s</a></li>' % (t['slug'], esc(t['corto'])) for t in TEMAS)
-        cuerpo.append('<section><h2>Tratamientos</h2><p>Ortodoncia en niños, adolescentes y adultos: brackets, alineadores invisibles, ortodoncia lingual, ortopedia dentomaxilar y tratamientos combinados con cirugía.</p><ul>%s</ul></section>' % temas)
+        cuerpo.append('<section><h2>Tratamientos</h2><p>Ortodoncia en niños, adolescentes y adultos: brackets (frenillos), alineadores invisibles, ortodoncia lingual, ortopedia dentomaxilar y tratamientos combinados con cirugía.</p><ul>%s</ul></section>' % temas)
     cuerpo.append(cta())
     schemas = [{'@type': 'ProfilePage', '@id': url, 'url': url, 'name': d['nombre'],
                 'inLanguage': 'es-CL', 'dateModified': HOY,
@@ -760,8 +792,145 @@ def generar_sitemap(slugs):
     return '\n'.join(out)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# DIRECCIONES DEL SITIO ANTIGUO (Wix)
+# Google las seguía mostrando (el artículo de contenciones: 36.737 apariciones en
+# 16 meses) y desde el cambio de sitio llevaban a un error. GitHub Pages no
+# permite redirecciones de servidor: cada una es un HTML mínimo con
+# meta refresh 0 + canonical, que Google trata como redirección permanente.
+# GitHub Pages resuelve /ruta probando /ruta.html y /ruta/index.html: por eso
+# /team/dr.-octavio-del-real-s. es el archivo "team/dr.-octavio-del-real-s..html".
+# Lista sacada de Search Console + el archivo de Internet (2026-10-07).
+# ═══════════════════════════════════════════════════════════════════════════
+_P = 'index.html#pacientes'
+REDIRECCIONES = {
+    'team/dr.-octavio-del-real-s.': 'dr-octavio-del-real.html',
+    'team/dr.-rodrigo-oyonarte-w.': 'dr-rodrigo-oyonarte.html',
+    'team/dr.-alberto-del-real-v.': 'dr-alberto-del-real.html',
+    'team/dr.-patricio-vial-u.': 'dr-patricio-vial.html',
+    'team/': 'index.html#equipo',
+    'profesionales-y-staff': 'index.html#equipo',
+    'contactenos-1': 'index.html#contacto',
+    'agenda': 'index.html#agendar',
+    'agenda-online': 'index.html#agendar',
+    'copia-de-agenda-online': 'index.html#agendar',
+    'confirmacion': 'index.html#agendar',
+    'primera-consulta': 'index.html#pacientes',
+    'por-que-nosotros': 'index.html#nosotros',
+    'publicaciones-cientificas': 'tecnologia.html',
+    'curso-ortodoncia-digital': 'tecnologia.html',
+    'charlas': 'tecnologia.html',
+    'certificados-del-personal': 'tecnologia.html',
+    'blog/': _P,
+    'post/qué-son-las-contenciones-y-por-cuanto-tiempo-tendré-que-usarlas': 'contenciones.html',
+    'post/son-permanentes-los-cambios-logrados-con-el-tratamiento-de-ortodoncia': 'contenciones.html',
+    'post/cuáles-son-los-principales-beneficios-de-la-ortodoncia-con-cirugía-ortognática': 'cirugia-ortognatica.html',
+    'post/cuáles-son-los-problemas-que-la-cirugía-ortognática-mejor-corrige': 'cirugia-ortognatica.html',
+    'post/cuándo-se-indica-la-cirugía-ortognática': 'cirugia-ortognatica.html',
+    'post/cómo-progresa-el-tratamiento-de-ortodoncia-combinado-con-cirugía-ortognática': 'cirugia-ortognatica.html',
+    'post/de-qué-se-trata-la-cirugía-máxilofacial-o-cirugía-ortognática': 'cirugia-ortognatica.html',
+    'post/es-posible-evitar-la-cirugía': 'cirugia-ortognatica.html',
+    'post/existen-riesgos-asociados-a-la-cirugía-ortognática': 'cirugia-ortognatica.html',
+    'post/qué-diferencia-a-la-técnica-cirugía-primero': 'cirugia-ortognatica.html',
+    'post/alineadores-a-la-casa': 'ortodoncia-invisible-alineadores.html',
+    'post/uso-cuidado-alineadores': 'ortodoncia-invisible-alineadores.html',
+    'post/una-mirada-a-la-ortodoncia-en-adultos': 'ortodoncia-invisible-alineadores.html',
+    'post/existe-algún-límite-de-edad-para-la-ortodoncia': 'ortodoncia-invisible-alineadores.html',
+    'post/qué-cosas-controlar-en-su-hijo-para-saber-si-necesita-ortodoncia': 'ortodoncia-ninos.html',
+    'post/por-qué-se-aconseja-tener-un-tratamiento-de-ortodoncia-ahora': 'ortodoncia-ninos.html',
+    'post/qué-rol-juega-lo-hereditario': 'ortodoncia-ninos.html',
+    'post/qué-causa-la-falta-de-alineación-de-los-dientes': 'ortodoncia-ninos.html',
+    'post/por-qué-es-bueno-preocuparme-de-corregir-una-mala-mordida': 'ortodoncia-ninos.html',
+    'post/qué-oasa-con-las-actividades-extracurriculares': 'ortodoncia-ninos.html',
+    'post/egresa-la-primera-generación-de-ortodoncistas-de-la-universidad-de-los-andes': 'dr-rodrigo-oyonarte.html',
+    'post/dr-oyonarte-presenta-en-el-congreso-nacional-de-estudiantes-de-odontología': 'dr-rodrigo-oyonarte.html',
+    'post/cuánto-se-podría-demorar-la-ortodoncia': _P,
+    'post/con-qué-frecuencia-tendré-que-asistir-a-mis-controles': _P,
+    'post/me-molestará-o-dolerá-mucho': _P,
+    'post/va-a-doler': _P,
+    'post/factores-a-considerar-al-utilizar-aparatos-de-ortodoncia': _P,
+    'post/decálogo': _P,
+    'post/manejo-de-urgencias-durante-las-vacaciones': _P,
+    'post/urgencias-en-ortodoncia-durante-covid-19': _P,
+    'post/protocolos-covid-19': _P,
+    'post/estamos-atendiendo-con-todas-las-medidas-de-seguridad': _P,
+    'post/nuevo-video-de-la-clínica': 'index.html#galeria',
+}
+
+
+def archivo_redireccion(ruta):
+    """/x/ -> x/index.html ; /x -> x.html (lo que GitHub Pages busca)."""
+    return ruta + 'index.html' if ruta.endswith('/') else ruta + '.html'
+
+
+def html_redireccion(ruta, destino):
+    prof = ruta.rstrip('/').count('/') + (1 if ruta.endswith('/') else 0)
+    rel = '../' * prof + destino
+    absoluta = SITIO + destino
+    return ('<!DOCTYPE html>\n<html lang="es"><head><meta charset="utf-8"/>'
+            '<title>Ortodoncia Richard</title>'
+            '<link rel="canonical" href="%s"/>'
+            '<meta http-equiv="refresh" content="0; url=%s"/>'
+            '<script>location.replace(%s);</script>'
+            '</head><body><p>Esta página se movió a <a href="%s">%s</a>.</p></body></html>\n'
+            % (absoluta, rel, json.dumps(rel), rel, absoluta))
+
+
+DIENTE_404 = """<svg class="e404-diente" viewBox="0 0 260 260" role="img" aria-label="Un diente con brackets buscando con una lupa">
+ <ellipse cx="120" cy="238" rx="78" ry="10" fill="#1A2E4A" opacity=".12"/>
+ <g class="e404-cuerpo">
+  <path d="M62 70c0-30 22-46 44-42 9 2 14 7 20 7s11-5 20-7c22-4 44 12 44 42 0 22-8 36-12 58-4 22-6 52-18 82-5 12-19 12-22-1-4-18-5-40-12-40s-8 22-12 40c-3 13-17 13-22 1-12-30-14-60-18-82-4-22-12-36-12-58z" fill="#fff" stroke="#1A2E4A" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M84 52c6-6 14-8 22-6" fill="none" stroke="#DDE6F0" stroke-width="6" stroke-linecap="round"/>
+  <ellipse cx="102" cy="86" rx="9" ry="11" fill="#1A2E4A"/>
+  <ellipse cx="150" cy="86" rx="9" ry="11" fill="#1A2E4A"/>
+  <circle cx="105" cy="82" r="3" fill="#fff"/><circle cx="153" cy="82" r="3" fill="#fff"/>
+  <path d="M90 70q9-9 18-6M164 70q-9-9-18-6" stroke="#1A2E4A" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="88" cy="106" rx="8" ry="5" fill="#F4A6A6" opacity=".7"/><ellipse cx="164" cy="106" rx="8" ry="5" fill="#F4A6A6" opacity=".7"/>
+  <ellipse cx="126" cy="113" rx="7" ry="8" fill="#1A2E4A"/>
+  <line x1="90" y1="132" x2="162" y2="132" stroke="#8A97A8" stroke-width="3"/>
+  <rect x="94" y="125" width="12" height="13" rx="2" fill="#C9A84C" stroke="#1A2E4A" stroke-width="2"/>
+  <rect x="120" y="125" width="12" height="13" rx="2" fill="#C9A84C" stroke="#1A2E4A" stroke-width="2"/>
+  <rect x="146" y="125" width="12" height="13" rx="2" fill="#C9A84C" stroke="#1A2E4A" stroke-width="2"/>
+ </g>
+ <g class="e404-lupa">
+  <line x1="196" y1="150" x2="226" y2="186" stroke="#1A2E4A" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="186" cy="136" r="24" fill="#EAF2FB" fill-opacity=".85" stroke="#1A2E4A" stroke-width="6"/>
+  <path d="M174 128c4-6 10-8 16-7" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+ </g>
+ <text x="22" y="52" class="e404-signo">?</text><text x="214" y="70" class="e404-signo e404-signo2">?</text>
+</svg>"""
+
+
+def generar_404():
+    """Página de error con humor (y con salida): cualquier dirección vieja que no
+    esté en REDIRECCIONES lleva igual a algo útil. GitHub Pages sirve 404.html
+    para todo lo que no existe, a cualquier profundidad."""
+    guias = ''.join('<a class="e404-chip" href="%s.html">%s</a>' % (t['slug'], esc(t['corto']))
+                    for t in TEMAS + [TECNOLOGIA])
+    docs = ''.join('<a class="e404-chip" href="%s.html">%s</a>' % (DOCTORES[k]['slug'], esc(DOCTORES[k]['nombre']))
+                   for k in ORTODONCISTAS + ['patricio'])
+    cuerpo = ('<section class="e404">' + DIENTE_404 +
+              '<p class="e404-num">404</p>'
+              '<h1>¡Ups! Esta página se desalineó</h1>'
+              '<p class="e404-texto">La buscamos con lupa, pero se movió de su lugar… '
+              'y claramente no estaba usando su contención. 😬</p>'
+              '<p class="e404-texto">Si llegaste desde nuestro sitio anterior, todo sigue aquí, solo que mejor ordenado:</p>'
+              '<div class="e404-btns"><a class="btn btn-primary" href="index.html"><i class="fas fa-house"></i> Volver al inicio</a>'
+              '<a class="btn btn-primary e404-agenda" href="index.html#agendar"><i class="fas fa-calendar-check"></i> Reservar hora</a></div>'
+              '<h2>Nuestros especialistas</h2><div class="e404-chips">' + docs + '</div>'
+              '<h2>Guías para pacientes</h2><div class="e404-chips">' + guias + '</div>'
+              '</section>')
+    h = pagina('404', 'Página no encontrada | Ortodoncia Richard', 'Página no encontrada.', [], cuerpo)
+    # Rutas absolutas: 404.html se sirve desde cualquier profundidad.
+    h = re.sub(r'(href|src)="(?!https?:|#|/|mailto:|tel:)', r'\1="/', h)
+    return h.replace('<meta content="index, follow, max-image-preview:large" name="robots"/>',
+                     '<meta content="noindex" name="robots"/>')
+
+
 def escribir(nombre, contenido):
-    with io.open(os.path.join(RAIZ, nombre), 'w', encoding='utf-8', newline='\n') as f:
+    ruta = os.path.join(RAIZ, nombre)
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    with io.open(ruta, 'w', encoding='utf-8', newline='\n') as f:
         f.write(contenido)
     print('  ', nombre)
 
@@ -799,6 +968,9 @@ def main():
     for t in TEMAS + [TECNOLOGIA]:
         escribir(t['slug'] + '.html', generar_tema(t, reg))
         slugs.append(t['slug'])
+    for ruta, destino in REDIRECCIONES.items():
+        escribir(archivo_redireccion(ruta), html_redireccion(ruta, destino))
+    escribir('404.html', generar_404())
     escribir('sitemap.xml', generar_sitemap(slugs))
     escribir('llms.txt', generar_llms(reg))
     actualizar_faq_portada()
