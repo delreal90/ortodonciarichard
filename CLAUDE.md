@@ -324,7 +324,7 @@ Search Console, cuenta recepcion@). **IndexNow:** la clave es el archivo
 `main` (espera 150 s a que GitHub Pages publique). ChatGPT y Copilot buscan en Bing.
 
 **Lo que no es código y pesa más** (lo hace la clínica): mismo nombre/dirección/teléfono en
-todos los directorios (la AAO tiene `2217 3486`; AgendaPro lista la clínica como "C. Richard" en **Lo Barnechea**). ⚠️ `7591065` NO es un teléfono viejo: es el **código postal** de Las Condes (un buscador lo leyó como teléfono). La clínica **no está** en WhatClinic. Perfiles de los 3
+todos los directorios (localizador de la AAO, verificado buscando por dirección: **solo aparece el Dr. Octavio**, con teléfono `2217 3486`; el Dr. Oyonarte tiene ficha pero no sale en la búsqueda por dirección; el Dr. Alberto no tiene ficha; AgendaPro lista la clínica como "C. Richard" en **Lo Barnechea**). ⚠️ `7591065` NO es un teléfono viejo: es el **código postal** de Las Condes (un buscador lo leyó como teléfono). La clínica **no está** en WhatClinic. Perfiles de los 3
 ortodoncistas en el localizador de la AAO y en Doctoralia; Google Business completo; ORCID /
 Google Scholar de cada doctor que publica. Medir cada mes con las mismas ~15 preguntas en
 ChatGPT, Gemini, Perplexity y Claude.
