@@ -316,6 +316,13 @@ cita) y lleva `MedicalWebPage` con `reviewedBy` = Dr. Alberto.
   Nosotros, enlace "Perfil y publicaciones" en cada tarjeta (el click del modal lo ignora),
   "Guías para pacientes" bajo Tratamientos, `sameAs` con el perfil de Google y `url` por doctor.
 
+**Buscadores registrados (2026-10-07):** Google Search Console (propiedad
+`https://www.ortodonciarichard.cl/`, sitemap reenviado) y Bing Webmaster Tools (importado desde
+Search Console, cuenta recepcion@). **IndexNow:** la clave es el archivo
+`753f689572f04ff19ab1a88ec3d5f251.txt` de la raíz (no borrarlo) y
+`.github/workflows/indexnow.yml` avisa a Bing de los `.html` que cambian en cada push a
+`main` (espera 150 s a que GitHub Pages publique). ChatGPT y Copilot buscan en Bing.
+
 **Lo que no es código y pesa más** (lo hace la clínica): mismo nombre/dirección/teléfono en
 todos los directorios (WhatClinic tiene `759 1065`, la AAO `2217 3486`); perfiles de los 3
 ortodoncistas en el localizador de la AAO y en Doctoralia; Google Business completo; ORCID /

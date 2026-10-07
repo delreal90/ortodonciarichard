@@ -1,0 +1,64 @@
+# Avisa a Bing (y a los demás buscadores de IndexNow) de las páginas del
+# sitio que cambiaron en cada push a main. ChatGPT y Copilot buscan en Bing:
+# así una ficha de doctor o una guía nueva se conoce el mismo día.
+#
+# Solo manda las páginas públicas que cambiaron (*.html de la raíz, llms.txt).
+# La clave es el archivo 753f...txt de la raíz: si se cambia, cambiar KEY acá.
+name: IndexNow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.html'
+      - 'llms.txt'
+      - 'sitemap.xml'
+
+jobs:
+  avisar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Páginas que cambiaron
+        id: cambios
+        run: |
+          BASE="${{ github.event.before }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then BASE="HEAD~1"; fi
+          git diff --name-only --diff-filter=AM "$BASE" HEAD -- '*.html' 'llms.txt' \
+            | grep -v '/' | grep -v '^privacidad' > cambios.txt || true
+          # Si cambió el sitemap, se avisa también la portada.
+          if git diff --name-only "$BASE" HEAD | grep -qx 'sitemap.xml'; then echo index.html >> cambios.txt; fi
+          sort -u cambios.txt -o cambios.txt
+          cat cambios.txt
+          echo "n=$(wc -l < cambios.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Esperar a que GitHub Pages publique
+        if: steps.cambios.outputs.n != '0'
+        run: sleep 150
+
+      - name: Avisar a IndexNow
+        if: steps.cambios.outputs.n != '0'
+        env:
+          KEY: 753f689572f04ff19ab1a88ec3d5f251
+          HOST: www.ortodonciarichard.cl
+        run: |
+          python3 - <<'EOF'
+          import json, os, urllib.request
+          host, key = os.environ['HOST'], os.environ['KEY']
+          urls = []
+          for f in open('cambios.txt').read().split():
+              urls.append('https://%s/%s' % (host, '' if f == 'index.html' else f))
+          body = json.dumps({'host': host, 'key': key,
+                             'keyLocation': 'https://%s/%s.txt' % (host, key),
+                             'urlList': urls}).encode()
+          for ep in ('https://api.indexnow.org/indexnow', 'https://www.bing.com/indexnow'):
+              req = urllib.request.Request(ep, data=body,
+                                           headers={'Content-Type': 'application/json; charset=utf-8'})
+              try:
+                  print(ep, urllib.request.urlopen(req, timeout=30).status, urls)
+              except Exception as e:  # un fallo de IndexNow no debe marcar el deploy como roto
+                  print('::warning::IndexNow %s: %s' % (ep, e))
+          EOF
