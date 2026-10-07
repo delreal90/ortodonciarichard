@@ -8981,27 +8981,25 @@ def _loop_calentador():
                 docs = [k for k, v in cfg_dd['doctores'].items()
                         if not k.startswith('_') and isinstance(v, dict)]
                 t0 = datetime.now()
-                # La agenda del dia (no los slots) se calienta mas lejos: el aviso
-                # "ya tienes una hora" (citas_futuras_paciente) mira 45 dias
-                # corridos, y los dias que no estaban en cache se pedian en frio
-                # justo cuando el paciente escribia su RUT (medido: 8,9 s). Son
-                # pocas llamadas extra por pasada y dejan ese aviso siempre tibio.
+                # 1) Primero la AGENDA de todos los dias que mira el aviso "ya tienes
+                # una hora" (citas_futuras_paciente, 45 dias corridos): son ~33
+                # llamadas y quedan listas en menos de un minuto. Antes la agenda se
+                # pedia en la misma vuelta que los slots de cada doctor, asi que tras
+                # un reinicio pasaban ~3,5 min con dias en frio y el primer paciente
+                # en escribir su RUT esperaba 8-9 s (medido el 2026-10-07) mientras
+                # el resto del servidor quedaba trabado detras.
                 hoy_cl = fechas.hoy_chile()
-                extra = [hoy_cl + timedelta(days=k)
-                         for k in range(0, dentidesk.CITAS_FUTURAS_DIAS + 1)]
-                extra = [d for d in extra if d.weekday() < 5 and d not in set(dias)]
-                for d in extra:
+                agenda_dias = [hoy_cl + timedelta(days=k)
+                               for k in range(0, dentidesk.CITAS_FUTURAS_DIAS + 1)]
+                agenda_dias = sorted({d for d in agenda_dias if d.weekday() < 5} | set(dias))
+                for d in agenda_dias:
                     try:
                         dentidesk._get_agenda_day(cfg_dd, d, force=True)
                     except Exception:
                         pass
                     time.sleep(0.5)
+                # 2) Despues los slots libres de cada doctor (lo mas largo).
                 for d in dias:
-                    try:
-                        dentidesk._get_agenda_day(cfg_dd, d, force=True)
-                    except Exception:
-                        pass
-                    time.sleep(0.5)
                     for doc in docs:
                         try:
                             _slots15_dia(doc, d, cfg_dd, force=True)
