@@ -8981,6 +8981,21 @@ def _loop_calentador():
                 docs = [k for k, v in cfg_dd['doctores'].items()
                         if not k.startswith('_') and isinstance(v, dict)]
                 t0 = datetime.now()
+                # La agenda del dia (no los slots) se calienta mas lejos: el aviso
+                # "ya tienes una hora" (citas_futuras_paciente) mira 45 dias
+                # corridos, y los dias que no estaban en cache se pedian en frio
+                # justo cuando el paciente escribia su RUT (medido: 8,9 s). Son
+                # pocas llamadas extra por pasada y dejan ese aviso siempre tibio.
+                hoy_cl = fechas.hoy_chile()
+                extra = [hoy_cl + timedelta(days=k)
+                         for k in range(0, dentidesk.CITAS_FUTURAS_DIAS + 1)]
+                extra = [d for d in extra if d.weekday() < 5 and d not in set(dias)]
+                for d in extra:
+                    try:
+                        dentidesk._get_agenda_day(cfg_dd, d, force=True)
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
                 for d in dias:
                     try:
                         dentidesk._get_agenda_day(cfg_dd, d, force=True)

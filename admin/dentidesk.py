@@ -347,7 +347,13 @@ _ESTADOS_INACTIVOS = ('cancel', 'no llega', 'no seguir', 'reagend', 're-agend', 
 _CITAS_FUTURAS_MAX_AGE = 1800
 
 
-def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=4):
+# Ventana del aviso "ya tienes una hora". El calentador de server.py usa esta
+# misma constante para dejar tibia la agenda de esos dias: si se cambia aca, el
+# calentador la sigue solo (no hay un segundo numero que actualizar).
+CITAS_FUTURAS_DIAS = 45
+
+
+def citas_futuras_paciente(rut, cfg=None, dias_adelante=CITAS_FUTURAS_DIAS, max_workers=4):
     """Busca las citas ACTIVAS futuras del paciente (por RUT) escaneando la agenda de
     cada dia de una ventana (via _get_agenda_day, que comparte cache con el resto del
     sistema y con el loop calentador). Devuelve lista
