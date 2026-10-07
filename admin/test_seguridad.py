@@ -105,6 +105,18 @@ class TestUpload(unittest.TestCase):
         self.assertFalse(r.get_json()['ok'])
 
 
+class TestSinCarpetaEstatica(unittest.TestCase):
+    """Con static_folder='.' Flask publicaba toda la carpeta admin/ en
+    /./<archivo> (codigo, configuracion y cualquier archivo que cayera ahi)."""
+
+    def test_la_carpeta_admin_no_se_publica(self):
+        c = server.app.test_client()
+        for f in ('server.py', 'scheduling_config.json', 'test_seguridad.py'):
+            with self.subTest(archivo=f):
+                self.assertEqual(c.get('/./' + f).status_code, 404)
+        self.assertIsNone(server.app.static_folder)
+
+
 class TestRutasSoloLocal(unittest.TestCase):
     """Guarda de regresion: toda ruta que edita el sitio o la config debe estar en el
     set. Si alguien agrega una ruta de administracion nueva y se olvida, esto falla."""

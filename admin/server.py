@@ -26,7 +26,13 @@ from bs4 import BeautifulSoup
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'WARNING'))
 log = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder='.')
+# static_folder=None A PROPOSITO: con static_folder='.' Flask publicaba TODA la
+# carpeta admin/ en /./<archivo> (verificado en produccion el 2026-10-07:
+# /./server.py y /./scheduling_config.json respondian 200). Hoy los datos de
+# pacientes y las claves viven en el disco persistente / env vars y daban 404,
+# pero cualquier archivo que cayera en admin/ habria quedado publico. Cada
+# pagina se sirve con su propia ruta (send_from_directory), nada usaba esto.
+app = Flask(__name__, static_folder=None)
 
 # Limite de tamaño del cuerpo de la petición (anti-DoS): la firma llega como PNG
 # en base64; 3 MB es holgado para una firma y frena payloads gigantes.
