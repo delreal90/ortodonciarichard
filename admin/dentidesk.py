@@ -28,9 +28,28 @@ try:
 except ImportError:  # el bosquejo no rompe si requests no esta instalado
     requests = None
 
+import fechas
 from scheduling import load_config, generar_grilla, _hash01, limpiar_rut, grilla_horario_doctor
 
 log = logging.getLogger(__name__)
+
+# Sesion HTTP compartida: reusar conexiones = menos handshakes TLS = menos CPU.
+# Medido en produccion (Render, 1 worker de poca CPU): una rafaga de ~66 requests.post
+# sueltos (cada uno abria su propia conexion HTTPS) congelaba TODO el servidor ~11 s.
+if requests is not None:
+    _HTTP = requests.Session()
+    _adaptador = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=16, max_retries=0)
+    _HTTP.mount('https://', _adaptador)
+    _HTTP.mount('http://', _adaptador)
+    # La sesion se comparte entre hilos y entre pacientes: que NO guarde cookies.
+    # Antes cada requests.post era independiente; si DentiDesk devolviera una
+    # cookie de sesion, una sesion compartida la reenviaria en las consultas de
+    # otros pacientes y cambiaria su comportamiento. Solo queremos reusar la
+    # conexion TCP/TLS, no el estado.
+    import http.cookiejar as _cookiejar
+    _HTTP.cookies.set_policy(_cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+else:  # pragma: no cover
+    _HTTP = None
 
 
 class DentiDeskError(Exception):
@@ -43,7 +62,7 @@ def _auth_token(cfg):
     """Obtiene un JWT de un solo uso. Se llama justo antes de cada request real."""
     dd = cfg['dentidesk']
     url = f"{dd['base_url'].rstrip('/')}/api/users/authentication.php"
-    resp = requests.post(url, json={'email': dd['email'], 'password': dd['password']}, timeout=15)
+    resp = _HTTP.post(url, json={'email': dd['email'], 'password': dd['password']}, timeout=15)
     resp.raise_for_status()
     data = resp.json()
     token = data.get('token') or data.get('Token')
@@ -89,7 +108,7 @@ def horas_disponibles_dentidesk(cfg, doc_id, target_date, motivo):
         'Date': target_date.isoformat(),
         'Token': token,
     }
-    resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
+    resp = _HTTP.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
 
     if resp.status_code == 401:
         # Distinguir "sin horas ese dia" (normal) de un fallo real de credenciales.
@@ -119,19 +138,28 @@ _AGENDA_DIA_TTL = 600  # 10 min: la agenda del dia se comparte entre motivos del
 # motivo volvia a frio. La reserva valida igual contra getAvailableHours en vivo.
 
 
-def _get_agenda_day(cfg, target_date, force=False):
+# Retencion en RAM: un dia FUTURO se conserva hasta 30 min (para que max_age de
+# consultas laxas, como citas_futuras_paciente, pueda aprovecharlo); un dia PASADO se
+# poda con el TTL normal porque los barridos hacia atras traen cientos de dias.
+_AGENDA_DIA_RETENCION = 1800
+
+
+def _get_agenda_day(cfg, target_date, force=False, max_age=None):
     """Lista de citas del dia (todos los profesionales). Cacheada.
     force=True ignora el cache y trae datos frescos de DentiDesk (lo usa el
-    asistente F2: tras editar/guardar una cita el cache puede estar viejo)."""
+    asistente F2: tras editar/guardar una cita el cache puede estar viejo).
+    max_age (segundos, opcional): reemplaza a _AGENDA_DIA_TTL SOLO para decidir si
+    se sirve lo cacheado (consultas que toleran una agenda mas vieja)."""
     import time as _t
     key = target_date.isoformat()
     hit = _AGENDA_DIA_CACHE.get(key)
-    if not force and hit and (_t.time() - hit[0]) < _AGENDA_DIA_TTL:
+    ttl = _AGENDA_DIA_TTL if max_age is None else max_age
+    if not force and hit and (_t.time() - hit[0]) < ttl:
         return hit[1]
     dd = cfg['dentidesk']
     token = _auth_token(cfg)
     url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
-    resp = requests.post(url, json={'IdLocation': dd['id_location'],
+    resp = _HTTP.post(url, json={'IdLocation': dd['id_location'],
                                     'Date': target_date.isoformat(), 'Token': token}, timeout=25)
     if resp.status_code != 200:
         log.warning('_get_agenda_day: DentiDesk respondio %s para %s (no se cachea)',
@@ -145,7 +173,10 @@ def _get_agenda_day(cfg, target_date, force=False):
     ahora = _t.time()
     # Sin esto el cache solo crecia: cada barrido (KPIs, reactivacion de ~400 dias,
     # backfill) dejaba sus dias guardados para siempre en la RAM del proceso.
-    for k in [k for k, v in _AGENDA_DIA_CACHE.items() if ahora - v[0] >= _AGENDA_DIA_TTL]:
+    hoy_iso = fechas.hoy_chile().isoformat()
+    for k in [k for k, v in _AGENDA_DIA_CACHE.items()
+              if ahora - v[0] >= _AGENDA_DIA_RETENCION
+              or (k < hoy_iso and ahora - v[0] >= _AGENDA_DIA_TTL)]:
         _AGENDA_DIA_CACHE.pop(k, None)
     _AGENDA_DIA_CACHE[key] = (ahora, data)
     return data
@@ -154,7 +185,7 @@ def _get_agenda_day(cfg, target_date, force=False):
 def _expandir_bloques(hhmmss, dur_min, paso=15):
     """'10:00:00' dur 30 -> ['10:00','10:15'] (bloques de 15 min)."""
     h, m = int(hhmmss[:2]), int(hhmmss[3:5])
-    base = datetime.combine(date.today(), time(h, m))
+    base = datetime.combine(fechas.hoy_chile(), time(h, m))
     n = max(1, (int(dur_min) + paso - 1) // paso)
     return [(base + timedelta(minutes=paso * k)).strftime('%H:%M') for k in range(n)]
 
@@ -311,9 +342,16 @@ def buscar_paciente(rut, cfg=None):
 _ESTADOS_INACTIVOS = ('cancel', 'no llega', 'no seguir', 'reagend', 're-agend', 'atendid')
 
 
-def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
-    """Busca las citas ACTIVAS futuras del paciente (por RUT) escaneando getAgendaDay
-    en una ventana de dias. Devuelve lista [{fecha, hora, profesional, motivo, estado}].
+# Antiguedad maxima de la agenda de un dia para el aviso "ya tienes una hora": basta una
+# agenda de hasta 30 min (la reserva real se revalida aparte contra DentiDesk en vivo).
+_CITAS_FUTURAS_MAX_AGE = 1800
+
+
+def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=4):
+    """Busca las citas ACTIVAS futuras del paciente (por RUT) escaneando la agenda de
+    cada dia de una ventana (via _get_agenda_day, que comparte cache con el resto del
+    sistema y con el loop calentador). Devuelve lista
+    [{fecha, hora, profesional, motivo, estado}].
     DentiDesk no tiene busqueda por paciente, por eso se barre dia a dia (en paralelo)."""
     from concurrent.futures import ThreadPoolExecutor
     cfg = cfg or load_config()
@@ -323,21 +361,14 @@ def citas_futuras_paciente(rut, cfg=None, dias_adelante=45, max_workers=6):
     if not objetivo:
         return []
 
-    dd = cfg['dentidesk']
-    url = f"{dd['base_url'].rstrip('/')}/api/agenda/getAgendaDay.php"
-    hoy = date.today()
+    hoy = fechas.hoy_chile()
     dias = [hoy + timedelta(days=k) for k in range(0, dias_adelante + 1)
             if (hoy + timedelta(days=k)).weekday() < 5]
 
     def scan(d):
         try:
-            token = _auth_token(cfg)
-            r = requests.post(url, json={'IdLocation': dd['id_location'],
-                                         'Date': d.isoformat(), 'Token': token}, timeout=20)
-            if r.status_code != 200:
-                return []
             out = []
-            for c in (r.json() or {}).get('data', []):
+            for c in _get_agenda_day(cfg, d, max_age=_CITAS_FUTURAS_MAX_AGE) or []:
                 if limpiar_rut(str(c.get('PatientDocument', ''))) != objetivo:
                     continue
                 estado = (c.get('Status') or '').lower()
@@ -437,7 +468,7 @@ def crear_cita(*, doc_id, motivo_key=None, id_reason=None, duracion_min=None,
     # default False) para no tocar el payload ya probado.
     if enviar_duracion and duracion_min:
         payload['Duration'] = int(duracion_min)
-    resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
+    resp = _HTTP.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
     resp.raise_for_status()
     data = resp.json()
     return {'ok': True, 'mock': False, 'raw': data,
@@ -472,7 +503,7 @@ def actualizar_estado_cita(id_agenda, id_status, cfg=None):
         'IdStatus': id_status,
         'Token': token,
     }
-    resp = requests.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
+    resp = _HTTP.post(url, json=payload, auth=_basic_auth(cfg), timeout=20)
     resp.raise_for_status()
     return {'ok': True, 'mock': False, 'raw': resp.json()}
 
@@ -538,7 +569,7 @@ def doctor_de_paciente(rut, fecha_iso, cfg=None, dias_atras=30):
     try:
         base = date.fromisoformat((fecha_iso or '')[:10])
     except ValueError:
-        base = date.today()
+        base = fechas.hoy_chile()
     for k in range(0, dias_atras + 1):
         d = base - timedelta(days=k)
         if d.weekday() >= 5:                       # sáb/dom: la clínica no atiende

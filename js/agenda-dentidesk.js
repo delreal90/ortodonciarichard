@@ -44,12 +44,105 @@ const agenda = {
   filtroMinFecha: null, // 'YYYY-MM-DD': solo mostrar días >= esta fecha (cita 2 del estudio)
 };
 
-async function agendaApi(path, opts) {
-  const res = await fetch(AGENDA_API + path, opts);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error('HTTP ' + res.status), { data });
-  return data;
+/* ── Llamadas al backend, con reintento SOLO para lecturas ───────────────────
+   El backend (Render) a veces se congela 10-20 s o se reinicia (~1 min al
+   publicar). Una LECTURA (GET) es idempotente: si falla por red o por un 502/
+   503/504/429 se reintenta sola, con espera creciente, hasta ~90 s. Mientras
+   espera se muestra `#agendaAvisoEspera` (si existe en pantalla).
+
+   ⚠️ LOS POST NO SE REINTENTAN NUNCA. Reservar/reagendar dos veces crearía citas
+   duplicadas en DentiDesk (el primer intento pudo llegar al servidor aunque la
+   respuesta se perdiera). Un POST que falla se lanza al tiro, como siempre.
+
+   Los errores de negocio (400/404/409/...) tampoco se reintentan: el frontend
+   muestra mensajes específicos según su código. Un 502 que trae JSON con
+   `codigo` lo fabricó el propio backend a propósito (p. ej.
+   'error_dentidesk' de reagendar-info, que ya ofrece su botón "Reintentar"):
+   no se reintenta solo. El 502 de Render reiniciándose llega como HTML, sin JSON.
+   Los errores lanzados llevan `.transitorio = true` si fueron de red o de un
+   estado reintentable (para que quien los captura ofrezca "Volver a intentar"). */
+// === RESILIENCIA-INICIO (la prueba de Node extrae este bloque; no mover los marcadores)
+const _REINTENTO = {
+  esperasMs: [1500, 3000, 5000, 8000, 12000, 15000, 20000],  // luego sigue de a 20000
+  presupuestoMs: 90000,   // suma máxima de esperas por llamada
+  retryAfterTopeMs: 20000,
+  avisoDemoraMs: 8000,    // sin respuesta tras esto -> mostrar el aviso (sin cortar la solicitud)
+  escala: 1,              // solo la prueba de Node lo cambia (acorta todas las esperas)
+  estados: [429, 502, 503, 504],
+};
+const _MSG_ESPERA = 'Estamos tardando un poco más de lo normal, sigo buscando…';
+let _esperasActivas = 0;   // llamadas GET que hoy están "tardando" (aviso visible mientras > 0)
+
+function _actualizarAvisoEspera() {
+  const el = document.getElementById('agendaAvisoEspera');
+  if (!el) return;
+  if (_esperasActivas > 0) { el.textContent = _MSG_ESPERA; el.style.display = ''; }
+  else { el.style.display = 'none'; }
 }
+// HTML del aviso (oculto por defecto) para meter dentro de los "Cargando…".
+// Si ya hay una espera en curso nace visible (el paciente cambió de paso mientras tanto).
+function _avisoEsperaHTML() {
+  return `<p id="agendaAvisoEspera" class="agenda-loading" role="status" aria-live="polite" style="padding:8px 0 0;font-size:.9rem;${_esperasActivas > 0 ? '' : 'display:none'}">${_esperasActivas > 0 ? _MSG_ESPERA : ''}</p>`;
+}
+function _dormir(ms) { return new Promise(r => setTimeout(r, ms * _REINTENTO.escala)); }
+function _msRetryAfter(res) {
+  try {
+    const v = res && res.headers && res.headers.get && res.headers.get('Retry-After');
+    const s = v == null ? NaN : parseInt(v, 10);   // solo la forma en segundos
+    if (!isNaN(s) && s >= 0) return Math.min(s * 1000, _REINTENTO.retryAfterTopeMs);
+  } catch (e) { /* cabecera ilegible: se usa la espera normal */ }
+  return null;
+}
+
+async function agendaApi(path, opts) {
+  const metodo = String((opts && opts.method) || 'GET').toUpperCase();
+  // POST (y cualquier otro método): UN solo intento. Ver el comentario de arriba.
+  if (metodo !== 'GET') {
+    const res = await fetch(AGENDA_API + path, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error('HTTP ' + res.status), { data });
+    return data;
+  }
+
+  let visible = false;   // ¿esta llamada está contribuyendo al aviso?
+  const mostrar = () => { if (!visible) { visible = true; _esperasActivas++; } _actualizarAvisoEspera(); };
+  const ocultar = () => { if (visible) { visible = false; _esperasActivas--; } _actualizarAvisoEspera(); };
+  let gastadoMs = 0;
+  try {
+    for (let intento = 0; ; intento++) {
+      const timer = setTimeout(mostrar, _REINTENTO.avisoDemoraMs * _REINTENTO.escala);
+      let res, data, falloRed = null;
+      try {
+        res = await fetch(AGENDA_API + path, opts);
+        data = await res.json().catch(() => ({}));
+      } catch (e) { falloRed = e; }
+      clearTimeout(timer);
+
+      if (!falloRed && res.ok) return data;
+
+      const reintentable = falloRed
+        ? true
+        : (_REINTENTO.estados.includes(res.status) && !(data && data.codigo));
+      if (!reintentable) {
+        // Error "de negocio" (400/404/409...): se lanza al tiro, igual que antes.
+        throw Object.assign(new Error('HTTP ' + res.status), { data });
+      }
+      const base = _REINTENTO.esperasMs[Math.min(intento, _REINTENTO.esperasMs.length)] || 20000;
+      const espera = (falloRed ? null : _msRetryAfter(res)) ?? base;
+      if (gastadoMs + espera > _REINTENTO.presupuestoMs) {
+        // Se agotó el tiempo: se lanza el mismo error de siempre.
+        if (falloRed) { falloRed.transitorio = true; throw falloRed; }
+        throw Object.assign(new Error('HTTP ' + res.status), { data, transitorio: true });
+      }
+      gastadoMs += espera;
+      mostrar();            // desde el primer fallo ya avisamos
+      await _dormir(espera);
+    }
+  } finally {
+    ocultar();
+  }
+}
+// === RESILIENCIA-FIN
 
 /* ── Telemetría del embudo (anónima, para ver dónde abandonan) ────────────── */
 function track(paso, ms) {
@@ -110,9 +203,13 @@ async function abrirAgenda() {
   document.body.style.overflow = 'hidden';
   agenda.sessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
   if (!agenda.config) {
-    setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando…</div>');
+    setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando…</div>' + _avisoEsperaHTML());
     try { await precargarConfig(); }
-    catch (e) { return pasoError('No pudimos conectar con la agenda online. Te recomendamos agendar por WhatsApp.'); }
+    catch (e) {
+      // Falla de red/servidor al cargar la config: se puede volver a intentar
+      // (precargarConfig() ya limpió su promesa fallida, así que pide de nuevo).
+      return pasoError('No pudimos conectar con la agenda online en este momento.', () => abrirAgenda());
+    }
   }
   track('abrir');
   // Si ya se precargó doctor+motivo en una apertura anterior de este modal
@@ -124,6 +221,7 @@ async function abrirAgenda() {
   // (vencido, ya usado, inexistente) NO se abre el wizard libre: se muestra el
   // motivo real y se deriva a WhatsApp, igual que en reagenda.
   if (agenda.linkToken && !agenda.linkExacto) {
+    setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando…</div>' + _avisoEsperaHTML());
     try {
       const info = await agendaApi('/api/agenda/link-info?token=' + encodeURIComponent(agenda.linkToken));
       const doc = (agenda.config.doctores || []).find(d => d.key === (info.doctor || {}).key);
@@ -143,6 +241,12 @@ async function abrirAgenda() {
       }
       return pasoLinkNoDisponible(info.error);
     } catch (err) {
+      // Falla de red/servidor (no una respuesta del backend sobre el token): el
+      // link puede estar perfectamente bien, así que NO se le dice "vencido" y se
+      // deja reintentar. Tampoco se abre el wizard libre: sigue en modo link.
+      if (err.transitorio) {
+        return pasoError('No pudimos verificar tu link en este momento.', () => abrirAgenda());
+      }
       return pasoLinkNoDisponible((err.data && err.data.error) || '');
     }
   }
@@ -173,6 +277,7 @@ async function _reagendaResolverInfo() {
     return pasoReagendaNoDisponible();
   }
   agenda._reagendaInfoIntentado = true;
+  setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Cargando…</div>' + _avisoEsperaHTML());
   try {
     const info = await agendaApi(`/api/agenda/reagendar-info?id_agenda=${encodeURIComponent(agenda.reagendaId)}&fecha=${encodeURIComponent(agenda.reagendaFecha)}`);
     const doc = info.ok ? (agenda.config.doctores || []).find(d => d.key === info.doctor) : null;
@@ -197,7 +302,9 @@ async function _reagendaResolverInfo() {
   } catch (e) {
     // agendaApi() lanza con .data = el JSON de error del servidor (ver línea 47),
     // que ahora trae 'codigo' además de 'error'.
-    const codigo = (e.data && e.data.codigo) || '';
+    // Falla de red/gateway agotados los reintentos = transitoria, igual que
+    // 'error_dentidesk': ofrece "Reintentar" (nunca abre el wizard libre).
+    const codigo = (e.data && e.data.codigo) || (e.transitorio ? 'error_dentidesk' : '');
     const msgServidor = (e.data && e.data.error) || '';
     return pasoReagendaNoDisponible(codigo, msgServidor);
   }
@@ -208,7 +315,7 @@ async function _reagendaResolverInfo() {
 // segundo intento caería directo al mensaje sin volver a llamar al backend.
 function _reagendaReintentar() {
   agenda._reagendaInfoIntentado = false;
-  setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Reintentando…</div>');
+  setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Reintentando…</div>' + _avisoEsperaHTML());
   _reagendaResolverInfo();
 }
 
@@ -821,7 +928,7 @@ function _sabiasHTML() {
   return `<div class="agenda-sabias"><p class="sq-titulo">¿Sabías qué?</p><p class="sq-frase" id="sqFrase">${frases[_sqIdx]}</p></div>`;
 }
 function _loadingFechaHTML() {
-  return `<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>${_sabiasHTML()}`;
+  return `<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Buscando horas disponibles…</div>${_avisoEsperaHTML()}${_sabiasHTML()}`;
 }
 function _iniciarSabias() {
   clearInterval(agenda._sqIv);
@@ -852,22 +959,26 @@ async function pasoFechaHora() {
     </div>
     ${_loadingFechaHTML()}`);
   _iniciarSabias();
-  let r;
   try {
     // Usa la precarga iniciada en pasoMotivo (suele estar lista -> instantáneo).
-    r = await prefetchDisponibilidad(agenda.sel.doctor, agenda.sel.motivo);
-  } catch (e) { return pasoError('No pudimos cargar la disponibilidad.'); }
-  agenda.dias = _filtrarDias(r.dias);
-  agenda.diasOffset = r.offset_siguiente || 0;
-  agenda.diasHayMas = !!r.hay_mas;
-  // Respaldo: si el servidor no alcanzó a juntar TIRA_MIN_DIAS (p.ej. tope de
-  // días por request, o el filtro de fecha mínima del estudio descartó días),
-  // completar aquí — con min_dias también, para no volver al ping-pong.
-  while (agenda.dias.length < TIRA_MIN_DIAS && agenda.diasHayMas) {
-    const r2 = await agendaApi(_disponibilidadUrl(agenda.diasOffset, 5));
-    agenda.dias = agenda.dias.concat(_filtrarDias(r2.dias));
-    agenda.diasOffset = r2.offset_siguiente || agenda.diasOffset;
-    agenda.diasHayMas = !!r2.hay_mas;
+    const r = await prefetchDisponibilidad(agenda.sel.doctor, agenda.sel.motivo);
+    agenda.dias = _filtrarDias(r.dias);
+    agenda.diasOffset = r.offset_siguiente || 0;
+    agenda.diasHayMas = !!r.hay_mas;
+    // Respaldo: si el servidor no alcanzó a juntar TIRA_MIN_DIAS (p.ej. tope de
+    // días por request, o el filtro de fecha mínima del estudio descartó días),
+    // completar aquí — con min_dias también, para no volver al ping-pong.
+    // (Dentro del try: antes una falla acá dejaba el spinner girando para siempre.)
+    while (agenda.dias.length < TIRA_MIN_DIAS && agenda.diasHayMas) {
+      const r2 = await agendaApi(_disponibilidadUrl(agenda.diasOffset, 5));
+      agenda.dias = agenda.dias.concat(_filtrarDias(r2.dias));
+      agenda.diasOffset = r2.offset_siguiente || agenda.diasOffset;
+      agenda.diasHayMas = !!r2.hay_mas;
+    }
+  } catch (e) {
+    // Agotados los reintentos automáticos de agendaApi(): que el paciente pueda
+    // volver a intentar en vez de quedar en un callejón sin salida.
+    return pasoError('No pudimos cargar las horas en este momento.', () => pasoFechaHora());
   }
   if (!agenda.dias.length) {
     return pasoError('No hay horas disponibles en este momento. Escríbenos por WhatsApp y te ayudamos.');
@@ -1282,15 +1393,27 @@ function pasoExito(r) {
   </div>`);
 }
 
-function pasoError(msg) {
+// `reintentar` (opcional): función a llamar desde un botón "Volver a intentar" que
+// se muestra ANTES del de WhatsApp. Solo para fallas de RED/servidor al LEER datos;
+// nunca para fallas al reservar (un POST no se repite: duplicaría citas).
+// Se cablea con addEventListener tras setBody (no con onclick inline).
+function pasoError(msg, reintentar) {
+  const btnReintento = typeof reintentar === 'function'
+    ? `<button type="button" id="agendaReintentarBtn" class="btn btn-primary"><i class="fas fa-rotate-right"></i> Volver a intentar</button>`
+    : '';
   setBody(`<div class="agenda-final err">
     <i class="fas fa-circle-exclamation"></i>
     <h3>Ups…</h3>
     <p>${msg}</p>
+    ${btnReintento}
     <a class="btn btn-primary" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" target="_blank" rel="noopener">
       <i class="fab fa-whatsapp"></i> Agendar por WhatsApp
     </a>
   </div>`);
+  if (btnReintento) {
+    const b = document.getElementById('agendaReintentarBtn');
+    if (b) b.addEventListener('click', () => { b.disabled = true; reintentar(); });
+  }
 }
 
 // Reagenda que no se pudo preparar automáticamente. NO se abre el wizard libre —

@@ -59,6 +59,7 @@ SUITES = [
     ('carpetas',     'test_carpetas.py',     'carpeta de fotos del paciente: la inicial suelta no es un comodin'),
     ('llamadas',     'test_llamadas.py',     'llamadas de WhatsApp que nadie puede contestar: rechazar, responder, avisar'),
     ('respaldos',    'test_vigilante_respaldos.py', 'vigilante de respaldos: avisa a los 4 dias, no todos los dias'),
+    ('rendimiento', 'test_rendimiento_agenda.py', 'agenda online: citas-futuras con cache, /api/salud, lentas y marcas de KPIs'),
 ]
 
 AQUI = Path(__file__).parent

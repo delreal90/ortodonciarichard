@@ -162,7 +162,7 @@ class TestCacheNoGuardaFallos(unittest.TestCase):
     def test_respuesta_de_error_no_se_cachea(self):
         respuesta_mala = mock.Mock(status_code=500, text='Internal Server Error')
         with mock.patch.object(dentidesk, '_auth_token', return_value='tok'), \
-             mock.patch.object(dentidesk.requests, 'post', return_value=respuesta_mala):
+             mock.patch.object(dentidesk._HTTP, 'post', return_value=respuesta_mala):
             self.assertEqual(dentidesk._get_agenda_day(self.cfg, _DIA), [])
         self.assertEqual(len(dentidesk._AGENDA_DIA_CACHE), 0,
                          'un fallo NO puede quedar cacheado')
@@ -171,7 +171,7 @@ class TestCacheNoGuardaFallos(unittest.TestCase):
         respuesta_ok = mock.Mock(status_code=200)
         respuesta_ok.json.return_value = {'data': [{'IdAgenda': '1'}]}
         with mock.patch.object(dentidesk, '_auth_token', return_value='tok'), \
-             mock.patch.object(dentidesk.requests, 'post', return_value=respuesta_ok):
+             mock.patch.object(dentidesk._HTTP, 'post', return_value=respuesta_ok):
             self.assertEqual(dentidesk._get_agenda_day(self.cfg, _DIA),
                              [{'IdAgenda': '1'}])
 
@@ -179,7 +179,7 @@ class TestCacheNoGuardaFallos(unittest.TestCase):
         respuesta = mock.Mock(status_code=200, text='<html>error</html>')
         respuesta.json.side_effect = ValueError('no es JSON')
         with mock.patch.object(dentidesk, '_auth_token', return_value='tok'), \
-             mock.patch.object(dentidesk.requests, 'post', return_value=respuesta):
+             mock.patch.object(dentidesk._HTTP, 'post', return_value=respuesta):
             self.assertEqual(dentidesk._get_agenda_day(self.cfg, _DIA), [])
         self.assertEqual(len(dentidesk._AGENDA_DIA_CACHE), 0)
 

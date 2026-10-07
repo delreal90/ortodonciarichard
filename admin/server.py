@@ -724,6 +724,81 @@ import backup
 import vigilante_respaldos
 from datetime import date, datetime, timedelta
 
+# ── Solicitudes lentas + /api/salud (monitoreo) ──────────────────────────────
+# Render corre 1 worker con poca CPU: cuando algo se pone lento, TODO se pone lento.
+# Dejamos rastro de las solicitudes que tardan > 3 s. ⚠️ Se registra SOLO request.path,
+# nunca la query string: ahi viajan los RUT de los pacientes.
+import time as _time
+from collections import deque as _deque
+from flask import g as _g
+
+_INICIO_PROCESO = fechas.ahora_chile()
+_INICIO_MONO = _time.monotonic()
+_LENTA_UMBRAL_S = 3.0
+_LENTAS = _deque(maxlen=30)
+
+
+@app.before_request
+def _marcar_inicio_solicitud():
+    _g._t0 = _time.monotonic()
+
+
+@app.after_request
+def _registrar_solicitud_lenta(resp):
+    t0 = getattr(_g, '_t0', None)
+    if t0 is not None:
+        seg = _time.monotonic() - t0
+        if seg > _LENTA_UMBRAL_S:
+            app.logger.warning('lento: %s %s -> %s en %.1fs',
+                               request.method, request.path, resp.status_code, seg)
+            _LENTAS.append({'hora': fechas.ahora_chile().isoformat(timespec='seconds'),
+                            'metodo': request.method, 'path': request.path,
+                            'status': resp.status_code, 'seg': round(seg, 1)})
+    return resp
+
+
+@app.route('/api/salud', methods=['GET'])
+def api_salud():
+    """Monitoreo de salud SIN token: hora de arranque del proceso y solicitudes lentas
+    recientes. Sin datos personales ni de pacientes."""
+    lentas = list(_LENTAS)
+    return jsonify({
+        'ok': True,
+        'inicio': _INICIO_PROCESO.isoformat(timespec='seconds'),
+        'uptime_s': int(_time.monotonic() - _INICIO_MONO),
+        'version': os.environ.get('RENDER_GIT_COMMIT', '')[:7],
+        'lentas_recientes': len(lentas),
+        'ultimas_lentas': lentas[-5:],
+    })
+
+
+# Marcas diarias de los loops pesados (KPIs / proyeccion clinica). Viven en disco: antes
+# eran variables en memoria y CADA reinicio del servidor (cada git push) entre las 03:00
+# y las 17:00 relanzaba todo el trabajo pesado en pleno horario de atencion.
+def _loops_estado_store():
+    import jsonstore
+    ruta = os.environ.get('LOOPS_ESTADO_PATH')
+    if not ruta:
+        ruta = Path(os.environ.get('PATIENT_INDEX_PATH', 'patient_index.json')
+                    ).parent / 'loops_estado.json'
+    return jsonstore.JsonStore(ruta, default={})
+
+
+def _loop_marca_leer(clave):
+    """Fecha ISO (YYYY-MM-DD) de la ultima corrida de `clave`, o None."""
+    try:
+        return (_loops_estado_store().load() or {}).get(clave)
+    except Exception as e:
+        app.logger.warning('loops_estado: no se pudo leer %s: %s', clave, e)
+        return None
+
+
+def _loop_marca_escribir(clave, iso):
+    try:
+        _loops_estado_store().actualizar(lambda d: d.__setitem__(clave, iso))
+    except Exception as e:
+        app.logger.warning('loops_estado: no se pudo guardar %s: %s', clave, e)
+
 _DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
 _MESES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
           'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -2291,6 +2366,11 @@ def whatsapp_plantillas():
 # agendamiento del modal. El limite bajo acota el barrido de RUTs; la proteccion
 # de fondo (exigir que el paciente pruebe su identidad) no es posible en este
 # flujo, donde el RUT es justamente lo primero que se pide.
+_CITAS_FUT_CACHE = {}        # RUT limpio -> (monotonic, citas)
+_CITAS_FUT_TTL = 60
+_CITAS_FUT_LOCK = _threading.Lock()
+
+
 @rate_limit('10 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
 def agenda_citas_futuras():
@@ -2310,11 +2390,23 @@ def agenda_citas_futuras():
                 rut = resuelto_link['rut']
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    # Cache corto por RUT: absorbe reintentos y dobles clics sin volver a barrer la agenda.
+    clave = scheduling.limpiar_rut(rut)
+    ahora = _time.monotonic()
+    with _CITAS_FUT_LOCK:
+        hit = _CITAS_FUT_CACHE.get(clave)
+        if hit and ahora - hit[0] < _CITAS_FUT_TTL:
+            return jsonify({'ok': True, 'citas': hit[1]})
     cfg = scheduling.load_config()
     try:
         citas = dentidesk.citas_futuras_paciente(rut, cfg)
     except Exception:
-        citas = []
+        return jsonify({'ok': True, 'citas': []})      # con falla NO se cachea
+    with _CITAS_FUT_LOCK:
+        if len(_CITAS_FUT_CACHE) > 500:
+            for k in [k for k, v in _CITAS_FUT_CACHE.items() if ahora - v[0] >= _CITAS_FUT_TTL]:
+                _CITAS_FUT_CACHE.pop(k, None)
+        _CITAS_FUT_CACHE[clave] = (ahora, citas)
     return jsonify({'ok': True, 'citas': citas})
 
 
@@ -8378,9 +8470,10 @@ def _loop_kpi_cosecha():
     denominador real para un % de ocupacion — y solo existe hacia adelante, asi que
     si no se captura hoy, se pierde para siempre."""
     import time
-    ya_corrio = None
-    ya_proyecto = None      # ⚠️ sin esto, la linea que la compara lanza
-                            # UnboundLocalError y la proyeccion NO corre nunca.
+    # Las marcas viven en disco (loops_estado.json): un reinicio del servidor no
+    # debe relanzar el trabajo pesado del dia. Se comparan como texto ISO.
+    ya_corrio = _loop_marca_leer('kpi_cosecha')
+    ya_proyecto = _loop_marca_leer('clinico_proyeccion')   # ⚠️ siempre definida
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
@@ -8388,8 +8481,9 @@ def _loop_kpi_cosecha():
             cfg = scheduling.load_config()
             if (cfg['dentidesk']['enabled']
                     and _KPI_HORA <= slot < _KPI_LIMITE
-                    and ya_corrio != ahora.date()):
-                ya_corrio = ahora.date()
+                    and ya_corrio != ahora.date().isoformat()):
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('kpi_cosecha', ya_corrio)
                 r = kpi.cosechar(cfg)
                 print('[kpi-cosecha]', slot, r)
                 try:
@@ -8404,8 +8498,9 @@ def _loop_kpi_cosecha():
             # la proyeccion clinica se alimenta SOLO de los JSON locales y no
             # toca la red. Colgarla de esa condicion la dejaria sin correr —en
             # silencio— por una razon que no tiene nada que ver con ella.
-            if _CLINICO_HORA <= slot < _KPI_LIMITE and ya_proyecto != ahora.date():
-                ya_proyecto = ahora.date()
+            if _CLINICO_HORA <= slot < _KPI_LIMITE and ya_proyecto != ahora.date().isoformat():
+                ya_proyecto = ahora.date().isoformat()
+                _loop_marca_escribir('clinico_proyeccion', ya_proyecto)
                 try:
                     print('[clinico-proyeccion]', slot, clinico.proyectar_todo())
                 except Exception as e:

@@ -186,6 +186,7 @@ class TestCoberturaDeAuth(unittest.TestCase):
         '/api/agenda/reservar-reagenda':        'crear la cita al reagendar',
         '/api/agenda/reservar-estudio':         'crear las 2 citas del estudio',
         '/api/agenda/evento':                   'telemetria anonima del embudo',
+        '/api/salud':                           'monitoreo de salud: hora de arranque y solicitudes lentas, sin datos personales ni de pacientes',
         # Auth propia, no ADMIN_TOKEN.
         '/api/consentimiento/datos':            'token firmado itsdangerous en la URL',
         '/api/seguro/pdf':                      'token firmado propio (el iframe no manda headers)',
