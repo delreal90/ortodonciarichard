@@ -291,6 +291,37 @@ Apunta al sitemap.
 **`sitemap.xml`** (raíz) — home (priority 1.0) + `privacidad.html`. Al agregar páginas
 nuevas indexables, sumarlas acá.
 
+### Que las IAs nos recomienden — páginas citables (2026-10-07)
+
+Simulando a un paciente que pregunta "¿qué ortodoncista me recomiendan en Las Condes?", la
+clínica **no aparecía por nombre**: las IAs citaban Doctoralia, WhatClinic y el localizador de
+la AAO (donde solo figura el Dr. Oyonarte y con otro teléfono). El sitio era una sola página y
+la formación de los doctores solo existía en el modal (la inyecta `js/main.js`; un crawler no
+ejecuta JS).
+
+**`tools/generar_paginas.py`** genera desde UN archivo: 4 páginas de doctor (`dr-*.html`, bio,
+formación, registro SIS, **publicaciones con DOI verificadas en PubMed/Crossref**), 5 guías por
+pregunta del paciente (`ortodoncia-invisible-alineadores`, `ortodoncia-ninos`,
+`respiracion-ronquido-ninos`, `ortodoncia-lingual`, `cirugia-ortognatica`), `tecnologia.html`,
+`sitemap.xml`, `llms.txt` y el bloque `FAQPage` de la portada (copiado del acordeón, entre
+marcadores `FAQ-SCHEMA`). Cada guía parte con una **respuesta corta** (el párrafo que una IA
+cita) y lleva `MedicalWebPage` con `reviewedBy` = Dr. Alberto.
+- ⚠️ **Editar el texto en el script y volver a correrlo**, nunca los `.html` generados. Si se
+  edita una pregunta del acordeón de `index.html`, correrlo para que el schema no diverja.
+- Los N° de registro los lee de `js/main.js` (fuente de verdad); falla si falta uno.
+- Publicidad sanitaria: nada de "el mejor", ni promesas, ni cifras sin respaldo. El texto de
+  sueño dice explícitamente que la ortodoncia no trata la apnea (white paper AAO 2026).
+- En la portada: el H1 pasó a ser "Ortodoncistas especialistas · Las Condes, Santiago" (el
+  lema "Experiencia y Excelencia" quedó como `.hero-title`), párrafo de credenciales en
+  Nosotros, enlace "Perfil y publicaciones" en cada tarjeta (el click del modal lo ignora),
+  "Guías para pacientes" bajo Tratamientos, `sameAs` con el perfil de Google y `url` por doctor.
+
+**Lo que no es código y pesa más** (lo hace la clínica): mismo nombre/dirección/teléfono en
+todos los directorios (WhatClinic tiene `759 1065`, la AAO `2217 3486`); perfiles de los 3
+ortodoncistas en el localizador de la AAO y en Doctoralia; Google Business completo; ORCID /
+Google Scholar de cada doctor que publica. Medir cada mes con las mismas ~15 preguntas en
+ChatGPT, Gemini, Perplexity y Claude.
+
 ⚠️ **RUT terminado en K:** el fix `97bc69e` (validación de RUT en el agendamiento) salió en
 la misma tanda pero NO es SEO — permite RUTs cuyo dígito verificador es K en el flujo de
 agendar hora online.

@@ -13,6 +13,7 @@ if (heroVideo) {
 ═══════════════════════════════════════════ */
 const doctorData = {
     octavio: {
+        pagina:      'dr-octavio-del-real.html',
         name:        'Dr. Octavio Del Real S.',
         role:        'Ortodoncista',
         photo:       'images/dr-octavio-del-real.jpeg',
@@ -36,6 +37,7 @@ const doctorData = {
         ],
     },
     rodrigo: {
+        pagina:      'dr-rodrigo-oyonarte.html',
         name:        'Dr. Rodrigo Oyonarte W.',
         role:        'Ortodoncista',
         photo:       'images/dr-rodrigo-oyonarte.jpeg',
@@ -59,6 +61,7 @@ const doctorData = {
         ],
     },
     alberto: {
+        pagina:      'dr-alberto-del-real.html',
         name:        'Dr. Alberto Del Real V.',
         role:        'Ortodoncista',
         photo:       'images/dr-alberto-del-real.jpeg',
@@ -81,6 +84,7 @@ const doctorData = {
         ],
     },
     patricio: {
+        pagina:      'dr-patricio-vial.html',
         name:        'Dr. Patricio Vial U.',
         role:        'Rehabilitador Oral e Implantólogo',
         photo:       'images/dr-patricio-vial.jpeg',
@@ -224,6 +228,13 @@ function openModal(doctorId) {
         }
     }
 
+    // Enlace a la página completa del doctor (formación, publicaciones, conferencias)
+    const linkEl = document.getElementById('modalPerfilLink');
+    if (linkEl) {
+        linkEl.href = d.pagina || '#';
+        linkEl.style.display = d.pagina ? '' : 'none';
+    }
+
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
 }
@@ -234,7 +245,11 @@ function closeModal() {
 }
 
 document.querySelectorAll('.doctor-card').forEach(card => {
-    card.addEventListener('click', () => openModal(card.dataset.doctorId));
+    card.addEventListener('click', e => {
+        // El enlace "Perfil y publicaciones" lleva a la página del doctor: no abrir el modal encima.
+        if (e.target.closest('a')) return;
+        openModal(card.dataset.doctorId);
+    });
     card.addEventListener('keydown', e => {
         if (e.key === 'Enter' || e.key === ' ') openModal(card.dataset.doctorId);
     });

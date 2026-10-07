@@ -337,7 +337,10 @@ h4 { font-size: 1rem; font-weight: 600; }
     color: var(--gold-light);
     margin-bottom: 20px;
 }
-.hero-content h1 {
+.hero-title {
+    font-family: var(--font-head);
+    font-weight: 600;
+    line-height: 1.25;
     font-size: clamp(2.8rem, 6vw, 5rem);
     margin-bottom: 20px;
     text-shadow: 0 2px 20px rgba(0,0,0,.3);
@@ -1393,7 +1396,7 @@ h4 { font-size: 1rem; font-weight: 600; }
 
     /* Hero */
     .hero-ctas { flex-direction: column; align-items: center; }
-    .hero-content h1 { font-size: clamp(2rem, 8vw, 3rem); }
+    .hero-title { font-size: clamp(2rem, 8vw, 3rem); }
 
     /* Nosotros */
     .features-grid { grid-template-columns: 1fr; }
@@ -1900,3 +1903,63 @@ h4 { font-size: 1rem; font-weight: 600; }
 .agenda-consent input { margin-top: 3px; flex-shrink: 0; }
 .agenda-consent a { color: var(--navy); font-weight: 600; }
 .agenda-consent-msg { color: #e53e3e; font-size: .78rem; margin: 2px 0 8px; min-height: 1em; }
+
+/* ═══════════════════════════════════════════
+   PÁGINAS INTERNAS (doctores, guías para pacientes, tecnología)
+   Generadas por tools/generar_paginas.py
+═══════════════════════════════════════════ */
+.page-content { max-width: 860px; margin: 0 auto; padding: calc(var(--nav-h) + 48px) 24px 72px; color: var(--text-dark); }
+.page-content h1 { font-size: clamp(1.9rem, 4vw, 2.7rem); color: var(--navy); margin-bottom: 12px; }
+.page-content h2 { font-size: clamp(1.3rem, 2.4vw, 1.65rem); color: var(--navy); margin: 44px 0 14px; }
+.page-content p, .page-content li { line-height: 1.75; color: var(--text-mid); }
+.page-content p { margin-bottom: 14px; }
+.page-content ul, .page-content ol { padding-left: 22px; margin-bottom: 14px; }
+.page-content ul { list-style: disc; }
+.page-content ol { list-style: decimal; }
+.page-content a { color: var(--navy-light); text-decoration: underline; text-underline-offset: 2px; }
+.migas { font-size: .82rem; color: var(--text-mid); margin-bottom: 18px; }
+.migas a { text-decoration: none !important; }
+.page-revision { font-size: .85rem; }
+.respuesta-corta { background: var(--light-bg); border-left: 4px solid var(--gold); border-radius: 0 12px 12px 0; padding: 20px 24px; margin: 22px 0 8px; }
+.respuesta-corta p { margin: 0; color: var(--text-dark); font-size: 1.05rem; }
+.page-img { width: 100%; max-height: 380px; object-fit: cover; border-radius: var(--radius-lg); margin: 24px 0 0; }
+.pub-list { list-style: none !important; padding-left: 0 !important; }
+.pub { border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; }
+.pub > a { font-weight: 600; color: var(--navy) !important; }
+.pub-meta { font-size: .82rem; }
+.pub-resumen { font-size: .9rem; }
+.doc-minis { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.doc-mini { display: flex; gap: 12px; align-items: center; border: 1px solid var(--border); border-radius: 12px; padding: 10px; text-decoration: none !important; color: var(--text-dark) !important; font-size: .9rem; }
+.doc-mini img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+.page-faq details { border-bottom: 1px solid var(--border); padding: 14px 0; }
+.page-faq summary { cursor: pointer; font-weight: 600; color: var(--navy); }
+.page-faq details p { margin: 10px 0 0; }
+.page-cta { background: var(--navy); border-radius: var(--radius-lg); padding: 32px; margin-top: 56px; }
+.page-cta h2 { color: var(--white) !important; margin-top: 0 !important; }
+.page-cta p { color: rgba(255,255,255,.85) !important; }
+.page-cta a { color: var(--gold-light); }
+.page-cta-btns { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
+.page-cta-btns .btn { text-decoration: none !important; }
+.btn-outline-navy { border: 2px solid rgba(255,255,255,.6); color: var(--white) !important; }
+.page-cta-dir { font-size: .85rem; margin: 0 !important; }
+.doc-cabecera { display: flex; gap: 24px; align-items: center; }
+.doc-cabecera img { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.doc-rol { font-weight: 600; color: var(--gold) !important; margin-bottom: 6px !important; }
+.doc-registro { font-size: .85rem; }
+.doc-registro i { color: #2E8B57; }
+@media (max-width: 640px) {
+    .doc-cabecera { flex-direction: column; align-items: flex-start; }
+    .doc-cabecera img { width: 110px; height: 110px; }
+    .page-cta { padding: 24px 20px; }
+}
+
+/* Portada: enlaces estáticos al perfil de cada doctor y guías (los leen buscadores e IAs) */
+.team-profile-link { display: inline-block; margin-top: 8px; font-size: .78rem; font-weight: 600; color: var(--gold-light); text-decoration: underline; text-underline-offset: 2px; }
+.guias-pacientes { margin-top: 48px; text-align: center; }
+.guias-pacientes h3 { color: var(--navy); margin-bottom: 16px; }
+.guias-pacientes ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.guias-pacientes a { display: inline-block; padding: 10px 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--white); color: var(--navy); font-size: .9rem; font-weight: 500; }
+.guias-pacientes a:hover { border-color: var(--gold); }
+.hero-content h1.hero-eyebrow { font-family: var(--font-body); font-size: .82rem; font-weight: 500; line-height: 1.5; text-shadow: none; margin-bottom: 20px; }
+.page-content { overflow-wrap: anywhere; }
+.modal-perfil-link { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; }
