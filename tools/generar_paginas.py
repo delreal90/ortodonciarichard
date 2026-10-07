@@ -866,7 +866,9 @@ def archivo_redireccion(ruta):
 def html_redireccion(ruta, destino):
     prof = ruta.rstrip('/').count('/') + (1 if ruta.endswith('/') else 0)
     rel = '../' * prof + destino
-    absoluta = SITIO + destino
+    # A Google se le declara la página, sin el #sección; la portada es la raíz del sitio.
+    pagina_dest = destino.split('#')[0]
+    absoluta = SITIO + ('' if pagina_dest == 'index.html' else pagina_dest)
     return ('<!DOCTYPE html>\n<html lang="es"><head><meta charset="utf-8"/>'
             '<title>Ortodoncia Richard</title>'
             '<link rel="canonical" href="%s"/>'
