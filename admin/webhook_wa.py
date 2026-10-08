@@ -33,9 +33,17 @@ Reglas de negocio:
                   (recaptacion.marcar_respondio) y avisa a recepcion. NO toca
                   DentiDesk -- no hay cita vigente que actualizar.
 
-Ignora cualquier evento que no sea un toque de boton (mensajes de texto libre,
-recibos de entrega/lectura, etc.) -- esos se ven manualmente en la bandeja de
-Meta Business Suite, no los procesa este bot.
+  - Mensaje de TEXTO LIBRE (o audio/imagen/documento/video/sticker/ubicacion) ->
+                  el paciente escribio a mano en vez de tocar un boton. El bot no
+                  lo contesta (lo hace recepcion desde la bandeja de Meta Business
+                  Suite) pero SI avisa: correo a recepcion con nombre, telefono,
+                  hora y texto, maximo uno por telefono cada 30 min (los demas se
+                  acumulan), y, solo FUERA del horario de atencion, una
+                  auto-respuesta por telefono cada 12 h. Ver mensajes_libres.py.
+                  Los ecos de la propia clinica no se avisan.
+
+Ignora los recibos de entrega/lectura (eventos 'statuses', que ni siquiera
+llegan a este modulo como mensajes) y los botones que no maneja.
 """
 
 import logging
@@ -43,6 +51,7 @@ from datetime import datetime
 
 import dentidesk
 import llamadas_perdidas
+import mensajes_libres
 import notify
 import nps
 import pacientes
@@ -95,6 +104,8 @@ def procesar_evento(payload, cfg):
                     contactos[wa_id] = nombre_perfil
             for msg in valor.get('messages', []) or []:
                 try:
+                    if mensajes_libres.es_de_la_clinica(msg, valor, cfg):
+                        continue  # eco de un mensaje nuestro: no es un paciente
                     if _procesar_mensaje(msg, cfg, contactos):
                         procesados += 1
                 except Exception as e:
@@ -108,6 +119,10 @@ def procesar_evento(payload, cfg):
                         procesados += 1
                 except Exception as e:
                     log.error('Error procesando llamada de webhook: %s', e)
+    # Oportunista y DESPUES de los mensajes (asi un mensaje nuevo viaja junto con
+    # lo acumulado en un solo correo): manda lo que quedo retenido por la ventana
+    # anti-inundacion de mensajes libres y ya vencio. Nunca lanza.
+    mensajes_libres.enviar_vencidos()
     return {'ok': True, 'procesados': procesados}
 
 
@@ -168,7 +183,9 @@ def _procesar_llamada(llamada, cfg, contactos=None):
 
 def _procesar_mensaje(msg, cfg, contactos=None):
     if msg.get('type') != 'button':
-        return False  # texto libre / estados de entrega: no los maneja el bot
+        # Texto libre, audio, imagen...: el bot no contesta, pero recepcion tiene
+        # que enterarse (nunca lanza: un fallo ahi no puede tumbar el webhook).
+        return mensajes_libres.procesar(msg, cfg, contactos)
 
     boton = msg.get('button') or {}
     texto = (boton.get('text') or '').strip()

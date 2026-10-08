@@ -278,5 +278,95 @@ class TestParametrosAgenda(unittest.TestCase):
                 self.assertEqual(r.mimetype, 'application/json')
 
 
+def _rut_con_dv(cuerpo):
+    """RUT valido (con digito verificador) a partir de un numero inventado."""
+    s, m = 0, 2
+    for d in reversed(str(cuerpo)):
+        s += int(d) * m
+        m = 2 if m == 7 else m + 1
+    dv = 11 - (s % 11)
+    dv = '0' if dv == 11 else 'K' if dv == 10 else str(dv)
+    return f'{cuerpo}-{dv}'
+
+
+class TestLimitesDeVelocidad(unittest.TestCase):
+    """Los topes contra abusos. En 12 rutas de la agenda el @rate_limit estaba ARRIBA
+    del @app.route: Flask registraba la funcion sin envolver y el tope no existia
+    (80 de 80 consultas aceptadas en /api/agenda/paciente). Nadie lo noto porque
+    ninguna prueba lo miraba."""
+
+    def setUp(self):
+        self.client = server.app.test_client()
+        if server.limiter:
+            server.limiter.reset()
+        server._RUTS_POR_IP.clear()
+
+    def test_rate_limit_siempre_debajo_de_app_route(self):
+        """El decorador de mas abajo se aplica primero: @app.route tiene que ir ARRIBA
+        para registrar la funcion ya envuelta por el limite."""
+        lineas = (Path(__file__).parent / 'server.py').read_text(encoding='utf-8').splitlines()
+        mal = [i + 1 for i in range(len(lineas) - 1)
+               if lineas[i].startswith('@rate_limit(') and lineas[i + 1].startswith('@app.route(')]
+        self.assertEqual(mal, [], f'@rate_limit sobre @app.route en las lineas {mal}')
+
+    @unittest.skipUnless(server.limiter, 'flask-limiter no instalado')
+    def test_buscar_rut_se_frena_a_los_10_por_minuto(self):
+        rut = _rut_con_dv(11111111)
+        codigos = [self.client.get(f'/api/agenda/paciente?rut={rut}').status_code
+                   for _ in range(11)]
+        self.assertNotIn(429, codigos[:10])
+        self.assertEqual(codigos[10], 429)
+
+    def _consultar(self, rut, ip='10.0.0.1'):
+        with server.app.test_request_context(environ_base={'REMOTE_ADDR': ip}):
+            return server._tope_ruts_excedido(rut)
+
+    def test_tope_de_20_rut_distintos_por_dispositivo(self):
+        ruts = [_rut_con_dv(10000000 + i) for i in range(21)]
+        for rut in ruts[:20]:
+            self.assertFalse(self._consultar(rut))
+        self.assertTrue(self._consultar(ruts[20]), 'el RUT numero 21 deberia frenarse')
+
+    def test_repetir_un_rut_ya_visto_no_cuenta(self):
+        """Reintentos, volver atras, doble clic: el mismo RUT no gasta cupo."""
+        ruts = [_rut_con_dv(10000000 + i) for i in range(20)]
+        for rut in ruts:
+            self._consultar(rut)
+        for _ in range(5):
+            self.assertFalse(self._consultar(ruts[0]))
+
+    def test_el_tope_es_por_dispositivo(self):
+        for i in range(20):
+            self._consultar(_rut_con_dv(10000000 + i), ip='10.0.0.1')
+        self.assertFalse(self._consultar(_rut_con_dv(20000000), ip='10.0.0.2'))
+
+    def test_pasada_una_hora_se_libera(self):
+        ruts = [_rut_con_dv(10000000 + i) for i in range(21)]
+        for rut in ruts[:20]:
+            self._consultar(rut)
+        for vistos in server._RUTS_POR_IP.values():
+            for k in vistos:
+                vistos[k] -= 3601
+        self.assertFalse(self._consultar(ruts[20]))
+
+    def test_la_respuesta_lleva_codigo_para_que_el_sitio_no_reintente(self):
+        """Con 'codigo' el frontend no reintenta el 429 y sigue como paciente nuevo:
+        una persona real igual puede agendar escribiendo sus datos."""
+        for i in range(20):
+            self._consultar(_rut_con_dv(10000000 + i), ip='127.0.0.1')
+        r = self.client.get(f'/api/agenda/paciente?rut={_rut_con_dv(30000000)}')
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.get_json().get('codigo'), 'tope_rut')
+
+    def test_con_admin_token_no_hay_tope(self):
+        os.environ['ADMIN_TOKEN'] = 'tok-prueba'
+        try:
+            for i in range(25):
+                with server.app.test_request_context(headers={'X-Admin-Token': 'tok-prueba'}):
+                    self.assertFalse(server._tope_ruts_excedido(_rut_con_dv(10000000 + i)))
+        finally:
+            os.environ.pop('ADMIN_TOKEN', None)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

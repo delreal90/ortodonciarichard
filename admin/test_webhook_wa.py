@@ -53,6 +53,11 @@ class _Base(unittest.TestCase):
         self.nps = mock.patch.object(webhook_wa, 'nps').start()
         self.recaptacion = mock.patch.object(webhook_wa, 'recaptacion').start()
         self.pendientes = mock.patch.object(webhook_wa, 'reagenda_pendientes').start()
+        # Los mensajes libres tienen su propia suite (test_mensajes_libres.py);
+        # aqui se aislan para que ninguna prueba mande correo ni escriba su registro.
+        self.libres = mock.patch.object(webhook_wa, 'mensajes_libres').start()
+        self.libres.es_de_la_clinica.return_value = False
+        self.libres.procesar.return_value = False
         self.nps.load_config.return_value = {'review_url': 'https://g.page/x/review'}
         self.dentidesk.info_cita.return_value = None
         self.addCleanup(mock.patch.stopall)
@@ -83,13 +88,15 @@ class TestParseoDePayload(_Base):
                 self.assertEqual(r['procesados'], 0)
                 self.dentidesk.actualizar_estado_cita.assert_not_called()
 
-    def test_mensaje_que_no_es_boton_se_ignora(self):
-        """Texto libre y recibos de entrega no los maneja el bot."""
+    def test_mensaje_que_no_es_boton_no_toca_dentidesk(self):
+        """Texto libre, imagen y recibos nunca tocan la agenda: el texto libre
+        se delega a mensajes_libres (avisa a recepcion, ver su suite)."""
         for t in ('text', 'image', 'status'):
             with self.subTest(tipo=t):
                 r = webhook_wa.procesar_evento(
                     evento('dia:123:2026-08-03', 'Confirmo', tipo_msg=t), CFG)
-                self.assertEqual(r['procesados'], 0)
+                self.assertEqual(r['procesados'], 0)  # el doble devuelve False
+        self.libres.procesar.assert_called()
         self.dentidesk.actualizar_estado_cita.assert_not_called()
 
 

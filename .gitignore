@@ -166,6 +166,10 @@ dentidesk-assistant/
 # Llamadas de WhatsApp que nadie pudo contestar: lleva RUT y telefono.
 admin/llamadas_registro.json
 
+# Mensajes de texto libre que los pacientes escriben al WhatsApp de la clinica
+# (mensajes_libres.py): lleva telefonos y el TEXTO de lo que escribieron.
+admin/mensajes_libres.json
+
 # Perfil de pacientes (perfil.py / referidos.py / geocodificar.py) — NUNCA a git.
 # fichas_perfil: lo que contestó cada paciente en la ficha (con nombres de quien
 # lo recomendó). referidos_config: confirmaciones del panel (nombres de terceros).

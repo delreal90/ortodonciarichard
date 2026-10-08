@@ -58,6 +58,7 @@ SUITES = [
     ('loops',        'test_loops.py',        'los hilos del scheduler: ninguna variable se lee antes de existir'),
     ('carpetas',     'test_carpetas.py',     'carpeta de fotos del paciente: la inicial suelta no es un comodin'),
     ('llamadas',     'test_llamadas.py',     'llamadas de WhatsApp que nadie puede contestar: rechazar, responder, avisar'),
+    ('mensajes_libres', 'test_mensajes_libres.py', 'mensajes escritos al WhatsApp: aviso a recepcion sin inundar, auto-respuesta fuera de horario'),
     ('respaldos',    'test_vigilante_respaldos.py', 'vigilante de respaldos: avisa a los 4 dias, no todos los dias'),
     ('rendimiento', 'test_rendimiento_agenda.py', 'agenda online: citas-futuras con cache, /api/salud, lentas y marcas de KPIs'),
 ]

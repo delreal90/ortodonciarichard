@@ -714,6 +714,7 @@ import notify
 import wa_cloud
 import recordatorios_wa
 import webhook_wa
+import mensajes_libres
 import recaptacion
 import control_dental
 import fotos_finales   # aviso de collage post-tratamiento, ver fotos_finales.py
@@ -860,16 +861,63 @@ def agenda_config():
                     'turnstile_sitekey': os.environ.get('TURNSTILE_SITEKEY', ''),
                     'sabias_que': [s for s in (cfg.get('sabias_que') or []) if isinstance(s, str) and s.strip()]})
 
+# Tope de RUT DISTINTOS por IP (dispositivo) y por hora, comun a /paciente y
+# /citas-futuras. El 10/min de cada ruta frena la rafaga; esto frena el barrido
+# lento (10/min son 600 RUT por hora). 20 alcanza para una familia que agenda a
+# varios hijos y para reintentos: repetir un RUT ya visto no cuenta. Al pasarse
+# responde 429 con 'codigo' -> el frontend NO reintenta y sigue como paciente
+# nuevo (sin datos precargados), asi que una persona real igual puede agendar.
+# En memoria: un solo worker en Render; un reinicio solo lo resetea.
+import threading as _threading_mod
+
+TOPE_RUTS_POR_HORA = 20
+_RUTS_POR_IP = {}            # ip -> {rut_limpio: monotonic de la primera vez}
+_RUTS_POR_IP_LOCK = _threading_mod.Lock()
+
+
+def _tope_ruts_excedido(rut):
+    """True si esta IP ya consulto TOPE_RUTS_POR_HORA RUT distintos en la ultima
+    hora y `rut` es uno nuevo. Registra el RUT si no se excede. Con ADMIN_TOKEN
+    valido nunca se excede (pruebas y herramientas internas)."""
+    if os.environ.get('ADMIN_TOKEN') and _check_admin_token():
+        return False
+    ahora = _time.monotonic()
+    ip = request.remote_addr or '?'
+    clave = scheduling.limpiar_rut(rut)
+    with _RUTS_POR_IP_LOCK:
+        vistos = {r: t for r, t in _RUTS_POR_IP.get(ip, {}).items() if ahora - t < 3600}
+        if clave not in vistos and len(vistos) >= TOPE_RUTS_POR_HORA:
+            _RUTS_POR_IP[ip] = vistos
+            return True
+        vistos.setdefault(clave, ahora)
+        _RUTS_POR_IP[ip] = vistos
+        if len(_RUTS_POR_IP) > 5000:   # poda de IPs sin actividad reciente
+            for k in [k for k, v in _RUTS_POR_IP.items()
+                      if not v or ahora - max(v.values()) >= 3600]:
+                _RUTS_POR_IP.pop(k, None)
+    return False
+
+
+def _respuesta_tope_ruts():
+    app.logger.warning('tope de RUT por hora alcanzado desde una IP (%d distintos)',
+                       TOPE_RUTS_POR_HORA)
+    return jsonify({'ok': False, 'codigo': 'tope_rut',
+                    'error': 'Demasiadas consultas desde este dispositivo. '
+                             'Intente nuevamente en una hora.'}), 429
+
+
 # 10/min: es un oraculo de "existe este RUT como paciente". Ningun humano
 # agendando necesita mas de 10 consultas por minuto, y 40 permitian barrer RUTs
 # (que son secuenciales y con digito verificador calculable) mucho mas rapido.
-@rate_limit('10 per minute')
 @app.route('/api/agenda/paciente', methods=['GET'])
+@rate_limit('10 per minute')
 def agenda_paciente():
     """Valida el RUT y lo cruza con DentiDesk. Devuelve si existe + datos precargados."""
     rut = request.args.get('rut', '')
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    if _tope_ruts_excedido(rut):
+        return _respuesta_tope_ruts()
     info = dentidesk.buscar_paciente(rut)
 
     # Menu filtrado (paciente_estado): solo la CATEGORIA y las KEYS de motivos
@@ -983,8 +1031,8 @@ def _refrescar_dia_reservado(doctor, d, cfg):
             pass
     _threading.Thread(target=job, daemon=True).start()
 
-@rate_limit('30 per minute')
 @app.route('/api/agenda/disponibilidad', methods=['GET'])
+@rate_limit('30 per minute')
 def agenda_disponibilidad():
     """Horas disponibles para (doctor, motivo) en los proximos dias habiles.
     Consulta los dias en paralelo (cada dia es una llamada a DentiDesk)."""
@@ -1042,8 +1090,8 @@ def agenda_disponibilidad():
 # nuevo desde el mismo link -- ya fue cancelada, reagendada o atendida).
 _ESTADOS_NO_REAGENDABLES = ('cancel', 'reagend', 're-agend', 'atendid', 'no seguir')
 
-@rate_limit('30 per minute')
 @app.route('/api/agenda/reagendar-info', methods=['GET'])
+@rate_limit('30 per minute')
 def agenda_reagendar_info():
     """Datos de la cita ORIGINAL para precargar el flujo de reagendar (doctor +
     motivo, de solo lectura -- el paciente no puede cambiarlos). id_agenda +
@@ -1112,8 +1160,8 @@ def agenda_reagendar_info():
         'solo_manana': solo_manana,
     })
 
-@rate_limit('30 per minute')
 @app.route('/api/agenda/disponibilidad-reagendar', methods=['GET'])
+@rate_limit('30 per minute')
 def agenda_disponibilidad_reagendar():
     """Igual que /api/agenda/disponibilidad, pero por DURACION (no motivo) --
     la usa el flujo de reagendar, que preserva el motivo original de la cita
@@ -1205,8 +1253,8 @@ def _sugerir_motivos_similares(cfg, label_normalizado, n=5, cutoff=0.4):
             out.append({'label': label, 'id_reason': id_reason})
     return out[:n]
 
-@rate_limit('30 per minute')
 @app.route('/api/agenda/diagnostico-reagenda', methods=['GET'])
+@rate_limit('30 per minute')
 def agenda_diagnostico_reagenda():
     """Diagnostico de un caso puntual de reagendar (ADMIN_TOKEN). A diferencia
     de /api/agenda/reagendar-info (que corta y devuelve en el PRIMER error),
@@ -1285,8 +1333,8 @@ def agenda_diagnostico_reagenda():
 
     return jsonify({'ok': True, 'id_agenda': id_agenda, 'fecha': fecha_str, 'pasos': pasos})
 
-@rate_limit('10 per minute')
 @app.route('/api/agenda/diagnostico-motivos', methods=['GET'])
+@rate_limit('10 per minute')
 def agenda_diagnostico_motivos():
     """Barrido PROACTIVO (ADMIN_TOKEN): recorre los ultimos `dias` dias de
     agenda (default 5, tope 30) y lista los motivos (Reason) que NO resuelven a
@@ -1586,8 +1634,8 @@ def _verificar_turnstile(token):
     except Exception:
         return False  # ante error de verificacion, mejor rechazar
 
-@rate_limit('10 per minute')
 @app.route('/api/agenda/reservar', methods=['POST'])
+@rate_limit('10 per minute')
 def agenda_reservar():
     """Crea la cita en DentiDesk y dispara la confirmacion (WhatsApp / email)."""
     data = request.json or {}
@@ -1833,8 +1881,8 @@ def agenda_reservar():
                     'solicitud_cambio': es_no_soy_yo or es_completar,
                     'reagenda': es_reagenda})
 
-@rate_limit('10 per minute')
 @app.route('/api/agenda/reservar-reagenda', methods=['POST'])
+@rate_limit('10 per minute')
 def agenda_reservar_reagenda():
     """Reagenda preservando el motivo y la duracion ORIGINALES de la cita
     vieja -- el paciente NO elige motivo (a diferencia de /api/agenda/reservar
@@ -2022,8 +2070,8 @@ def agenda_reservar_reagenda():
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'reagenda': True})
 
-@rate_limit('10 per minute')
 @app.route('/api/agenda/reservar-estudio', methods=['POST'])
+@rate_limit('10 per minute')
 def agenda_reservar_estudio():
     """Estudio Integral de Ortodoncia: agenda las DOS citas (Registros +
     Explicacion del Plan) en una sola operacion. Reglas:
@@ -2377,8 +2425,8 @@ _CITAS_FUT_TTL = 60
 _CITAS_FUT_LOCK = _threading.Lock()
 
 
-@rate_limit('10 per minute')
 @app.route('/api/agenda/citas-futuras', methods=['GET'])
+@rate_limit('10 per minute')
 def agenda_citas_futuras():
     """Citas activas futuras del paciente (por RUT), para avisar de doble
     agendamiento. Escaneo en segundo plano desde el frontend (tarda unos segundos).
@@ -2396,6 +2444,8 @@ def agenda_citas_futuras():
                 rut = resuelto_link['rut']
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
+    if _tope_ruts_excedido(rut):
+        return _respuesta_tope_ruts()
     # Cache corto por RUT: absorbe reintentos y dobles clics sin volver a barrer la agenda.
     clave = scheduling.limpiar_rut(rut)
     ahora = _time.monotonic()
@@ -2569,8 +2619,8 @@ def asistente_link_agenda():
 
 # 10/min: mismo criterio que /api/agenda/paciente -- es un oraculo (dado un
 # token, dice si hay un paciente detras), asi que va con el mismo limite bajo.
-@rate_limit('10 per minute')
 @app.route('/api/agenda/link-info', methods=['GET'])
+@rate_limit('10 per minute')
 def agenda_link_info():
     """Resuelve un token de link pre-cargado para que la pagina de agenda
     salte directo a elegir hora. PUBLICA (el paciente la abre sin sesion) --
@@ -2613,8 +2663,8 @@ def agenda_link_info():
     })
 
 
-@rate_limit('120 per minute')
 @app.route('/api/agenda/evento', methods=['POST'])
+@rate_limit('120 per minute')
 def agenda_evento():
     """Telemetria anonima del flujo de agendamiento (para el embudo). Sin datos
     personales: solo un id de sesion anonimo, el paso, y latencia opcional."""
@@ -8295,6 +8345,10 @@ def _loop_reagenda_pendientes():
                     print('[reagenda-pendientes]', r)
         except Exception as e:
             print('[reagenda-pendientes] error:', e)
+        # Mismo ciclo de 1 minuto: los mensajes libres de WhatsApp que quedaron
+        # retenidos por la ventana anti-inundacion salen apenas vence, aunque no
+        # llegue otro evento del webhook. No depende de DentiDesk y nunca lanza.
+        mensajes_libres.enviar_vencidos()
         time.sleep(60)
 
 

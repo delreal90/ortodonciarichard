@@ -20,6 +20,7 @@ import ssl
 import smtplib
 import logging
 from datetime import date
+from html import escape as _escapar_html
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -597,6 +598,48 @@ def avisar_recepcion_anulacion(id_agenda, telefono, nombre=''):
     filas = _fila('Cita', id_agenda) + _fila('Paciente', nombre) + _fila('Teléfono', telefono)
     html = _aviso_recepcion_html('Un paciente anuló su hora por WhatsApp', filas)
     return _enviar_email_recepcion(f'Anulación por WhatsApp — cita {id_agenda}', html)
+
+
+URL_BANDEJA_META = 'https://business.facebook.com/latest/inbox/whatsapp'
+
+
+def _texto_seguro(valor, largo=120):
+    """Dato que escribio un tercero (nombre de perfil de WhatsApp, etc.) para ir
+    al ASUNTO de un correo: sin saltos de linea ni caracteres de control
+    (inyeccion de cabeceras) y con largo acotado."""
+    limpio = ''.join(c if c.isprintable() else ' ' for c in str(valor or ''))
+    return ' '.join(limpio.split())[:largo]
+
+
+def avisar_recepcion_mensaje_libre(nombre, telefono, mensajes, registrado=True):
+    """Un paciente escribio al WhatsApp de la clinica con TEXTO LIBRE (no tocó un
+    boton). Ese numero vive en la Cloud API: nadie ve el mensaje salvo en la
+    bandeja de Meta Business Suite, y nadie la mira sola. Este correo es el
+    aviso para que recepcion entre a contestar.
+
+    mensajes: lista de (hora_legible, texto) -- puede traer varios si el
+    paciente escribio mas de una vez dentro de la ventana anti-inundacion (ver
+    mensajes_libres.py). `registrado=False` cuando el numero no calza con
+    ningun paciente: se avisa igual, diciendolo."""
+    nombre_seguro = _texto_seguro(nombre)
+    if nombre_seguro and registrado:
+        quien = _escapar_html(nombre_seguro)
+    elif nombre_seguro:
+        quien = f'{_escapar_html(nombre_seguro)} (número no registrado)'
+    else:
+        quien = 'Número no registrado'
+    filas = _fila('Paciente', quien) + _fila('Teléfono', _escapar_html(_texto_seguro(telefono, 40)))
+    for hora, texto in mensajes:
+        cuerpo = _escapar_html(str(texto or '')).replace(chr(10), '<br>')
+        filas += _fila(f'Mensaje ({_escapar_html(str(hora))})', cuerpo)
+    filas += _fila('Responder en',
+                   f'<a href="{URL_BANDEJA_META}">Meta Business Suite — bandeja de WhatsApp</a>'
+                   f'<br><span style="color:#64748b;font-size:12px">{URL_BANDEJA_META}</span>')
+    html = _aviso_recepcion_html(
+        'Un paciente escribió al WhatsApp de la clínica', filas)
+    asunto = (f'WhatsApp: mensaje de {nombre_seguro or _texto_seguro(telefono, 40)}'
+              ' — responder en Meta Business Suite')
+    return _enviar_email_recepcion(asunto, html)
 
 
 def avisar_recepcion_quiere_reagendar(id_agenda, telefono, nombre='', fecha=''):
