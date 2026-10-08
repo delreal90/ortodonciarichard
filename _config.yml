@@ -1,0 +1,20 @@
+# GitHub Pages arma el sitio con Jekyll a partir de TODO el repositorio. Sin esta
+# lista, www.ortodonciarichard.cl publicaba tambien el codigo del servidor y la
+# documentacion interna (CLAUDE.md con datos del negocio, admin/server.py, ...).
+# Dejar el repo privado NO lo evita: Pages sigue publicando lo que hay en la rama.
+#
+# Solo se excluye lo que no es parte del sitio. Si agregas otra carpeta o archivo
+# interno en la raiz, sumalo aca. Las paginas publicas (*.html, images/, css/, js/,
+# blog/, post/, team/, llms.txt, robots.txt, sitemap.xml, la clave de IndexNow)
+# NO van en esta lista.
+exclude:
+  - admin
+  - tools
+  - CLAUDE.md
+  - RESUMEN-PROYECTO.md
+  - BASE-DE-DATOS.md
+  - README.md
+  - render.yaml
+  - requirements.txt
+  - Panel Admin.bat
+  - motivos_consulta.txt
