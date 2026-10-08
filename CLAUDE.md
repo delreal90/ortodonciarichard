@@ -588,6 +588,35 @@ Por eso la defensa es **no generar esas ráfagas**, no "optimizar el código".
 reporta lentitud, **mirar eso primero**: un `uptime_s` chico = el servidor se acaba de reiniciar.
 En los logs de Render, las lentas salen como `lento: GET /api/... -> 200 en 8.4s`.
 
+### 🛡️ Los topes por IP no funcionaban en producción (arreglado 2026-10-08)
+
+Dos fallas encadenadas, y **ninguna se veía en local**:
+
+1. **Orden de decoradores.** En 12 rutas de la agenda `@rate_limit` iba **arriba** de
+   `@app.route`: Flask registraba la función sin envolver y el tope no existía.
+   `test_seguridad.TestLimitesDeVelocidad` falla si vuelve a pasar.
+2. ⚠️ **La IP.** El tráfico a `*.onrender.com` entra por **Cloudflare** y después por el
+   balanceador de Render: `request.remote_addr` (ProxyFix `x_for=1`) es una IP de
+   Cloudflare **distinta en cada request**. Con eso de llave ningún tope funcionaba (70 de
+   70 a `/api/salud`, que tiene tope 60/min). `server._ip_cliente()` usa
+   **`CF-Connecting-IP`** (Cloudflare la sobreescribe siempre) y cae a `remote_addr` en
+   local. La usan el limitador, el tope de RUT y la IP del consentimiento firmado.
+   `/api/salud` informa `topes_activos` y `ip_fuente` (sin la IP): si en Render dice
+   `remote_addr`, los topes volvieron a no funcionar.
+
+**Tope de RUT distintos:** `TOPE_RUTS_POR_HORA = 20` por IP y por hora, común a
+`/api/agenda/paciente` y `/citas-futuras` (el 10/min frena la ráfaga; esto, el barrido lento).
+Repetir un RUT ya visto no cuenta. Responde 429 **con `codigo: 'tope_rut'`** → el frontend no
+reintenta y sigue como paciente nuevo, así que una persona real igual agenda. Con
+`ADMIN_TOKEN` no hay tope. En memoria (un solo worker).
+
+**Documentación fuera del sitio:** GitHub Pages arma `www.ortodonciarichard.cl` con Jekyll a
+partir de TODO el repo, y publicaba `CLAUDE.md`, `admin/server.py`, etc. `_config.yml` (raíz)
+los excluye. ⚠️ **Dejar el repo privado NO lo evita**, y sin GitHub Pro **apaga Pages** (el
+sitio cayó así el 2026-10-08). Una carpeta o archivo interno nuevo en la raíz va a esa lista.
+Y como Render tiene `rootDir: admin`, **un push que no toca `admin/` no reinicia el
+backend** (verificado: el sitio se puede publicar de día sin cortar la agenda).
+
 **Reglas implementadas:** anticipación mínima 12h (salvo Urgencia); 5 motivos;
 simulación de ocupación mínima aparente determinista y consistente
 (65-70% próximos 5 hábiles / 45-55% semana sig. / 30-40% semana posterior),
@@ -2659,6 +2688,29 @@ no el código) y confirmar en vivo, con una llamada real, que el webhook llega �
 ocurra el sistema está probado pero no verificado contra Meta. Esconder el botón de llamar
 queda bloqueado por el límite de mensajería (ver arriba); el interruptor ya está escrito. No hay pestaña en el panel para el historial (lo cubre el adaptador de
 `clinica.db`).
+
+---
+
+## Mensajes escritos al WhatsApp: aviso a recepción (`mensajes_libres.py`, 2026-10-08)
+
+El webhook descartaba todo lo que no fuera un toque de botón, pero cinco mensajes
+automáticos le dicen al paciente "escríbanos por aquí". Lo que escribía no le llegaba a nadie
+salvo que alguien mirara la bandeja de Meta Business Suite por iniciativa propia.
+
+- **Correo a recepción** (`notify.avisar_recepcion_mensaje_libre`) con nombre (si el teléfono
+  calza con la base; si no, el nombre de perfil marcado "número no registrado"), hora, texto
+  y link a la bandeja. Audio/foto/documento salen como "[envió un audio]".
+- **Anti-inundación:** máximo **un correo por teléfono cada 30 min**; lo que llegue dentro se
+  acumula y sale junto. `enviar_vencidos()` lo despacha desde `_loop_reagenda_pendientes`
+  (cada minuto) y al final de cada evento del webhook. Si el correo falla, vuelve a pendientes.
+- **Auto-respuesta solo FUERA de horario** (`scheduling_config.json` → `horario`, L-V
+  09:00–19:30; feriados cuentan como horario), una por teléfono cada 12 h, texto libre
+  (el paciente acaba de abrir la ventana de 24 h). En horario no contesta nada el bot.
+- Se ignoran los ecos de la propia clínica y los recibos de entrega/lectura.
+- Registro `mensajes_libres.json` (jsonstore, disco persistente, **gitignored**: lleva
+  teléfonos y texto), podado a 7 días. Sin adaptador en `clinico.ADAPTADORES` a propósito:
+  es un temporizador y metería texto libre de pacientes a la base.
+- Pruebas: `test_mensajes_libres.py` (33).
 
 ---
 
