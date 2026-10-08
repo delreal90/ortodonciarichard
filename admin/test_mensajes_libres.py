@@ -68,6 +68,10 @@ class _Base(unittest.TestCase):
         self.notify = mock.patch.object(mensajes_libres, 'notify').start()
         self.notify.avisar_recepcion_mensaje_libre.return_value = True
         self.notify.enviar_texto_libre.return_value = {'ok': True}
+        # Las clases de siempre prueban QUE dice el correo y la ventana de 30 min,
+        # asi que corren sin la espera de respuesta (el correo sale en el mismo
+        # evento). La espera de 5 min se prueba aparte, en TestEsperaRespuesta.
+        mock.patch.object(mensajes_libres, 'ESPERA_RESPUESTA_MIN', 0).start()
         self.addCleanup(mock.patch.stopall)
 
     def enviar(self, *a, **kw):
@@ -373,6 +377,120 @@ class TestCorreo(unittest.TestCase):
         self.assertNotIn('\n', capturado['asunto'])        # sin inyeccion de cabeceras
         self.assertIn('responder en Meta Business Suite', capturado['asunto'])
         self.assertTrue(capturado['asunto'].startswith('WhatsApp: mensaje de '))
+
+
+def estado_saliente(cuando, telefono=TEL, mid='wamid.RESP', status='sent'):
+    """Lo que manda Meta cuando sale un mensaje del numero hacia el paciente."""
+    ts = int(cuando.replace(tzinfo=mensajes_libres.fechas.TZ_CHILE).timestamp())
+    return {'entry': [{'changes': [{'field': 'messages', 'value': {'statuses': [
+        {'id': mid, 'status': status, 'timestamp': str(ts), 'recipient_id': telefono}]}}]}]}
+
+
+class TestEsperaRespuesta(_Base):
+    """Pedido del usuario: el correo llegaba antes de que recepcion alcanzara a
+    contestar. Ahora sale solo si pasan 5 minutos sin que nadie le responda."""
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.object(mensajes_libres, 'ESPERA_RESPUESTA_MIN', 5).start()
+        mensajes_libres.wa_cloud._IDS_PROPIOS.clear()
+
+    def barrer(self):
+        return mensajes_libres.enviar_vencidos()
+
+    def test_sin_respuesta_el_correo_sale_a_los_5_minutos(self):
+        self.enviar('Hola, tengo una duda')
+        self.assertEqual(len(self.correos), 0)
+        self.avanzar(minutes=4)
+        self.barrer()
+        self.assertEqual(len(self.correos), 0)
+        self.avanzar(minutes=1)
+        self.barrer()
+        self.assertEqual(len(self.correos), 1)
+
+    def test_si_recepcion_contesta_no_sale_correo(self):
+        self.enviar('Hola, tengo una duda')
+        self.avanzar(minutes=2)
+        antes = mensajes_libres.respuestas_vistas()
+        webhook_wa.procesar_evento(estado_saliente(self.reloj[0]), CFG)
+        self.assertEqual(mensajes_libres.respuestas_vistas(), antes + 1)
+        self.avanzar(minutes=10)
+        self.barrer()
+        self.assertEqual(len(self.correos), 0)
+
+    def test_un_mensaje_automatico_nuestro_no_cuenta_como_respuesta(self):
+        """La auto-respuesta, el 'gracias' de un boton, un recordatorio: los manda
+        el sistema, no una persona. No pueden callar el aviso."""
+        self.enviar('Hola, tengo una duda')
+        mensajes_libres.wa_cloud._anotar_propio('wamid.BOT')
+        self.avanzar(minutes=1)
+        webhook_wa.procesar_evento(estado_saliente(self.reloj[0], mid='wamid.BOT'), CFG)
+        self.avanzar(minutes=5)
+        self.barrer()
+        self.assertEqual(len(self.correos), 1)
+
+    def test_lo_que_escribe_despues_de_la_respuesta_vuelve_a_esperar(self):
+        self.enviar('Primera pregunta')
+        self.avanzar(minutes=1)
+        webhook_wa.procesar_evento(estado_saliente(self.reloj[0]), CFG)
+        self.avanzar(minutes=1)
+        self.enviar('Y otra cosa mas')
+        self.avanzar(minutes=5)
+        self.barrer()
+        self.assertEqual(len(self.correos), 1)
+        textos = [t for _, t in self.correos[0][0][2]]
+        self.assertEqual(textos, ['Y otra cosa mas'])
+
+    def test_un_aviso_atrasado_de_una_respuesta_vieja_no_despeja_lo_nuevo(self):
+        """Meta puede entregar tarde el 'sent' de una respuesta anterior: manda la
+        hora en que salio ese mensaje, no la hora en que llego el aviso."""
+        hace_rato = self.reloj[0] - timedelta(minutes=20)
+        self.enviar('Hola, tengo una duda')
+        webhook_wa.procesar_evento(estado_saliente(hace_rato), CFG)
+        self.avanzar(minutes=5)
+        self.barrer()
+        self.assertEqual(len(self.correos), 1)
+
+    def test_solo_cuenta_el_sent(self):
+        """'delivered' y 'read' de nuestros propios mensajes llegan despues y no
+        son una respuesta nueva."""
+        self.enviar('Hola, tengo una duda')
+        self.avanzar(minutes=1)
+        webhook_wa.procesar_evento(estado_saliente(self.reloj[0], status='read'), CFG)
+        self.avanzar(minutes=5)
+        self.barrer()
+        self.assertEqual(len(self.correos), 1)
+
+    def test_el_eco_de_la_app_tambien_cuenta_como_respuesta(self):
+        self.enviar('Hola, tengo una duda')
+        self.avanzar(minutes=1)
+        ts = int(self.reloj[0].replace(tzinfo=mensajes_libres.fechas.TZ_CHILE).timestamp())
+        webhook_wa.procesar_evento({'entry': [{'changes': [{'value': {'smb_message_echoes': [
+            {'from': '56900000001', 'to': TEL, 'id': 'wamid.ECO', 'timestamp': str(ts),
+             'type': 'text', 'text': {'body': 'Hola, le ayudo'}}]}}]}]}, CFG)
+        self.avanzar(minutes=5)
+        self.barrer()
+        self.assertEqual(len(self.correos), 0)
+
+    def test_la_respuesta_a_otro_paciente_no_despeja_este(self):
+        self.enviar('Hola, tengo una duda')
+        self.avanzar(minutes=1)
+        webhook_wa.procesar_evento(estado_saliente(self.reloj[0], telefono='56977770000'), CFG)
+        self.avanzar(minutes=5)
+        self.barrer()
+        self.assertEqual(len(self.correos), 1)
+
+    def test_el_nombre_de_perfil_llega_al_correo_aunque_salga_despues(self):
+        self.enviar('Hola', perfil='Juan Inventado')
+        self.avanzar(minutes=5)
+        self.barrer()
+        self.assertEqual(self.correos[0][0][0], 'Juan Inventado')
+
+    def test_lo_que_manda_wa_cloud_queda_anotado_como_propio(self):
+        mensajes_libres.wa_cloud._anotar_propio('wamid.A')
+        self.assertTrue(mensajes_libres.wa_cloud.es_mensaje_propio('wamid.A'))
+        self.assertFalse(mensajes_libres.wa_cloud.es_mensaje_propio('wamid.B'))
+        self.assertFalse(mensajes_libres.wa_cloud.es_mensaje_propio(None))
 
 
 if __name__ == '__main__':

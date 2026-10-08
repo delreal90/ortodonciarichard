@@ -127,8 +127,32 @@ def _post(payload, endpoint='messages', api_version=None):
         data = resp.json()
     except ValueError:
         raise WhatsAppCloudError(f'Respuesta invalida de Meta (no es JSON): {resp.text[:300]}')
-    return {'ok': True, 'mock': False, 'raw': data,
-            'message_id': (data.get('messages') or [{}])[0].get('id')}
+    mid = (data.get('messages') or [{}])[0].get('id')
+    if mid:
+        _anotar_propio(mid)
+    return {'ok': True, 'mock': False, 'raw': data, 'message_id': mid}
+
+
+# Ids (wamid) de los mensajes que mando ESTE sistema. Meta avisa por el webhook
+# ('statuses') de cada mensaje que sale del numero; mensajes_libres.py usa eso
+# para saber si recepcion ya le contesto a un paciente, y tiene que poder
+# distinguir una respuesta de una persona de un mensaje automatico nuestro
+# (la auto-respuesta, el "gracias" de un boton, un recordatorio). En memoria:
+# tras un reinicio se pierden los de los ultimos minutos, y lo peor que eso
+# causa es que un correo a recepcion no salga si justo coincidio.
+_IDS_PROPIOS = {}
+_IDS_PROPIOS_MAX = 5000
+
+
+def _anotar_propio(mid):
+    _IDS_PROPIOS[mid] = True
+    while len(_IDS_PROPIOS) > _IDS_PROPIOS_MAX:
+        _IDS_PROPIOS.pop(next(iter(_IDS_PROPIOS)), None)
+
+
+def es_mensaje_propio(mid):
+    """True si `mid` lo envio este sistema (no una persona desde la bandeja)."""
+    return bool(mid) and mid in _IDS_PROPIOS
 
 
 def _param(texto):

@@ -110,6 +110,10 @@ def procesar_evento(payload, cfg):
                         procesados += 1
                 except Exception as e:
                     log.error('Error procesando mensaje de webhook: %s', e)
+            # Mensajes que SALIERON del numero hacia un paciente sin que los
+            # mandara este sistema (recepcion contesto desde la bandeja): asi el
+            # aviso de mensajes libres no llega si ya le respondieron. Nunca lanza.
+            mensajes_libres.procesar_salientes(valor, cfg)
             # Llamadas entrantes (field 'calls'). Van en su propio try/except y
             # DESPUES de los mensajes: una llamada mal formada no puede dejar
             # sin procesar la confirmacion de cita que venia en el mismo POST.

@@ -2700,9 +2700,21 @@ salvo que alguien mirara la bandeja de Meta Business Suite por iniciativa propia
 - **Correo a recepción** (`notify.avisar_recepcion_mensaje_libre`) con nombre (si el teléfono
   calza con la base; si no, el nombre de perfil marcado "número no registrado"), hora, texto
   y link a la bandeja. Audio/foto/documento salen como "[envió un audio]".
-- **Anti-inundación:** máximo **un correo por teléfono cada 30 min**; lo que llegue dentro se
-  acumula y sale junto. `enviar_vencidos()` lo despacha desde `_loop_reagenda_pendientes`
-  (cada minuto) y al final de cada evento del webhook. Si el correo falla, vuelve a pendientes.
+- **El correo espera 5 minutos** (`ESPERA_RESPUESTA_MIN`, pedido del usuario el mismo día:
+  avisando al instante llegaba antes de que recepción alcanzara a contestar). Si en ese lapso
+  sale un mensaje del número hacia ese paciente que **no mandó este sistema**, el correo no sale.
+  Se detecta por el webhook: `statuses` con `status: 'sent'` y `recipient_id` del paciente, o
+  ecos (`message_echoes` / `smb_message_echoes`). Lo que manda el propio sistema se reconoce por
+  su id (`wa_cloud.es_mensaje_propio`, en memoria). Se usa la hora del aviso de Meta, no la de
+  llegada: un `sent` atrasado de una respuesta vieja no despeja mensajes nuevos.
+  ⚠️ **Si Meta no avisa de lo que se responde desde la bandeja, el correo sale igual a los 5
+  min**: nunca menos aviso que antes. `/api/salud` → `wa_respuestas_detectadas` cuenta las
+  detectadas desde el arranque; si recepción contesta y sigue en 0, ese es el caso (y quizás
+  falta suscribir `smb_message_echoes` en el webhook de la app de Meta).
+- **Anti-inundación:** además, máximo **un correo por teléfono cada 30 min**; lo que llegue
+  dentro se acumula y sale junto. `enviar_vencidos()` lo despacha desde
+  `_loop_reagenda_pendientes` (cada minuto) y al final de cada evento del webhook. Si el
+  correo falla, vuelve a pendientes.
 - **Auto-respuesta solo FUERA de horario** (`scheduling_config.json` → `horario`, L-V
   09:00–19:30; feriados cuentan como horario), una por teléfono cada 12 h, texto libre
   (el paciente acaba de abrir la ventana de 24 h). En horario no contesta nada el bot.
@@ -2710,7 +2722,7 @@ salvo que alguien mirara la bandeja de Meta Business Suite por iniciativa propia
 - Registro `mensajes_libres.json` (jsonstore, disco persistente, **gitignored**: lleva
   teléfonos y texto), podado a 7 días. Sin adaptador en `clinico.ADAPTADORES` a propósito:
   es un temporizador y metería texto libre de pacientes a la base.
-- Pruebas: `test_mensajes_libres.py` (33).
+- Pruebas: `test_mensajes_libres.py` (43).
 
 ---
 

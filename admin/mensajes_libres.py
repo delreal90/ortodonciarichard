@@ -12,18 +12,24 @@ abrirla. Recepcion SI contesta desde esa bandeja; lo que faltaba era AVISARLES.
 
 QUE HACE (por cada mensaje que NO es boton ni llamada)
 ------------------------------------------------------
-1. **Correo a recepcion** con nombre (si el telefono calza con un paciente),
-   telefono, hora de Chile, el texto, y el link a la bandeja de Meta.
+1. **Correo a recepcion SOLO si nadie le contesto en `ESPERA_RESPUESTA_MIN`
+   (5) minutos** (pedido del usuario 2026-10-08: avisando al instante, el correo
+   llegaba antes de que recepcion alcanzara a responder). Lleva nombre (si el
+   telefono calza con un paciente), telefono, hora de Chile, el texto, y el link
+   a la bandeja de Meta. "Le contestaron" = Meta avisa (webhook 'statuses',
+   status 'sent') de un mensaje que salio del numero HACIA ese paciente y que NO
+   mando este sistema (`wa_cloud.es_mensaje_propio`), o llega un eco del mensaje
+   ('message_echoes' / 'smb_message_echoes'). Si Meta no avisa de las respuestas
+   de la bandeja, el correo sale igual a los 5 minutos: nunca menos aviso que
+   antes. `respuestas_vistas()` cuenta cuantas se detectaron (sale en
+   /api/salud) para comprobarlo.
    Tipos que no son texto (audio, imagen, documento...) se anotan como
    "[envio un audio]" -- el contenido solo se ve en la bandeja.
 2. **Anti-inundacion**: maximo UN correo por telefono cada `VENTANA_AVISO_MIN`
    (30) minutos. Los mensajes que llegan dentro de la ventana se ACUMULAN en el
    registro y salen juntos en el siguiente correo. Ese siguiente correo sale:
-     - cuando el paciente vuelve a escribir pasada la ventana, o
-     - cuando `enviar_vencidos()` lo barre (se llama al inicio de cada evento del
-       webhook, y puede colgarse de un loop del scheduler: asi un mensaje
-       importante que llego dentro de la ventana no queda sin avisar si el
-       paciente ya no escribe mas).
+     cuando `enviar_vencidos()` lo barre (loop de 1 minuto del scheduler y al
+     final de cada evento del webhook).
 3. **Respuesta automatica SOLO fuera de horario de atencion**, una vez por
    telefono cada `HORAS_AUTORESPUESTA` (12) horas, con texto libre (el paciente
    acaba de escribir: estamos dentro de la ventana de 24 h de Meta). En horario
@@ -58,6 +64,7 @@ import fechas
 import jsonstore
 import notify
 import pacientes
+import wa_cloud
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +73,8 @@ _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
 REGISTRO_PATH = Path(os.environ.get('MENSAJES_LIBRES_PATH',
                                     _BASE_DIR / 'mensajes_libres.json'))
 
+# Cuanto se espera a que alguien le conteste al paciente antes de avisar.
+ESPERA_RESPUESTA_MIN = 5
 # Maximo un correo por telefono cada tantos minutos (lo demas se acumula).
 VENTANA_AVISO_MIN = 30
 # Una auto-respuesta por telefono cada tantas horas.
@@ -187,6 +196,11 @@ def _ventana_vencida(iso, ahora):
     return m is None or m >= VENTANA_AVISO_MIN
 
 
+def _sin_respuesta_hace(iso, ahora):
+    m = _minutos_desde(iso, ahora)
+    return m is None or m >= ESPERA_RESPUESTA_MIN
+
+
 def _podar(tels, ahora):
     limite = ahora - timedelta(days=DIAS_RETENCION)
     for clave in [c for c, e in tels.items()
@@ -199,9 +213,10 @@ def _hora_legible(iso):
     return t.strftime('%d-%m %H:%M') if t else ''
 
 
-def _registrar(telefono, texto, cfg, ahora):
-    """Anota el mensaje y decide, DENTRO del actualizar() (dos mensajes
-    simultaneos no se leen ambos como 'primero'), si toca avisar y/o responder."""
+def _registrar(telefono, texto, cfg, ahora, perfil=''):
+    """Anota el mensaje como pendiente de respuesta y decide, DENTRO del
+    actualizar() (dos mensajes simultaneos no se leen ambos como 'primero'), si
+    toca la auto-respuesta de fuera de horario."""
     clave = _clave_tel(telefono)
     ahora_iso = ahora.isoformat(timespec='seconds')
     decision = {'avisar': None, 'previo_aviso': None,
@@ -216,11 +231,10 @@ def _registrar(telefono, texto, cfg, ahora):
         pend = e.setdefault('pendientes', [])
         pend.append({'cuando': ahora_iso, 'texto': texto})
         del pend[:-MAX_PENDIENTES]
-        if _ventana_vencida(e.get('ultimo_aviso'), ahora):
-            decision['avisar'] = list(pend)
-            decision['previo_aviso'] = e.get('ultimo_aviso')
-            e['pendientes'] = []
-            e['ultimo_aviso'] = ahora_iso
+        if perfil:
+            e['perfil'] = perfil
+        # El correo ya no sale aca: lo decide enviar_vencidos() pasados
+        # ESPERA_RESPUESTA_MIN sin respuesta.
         if not en_horario(cfg, ahora):
             m = _minutos_desde(e.get('ultima_autorespuesta'), ahora)
             if m is None or m >= HORAS_AUTORESPUESTA * 60:
@@ -304,19 +318,10 @@ def procesar(msg, cfg, contactos=None, ahora=None):
             return False
         ahora = ahora or fechas.ahora_chile()
         perfil = (contactos or {}).get(telefono, '')
-        clave, d = _registrar(telefono, texto, cfg, ahora)
+        clave, d = _registrar(telefono, texto, cfg, ahora, perfil)
     except Exception as e:
         log.warning('Mensaje libre: no se pudo registrar: %s', e)
         return False
-
-    if d['avisar']:
-        try:
-            _enviar_aviso(clave, telefono, d['avisar'], d['previo_aviso'], perfil)
-        except Exception as e:
-            log.warning('Mensaje libre: fallo el aviso: %s', e)
-    else:
-        log.info('Mensaje libre de ...%s dentro de la ventana de %d min: acumulado',
-                 telefono[-4:], VENTANA_AVISO_MIN)
 
     if d['autorresponder']:
         try:
@@ -331,18 +336,20 @@ def procesar(msg, cfg, contactos=None, ahora=None):
 
 
 def enviar_vencidos(ahora=None):
-    """Manda el correo de los mensajes que se acumularon dentro de la ventana y
-    cuya ventana ya se cumplio, para que no queden sin avisar si el paciente no
-    escribe mas. Devuelve cuantos correos salieron. No lanza."""
+    """Manda el correo de los mensajes que llevan ESPERA_RESPUESTA_MIN sin que
+    nadie le conteste al paciente (y respetando la ventana anti-inundacion).
+    Devuelve cuantos correos salieron. No lanza."""
     tomados = []
     try:
         ahora = ahora or fechas.ahora_chile()
 
         def _fn(reg):
             for clave, e in (reg.get('telefonos') or {}).items():
-                if e.get('pendientes') and _ventana_vencida(e.get('ultimo_aviso'), ahora):
-                    tomados.append((clave, e.get('telefono', ''), list(e['pendientes']),
-                                    e.get('ultimo_aviso')))
+                pend = e.get('pendientes') or []
+                if (pend and _sin_respuesta_hace(pend[0].get('cuando'), ahora)
+                        and _ventana_vencida(e.get('ultimo_aviso'), ahora)):
+                    tomados.append((clave, e.get('telefono', ''), list(pend),
+                                    e.get('ultimo_aviso'), e.get('perfil', '')))
                     e['pendientes'] = []
                     e['ultimo_aviso'] = ahora.isoformat(timespec='seconds')
             return reg
@@ -355,9 +362,9 @@ def enviar_vencidos(ahora=None):
         log.warning('Mensajes libres: no se pudo barrer lo acumulado: %s', e)
         return 0
     enviados = 0
-    for clave, telefono, mensajes, previo in tomados:
+    for clave, telefono, mensajes, previo, perfil in tomados:
         try:
-            if _enviar_aviso(clave, telefono, mensajes, previo):
+            if _enviar_aviso(clave, telefono, mensajes, previo, perfil):
                 enviados += 1
         except Exception as e:
             log.warning('Mensajes libres: fallo el aviso acumulado: %s', e)
@@ -366,3 +373,74 @@ def enviar_vencidos(ahora=None):
 
 def vaciar():
     _STORE.save({'telefonos': {}})
+
+
+# -- Respuestas de recepcion (la bandeja de Meta) ------------------------------
+
+_RESPUESTAS_VISTAS = 0
+
+
+def respuestas_vistas():
+    """Cuantas respuestas a pacientes se detectaron desde el arranque (para
+    /api/salud: si queda en 0 mientras recepcion contesta, Meta no nos avisa
+    de los mensajes de la bandeja y el correo sale siempre a los 5 minutos)."""
+    return _RESPUESTAS_VISTAS
+
+
+def _desde_unix(ts):
+    try:
+        return datetime.fromtimestamp(int(ts), fechas.TZ_CHILE).replace(tzinfo=None)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def registrar_respuesta(telefono, cuando=None):
+    """Alguien le escribio al paciente desde el numero de la clinica: sus
+    mensajes ANTERIORES a esa respuesta dejan de estar pendientes (los que
+    escriba despues siguen esperando). True si habia algo que despejar."""
+    global _RESPUESTAS_VISTAS
+    clave = _clave_tel(telefono)
+    if not clave:
+        return False
+    lim = (cuando or fechas.ahora_chile()).isoformat(timespec='seconds')
+    despejados = []
+
+    def _fn(reg):
+        e = (reg.get('telefonos') or {}).get(clave)
+        if not e:
+            return reg
+        pend = e.get('pendientes') or []
+        quedan = [m for m in pend if str(m.get('cuando', '')) > lim]
+        despejados.append(len(pend) - len(quedan))
+        e['pendientes'] = quedan
+        e['ultima_respuesta'] = lim
+        return reg
+
+    try:
+        _STORE.actualizar(_fn)
+    except Exception as ex:
+        log.warning('Mensajes libres: no se pudo anotar la respuesta: %s', ex)
+        return False
+    _RESPUESTAS_VISTAS += 1
+    return bool(despejados and despejados[0])
+
+
+def procesar_salientes(valor, cfg=None):
+    """Mira en un 'value' del webhook si salio algun mensaje de la clinica hacia
+    un paciente que NO mando este sistema (= lo escribio una persona desde la
+    bandeja). Nunca lanza."""
+    try:
+        for st in valor.get('statuses', []) or []:
+            if (st.get('status') == 'sent' and st.get('recipient_id')
+                    and not wa_cloud.es_mensaje_propio(st.get('id'))):
+                registrar_respuesta(st['recipient_id'], _desde_unix(st.get('timestamp')))
+        ecos = list(valor.get('message_echoes') or []) + list(valor.get('smb_message_echoes') or [])
+        for m in ecos:
+            if m.get('to') and not wa_cloud.es_mensaje_propio(m.get('id')):
+                registrar_respuesta(m['to'], _desde_unix(m.get('timestamp')))
+        for m in valor.get('messages', []) or []:
+            if (m.get('to') and es_de_la_clinica(m, valor, cfg)
+                    and not wa_cloud.es_mensaje_propio(m.get('id'))):
+                registrar_respuesta(m['to'], _desde_unix(m.get('timestamp')))
+    except Exception as e:
+        log.warning('Mensajes libres: no se pudo leer los mensajes salientes: %s', e)

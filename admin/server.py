@@ -798,6 +798,10 @@ def api_salud():
         # remote_addr en Render, los topes vuelven a no funcionar.
         'topes_activos': limiter is not None,
         'ip_fuente': _fuente_ip(),
+        # Respuestas de recepcion a mensajes de WhatsApp detectadas desde el
+        # arranque. Si recepcion contesta y esto sigue en 0, Meta no avisa de
+        # los mensajes de la bandeja y el correo sale siempre a los 5 min.
+        'wa_respuestas_detectadas': mensajes_libres.respuestas_vistas(),
     })
 
 
