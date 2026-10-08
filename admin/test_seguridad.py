@@ -317,6 +317,24 @@ class TestLimitesDeVelocidad(unittest.TestCase):
         self.assertNotIn(429, codigos[:10])
         self.assertEqual(codigos[10], 429)
 
+    @unittest.skipUnless(server.limiter, 'flask-limiter no instalado')
+    def test_detras_de_cloudflare_el_tope_usa_la_ip_real(self):
+        """En Render cada request llega desde una IP de Cloudflare distinta: con esa
+        de llave ningun tope funcionaba. La llave tiene que ser CF-Connecting-IP."""
+        rut = _rut_con_dv(11111111)
+        codigos = [self.client.get(f'/api/agenda/paciente?rut={rut}',
+                                   headers={'CF-Connecting-IP': '203.0.113.7'},
+                                   environ_base={'REMOTE_ADDR': f'172.70.0.{i}'}).status_code
+                   for i in range(11)]
+        self.assertNotIn(429, codigos[:10])
+        self.assertEqual(codigos[10], 429)
+
+    def test_salud_dice_que_ip_se_usa_sin_mostrarla(self):
+        r = self.client.get('/api/salud', headers={'CF-Connecting-IP': '203.0.113.7'})
+        d = r.get_json()
+        self.assertEqual(d['ip_fuente'], 'cf-connecting-ip')
+        self.assertNotIn('203.0.113.7', r.get_data(as_text=True))
+
     def _consultar(self, rut, ip='10.0.0.1'):
         with server.app.test_request_context(environ_base={'REMOTE_ADDR': ip}):
             return server._tope_ruts_excedido(rut)

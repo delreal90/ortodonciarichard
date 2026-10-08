@@ -51,10 +51,28 @@ except ImportError:
 
 # Rate limiting: frena abusos/bots que podrian disparar el trafico (y el costo).
 # Limite global por IP + limites mas estrictos en endpoints que llaman a DentiDesk.
+# ⚠️ En Render, ProxyFix NO alcanza para saber quien es el visitante: el trafico
+# a *.onrender.com entra por Cloudflare y luego por el balanceador de Render, asi
+# que request.remote_addr (la ultima entrada de X-Forwarded-For) es una IP de
+# Cloudflare que CAMBIA en cada request. Con eso de llave, ningun tope por IP
+# funcionaba en produccion (medido 2026-10-08: 70 de 70 a /api/salud, tope 60/min)
+# aunque en local si. Cloudflare pone la IP real en CF-Connecting-IP y la
+# sobreescribe siempre (un cliente no puede fijarla porque no puede saltarse
+# Cloudflare para llegar a Render). Sin ese header (local, pruebas) se usa
+# remote_addr como siempre.
+def _ip_cliente():
+    return ((request.headers.get('CF-Connecting-IP') or '').strip()
+            or request.remote_addr or '?')
+
+
+def _fuente_ip():
+    """Que dato se usa como IP del visitante (para /api/salud, sin el valor)."""
+    return 'cf-connecting-ip' if request.headers.get('CF-Connecting-IP') else 'remote_addr'
+
+
 try:
     from flask_limiter import Limiter
-    from flask_limiter.util import get_remote_address
-    limiter = Limiter(get_remote_address, app=app,
+    limiter = Limiter(_ip_cliente, app=app,
                       default_limits=["600 per hour", "60 per minute"],
                       storage_uri="memory://")
 except ImportError:
@@ -776,6 +794,10 @@ def api_salud():
         'version': os.environ.get('RENDER_GIT_COMMIT', '')[:7],
         'lentas_recientes': len(lentas),
         'ultimas_lentas': lentas[-5:],
+        # Diagnostico de los topes por IP, sin la IP: si 'ip_fuente' dice
+        # remote_addr en Render, los topes vuelven a no funcionar.
+        'topes_activos': limiter is not None,
+        'ip_fuente': _fuente_ip(),
     })
 
 
@@ -882,7 +904,7 @@ def _tope_ruts_excedido(rut):
     if os.environ.get('ADMIN_TOKEN') and _check_admin_token():
         return False
     ahora = _time.monotonic()
-    ip = request.remote_addr or '?'
+    ip = _ip_cliente()
     clave = scheduling.limpiar_rut(rut)
     with _RUTS_POR_IP_LOCK:
         vistos = {r: t for r, t in _RUTS_POR_IP.get(ip, {}).items() if ahora - t < 3600}
@@ -3829,10 +3851,10 @@ def consentimiento_firmar():
     if not datos_pac:
         return jsonify({'ok': False, 'error': 'Paciente no encontrado'}), 404
 
-    # IP real del firmante. ProxyFix ya resolvió request.remote_addr a la IP que
-    # puso el proxy de Render — NO se lee X-Forwarded-For crudo (falsificable por
-    # el cliente). Localmente será 127.0.0.1.
-    ip_origen = request.remote_addr or ''
+    # IP real del firmante: CF-Connecting-IP en Render (ver _ip_cliente; con
+    # remote_addr quedaba registrada una IP de Cloudflare). NO se lee
+    # X-Forwarded-For crudo (falsificable por el cliente). Localmente será 127.0.0.1.
+    ip_origen = '' if _ip_cliente() == '?' else _ip_cliente()
 
     # Acotar los campos de texto libre que van al PDF (defensa extra sobre
     # MAX_CONTENT_LENGTH; evita PDFs desmesurados por un solo campo).

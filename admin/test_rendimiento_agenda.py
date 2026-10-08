@@ -235,7 +235,8 @@ class TestSaludYLentas(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         d = r.get_json()
         self.assertEqual(set(d), {'ok', 'inicio', 'uptime_s', 'version',
-                                  'lentas_recientes', 'ultimas_lentas'})
+                                  'lentas_recientes', 'ultimas_lentas',
+                                  'topes_activos', 'ip_fuente'})
         self.assertTrue(d['ok'])
         self.assertIsInstance(d['uptime_s'], int)
         datetime.fromisoformat(d['inicio'])
