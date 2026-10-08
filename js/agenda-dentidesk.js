@@ -1287,31 +1287,114 @@ function pasoResumen() {
 
 agenda.captchaToken = '';
 
-function montarCaptcha() {
+// Si el script de Turnstile no carga (bloqueador de anuncios, navegador interno
+// de Instagram/Facebook, red lenta) o el widget falla, el botón "Confirmar"
+// quedaba deshabilitado SIN explicación. Ahora se muestra un aviso con salida
+// (WhatsApp o reintentar). Lo usan los dos resúmenes (normal/reagenda/link y
+// Estudio Integral): ambos terminan llamando a montarCaptcha().
+const CAPTCHA_ESPERA_MS = 8000;
+const CAPTCHA_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const CAPTCHA_WA = 'https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora';
+agenda._captchaGen = 0;       // invalida callbacks/timers de un montaje anterior
+agenda._captchaTimer = null;
+agenda._captchaPoll = null;
+agenda._captchaWidget = null;
+
+function _captchaAvisoOcultar() {
+  const a = document.getElementById('agenda-captcha-aviso');
+  if (a) a.remove();
+}
+
+function _captchaAvisoMostrar(gen) {
+  if (gen !== agenda._captchaGen || agenda.captchaToken) return;
+  const el = document.getElementById('agenda-captcha');
+  if (!el || document.getElementById('agenda-captcha-aviso')) return;
+  const a = document.createElement('div');
+  a.id = 'agenda-captcha-aviso';
+  a.setAttribute('role', 'alert');
+  a.style.cssText = 'background:#fff7e6;border:1px solid #C9A84C;color:#7a5b00;border-radius:10px;padding:12px 14px;margin:0 0 14px;font-size:.88rem;line-height:1.45';
+  a.innerHTML = `<p style="margin:0 0 10px"><i class="fas fa-triangle-exclamation"></i>
+      <strong>No pudimos cargar la verificación de seguridad.</strong>
+      Pruebe abriendo esta página en Chrome o Safari (si la abrió desde Instagram o Facebook, toque ··· y elija 'Abrir en el navegador'), o agende por WhatsApp.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn btn-primary" href="${CAPTCHA_WA}" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i> Agendar por WhatsApp</a>
+      <button type="button" class="btn btn-primary" id="agendaCaptchaReintentar"><i class="fas fa-rotate-right"></i> Reintentar verificación</button>
+    </div>`;
+  el.insertAdjacentElement('afterend', a);
+  const b = document.getElementById('agendaCaptchaReintentar');
+  if (b) b.addEventListener('click', () => montarCaptcha(true));
+}
+
+function montarCaptcha(reintento) {
   const sitekey = agenda.config.turnstile_sitekey;
   if (!sitekey) return;
+  const gen = ++agenda._captchaGen;
+  clearTimeout(agenda._captchaTimer);
+  clearInterval(agenda._captchaPoll);
   agenda.captchaToken = '';
+  _captchaAvisoOcultar();
+  // Reintento: soltar el widget anterior y dejar el contenedor limpio.
+  const cont = document.getElementById('agenda-captcha');
+  if (agenda._captchaWidget !== null && window.turnstile) {
+    try { window.turnstile.remove(agenda._captchaWidget); } catch (e) { /* ya no existe */ }
+  }
+  agenda._captchaWidget = null;
+  if (cont) cont.innerHTML = '';
+  const btn0 = document.getElementById('agendaConfirmBtn');
+  if (btn0) btn0.disabled = true;
+  // Si el script nunca cargó (bloqueado/falló la red), pedirlo de nuevo UNA vez
+  // por reintento; si ya está cargado no se toca (Cloudflare pide cargarlo una vez).
+  if (reintento && !window.turnstile) {
+    const sc = document.createElement('script');
+    sc.src = CAPTCHA_SCRIPT; sc.async = true;
+    window.__turnstileFallo = 0;
+    sc.onerror = () => { window.__turnstileFallo = 1; };
+    document.head.appendChild(sc);
+  }
+
+  let interactivo = false;   // Turnstile mostró un desafío que el paciente debe resolver
+  const fallar = () => _captchaAvisoMostrar(gen);
   const render = () => {
     const el = document.getElementById('agenda-captcha');
-    if (!el || !window.turnstile) return;
-    window.turnstile.render(el, {
-      sitekey,
-      callback: (tok) => {
-        agenda.captchaToken = tok;
-        const btn = document.getElementById('agendaConfirmBtn');
-        if (btn) btn.disabled = false;
-      },
-      'expired-callback': () => { agenda.captchaToken = ''; },
-    });
+    if (!el || !window.turnstile || agenda._captchaWidget !== null) return;
+    try {
+      agenda._captchaWidget = window.turnstile.render(el, {
+        sitekey,
+        callback: (tok) => {
+          if (gen !== agenda._captchaGen) return;
+          agenda.captchaToken = tok;
+          clearTimeout(agenda._captchaTimer);
+          _captchaAvisoOcultar();
+          const btn = document.getElementById('agendaConfirmBtn');
+          if (btn) btn.disabled = false;
+        },
+        'expired-callback': () => { if (gen === agenda._captchaGen) agenda.captchaToken = ''; },
+        'error-callback': () => { if (gen === agenda._captchaGen) { clearTimeout(agenda._captchaTimer); fallar(); } },
+        'unsupported-callback': () => { if (gen === agenda._captchaGen) { clearTimeout(agenda._captchaTimer); fallar(); } },
+        // Hay un desafío visible esperando al paciente: no es una falla de carga.
+        'before-interactive-callback': () => {
+          if (gen !== agenda._captchaGen) return;
+          interactivo = true; clearTimeout(agenda._captchaTimer); _captchaAvisoOcultar();
+        },
+      });
+    } catch (e) { fallar(); }
   };
-  if (window.turnstile) render();
-  else {
-    // El script puede no haber cargado aún: reintentar brevemente.
-    let intentos = 0;
-    const iv = setInterval(() => {
-      if (window.turnstile || intentos++ > 40) { clearInterval(iv); render(); }
-    }, 100);
-  }
+
+  // Pasados 8 s sin token (y sin desafío interactivo en pantalla): avisar.
+  agenda._captchaTimer = setTimeout(() => {
+    if (gen === agenda._captchaGen && !agenda.captchaToken && !interactivo) fallar();
+  }, CAPTCHA_ESPERA_MS);
+
+  if (window.turnstile) { render(); return; }
+  // El script puede no haber cargado aún: esperar. Si carga tarde (red lenta)
+  // igual se renderiza y, al llegar el token, el aviso desaparece solo.
+  let ticks = 0;
+  agenda._captchaPoll = setInterval(() => {
+    if (gen !== agenda._captchaGen || !document.getElementById('agenda-captcha')) { clearInterval(agenda._captchaPoll); return; }
+    if (window.turnstile) { clearInterval(agenda._captchaPoll); render(); return; }
+    if (window.__turnstileFallo) { clearTimeout(agenda._captchaTimer); fallar(); }   // el <script> falló: avisar ya
+    if (++ticks > 240) clearInterval(agenda._captchaPoll);                           // ~60 s
+  }, 250);
 }
 
 async function confirmarReserva() {

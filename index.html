@@ -459,9 +459,34 @@
     ═══════════════════════════════════════════ -->
 <section class="hero" id="inicio">
 <div class="hero-media">
-<video autoplay="" loop="" muted="" playsinline="" preload="metadata" poster="images/clinica-1.jpg">
-<source src="images/video.MP4" type="video/mp4"/>
-</video>
+<video autoplay="" loop="" muted="" playsinline="" preload="none" poster="images/clinica-1.jpg" data-src="images/video-hero.mp4" id="heroVideo"></video>
+<script>
+/* Video del hero: solo en pantallas >= 768 px, sin ahorro de datos, sin conexión lenta
+   y sin "reducir movimiento". En celular (o si algo de eso aplica) NO se descarga:
+   queda el poster (images/clinica-1.jpg). Sin JS tampoco se descarga nada. */
+(function(){
+  var v = document.getElementById('heroVideo');
+  if (!v) return;
+  var cn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  var mq = function(q){ return window.matchMedia && window.matchMedia(q).matches; };
+  function cargar(){
+    if (v.getAttribute('src')) return;
+    v.muted = true;
+    v.src = v.getAttribute('data-src');
+    var p = v.play();
+    if (p && p.catch) p.catch(function(){});
+  }
+  if (cn && (cn.saveData || /(^|-)2g$/.test(cn.effectiveType || ''))) return;
+  if (mq('(prefers-reduced-motion: reduce)')) return;
+  if (mq('(min-width: 768px)')) { cargar(); return; }
+  /* Tablet girada / ventana que se agranda: cargarlo recién entonces */
+  if (window.matchMedia) {
+    var m = window.matchMedia('(min-width: 768px)');
+    var al = function(e){ if (e.matches) { cargar(); if (m.removeEventListener) m.removeEventListener('change', al); } };
+    if (m.addEventListener) m.addEventListener('change', al);
+  }
+})();
+</script>
 <div class="hero-overlay"></div>
 </div>
 <div class="hero-content fade-up">
@@ -1350,8 +1375,8 @@
 <script src="js/main.js"></script>
 <script>window.AGENDA_API_BASE = 'https://ortodonciarichard.onrender.com';</script>
 <!-- Cloudflare Turnstile (captcha anti-bot del agendamiento) -->
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
-<script src="js/agenda-dentidesk.js?v=20261007"></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer onerror="window.__turnstileFallo=1"></script>
+<script src="js/agenda-dentidesk.js?v=20261008"></script>
 <!-- Botón flotante WhatsApp -->
 <a aria-label="Contactar por WhatsApp" class="whatsapp-fab" href="https://wa.me/56933558189?text=Hola,%20me%20gustar%C3%ADa%20agendar%20una%20hora" rel="noopener" target="_blank">
 <i class="fab fa-whatsapp"></i>
