@@ -1578,3 +1578,107 @@ def avisar_respaldos_atrasados(destinatario_email, problemas, umbral_dias):
     except Exception as e:
         log.error('SMTP aviso de respaldo atrasado error: %s', e)
         return {'ok': False, 'error': str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAREAS PARA TIEMPOS MUERTOS (tareas.py)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_PUESTOS_TAREAS = (('secretaria', '🛎️ Recepción'), ('asistente_orto', '🦷 Asistentes de ortodoncia'),
+                   ('asistente_vial', '🦷 Asistente Dr. Vial'), ('aseo', '🧽 Aseo'))
+
+
+def _horas(minutos):
+    m = int(minutos or 0)
+    return f'{m // 60} h {m % 60:02d} min' if m >= 60 else f'{m} min'
+
+
+def _enviar_html(destino, asunto, html, remitente='Ortodoncia Richard'):
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip()
+    if not smtp_user or not smtp_pass or '@' not in (destino or ''):
+        return {'ok': False, 'error': 'sin SMTP o email de destino'}
+    msg = MIMEMultipart('alternative')
+    msg['From'] = f'{remitente} <{smtp_user}>'
+    msg['To'] = destino
+    msg['Subject'] = asunto
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as s:
+            s.ehlo(); s.starttls(context=ctx); s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, [destino], msg.as_bytes())
+        return {'ok': True}
+    except Exception as e:
+        log.error('SMTP %s error: %s', asunto, e)
+        return {'ok': False, 'error': str(e)}
+
+
+def _boton(url, texto, fondo='#C9A84C', color='#1A2E4A'):
+    return (f'<a href="{_escapar_html(url)}" style="display:inline-block;background:{fondo};'
+            f'color:{color};text-decoration:none;font-weight:700;padding:12px 22px;'
+            f'border-radius:8px;margin:4px">{texto}</a>')
+
+
+def html_propuesta_tareas(fecha_txt, prop, url_aprobar, url_revisar):
+    """Correo de la mañana al Dr.: tiempo libre estimado y qué se propone hacer."""
+    libre = (prop.get('libre') or {})
+    por_puesto = libre.get('por_puesto', {})
+    tareas = prop.get('tareas') or []
+    filas = ''
+    for puesto, etiqueta in _PUESTOS_TAREAS:
+        suyas = [t for t in tareas if t['puesto'] == puesto]
+        filas += _fila_seccion(f'{etiqueta} · libre estimado {_horas(por_puesto.get(puesto))}')
+        if not suyas:
+            filas += _fila('—', '<span style="color:#718096">Nada propuesto</span>')
+            continue
+        for t in suyas:
+            quien = (f"<br><span style=\"color:#718096;font-size:12px\">para "
+                     f"{_escapar_html(t['asignada_nombre'])}</span>" if t.get('asignada_nombre') else '')
+            filas += _fila(f"{t['minutos']} min", _escapar_html(t['titulo']) + quien)
+    notas = []
+    if libre.get('sin_agenda'):
+        notas.append('No había agenda del día en la base: el tiempo de asistentes se estimó '
+                     'suponiendo a los tres ortodoncistas atendiendo.')
+    if libre.get('admin_vial'):
+        notas.append('Hoy hay bloque de labores administrativas del Dr. Vial (martes AM).')
+    nota = ''.join(f'<p style="color:#718096;font-size:13px;margin:6px 0">{n}</p>' for n in notas)
+    cuerpo_botones = (f'<tr><td colspan="2" style="padding:18px 14px;text-align:center">'
+                      f'{_boton(url_revisar, "✅ Revisar y aprobar")}'
+                      f'{nota}<p style="color:#718096;font-size:12px;margin-top:10px">'
+                      'El tiempo libre es una estimación (horario + agenda de hoy). Si no '
+                      'apruebas, las tareas se publican igual a la hora configurada.</p></td></tr>')
+    return _aviso_recepcion_html(
+        f'Tareas propuestas · {fecha_txt}', filas + cuerpo_botones,
+        etiqueta='Tareas — Propuesta del día',
+        pie='Ortodoncia Richard · Tareas para tiempos muertos')
+
+
+def enviar_propuesta_tareas(destino, fecha_txt, prop, url_aprobar, url_revisar):
+    n = len(prop.get('tareas') or [])
+    html = html_propuesta_tareas(fecha_txt, prop, url_aprobar, url_revisar)
+    return _enviar_html(destino, f'Tareas del día ({n}) · {fecha_txt} — ¿apruebas?', html)
+
+
+def html_resumen_tareas(res):
+    filas = _fila_seccion('Tareas hechas por persona')
+    for p in res.get('personas', []):
+        filas += _fila(_escapar_html(p['nombre']),
+                       f"{p['hechas']} tarea(s) · {_horas(p['minutos'])}")
+    if not res.get('personas'):
+        filas += _fila('—', 'Nadie tiene puesto asignado todavía.')
+    filas += _fila_seccion('Por puesto: libre estimado vs. usado en tareas')
+    for puesto, etiqueta in _PUESTOS_TAREAS:
+        filas += _fila(etiqueta,
+                       f"libre ~{_horas(res['libre_estimado'].get(puesto))} · "
+                       f"en tareas {_horas(res['minutos_hechos'].get(puesto))} · "
+                       f"vencidas sin hacer: {res['vencidas'].get(puesto, 0)}")
+    return _aviso_recepcion_html(
+        f"Resumen de tareas · {res['desde']} a {res['hasta']}", filas,
+        etiqueta='Tareas — Resumen semanal',
+        pie='Ortodoncia Richard · Tareas para tiempos muertos')
+
+
+def enviar_resumen_tareas(destino, res):
+    return _enviar_html(destino, f"Resumen semanal de tareas · {res['desde']} a {res['hasta']}",
+                        html_resumen_tareas(res))

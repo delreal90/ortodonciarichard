@@ -7083,7 +7083,11 @@ def _con_caps(u):
     """Adjunta al usuario sus capacidades (para que el frontend sepa qué mostrar) +
     el contador de pendientes por comprar (badge de solicitudes)."""
     caps = _compras.CAPS.get(u['rol'], set())
-    return {**u, 'caps': sorted(caps),
+    try:
+        n_tareas = len(_tareas.bolsa(u)['bolsa']) if u.get('puesto') else 0
+    except Exception:
+        n_tareas = 0
+    return {**u, 'caps': sorted(caps), 'tareas_disponibles': n_tareas,
             'pendientes': _compras.contar_pendientes(),
             # Facturas esperando sus productos (badge de la pestaña «Por detallar»),
             # contadas con el MISMO filtro que ve esta persona.
@@ -7173,7 +7177,8 @@ def compras_usuarios_crear():
     d = request.json or {}
     try:
         uid = _compras.crear_usuario(d.get('email', ''), d.get('nombre', ''),
-                                     d.get('password', ''), rol=d.get('rol', 'registro'))
+                                     d.get('password', ''), rol=d.get('rol', 'registro'),
+                                     puesto=d.get('puesto', ''))
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, 'id': uid})
@@ -7189,7 +7194,7 @@ def compras_usuarios_actualizar():
     try:
         _compras.actualizar_usuario(d.get('id'), nombre=d.get('nombre'), rol=d.get('rol'),
                                     activo=d.get('activo'), password=d.get('password') or None,
-                                    email=d.get('email') or None)
+                                    email=d.get('email') or None, puesto=d.get('puesto'))
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True})
@@ -7209,6 +7214,250 @@ def compras_usuarios_eliminar():
 
 
 # ── Categorías ─────────────────────────────────────────────────────────────────
+
+# ── TAREAS PARA TIEMPOS MUERTOS (tareas.py) ────────────────────────────────────
+# La bolsa vive en la app de Compras: mismo login y mismo celular de cada persona.
+# Lo que cada una ve lo decide su PUESTO (usuarios.puesto), no su rol.
+
+import tareas as _tareas
+
+try:
+    _tareas.init_db()
+except Exception as _e:
+    print('[tareas] init_db error:', _e)
+
+
+def _url_publica():
+    return os.environ.get('PUBLIC_BACKEND_URL', 'https://ortodonciarichard.onrender.com').rstrip('/')
+
+
+def _err400(e):
+    return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+def _tarea_accion(u, fn, *extra):
+    d = request.json or {}
+    try:
+        fn(d.get('id'), u, *[d.get(k, '') for k in extra])
+    except (ValueError, TypeError) as e:
+        return _err400(e)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/compras/tareas', methods=['GET'])
+def compras_tareas_bolsa():
+    u, err = _require_compras('tareas')
+    if err:
+        return err
+    return jsonify({'ok': True, **_tareas.bolsa(u), 'puesto': u.get('puesto', '')})
+
+
+@app.route('/api/compras/tareas/sugerir', methods=['POST'])
+def compras_tareas_sugerir():
+    u, err = _require_compras('tareas')
+    if err:
+        return err
+    return jsonify({'ok': True, 'tarea': _tareas.sugerir(u, (request.json or {}).get('minutos'))})
+
+
+@app.route('/api/compras/tareas/tomar', methods=['POST'])
+def compras_tareas_tomar():
+    u, err = _require_compras('tareas')
+    if err:
+        return err
+    return _tarea_accion(u, _tareas.tomar)
+
+
+@app.route('/api/compras/tareas/soltar', methods=['POST'])
+def compras_tareas_soltar():
+    u, err = _require_compras('tareas')
+    if err:
+        return err
+    return _tarea_accion(u, _tareas.soltar)
+
+
+@app.route('/api/compras/tareas/terminar', methods=['POST'])
+def compras_tareas_terminar():
+    u, err = _require_compras('tareas')
+    if err:
+        return err
+    return _tarea_accion(u, _tareas.terminar, 'nota')
+
+
+def _equipo_por_puesto():
+    return [{'id': x['id'], 'nombre': x['nombre'], 'puesto': x['puesto']}
+            for x in _compras.listar_usuarios() if x.get('activo') and x.get('puesto')]
+
+
+@app.route('/api/compras/tareas/admin', methods=['GET'])
+def compras_tareas_admin():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    hoy = fechas.hoy_chile()
+    return jsonify({'ok': True, 'tareas': _tareas.listar(estado=request.args.get('estado') or None),
+                    'plantillas': _tareas.listar_plantillas(),
+                    'config': _tareas.load_config(),
+                    'propuesta': _tareas.obtener_propuesta(hoy),
+                    'estimacion': _tareas.estimar_libre(hoy),
+                    'equipo': _equipo_por_puesto(),
+                    'puestos': _compras.PUESTOS_LABEL})
+
+
+@app.route('/api/compras/tareas/encargo', methods=['POST'])
+def compras_tareas_encargo():
+    u, err = _require_compras('admin')
+    if err:
+        return err
+    try:
+        tid = _tareas.crear_encargo(request.json or {}, creada_por=u['id'])
+    except (ValueError, TypeError) as e:
+        return _err400(e)
+    return jsonify({'ok': True, 'id': tid})
+
+
+@app.route('/api/compras/tareas/descartar', methods=['POST'])
+def compras_tareas_descartar():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    try:
+        _tareas.descartar((request.json or {}).get('id'))
+    except (ValueError, TypeError) as e:
+        return _err400(e)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/compras/tareas/plantillas', methods=['POST'])
+def compras_tareas_plantilla_crear():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    try:
+        pid = _tareas.crear_plantilla(request.json or {})
+    except (ValueError, TypeError) as e:
+        return _err400(e)
+    return jsonify({'ok': True, 'id': pid})
+
+
+@app.route('/api/compras/tareas/plantillas/actualizar', methods=['POST'])
+def compras_tareas_plantilla_actualizar():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        _tareas.actualizar_plantilla(d.get('id'), d)
+    except (ValueError, TypeError) as e:
+        return _err400(e)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/compras/tareas/plantillas/catalogo', methods=['POST'])
+def compras_tareas_cargar_catalogo():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    return jsonify({'ok': True, 'creadas': _tareas.cargar_catalogo()})
+
+
+@app.route('/api/compras/tareas/config', methods=['POST'])
+def compras_tareas_config():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    return jsonify({'ok': True, 'config': _tareas.save_config(request.json or {})})
+
+
+@app.route('/api/compras/tareas/propuesta/run', methods=['POST'])
+def compras_tareas_propuesta_run():
+    """Genera las tareas de hoy y arma la propuesta a mano. Con enviar=true además
+    manda el correo (lo mismo que hace el horario de la mañana)."""
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    r = _preparar_tareas_del_dia(fechas.hoy_chile(), enviar=bool(d.get('enviar')))
+    return jsonify({'ok': True, **r})
+
+
+@app.route('/api/compras/tareas/aprobar', methods=['POST'])
+def compras_tareas_aprobar_sesion():
+    """Aprobar desde la app (sesión de administrador), sin el link del correo."""
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        p = _tareas.aprobar(d.get('fecha') or fechas.hoy_chile(), d.get('cambios'))
+    except (ValueError, TypeError) as e:
+        return _err400(e)
+    return jsonify({'ok': True, 'propuesta': p})
+
+
+@app.route('/api/compras/tareas/resumen', methods=['GET'])
+def compras_tareas_resumen():
+    _, err = _require_compras('admin')
+    if err:
+        return err
+    hoy = fechas.hoy_chile()
+    desde = request.args.get('desde') or (hoy - timedelta(days=hoy.weekday())).isoformat()
+    hasta = request.args.get('hasta') or hoy.isoformat()
+    try:
+        return jsonify({'ok': True, 'resumen': _tareas.resumen(desde, hasta)})
+    except ValueError as e:
+        return _err400(e)
+
+
+# Revisión de la propuesta desde el link del correo: la llave es un token firmado que
+# vence en 16 h y solo sirve para ESA fecha. No da acceso a nada más de la app.
+
+@app.route('/tareas/propuesta')
+def tareas_propuesta_page():
+    return send_from_directory('.', 'tareas_propuesta.html')
+
+
+def _propuesta_por_token(token):
+    r = _tareas.leer_token(token)
+    if not r['ok']:
+        msg = ('El link venció: abre la app de Compras → Tareas para revisar la propuesta.'
+               if r['motivo'] == 'vencido' else 'Link inválido.')
+        return None, (jsonify({'ok': False, 'error': msg, 'motivo': r['motivo']}), 403)
+    return r['fecha'], None
+
+
+@app.route('/api/tareas/propuesta', methods=['GET'])
+@rate_limit('30 per minute')
+def tareas_propuesta_ver():
+    fecha, err = _propuesta_por_token(request.args.get('token'))
+    if err:
+        return err
+    p = _tareas.obtener_propuesta(fecha)
+    if not p:
+        return jsonify({'ok': False, 'error': 'No hay propuesta para ese día'}), 404
+    return jsonify({'ok': True, 'propuesta': p, 'equipo': _equipo_por_puesto(),
+                    'puestos': _compras.PUESTOS_LABEL})
+
+
+@app.route('/api/tareas/propuesta/aprobar', methods=['POST'])
+@rate_limit('10 per minute')
+def tareas_propuesta_aprobar():
+    d = request.json or {}
+    fecha, err = _propuesta_por_token(d.get('token'))
+    if err:
+        return err
+    # Un encargo agregado desde la revisión entra como cualquier otro encargo.
+    for e in d.get('encargos') or []:
+        try:
+            _tareas.crear_encargo(e)
+        except (ValueError, TypeError) as ex:
+            return _err400(ex)
+    try:
+        p = _tareas.aprobar(fecha, d.get('cambios'))
+    except (ValueError, TypeError) as ex:
+        return _err400(ex)
+    return jsonify({'ok': True, 'propuesta': p})
+
 
 @app.route('/api/compras/categorias', methods=['GET'])
 def compras_categorias():
@@ -8695,6 +8944,86 @@ def _loop_reporte_semanal():
         time.sleep(40)
 
 
+def _destino_tareas():
+    return (psq.email_doctor('alberto')
+            or os.getenv('REPORTE_SEMANAL_EMAIL', 'alberto@delreal.cl').strip())
+
+
+def _preparar_tareas_del_dia(hoy, enviar=True):
+    """Genera las tareas de hoy, arma la propuesta y (si corresponde) se la manda al
+    Dr. Con el envío APAGADO en la configuración se publica directo: la bolsa
+    funciona igual sin aprobación."""
+    cfg = _tareas.load_config()
+    gen = _tareas.generar_dia(hoy)
+    prop = _tareas.armar_propuesta(hoy, cfg)
+    out = {'generadas': gen, 'n_propuestas': len(prop.get('tareas') or []),
+           'estado': prop['estado'], 'correo': None}
+    if prop['estado'] in ('aprobada', 'auto'):
+        return out
+    if not cfg.get('activo'):
+        out['estado'] = _tareas.aprobar(hoy, auto=True)['estado']
+        return out
+    if not enviar:
+        return out
+    tok = _tareas.crear_token(hoy)
+    url_rev = f'{_url_publica()}/tareas/propuesta?token={tok}'
+    fecha_txt = f'{_tareas.DIAS_LABEL[hoy.isoweekday()]} {hoy.day}/{hoy.month}'
+    r = notify.enviar_propuesta_tareas(_destino_tareas(), fecha_txt, prop,
+                                       url_rev, url_rev)
+    out['correo'] = r
+    if r.get('ok'):
+        _tareas.marcar_enviada(hoy)
+        out['estado'] = 'enviada'
+        tel = os.getenv('WA_TELEFONO_ALBERTO', '').strip()
+        if cfg.get('whatsapp') and tel:
+            try:
+                wa_cloud.enviar_conversacion_general(
+                    tel, 'Dr. Alberto',
+                    f'la propuesta de tareas de hoy ({out["n_propuestas"]}). Revísela aquí: {url_rev}')
+            except Exception as e:
+                print('[tareas] WhatsApp de la propuesta falló:', e)
+    return out
+
+
+def _loop_tareas():
+    """Tareas para tiempos muertos. El estado vive en la base, no en memoria: un
+    reinicio de Render no repite ni pierde nada.
+      - días hábiles, de hora_propuesta a 12:00: genera y arma la propuesta si aún no
+        existe; si el correo falló, lo reintenta cada 10 min;
+      - desde hora_publicar: si el Dr. no aprobó, se publica igual (configurable);
+      - lunes desde las 08:00: resumen de la semana anterior, una sola vez."""
+    import time
+    ultimo_intento = 0
+    while True:
+        try:
+            ahora = fechas.ahora_chile_aware()
+            hoy, slot = ahora.date(), ahora.strftime('%H:%M')
+            cfg = _tareas.load_config()
+            habil = scheduling.es_habil(hoy, scheduling.load_config())
+            prop = _tareas.obtener_propuesta(hoy)
+            if habil and cfg['hora_propuesta'] <= slot < '12:00':
+                falta = (not prop) or (prop['estado'] == 'armada' and cfg.get('activo'))
+                if falta and time.time() - ultimo_intento > 600:
+                    ultimo_intento = time.time()
+                    print('[tareas]', slot, _preparar_tareas_del_dia(hoy))
+                    prop = _tareas.obtener_propuesta(hoy)
+            if (prop and prop['estado'] in ('armada', 'enviada')
+                    and cfg.get('publicar_sin_aprobar') and slot >= cfg['hora_publicar']):
+                _tareas.aprobar(hoy, auto=True)
+                print('[tareas] propuesta publicada sin aprobación', hoy)
+            semana = '%d-W%02d' % tuple(ahora.isocalendar()[:2])
+            if (cfg.get('resumen_semanal') and ahora.weekday() == 0 and slot >= '08:00'
+                    and cfg.get('ultimo_resumen') != semana):
+                lunes = hoy - timedelta(days=7)
+                res = _tareas.resumen(lunes, lunes + timedelta(days=6))
+                if notify.enviar_resumen_tareas(_destino_tareas(), res).get('ok'):
+                    _tareas.save_config({'ultimo_resumen': semana})
+                    print('[tareas] resumen semanal enviado', semana)
+        except Exception as e:
+            print('[tareas] error:', e)
+        time.sleep(40)
+
+
 def _loop_backup():
     """Respaldo diario de los datos a Google Drive. Patron de VENTANA
     (hora_backup <= slot < '06:00', una vez al dia) igual que _loop_control_dental
@@ -9147,6 +9476,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_kpi_cosecha, daemon=True).start()
     threading.Thread(target=_loop_geocodificar, daemon=True).start()
     threading.Thread(target=_loop_backup, daemon=True).start()
+    threading.Thread(target=_loop_tareas, daemon=True).start()
     threading.Thread(target=_loop_vigilante_respaldos, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()

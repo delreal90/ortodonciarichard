@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Tareas del día</title>
+<style>
+  :root{--navy:#1A2E4A;--gold:#C9A84C;--bg:#F0F5FB;--line:#E2E8F0;--mid:#4A5568;--ok:#2F855A;--danger:#C53030}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:Inter,Arial,Helvetica,sans-serif;color:#1A2535}
+  header{background:var(--navy);color:#fff;padding:18px 16px;text-align:center}
+  header b{color:var(--gold)}
+  main{max-width:720px;margin:0 auto;padding:16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  h2{font-size:16px;margin:0 0 8px;color:var(--navy)}
+  .muted{color:var(--mid);font-size:13px}
+  .t{display:flex;gap:10px;align-items:flex-start;border-top:1px solid var(--line);padding:10px 0}
+  .t:first-of-type{border-top:0}
+  .t .q{flex:1}
+  .t select{max-width:170px;padding:6px;border:1px solid var(--line);border-radius:6px}
+  .quitada .q{text-decoration:line-through;color:var(--mid)}
+  button{font:inherit;font-weight:700;border:0;border-radius:8px;padding:13px 20px;cursor:pointer}
+  .gold{background:var(--gold);color:var(--navy)}
+  .ghost{background:#fff;border:1px solid var(--line);color:var(--navy);padding:6px 10px;font-weight:600}
+  .barra{position:sticky;bottom:0;background:var(--bg);padding:12px 0;text-align:center}
+  .err{color:var(--danger)}
+  .okmsg{color:var(--ok);font-weight:700}
+</style>
+</head>
+<body>
+<header><div>Ortodoncia <b>Richard</b></div><div style="font-size:13px;opacity:.85;margin-top:4px">Tareas para tiempos muertos</div></header>
+<main id="main"><div class="card muted">Cargando…</div></main>
+<script>
+'use strict';
+const qs = new URLSearchParams(location.search);
+const TOKEN = qs.get('token') || '';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const horas = m => (m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`);
+const ESTADO = { aprobada: 'Ya está aprobada y publicada ✓', auto: 'Ya se publicó sola (pasó la hora límite).' };
+const quitar = new Set();
+let DATA = null;
+
+async function cargar() {
+  const main = document.getElementById('main');
+  try {
+    const r = await fetch('/api/tareas/propuesta?token=' + encodeURIComponent(TOKEN));
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'No se pudo abrir');
+    DATA = j; pintar();
+  } catch (e) { main.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+
+function pintar() {
+  const { propuesta: p, equipo, puestos } = DATA;
+  const cerrada = ESTADO[p.estado];
+  const libre = (p.libre && p.libre.por_puesto) || {};
+  let html = `<div class="card"><h2>Propuesta del ${esc(p.fecha)}</h2>
+    <div class="muted">El tiempo libre es una estimación (horario + agenda del día).
+    ${p.libre && p.libre.sin_agenda ? 'No había agenda del día en la base: se supuso a los tres ortodoncistas atendiendo.' : ''}</div>
+    ${cerrada ? `<p class="okmsg">${cerrada}</p>` : ''}</div>`;
+  for (const [k, label] of Object.entries(puestos)) {
+    const suyas = p.tareas.filter(t => t.puesto === k);
+    html += `<div class="card"><h2>${esc(label)} <span class="muted">· libre ~${horas(libre[k] || 0)}</span></h2>`;
+    if (!suyas.length) html += '<div class="muted">Nada propuesto.</div>';
+    for (const t of suyas) {
+      const gente = equipo.filter(u => u.puesto === k);
+      html += `<div class="t ${quitar.has(t.id) ? 'quitada' : ''}"><div class="q"><b>${esc(t.titulo)}</b>
+          <div class="muted">${t.minutos} min</div></div>
+        ${cerrada ? `<div class="muted">${esc(t.asignada_nombre || 'cualquiera')}</div>` : `
+        <select data-asig="${t.id}"><option value="">Cualquiera</option>${gente.map(u =>
+          `<option value="${u.id}" ${t.asignada_a == u.id ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('')}</select>
+        <button class="ghost" data-q="${t.id}">${quitar.has(t.id) ? 'Volver' : 'Quitar'}</button>`}</div>`;
+    }
+    html += '</div>';
+  }
+  // ⚠️ Nunca se aprueba al abrir el link: los correos escanean y abren los enlaces
+  // solos, y eso publicaría la propuesta sin que el Dr. la viera. Siempre es un botón.
+  if (!cerrada) html += `<div class="barra"><button class="gold" id="ok">✅ Aprobar y publicar</button>
+    <div id="msg" class="muted" style="margin-top:8px"></div></div>`;
+  document.getElementById('main').innerHTML = html;
+  document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
+    const id = +b.dataset.q; quitar.has(id) ? quitar.delete(id) : quitar.add(id); guardarAsig(); pintar();
+  });
+  document.querySelectorAll('[data-asig]').forEach(s => s.onchange = guardarAsig);
+  const ok = document.getElementById('ok');
+  if (ok) ok.onclick = aprobar;
+}
+
+function guardarAsig() {
+  document.querySelectorAll('[data-asig]').forEach(s => {
+    const t = DATA.propuesta.tareas.find(x => x.id === +s.dataset.asig);
+    if (t) t.asignada_a = s.value ? +s.value : null;
+  });
+}
+
+async function aprobar() {
+  guardarAsig();
+  const cambios = DATA.propuesta.tareas.map(t => quitar.has(t.id) ? { id: t.id, quitar: true }
+    : { id: t.id, asignada_a: t.asignada_a || null });
+  const msg = document.getElementById('msg');
+  try {
+    const r = await fetch('/api/tareas/propuesta/aprobar', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: TOKEN, cambios }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'No se pudo aprobar');
+    DATA.propuesta = j.propuesta; quitar.clear(); pintar();
+  } catch (e) { msg.className = 'err'; msg.textContent = e.message; }
+}
+cargar();
+</script>
+</body>
+</html>

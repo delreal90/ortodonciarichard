@@ -213,6 +213,8 @@ class TestCoberturaDeAuth(unittest.TestCase):
         '/api/compras/me':                      'lee el X-Compras-Token del header',
         '/api/compras/setup':                   'primer admin; solo con 0 usuarios',
         '/api/compras/qr/<path:codigo>.png':    'imagen de QR, sin datos',
+        '/api/tareas/propuesta':                'propuesta de tareas del dia: la abre el Dr. desde el link del correo. Token firmado que vence en 16 h y vale solo para esa fecha (rate limit 30/min)',
+        '/api/tareas/propuesta/aprobar':        'aprobar esa propuesta con el mismo token firmado; solo publica tareas de ese dia (rate limit 10/min)',
     }
 
     def _rutas_api(self):

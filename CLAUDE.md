@@ -2130,6 +2130,69 @@ escaneable + texto correctos.
 
 ---
 
+## Tareas para tiempos muertos del personal (`admin/tareas.py`, 2026-10-14)
+
+Recepción, asistentes y aseo tienen ratos libres. Según el horario (abril 2026), **siempre
+sobra al menos una asistente de ortodoncia, y dos los jueves y viernes** (~45 h/semana):
+las asistentes de orto rotan, así que se estima el tiempo libre del **grupo**, no de una
+persona. La asistente del Dr. Vial es fija con él: libre cuando él no atiende, y el
+**martes AM** es su bloque de labores administrativas de Vial.
+
+**Vive en la app de Compras** (pestaña **✅ Tareas**): reusa usuarios, login de 30 días y el
+celular de cada persona. Lo que cada una ve lo decide su **`usuarios.puesto`**
+(`secretaria` · `asistente_orto` · `asistente_vial` · `aseo`), **no su rol** — una persona
+puede ser rol Inventario y puesto asistente. Rol nuevo **`equipo`** = solo `tareas`. Todo
+rol tiene la capacidad `tareas` salvo `escaner` (es un equipo compartido). Tablas en la
+misma `compras.db` (`tareas`, `tareas_plantillas`, `tareas_propuestas`, `tareas_config`).
+🔒 Los nombres del personal viven como **usuarios en la base**, nunca en código ni pruebas.
+
+**Fuentes de tareas:** plantillas que se repiten (diaria / semanal / mensual, con `ref` por
+período → nunca se duplican), **encargos** del administrador (se publican al tiro) y
+**generadores** (`tareas.GENERADORES`): controles programados atrasados, consentimientos sin
+firmar de mañana, consentimientos firmados por subir a DentiDesk, stock bajo mínimo,
+etiquetas QR en cola y collages pendientes. Una tarea **agrupada** por lista ("Llamar 6
+controles atrasados", con los nombres en el detalle), cada generador en su propio `try`.
+⚠️ Nada de esto envía mensajes: es trabajo para una persona. Sin adaptador en
+`clinico.ADAPTADORES` (regla 9) a propósito: las tareas no van ligadas a un RUT.
+Botón **"📋 Cargar catálogo sugerido"** = `tareas.CATALOGO_SUGERIDO` (~24 tareas por área,
+idempotente por título).
+
+**El día (`_loop_tareas`, estado en la base → un reinicio no repite ni pierde nada):**
+1. Desde `hora_propuesta` (07:15, días hábiles): `generar_dia()` + `armar_propuesta()`.
+   `estimar_libre()` = dotación por día/bloque (`DEFAULT_CONFIG['dotacion']`, tomada del
+   horario; el **lunes AM** vienen solo tres personas con labor fija —una asistente en
+   recepción, la del Dr. Vial ordenando material, una de aseo— y el **lunes PM** todos) + agenda real del
+   día en `clinica.db`: asistentes que sobran × bloque + huecos ≥30 min de los doctores que
+   atienden; recepción = % del bloque según citas/hora; aseo = minutos fijos. Se reparte por
+   prioridad hasta el **80 %** del libre (**nunca se propone más de lo que cabe**). Sin agenda
+   en la base se supone a los tres ortodoncistas atendiendo y se dice.
+2. Con `activo` = correo al Dr. (`EMAIL_ALBERTO`, fallback `REPORTE_SEMANAL_EMAIL`) con link a
+   **`/tareas/propuesta?token=`** (itsdangerous, 16 h, solo esa fecha): reasignar, quitar,
+   aprobar. Opcional WhatsApp (`whatsapp` + env `WA_TELEFONO_ALBERTO`, plantilla
+   `conversacion_general`). ⚠️ **Abrir el link nunca aprueba**: los correos pre-abren los
+   enlaces solos; aprobar es siempre un botón. Sin `activo` (default) se publica directo.
+3. Hasta aprobar, lo generado **no se ve** en la bolsa (`publicada=0`). Si no aprueba antes de
+   `hora_publicar` (10:00) se publica igual (`publicar_sin_aprobar`). Al aprobar se publica
+   también el resto de lo pendiente ("si sobra tiempo"); lo **quitado** vuelve mañana.
+4. El personal: "¿Tienes tiempo libre? 15/30/60 min" → la tarea más prioritaria que cabe →
+   Tomar → Hecha (nota opcional). Tomar es `BEGIN IMMEDIATE`: dos personas no toman la misma.
+5. **Lunes ≥08:00**: resumen de la semana anterior por persona (hechas, minutos) y por
+   puesto (libre estimado vs usado, vencidas). Marca `ultimo_resumen` en la base.
+
+Rutas: `/api/compras/tareas*` (sesión de Compras; admin para gestionar) y públicas con token
+`/api/tareas/propuesta` + `/aprobar` (declaradas en `test_seguridad.py`). Pruebas:
+`test_tareas.py` (27, cero red, nombres inventados).
+
+La laboratorista **no entra** a las tareas por ahora, y el turno "Banco" del horario ya no
+existe (decisiones del usuario 2026-10-14). El horario detallado está en la memoria del
+proyecto (no acá: lleva nombres del personal y este repo es público).
+
+**Pendiente:** crear los usuarios
+con su puesto; cargar el catálogo y ajustarlo con la clínica; 1-2 semanas con la propuesta
+llegando solo al Dr. antes de dar acceso al equipo.
+
+---
+
 ## Analytics — registro histórico de atenciones (`ortodonciarichard-analytics/`)
 
 Subproyecto de **análisis de datos** (NO es parte del backend Flask ni del sitio; no toca

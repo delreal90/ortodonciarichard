@@ -68,17 +68,28 @@ FOTOS_DIR = Path(os.environ.get('COMPRAS_FOTOS_DIR', _BASE_DIR / 'compras_fotos'
 #   solo_operacion — RESTRICCIÓN (no permiso): este rol solo ve gastos de operación
 #                    (insumos, materiales, reparaciones). Nunca ve sueldos, honorarios,
 #                    impuestos ni seguros. Se aplica filtrando por categorias.ambito.
-ROLES = ('admin', 'registro', 'inventario', 'solicitante', 'lectura', 'escaner')
+#   tareas       — la pestaña Tareas (bolsa de tareas para los tiempos muertos, tareas.py).
+#                  La tiene todo rol personal (no el escáner compartido): lo que cada
+#                  persona ve ahí lo decide su PUESTO.
+ROLES = ('admin', 'registro', 'inventario', 'solicitante', 'lectura', 'escaner', 'equipo')
 CAPS = {
     'admin':       {'escanear', 'stock', 'compras_ver', 'historial', 'recurrentes', 'reportes',
-                    'solicitar', 'registrar', 'admin'},
+                    'solicitar', 'registrar', 'admin', 'tareas'},
     'registro':    {'escanear', 'stock', 'compras_ver', 'historial', 'recurrentes', 'reportes',
-                    'solicitar', 'registrar'},
-    'inventario':  {'escanear', 'stock', 'compras_ver', 'solicitar', 'registrar', 'solo_operacion'},
-    'solicitante': {'escanear', 'stock', 'compras_ver', 'historial', 'solicitar'},
-    'lectura':     {'stock', 'compras_ver', 'historial', 'reportes'},
-    'escaner':     {'escanear'},
+                    'solicitar', 'registrar', 'tareas'},
+    'inventario':  {'escanear', 'stock', 'compras_ver', 'solicitar', 'registrar', 'solo_operacion',
+                    'tareas'},
+    'solicitante': {'escanear', 'stock', 'compras_ver', 'historial', 'solicitar', 'tareas'},
+    'lectura':     {'stock', 'compras_ver', 'historial', 'reportes', 'tareas'},
+    'escaner':     {'escanear'},   # un equipo de escaneo compartido: sin tareas
+    # Personal que solo usa la bolsa de tareas (recepción, asistentes, aseo).
+    'equipo':      {'tareas'},
 }
+# Puesto de trabajo (para la bolsa de tareas). Independiente del ROL: Ana María es
+# rol Inventario y puesto asistente de ortodoncia. '' = no participa en tareas.
+PUESTOS = ('secretaria', 'asistente_orto', 'asistente_vial', 'aseo')
+PUESTOS_LABEL = {'secretaria': 'Recepción', 'asistente_orto': 'Asistente de ortodoncia',
+                 'asistente_vial': 'Asistente Dr. Vial', 'aseo': 'Aseo'}
 # Etiquetas legibles para el panel de usuarios.
 ROLES_LABEL = {
     'admin': 'Administrador (todo)',
@@ -87,6 +98,7 @@ ROLES_LABEL = {
     'solicitante': 'Solicitante (ve, escanea, pide compras)',
     'lectura': 'Lectura (solo ver)',
     'escaner': 'Escáner (solo escanear salidas)',
+    'equipo': 'Equipo (solo tareas)',
 }
 
 # Ámbito de cada categoría de gasto. Separa lo OPERATIVO de la clínica (insumos,
@@ -356,6 +368,9 @@ def _migrar(con):
     agrega columnas a tablas existentes). Agrega columnas nuevas si faltan."""
     def _cols(tabla):
         return {r['name'] for r in con.execute(f'PRAGMA table_info({tabla})')}
+    # Puesto de trabajo para la bolsa de tareas (2026-10-14). Ver PUESTOS.
+    if 'puesto' not in _cols('usuarios'):
+        con.execute("ALTER TABLE usuarios ADD COLUMN puesto TEXT NOT NULL DEFAULT ''")
     # Proveedor CONFIDENCIAL (2026-09-30): sus pagos no los ve el rol con
     # `solo_operacion`, aunque se anoten en una categoría de operación. La categoría
     # sola no alcanzaba: el Dr. Labraña es un servicio externo (va en «Servicios»,
@@ -479,7 +494,7 @@ def contar_usuarios():
         con.close()
 
 
-def crear_usuario(email, nombre, password, rol='registro'):
+def crear_usuario(email, nombre, password, rol='registro', puesto=''):
     """'email' es en realidad el NOMBRE DE USUARIO para entrar: puede ser un correo o
     un identificador simple ('maria', 'recepcion2'). La columna se sigue llamando
     'email' por compatibilidad con las bases ya creadas."""
@@ -495,19 +510,27 @@ def crear_usuario(email, nombre, password, rol='registro'):
         raise ValueError('La contraseña debe tener al menos 6 caracteres')
     if rol not in ROLES:
         raise ValueError('Rol inválido')
+    puesto = _validar_puesto(puesto)
     ph, salt = _hash_password(password)
     con = _conn()
     try:
         cur = con.execute(
-            'INSERT INTO usuarios(email,nombre,rol,password_hash,salt,activo,creado) '
-            'VALUES(?,?,?,?,?,1,?)',
-            (usuario, nombre, rol, ph, salt, ahora_cl().isoformat(timespec='seconds')))
+            'INSERT INTO usuarios(email,nombre,rol,password_hash,salt,activo,creado,puesto) '
+            'VALUES(?,?,?,?,?,1,?,?)',
+            (usuario, nombre, rol, ph, salt, ahora_cl().isoformat(timespec='seconds'), puesto))
         con.commit()
         return cur.lastrowid
     except sqlite3.IntegrityError:
         raise ValueError('Ya existe un usuario con ese nombre de usuario')
     finally:
         con.close()
+
+
+def _validar_puesto(puesto):
+    puesto = (puesto or '').strip()
+    if puesto and puesto not in PUESTOS:
+        raise ValueError('Puesto inválido')
+    return puesto
 
 
 def eliminar_usuario(usuario_id, actor_id=None):
@@ -534,6 +557,12 @@ def eliminar_usuario(usuario_id, actor_id=None):
         con.execute('UPDATE movimientos_stock SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
         con.execute('UPDATE pendientes_compra SET solicitado_por=NULL WHERE solicitado_por=?', (usuario_id,))
         con.execute('UPDATE suscripciones SET usuario_id=NULL WHERE usuario_id=?', (usuario_id,))
+        # Tareas: el registro de quién hizo qué se conserva sin el vínculo (tareas.py).
+        for col in ('asignada_a', 'tomada_por', 'hecha_por', 'creada_por'):
+            try:
+                con.execute(f'UPDATE tareas SET {col}=NULL WHERE {col}=?', (usuario_id,))
+            except sqlite3.OperationalError:
+                pass   # la tabla aún no existe (tareas.init_db no ha corrido)
         con.execute('DELETE FROM sesiones WHERE usuario_id=?', (usuario_id,))
         con.execute('DELETE FROM usuarios WHERE id=?', (usuario_id,))
         con.commit()
@@ -555,7 +584,8 @@ def verificar_login(email, password):
     calc, _ = _hash_password(password, u['salt'])
     if not secrets.compare_digest(calc, u['password_hash']):
         return None
-    return {'id': u['id'], 'email': u['email'], 'nombre': u['nombre'], 'rol': u['rol']}
+    return {'id': u['id'], 'email': u['email'], 'nombre': u['nombre'], 'rol': u['rol'],
+            'puesto': u['puesto'] or ''}
 
 
 def crear_sesion(usuario_id):
@@ -581,7 +611,7 @@ def usuario_por_sesion(token):
     con = _conn()
     try:
         r = con.execute(
-            'SELECT u.id,u.email,u.nombre,u.rol,s.expira '
+            'SELECT u.id,u.email,u.nombre,u.rol,u.puesto,s.expira '
             'FROM sesiones s JOIN usuarios u ON u.id=s.usuario_id '
             'WHERE s.token=? AND u.activo=1', (token,)).fetchone()
     finally:
@@ -591,7 +621,8 @@ def usuario_por_sesion(token):
     if r['expira'] < ahora_cl().isoformat(timespec='seconds'):
         cerrar_sesion(token)
         return None
-    return {'id': r['id'], 'email': r['email'], 'nombre': r['nombre'], 'rol': r['rol']}
+    return {'id': r['id'], 'email': r['email'], 'nombre': r['nombre'], 'rol': r['rol'],
+            'puesto': r['puesto'] or ''}
 
 
 def cerrar_sesion(token):
@@ -607,13 +638,13 @@ def listar_usuarios():
     con = _conn()
     try:
         return _rows(con.execute(
-            'SELECT id,email,nombre,rol,activo,creado FROM usuarios ORDER BY nombre'))
+            'SELECT id,email,nombre,rol,activo,creado,puesto FROM usuarios ORDER BY nombre'))
     finally:
         con.close()
 
 
 def actualizar_usuario(usuario_id, nombre=None, rol=None, activo=None, password=None,
-                       email=None):
+                       email=None, puesto=None):
     """Editar un usuario. 'password' sirve de RESTABLECER CLAVE (lo usa el admin cuando
     alguien la olvida): además de cambiarla, cierra las sesiones abiertas de ese usuario.
     'email' es el nombre de usuario para entrar."""
@@ -631,6 +662,8 @@ def actualizar_usuario(usuario_id, nombre=None, rol=None, activo=None, password=
         sets.append('rol=?'); vals.append(rol)
     if activo is not None:
         sets.append('activo=?'); vals.append(1 if activo else 0)
+    if puesto is not None:
+        sets.append('puesto=?'); vals.append(_validar_puesto(puesto))
     if password is not None:
         if len(password) < 6:
             raise ValueError('La contraseña debe tener al menos 6 caracteres')
