@@ -28,10 +28,13 @@ const ROLES_LABEL = {
   solicitante: 'Solicitante (ve, escanea, pide compras)',
   lectura: 'Lectura (solo ver)',
   escaner: 'Escáner (solo escanear salidas)',
-  equipo: 'Equipo (solo tareas)',
+  equipo: 'Sin acceso a Compras',
 };
 const PUESTOS_LABEL = { '': '— sin puesto —', secretaria: 'Recepción', asistente_orto: 'Asistente de ortodoncia',
   asistente_vial: 'Asistente Dr. Vial', aseo: 'Aseo' };
+const ROLES_TAREAS_LABEL = { '': 'Sin acceso', personal: 'Personal', admin: 'Administrador' };
+const optsRolTareas = sel => Object.entries(ROLES_TAREAS_LABEL).map(([v, l]) =>
+  `<option value="${v}" ${(sel || '') === v ? 'selected' : ''}>${l}</option>`).join('');
 const optsPuesto = sel => Object.entries(PUESTOS_LABEL).map(([v, l]) =>
   `<option value="${v}" ${(sel || '') === v ? 'selected' : ''}>${l}</option>`).join('');
 const AMBITO_LABEL = {
@@ -166,7 +169,7 @@ async function entrarApp() {
   // Las tareas viven en su propio sitio (/tareas, mismo usuario y clave). Quien solo
   // usa tareas no tiene nada que hacer acá: se va directo allá.
   if (ME.rol === 'equipo') { location.href = '/tareas'; return; }
-  $('#lnkTareas').classList.toggle('hidden', !(ME.puesto || puede('admin')));
+  $('#lnkTareas').classList.toggle('hidden', !puede('tareas'));
   actualizarBadge(ME.pendientes || 0);
   actualizarBadgeDet(ME.por_detallar || 0);
   actualizarBadgeFijos(ME.gastos_fijos_atrasados || 0);
@@ -2195,12 +2198,12 @@ RENDER.admin = async () => {
   // usuarios
   const pintarUsers = async () => {
     try { const j = await api('/api/compras/usuarios');
-      $('#adUsers').innerHTML = `<tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Puesto</th><th>Estado</th><th></th></tr>` +
+      $('#adUsers').innerHTML = `<tr><th>Nombre</th><th>Usuario</th><th>Compras</th><th>Tareas</th><th>Estado</th><th></th></tr>` +
         j.usuarios.map(u => `<tr><td>${esc(u.nombre)}</td><td>${esc(u.email)}</td>
-          <td><span class="rolechip">${u.rol}</span></td><td>${u.puesto ? esc(PUESTOS_LABEL[u.puesto] || u.puesto) : '<span class="muted">—</span>'}</td>
+          <td>${u.rol === 'equipo' ? '<span class="muted">sin acceso</span>' : `<span class="rolechip">${u.rol}</span>`}</td><td>${u.rol_tareas ? esc(ROLES_TAREAS_LABEL[u.rol_tareas]) + (u.puesto ? ' · ' + esc(PUESTOS_LABEL[u.puesto] || u.puesto) : '') : '<span class="muted">—</span>'}</td>
           <td>${u.activo ? '<span class="pill ok">activo</span>' : '<span class="pill low">inactivo</span>'}</td>
           <td class="right">
-            <button class="btn ghost sm" data-eu="${u.id}" data-n="${esc(u.nombre)}" data-e="${esc(u.email)}" data-r="${u.rol}" data-p="${esc(u.puesto || '')}" data-a="${u.activo}">Editar</button>
+            <button class="btn ghost sm" data-eu="${u.id}" data-n="${esc(u.nombre)}" data-e="${esc(u.email)}" data-r="${u.rol}" data-p="${esc(u.puesto || '')}" data-rt="${esc(u.rol_tareas || '')}" data-a="${u.activo}">Editar</button>
             <button class="btn ghost sm" data-clave="${u.id}" data-n="${esc(u.nombre)}" title="Restablecer contraseña">🔑</button>
             ${u.id === ME.id ? '' : `<button class="btn danger sm" data-del="${u.id}" data-n="${esc(u.nombre)}" title="Eliminar usuario">🗑️</button>`}
           </td></tr>`).join('');
@@ -2244,13 +2247,14 @@ function nuevoUsuario(despues) {
     <div class="field"><label>Usuario para entrar</label><input id="nuE" type="text" placeholder="Ej: maria (no necesita ser un correo)">
       <p class="muted" style="font-size:12px;margin-top:4px">Mínimo 3 caracteres, sin espacios. Puede ser un correo si prefieres.</p></div>
     <div class="field"><label>Contraseña</label><input id="nuP" type="password" placeholder="Mínimo 6 caracteres"></div>
-    <div class="field"><label>Rol</label><select id="nuR">${optsRoles('registro')}</select></div>
-    <div class="field"><label>Puesto (para la bolsa de tareas)</label><select id="nuPu">${optsPuesto('')}</select></div>
+    <div class="field"><label>Acceso a Compras</label><select id="nuR">${optsRoles('registro')}</select></div>
+    <div class="row c2"><div class="field"><label>Acceso a Tareas</label><select id="nuRt">${optsRolTareas('')}</select></div>
+      <div class="field"><label>Puesto</label><select id="nuPu">${optsPuesto('')}</select></div></div>
     <div class="flex" style="margin-top:6px"><div class="spacer"></div>
       <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
       <button class="btn gold" id="nuOk">Crear</button></div>`);
   m.querySelector('#nuOk').onclick = async () => {
-    try { await api('/api/compras/usuarios', { method: 'POST', body: { nombre: m.querySelector('#nuN').value, email: m.querySelector('#nuE').value, password: m.querySelector('#nuP').value, rol: m.querySelector('#nuR').value, puesto: m.querySelector('#nuPu').value } });
+    try { await api('/api/compras/usuarios', { method: 'POST', body: { nombre: m.querySelector('#nuN').value, email: m.querySelector('#nuE').value, password: m.querySelector('#nuP').value, rol: m.querySelector('#nuR').value, puesto: m.querySelector('#nuPu').value, rol_tareas: m.querySelector('#nuRt').value } });
       closeModal(); toast('Usuario creado ✓', 'ok'); despues();
     } catch (e) { toast(e.message, 'err'); }
   };
@@ -2289,15 +2293,16 @@ function editarUsuario(ds) {
   const m = modal(`<h3>Editar usuario</h3>
     <div class="field"><label>Nombre de la persona</label><input id="euN" value="${esc(ds.n)}"></div>
     <div class="field"><label>Usuario para entrar</label><input id="euE" value="${esc(ds.e || '')}"></div>
-    <div class="field"><label>Rol</label><select id="euR">${optsRoles(ds.r)}</select></div>
-    <div class="field"><label>Puesto (para la bolsa de tareas)</label><select id="euPu">${optsPuesto(ds.p)}</select></div>
+    <div class="field"><label>Acceso a Compras</label><select id="euR">${optsRoles(ds.r)}</select></div>
+    <div class="row c2"><div class="field"><label>Acceso a Tareas</label><select id="euRt">${optsRolTareas(ds.rt)}</select></div>
+      <div class="field"><label>Puesto</label><select id="euPu">${optsPuesto(ds.p)}</select></div></div>
     <div class="field"><label>Estado</label><select id="euA"><option value="1" ${ds.a == 'true' || ds.a == '1' ? 'selected' : ''}>Activo</option><option value="0" ${ds.a == 'false' || ds.a == '0' ? 'selected' : ''}>Inactivo</option></select></div>
     <div class="field"><label>Nueva contraseña (opcional)</label><input id="euP" type="password" placeholder="Dejar vacío para no cambiar"></div>
     <div class="flex" style="margin-top:6px"><div class="spacer"></div>
       <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
       <button class="btn gold" id="euOk">Guardar</button></div>`);
   m.querySelector('#euOk').onclick = async () => {
-    try { const body = { id: +ds.eu, nombre: m.querySelector('#euN').value, rol: m.querySelector('#euR').value, puesto: m.querySelector('#euPu').value, activo: m.querySelector('#euA').value === '1' };
+    try { const body = { id: +ds.eu, nombre: m.querySelector('#euN').value, rol: m.querySelector('#euR').value, puesto: m.querySelector('#euPu').value, rol_tareas: m.querySelector('#euRt').value, activo: m.querySelector('#euA').value === '1' };
       const usr = m.querySelector('#euE').value.trim(); if (usr && usr !== ds.e) body.email = usr;
       const pw = m.querySelector('#euP').value; if (pw) body.password = pw;
       await api('/api/compras/usuarios/actualizar', { method: 'POST', body });

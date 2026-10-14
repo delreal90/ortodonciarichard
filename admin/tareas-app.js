@@ -77,7 +77,7 @@ function entrar() {
   }
   // Compras solo para quien tiene algo que hacer ahí.
   $('#lnkCompras').classList.toggle('hidden', ME.rol === 'equipo');
-  const esAdmin = puede('admin');
+  const esAdmin = puede('tareas_admin');
   $('#tabs [data-tab="admin"]').classList.toggle('hidden', !esAdmin);
   $('#tabs [data-tab="personas"]').classList.toggle('hidden', !esAdmin);
   $('#tabs [data-tab="mias"]').classList.toggle('hidden', !ME.puesto && esAdmin);
@@ -163,7 +163,7 @@ RENDER.tareas = async () => {
         : '<div class="card empty muted">No hay tareas pendientes para tu puesto. 🎉</div>');
     } catch (e) { html += `<div class="card">${esc(e.message)}</div>`; }
   }
-  sec.innerHTML = html || `<div class="card muted">Tu usuario no tiene un puesto asignado. ${puede('admin') ? 'Asígnalo en la pestaña Personas.' : 'Pídele a un administrador que te lo asigne.'}</div>`;
+  sec.innerHTML = html || `<div class="card muted">Tu usuario no tiene un puesto asignado. ${puede('tareas_admin') ? 'Asígnalo en la pestaña Personas.' : 'Pídele a un administrador que te lo asigne.'}</div>`;
   $$('#tab-mias [data-tomar]').forEach(b => b.onclick = () => accionTarea('tomar', +b.dataset.tomar));
   $$('#tab-mias [data-soltar]').forEach(b => b.onclick = () => accionTarea('soltar', +b.dataset.soltar));
   $$('#tab-mias [data-hecha]').forEach(b => b.onclick = () => terminarConNota(+b.dataset.hecha));
@@ -360,31 +360,38 @@ function editarPlantilla(p, P, equipo) {
 RENDER.mias = () => RENDER.tareas();
 RENDER.admin = () => pintarTareasAdmin();
 
-/* ══════════════════ PERSONAS (usuarios con puesto) ══════════════════ */
-// Son los MISMOS usuarios de Compras: crear acá a alguien con rol "Equipo" le da acceso
-// solo a Tareas; a quien ya tiene usuario en Compras basta con asignarle un puesto.
+/* ══════════════════ PERSONAS ══════════════════ */
+// Son los MISMOS usuarios de Compras, pero el acceso a Tareas se asigna aparte: alguien
+// puede ser Inventario en Compras y solo Personal en Tareas. Una persona creada acá queda
+// SIN acceso a Compras; dárselo es cosa de un administrador de Compras.
+const ROLES_TAREAS_LABEL = { '': 'Sin acceso', personal: 'Personal', admin: 'Administrador' };
+const optsRolTareas = (sel, conVacio = true) => Object.entries(ROLES_TAREAS_LABEL)
+  .filter(([v]) => conVacio || v)
+  .map(([v, l]) => `<option value="${v}" ${(sel || '') === v ? 'selected' : ''}>${l}</option>`).join('');
+
 RENDER.personas = async () => {
   const sec = $('#tab-personas');
   sec.innerHTML = '<div class="card muted">Cargando…</div>';
-  let us;
-  try { us = (await api('/api/compras/usuarios')).usuarios; } catch (e) { sec.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
-  const con = us.filter(u => u.puesto), sin = us.filter(u => !u.puesto && u.activo);
-  sec.innerHTML = `<div class="card"><div class="flex"><h3>Personas en la bolsa de tareas</h3><div class="spacer"></div>
+  let ps;
+  try { ps = (await api('/api/compras/tareas/personas')).personas; } catch (e) { sec.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+  const con = ps.filter(p => p.rol_tareas), sin = ps.filter(p => !p.rol_tareas && p.activo);
+  sec.innerHTML = `<div class="card"><div class="flex"><h3>Personas con acceso a Tareas</h3><div class="spacer"></div>
       <button class="btn gold sm" id="peNueva">➕ Nueva persona</button></div>
-    <p class="muted" style="font-size:13px;margin-bottom:10px">Usan el mismo usuario y clave que Compras. Lo que cada una ve lo decide su puesto.</p>
-    ${con.length ? `<div class="tablewrap"><table><tr><th>Nombre</th><th>Usuario</th><th>Puesto</th><th>Estado</th><th></th></tr>` +
-      con.map(u => `<tr><td>${esc(u.nombre)}</td><td>${esc(u.email)}</td><td>${esc(PUESTOS_LABEL[u.puesto] || u.puesto)}</td>
-        <td>${u.activo ? '<span class="pill ok">activa</span>' : '<span class="pill low">inactiva</span>'}</td>
-        <td><button class="btn ghost sm" data-pu="${u.id}">Cambiar puesto</button>
-            <button class="btn ghost sm" data-cl="${u.id}" title="Restablecer contraseña">🔑</button></td></tr>`).join('') + '</table></div>'
-      : '<p class="muted">Todavía nadie tiene puesto.</p>'}</div>
-    ${sin.length ? `<div class="card"><h3>Usuarios de Compras sin puesto</h3>
-      <p class="muted" style="font-size:13px;margin-bottom:10px">Si alguno también hace tareas (por ejemplo, quien lleva el inventario), asígnale su puesto.</p>
-      <table>${sin.map(u => `<tr><td>${esc(u.nombre)}</td><td class="muted">${esc(u.rol)}</td>
-        <td style="text-align:right"><button class="btn ghost sm" data-pu="${u.id}">Asignar puesto</button></td></tr>`).join('')}</table></div>` : ''}`;
-  const porId = Object.fromEntries(us.map(u => [u.id, u]));
+    <p class="muted" style="font-size:13px;margin-bottom:10px">Mismo usuario y clave que Compras, pero el acceso a cada sitio se asigna por separado.</p>
+    ${con.length ? `<div class="tablewrap"><table><tr><th>Nombre</th><th>Usuario</th><th>Tareas</th><th>Puesto</th><th>Compras</th><th></th></tr>` +
+      con.map(p => `<tr><td>${esc(p.nombre)}${p.activo ? '' : ' <span class="pill low">inactiva</span>'}</td><td>${esc(p.email)}</td>
+        <td>${esc(ROLES_TAREAS_LABEL[p.rol_tareas])}</td><td>${p.puesto ? esc(PUESTOS_LABEL[p.puesto]) : '<span class="muted">—</span>'}</td>
+        <td class="muted">${p.compras ? esc(p.rol_compras) : 'no'}</td>
+        <td style="white-space:nowrap"><button class="btn ghost sm" data-ed="${p.id}">Editar</button>
+            <button class="btn ghost sm" data-cl="${p.id}" title="Cambiar contraseña">🔑</button></td></tr>`).join('') + '</table></div>'
+      : '<p class="muted">Todavía nadie tiene acceso.</p>'}</div>
+    ${sin.length ? `<div class="card"><h3>Usuarios de Compras sin acceso a Tareas</h3>
+      <p class="muted" style="font-size:13px;margin-bottom:10px">Si alguno también hace tareas (por ejemplo, quien lleva el inventario), dale acceso y su puesto.</p>
+      <table>${sin.map(p => `<tr><td>${esc(p.nombre)}</td><td class="muted">${esc(p.rol_compras)}</td>
+        <td style="text-align:right"><button class="btn ghost sm" data-ed="${p.id}">Dar acceso</button></td></tr>`).join('')}</table></div>` : ''}`;
+  const porId = Object.fromEntries(ps.map(p => [p.id, p]));
   $('#peNueva').onclick = nuevaPersona;
-  $$('#tab-personas [data-pu]').forEach(b => b.onclick = () => cambiarPuesto(porId[+b.dataset.pu]));
+  $$('#tab-personas [data-ed]').forEach(b => b.onclick = () => editarPersona(porId[+b.dataset.ed]));
   $$('#tab-personas [data-cl]').forEach(b => b.onclick = () => resetClave(porId[+b.dataset.cl]));
 };
 
@@ -393,43 +400,47 @@ function nuevaPersona() {
     <div class="field"><label>Nombre</label><input id="npN" placeholder="Nombre y apellido"></div>
     <div class="field"><label>Usuario para entrar</label><input id="npE" placeholder="Ej: maria (sin espacios)"></div>
     <div class="field"><label>Contraseña</label><input id="npP" type="password" placeholder="Mínimo 6 caracteres"></div>
-    <div class="field"><label>Puesto</label><select id="npPu">${optsPuesto('asistente_orto', false)}</select></div>
-    <p class="muted" style="font-size:12px">Se crea con rol <b>Equipo</b>: solo verá Tareas, no Compras.</p>
+    <div class="row c2"><div class="field"><label>Puesto</label><select id="npPu">${optsPuesto('asistente_orto', false)}</select></div>
+      <div class="field"><label>Acceso a Tareas</label><select id="npRt">${optsRolTareas('personal', false)}</select></div></div>
+    <p class="muted" style="font-size:12px">Queda sin acceso a Compras.</p>
     <div class="flex" style="margin-top:8px"><div class="spacer"></div>
       <button class="btn ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn gold" id="npOk">Crear</button></div>`);
   m.querySelector('#npOk').onclick = async () => {
-    try { await api('/api/compras/usuarios', { method: 'POST', body: { nombre: m.querySelector('#npN').value,
-        email: m.querySelector('#npE').value, password: m.querySelector('#npP').value, rol: 'equipo',
-        puesto: m.querySelector('#npPu').value } });
+    try { await api('/api/compras/tareas/personas', { method: 'POST', body: { nombre: m.querySelector('#npN').value,
+        email: m.querySelector('#npE').value, password: m.querySelector('#npP').value,
+        puesto: m.querySelector('#npPu').value, rol_tareas: m.querySelector('#npRt').value } });
       closeModal(); toast('Persona creada ✓ — avísale su usuario y clave', 'ok'); refrescar();
     } catch (e) { toast(e.message, 'err'); }
   };
 }
 
-function cambiarPuesto(u) {
-  const m = modal(`<h3>Puesto de ${esc(u.nombre)}</h3>
-    <div class="field"><label>Puesto</label><select id="cpPu">${optsPuesto(u.puesto)}</select></div>
-    <p class="muted" style="font-size:12px">"Sin puesto" la saca de la bolsa de tareas (no borra su usuario).</p>
+function editarPersona(p) {
+  const m = modal(`<h3>${esc(p.nombre)}</h3>
+    <div class="row c2"><div class="field"><label>Acceso a Tareas</label><select id="epRt">${optsRolTareas(p.rol_tareas || 'personal')}</select></div>
+      <div class="field"><label>Puesto</label><select id="epPu">${optsPuesto(p.puesto)}</select></div></div>
+    <p class="muted" style="font-size:12px">"Personal" ve las tareas de su puesto. "Administrador" además arma la propuesta, las tareas fijas y las personas.
+      ${p.compras ? `En Compras es <b>${esc(p.rol_compras)}</b>; eso se cambia desde Compras.` : ''}</p>
     <div class="flex" style="margin-top:8px"><div class="spacer"></div>
       <button class="btn ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn gold" id="cpOk">Guardar</button></div>`);
-  m.querySelector('#cpOk').onclick = async () => {
-    try { await api('/api/compras/usuarios/actualizar', { method: 'POST', body: { id: u.id, puesto: m.querySelector('#cpPu').value } });
-      closeModal(); toast('Puesto actualizado ✓', 'ok'); refrescar();
+      <button class="btn gold" id="epOk">Guardar</button></div>`);
+  m.querySelector('#epOk').onclick = async () => {
+    try { await api('/api/compras/tareas/personas/actualizar', { method: 'POST', body: { id: p.id,
+        puesto: m.querySelector('#epPu').value, rol_tareas: m.querySelector('#epRt').value } });
+      closeModal(); toast('Guardado ✓', 'ok'); refrescar();
     } catch (e) { toast(e.message, 'err'); }
   };
 }
 
-function resetClave(u) {
-  const m = modal(`<h3>Nueva contraseña para ${esc(u.nombre)}</h3>
+function resetClave(p) {
+  const m = modal(`<h3>Nueva contraseña para ${esc(p.nombre)}</h3>
     <div class="field"><label>Contraseña</label><input id="rcP" type="password" placeholder="Mínimo 6 caracteres"></div>
     <p class="muted" style="font-size:12px">Es la misma clave de Compras. Se cierran sus sesiones abiertas.</p>
     <div class="flex" style="margin-top:8px"><div class="spacer"></div>
       <button class="btn ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn gold" id="rcOk">Guardar</button></div>`);
   m.querySelector('#rcOk').onclick = async () => {
-    try { await api('/api/compras/usuarios/actualizar', { method: 'POST', body: { id: u.id, password: m.querySelector('#rcP').value } });
+    try { await api('/api/compras/tareas/personas/actualizar', { method: 'POST', body: { id: p.id, password: m.querySelector('#rcP').value } });
       closeModal(); toast('Contraseña cambiada ✓', 'ok');
     } catch (e) { toast(e.message, 'err'); }
   };

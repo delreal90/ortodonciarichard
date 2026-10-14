@@ -7032,7 +7032,7 @@ def _require_compras(cap):
     u = _compras_user()
     if not u:
         return None, (jsonify({'ok': False, 'error': 'No autenticado'}), 401)
-    if not _compras.tiene_cap(u['rol'], cap):
+    if cap not in _compras.caps_de(u):
         return None, (jsonify({'ok': False, 'error': 'Sin permiso para esta acción'}), 403)
     return u, None
 
@@ -7082,7 +7082,7 @@ def compras_setup():
 def _con_caps(u):
     """Adjunta al usuario sus capacidades (para que el frontend sepa qué mostrar) +
     el contador de pendientes por comprar (badge de solicitudes)."""
-    caps = _compras.CAPS.get(u['rol'], set())
+    caps = _compras.caps_de(u)
     try:
         n_tareas = len(_tareas.bolsa(u)['bolsa']) if u.get('puesto') else 0
     except Exception:
@@ -7178,7 +7178,8 @@ def compras_usuarios_crear():
     try:
         uid = _compras.crear_usuario(d.get('email', ''), d.get('nombre', ''),
                                      d.get('password', ''), rol=d.get('rol', 'registro'),
-                                     puesto=d.get('puesto', ''))
+                                     puesto=d.get('puesto', ''),
+                                     rol_tareas=d.get('rol_tareas', ''))
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, 'id': uid})
@@ -7194,7 +7195,8 @@ def compras_usuarios_actualizar():
     try:
         _compras.actualizar_usuario(d.get('id'), nombre=d.get('nombre'), rol=d.get('rol'),
                                     activo=d.get('activo'), password=d.get('password') or None,
-                                    email=d.get('email') or None, puesto=d.get('puesto'))
+                                    email=d.get('email') or None, puesto=d.get('puesto'),
+                                    rol_tareas=d.get('rol_tareas'))
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True})
@@ -7223,6 +7225,9 @@ import tareas as _tareas
 
 try:
     _tareas.init_db()
+    _n = _tareas.asegurar_catalogo_inicial()
+    if _n:
+        print(f'[tareas] catálogo sugerido cargado: {_n} tareas fijas')
 except Exception as _e:
     print('[tareas] init_db error:', _e)
 
@@ -7291,7 +7296,7 @@ def _equipo_por_puesto():
 
 @app.route('/api/compras/tareas/admin', methods=['GET'])
 def compras_tareas_admin():
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     hoy = fechas.hoy_chile()
@@ -7306,7 +7311,7 @@ def compras_tareas_admin():
 
 @app.route('/api/compras/tareas/encargo', methods=['POST'])
 def compras_tareas_encargo():
-    u, err = _require_compras('admin')
+    u, err = _require_compras('tareas_admin')
     if err:
         return err
     try:
@@ -7318,7 +7323,7 @@ def compras_tareas_encargo():
 
 @app.route('/api/compras/tareas/descartar', methods=['POST'])
 def compras_tareas_descartar():
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     try:
@@ -7330,7 +7335,7 @@ def compras_tareas_descartar():
 
 @app.route('/api/compras/tareas/plantillas', methods=['POST'])
 def compras_tareas_plantilla_crear():
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     try:
@@ -7342,7 +7347,7 @@ def compras_tareas_plantilla_crear():
 
 @app.route('/api/compras/tareas/plantillas/actualizar', methods=['POST'])
 def compras_tareas_plantilla_actualizar():
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     d = request.json or {}
@@ -7355,7 +7360,7 @@ def compras_tareas_plantilla_actualizar():
 
 @app.route('/api/compras/tareas/plantillas/catalogo', methods=['POST'])
 def compras_tareas_cargar_catalogo():
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     return jsonify({'ok': True, 'creadas': _tareas.cargar_catalogo()})
@@ -7363,7 +7368,7 @@ def compras_tareas_cargar_catalogo():
 
 @app.route('/api/compras/tareas/config', methods=['POST'])
 def compras_tareas_config():
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     return jsonify({'ok': True, 'config': _tareas.save_config(request.json or {})})
@@ -7373,7 +7378,7 @@ def compras_tareas_config():
 def compras_tareas_propuesta_run():
     """Genera las tareas de hoy y arma la propuesta a mano. Con enviar=true además
     manda el correo (lo mismo que hace el horario de la mañana)."""
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     d = request.json or {}
@@ -7384,7 +7389,7 @@ def compras_tareas_propuesta_run():
 @app.route('/api/compras/tareas/aprobar', methods=['POST'])
 def compras_tareas_aprobar_sesion():
     """Aprobar desde la app (sesión de administrador), sin el link del correo."""
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     d = request.json or {}
@@ -7397,7 +7402,7 @@ def compras_tareas_aprobar_sesion():
 
 @app.route('/api/compras/tareas/resumen', methods=['GET'])
 def compras_tareas_resumen():
-    _, err = _require_compras('admin')
+    _, err = _require_compras('tareas_admin')
     if err:
         return err
     hoy = fechas.hoy_chile()
@@ -7470,6 +7475,69 @@ def tareas_propuesta_aprobar():
     except (ValueError, TypeError) as ex:
         return _err400(ex)
     return jsonify({'ok': True, 'propuesta': p})
+
+# ── Personas de Tareas ──────────────────────────────────────────────────────────
+# Mismos usuarios que Compras, administrados desde Tareas. Quien administra Tareas
+# pero NO Compras solo puede crear gente sin acceso a Compras y no puede cambiarle la
+# clave a alguien que sí lo tiene: si pudiera, se la cambiaría a un administrador de
+# Compras y entraría como él.
+
+def _persona_publica(x):
+    return {'id': x['id'], 'nombre': x['nombre'], 'email': x['email'], 'puesto': x['puesto'],
+            'rol_tareas': x.get('rol_tareas') or '', 'activo': x['activo'],
+            'compras': x['rol'] != 'equipo',
+            'rol_compras': _compras.ROLES_LABEL.get(x['rol'], x['rol'])}
+
+
+@app.route('/api/compras/tareas/personas', methods=['GET'])
+def compras_tareas_personas():
+    _, err = _require_compras('tareas_admin')
+    if err:
+        return err
+    return jsonify({'ok': True, 'personas': [_persona_publica(x) for x in _compras.listar_usuarios()]})
+
+
+@app.route('/api/compras/tareas/personas', methods=['POST'])
+def compras_tareas_personas_crear():
+    _, err = _require_compras('tareas_admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        uid = _compras.crear_usuario(d.get('email', ''), d.get('nombre', ''), d.get('password', ''),
+                                     rol='equipo', puesto=d.get('puesto', ''),
+                                     rol_tareas=d.get('rol_tareas') or 'personal')
+    except ValueError as e:
+        return _err400(e)
+    return jsonify({'ok': True, 'id': uid})
+
+
+@app.route('/api/compras/tareas/personas/actualizar', methods=['POST'])
+def compras_tareas_personas_actualizar():
+    u, err = _require_compras('tareas_admin')
+    if err:
+        return err
+    d = request.json or {}
+    try:
+        uid = int(d.get('id'))
+    except (TypeError, ValueError):
+        return _err400('Falta la persona')
+    objetivo = next((x for x in _compras.listar_usuarios() if x['id'] == uid), None)
+    if not objetivo:
+        return jsonify({'ok': False, 'error': 'Persona no encontrada'}), 404
+    es_admin_compras = 'admin' in _compras.caps_de(u)
+    if d.get('password') and objetivo['rol'] != 'equipo' and not es_admin_compras:
+        return jsonify({'ok': False, 'error': 'Esta persona también usa Compras: su clave la '
+                                              'cambia un administrador de Compras'}), 403
+    if uid == u['id'] and d.get('rol_tareas') is not None and d.get('rol_tareas') != 'admin':
+        return _err400('No puedes quitarte a ti mismo la administración de Tareas')
+    try:
+        _compras.actualizar_usuario(uid, puesto=d.get('puesto'), rol_tareas=d.get('rol_tareas'),
+                                    password=d.get('password') or None,
+                                    activo=d.get('activo') if objetivo['rol'] == 'equipo' else None)
+    except ValueError as e:
+        return _err400(e)
+    return jsonify({'ok': True})
 
 
 @app.route('/api/compras/categorias', methods=['GET'])

@@ -2146,8 +2146,17 @@ crear gente con rol Equipo, asignar puesto, cambiar clave — con las mismas rut
 `/api/compras/usuarios*`). Un usuario rol `equipo` que abre `/compras` es enviado a `/tareas`;
 Compras muestra un enlace "✅ Tareas" a quien tenga puesto o sea admin. Lo que cada una ve lo decide su **`usuarios.puesto`**
 (`secretaria` · `asistente_orto` · `asistente_vial` · `aseo`), **no su rol** — una persona
-puede ser rol Inventario y puesto asistente. Rol nuevo **`equipo`** = solo `tareas`. Todo
-rol tiene la capacidad `tareas` salvo `escaner` (es un equipo compartido). Tablas en la
+puede ser rol Inventario y puesto asistente. **El acceso a cada sitio se asigna por
+separado** (2026-10-14): `usuarios.rol` es el de Compras (`equipo` = **sin acceso a Compras**)
+y `usuarios.rol_tareas` el de Tareas (`''` sin acceso · `personal` · `admin`).
+`compras.caps_de(u)` junta las dos; `_require_compras` y `_con_caps` la usan. Las rutas de
+administración de Tareas piden `tareas_admin`, no `admin`: un admin de Compras sin rol de
+Tareas no administra Tareas, y al revés. La migración dejó `admin` a los admin de Compras y
+`personal` a quien ya tenía puesto. ⚠️ Quien administra Tareas sin ser admin de Compras
+**no puede cambiar la clave de alguien que usa Compras** (`/api/compras/tareas/personas/
+actualizar` → 403): si pudiera, se la cambiaría a un admin de Compras y entraría como él.
+El catálogo sugerido se carga solo una vez al arrancar (`asegurar_catalogo_inicial`, marca
+`catalogo_cargado` en la config: borrar o pausar tareas fijas no las revive). Tablas en la
 misma `compras.db` (`tareas`, `tareas_plantillas`, `tareas_propuestas`, `tareas_config`).
 🔒 Los nombres del personal viven como **usuarios en la base**, nunca en código ni pruebas.
 

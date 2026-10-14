@@ -81,6 +81,7 @@ DEFAULT_CONFIG = {
     'preferido_stock': None,         # usuario que recibe las tareas de stock/etiquetas
     'resumen_semanal': True,
     'ultimo_resumen': '',
+    'catalogo_cargado': False,
 }
 
 
@@ -409,6 +410,10 @@ _ORDEN_BOLSA = ('CASE WHEN t.asignada_a=:uid THEN 0 ELSE 1 END, '
                 't.prioridad, COALESCE(t.vence, "9999"), t.id')
 
 
+def _es_admin(usuario):
+    return (usuario or {}).get('rol_tareas') == 'admin'
+
+
 def bolsa(usuario, hoy=None):
     """Lo que ve una persona: sus tareas tomadas + las pendientes publicadas de su
     puesto (las asignadas a otra persona no). Un admin sin puesto ve todo."""
@@ -423,7 +428,7 @@ def bolsa(usuario, hoy=None):
             {'uid': usuario['id']}))
         if puesto:
             filtro = 't.puesto=:puesto AND (t.asignada_a IS NULL OR t.asignada_a=:uid)'
-        elif compras.tiene_cap(usuario.get('rol'), 'admin'):
+        elif _es_admin(usuario):
             filtro = '1=1'
         else:
             filtro = '0=1'
@@ -450,7 +455,7 @@ def sugerir(usuario, minutos, hoy=None):
 
 
 def _puede_ver(t, usuario):
-    if compras.tiene_cap(usuario.get('rol'), 'admin'):
+    if _es_admin(usuario):
         return True
     if t['puesto'] != (usuario.get('puesto') or ''):
         return False
@@ -485,7 +490,7 @@ def soltar(tid, usuario):
         t = con.execute('SELECT * FROM tareas WHERE id=?', (int(tid),)).fetchone()
         if not t or t['estado'] != 'tomada' or (
                 t['tomada_por'] != usuario['id']
-                and not compras.tiene_cap(usuario.get('rol'), 'admin')):
+                and not _es_admin(usuario)):
             raise ValueError('No tienes esa tarea tomada')
         con.execute("UPDATE tareas SET estado='pendiente', tomada_por=NULL, tomada_en=NULL "
                     "WHERE id=?", (int(tid),))
@@ -508,7 +513,7 @@ def terminar(tid, usuario, nota=''):
             raise ValueError('Tarea no encontrada')
         t = dict(t)
         if t['estado'] == 'tomada':
-            if t['tomada_por'] != usuario['id'] and not compras.tiene_cap(usuario.get('rol'), 'admin'):
+            if t['tomada_por'] != usuario['id'] and not _es_admin(usuario):
                 raise ValueError('Esa tarea la tiene otra persona')
         elif t['estado'] == 'pendiente' and t['publicada'] and _puede_ver(t, usuario):
             pass
@@ -1050,6 +1055,18 @@ CATALOGO_SUGERIDO = [
     ('Recepción, sala de espera, baños y vidrios a fondo', 'aseo', 60, 2, 'semanal', '5', 1, 0, ''),
     ('Refrigerador, bodega, cortinas/tapiz y filtros de aire', 'aseo', 90, 3, 'mensual', '', 5, 0, ''),
 ]
+
+
+def asegurar_catalogo_inicial():
+    """Carga el catálogo sugerido UNA vez, la primera vez que arranca el sistema sin
+    ninguna tarea fija. Si después se borran o pausan, no vuelve a cargarlas: la marca
+    queda en la config."""
+    cfg = load_config()
+    if cfg.get('catalogo_cargado'):
+        return 0
+    n = cargar_catalogo() if not listar_plantillas() else 0
+    save_config({'catalogo_cargado': True})
+    return n
 
 
 def cargar_catalogo():

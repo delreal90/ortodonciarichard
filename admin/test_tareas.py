@@ -52,8 +52,9 @@ class _Base(unittest.TestCase):
         self.p_orto = self._user('ana.prueba', 'Ana Prueba', 'asistente_orto')
         self.p_orto2 = self._user('bea.prueba', 'Bea Prueba', 'asistente_orto')
         self.p_sec = self._user('carla.prueba', 'Carla Prueba', 'secretaria')
-        self.admin = {'id': compras.crear_usuario('doc', 'Doc Prueba', 'secreta1', rol='admin'),
-                      'rol': 'admin', 'puesto': ''}
+        self.admin = {'id': compras.crear_usuario('doc', 'Doc Prueba', 'secreta1', rol='admin',
+                                                  rol_tareas='admin'),
+                      'rol': 'admin', 'puesto': '', 'rol_tareas': 'admin'}
         # Los generadores tocan otros módulos (agenda, consentimientos): fuera.
         self._gen = mock.patch.object(tareas, 'GENERADORES', {})
         self._gen.start()
@@ -62,8 +63,9 @@ class _Base(unittest.TestCase):
         self._gen.stop()
 
     def _user(self, login, nombre, puesto):
-        uid = compras.crear_usuario(login, nombre, 'secreta1', rol='equipo', puesto=puesto)
-        return {'id': uid, 'rol': 'equipo', 'puesto': puesto}
+        uid = compras.crear_usuario(login, nombre, 'secreta1', rol='equipo', puesto=puesto,
+                                    rol_tareas='personal')
+        return {'id': uid, 'rol': 'equipo', 'puesto': puesto, 'rol_tareas': 'personal'}
 
     def _encargo(self, titulo='Ordenar bodega', puesto='asistente_orto', minutos=30, **kw):
         return tareas.crear_encargo({'titulo': titulo, 'puesto': puesto, 'minutos': minutos, **kw})
@@ -281,7 +283,108 @@ class TestResumen(_Base):
         self.assertEqual(r['minutos_hechos']['asistente_orto'], 50)
 
 
+class TestRolesSeparados(_Base):
+    """Compras y Tareas se asignan por separado: el rol de uno no da acceso al otro."""
+
+    def test_caps_independientes(self):
+        caps = compras.caps_de
+        self.assertEqual(caps({'rol': 'equipo', 'rol_tareas': 'personal'}), {'tareas'})
+        self.assertEqual(caps({'rol': 'equipo', 'rol_tareas': 'admin'}), {'tareas', 'tareas_admin'})
+        inv = caps({'rol': 'inventario', 'rol_tareas': ''})
+        self.assertNotIn('tareas', inv)
+        self.assertIn('stock', inv)
+        # Un admin de Compras sin rol de Tareas no administra Tareas.
+        self.assertNotIn('tareas_admin', caps({'rol': 'admin', 'rol_tareas': ''}))
+
+    def test_migracion_respeta_lo_que_habia(self):
+        con = compras._conn()
+        try:
+            con.execute("UPDATE usuarios SET rol_tareas=''")
+            con.execute('ALTER TABLE usuarios DROP COLUMN rol_tareas')
+            con.commit()
+        finally:
+            con.close()
+        compras.init_db()
+        rt = {u['email']: u['rol_tareas'] for u in compras.listar_usuarios()}
+        self.assertEqual(rt['doc'], 'admin')            # admin de Compras → administraba Tareas
+        self.assertEqual(rt['ana.prueba'], 'personal')  # tenía puesto → personal
+
+    def test_sesion_trae_rol_tareas(self):
+        tok = compras.crear_sesion(self.p_orto['id'])
+        self.assertEqual(compras.usuario_por_sesion(tok)['rol_tareas'], 'personal')
+        u = compras.verificar_login('ana.prueba', 'secreta1')
+        self.assertEqual(u['rol_tareas'], 'personal')
+
+    def test_rol_tareas_invalido(self):
+        with self.assertRaises(ValueError):
+            compras.crear_usuario('xx.prueba', 'X', 'secreta1', rol='equipo', rol_tareas='jefe')
+
+
+class TestPersonasRutas(_Base):
+    """Quien administra Tareas pero no Compras no puede tomar una cuenta de Compras."""
+
+    def setUp(self):
+        super().setUp()
+        import server
+        self.server = server
+        self.c = server.app.test_client()
+        jefa = compras.crear_usuario('jefa.prueba', 'Jefa Prueba', 'secreta1', rol='equipo',
+                                     rol_tareas='admin')
+        self.tok = compras.crear_sesion(jefa)
+        self.jefa = jefa
+        self.inv = compras.crear_usuario('inv.prueba', 'Inv Prueba', 'secreta1', rol='inventario')
+
+    def _post(self, ruta, body):
+        return self.c.post(ruta, json=body, headers={'X-Compras-Token': self.tok})
+
+    def test_no_cambia_clave_de_usuario_de_compras(self):
+        r = self._post('/api/compras/tareas/personas/actualizar', {'id': self.inv, 'password': 'nueva123'})
+        self.assertEqual(r.status_code, 403)
+        self.assertIsNotNone(compras.verificar_login('inv.prueba', 'secreta1'))
+
+    def test_si_cambia_clave_de_quien_solo_usa_tareas(self):
+        r = self._post('/api/compras/tareas/personas/actualizar', {'id': self.p_orto['id'], 'password': 'nueva123'})
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNotNone(compras.verificar_login('ana.prueba', 'nueva123'))
+
+    def test_da_acceso_a_tareas_sin_tocar_compras(self):
+        r = self._post('/api/compras/tareas/personas/actualizar',
+                       {'id': self.inv, 'rol_tareas': 'personal', 'puesto': 'asistente_orto'})
+        self.assertEqual(r.status_code, 200)
+        u = next(x for x in compras.listar_usuarios() if x['id'] == self.inv)
+        self.assertEqual((u['rol'], u['rol_tareas'], u['puesto']), ('inventario', 'personal', 'asistente_orto'))
+
+    def test_crea_sin_acceso_a_compras(self):
+        r = self._post('/api/compras/tareas/personas', {'nombre': 'Nueva Prueba', 'email': 'nueva.prueba',
+                                                         'password': 'secreta1', 'puesto': 'aseo'})
+        self.assertEqual(r.status_code, 200)
+        u = compras.verificar_login('nueva.prueba', 'secreta1')
+        self.assertEqual(compras.caps_de(u), {'tareas'})
+
+    def test_no_entra_a_usuarios_de_compras(self):
+        r = self.c.get('/api/compras/usuarios', headers={'X-Compras-Token': self.tok})
+        self.assertEqual(r.status_code, 403)
+
+    def test_personal_no_administra(self):
+        tok = compras.crear_sesion(self.p_orto['id'])
+        r = self.c.get('/api/compras/tareas/admin', headers={'X-Compras-Token': tok})
+        self.assertEqual(r.status_code, 403)
+        r = self.c.get('/api/compras/tareas', headers={'X-Compras-Token': tok})
+        self.assertEqual(r.status_code, 200)
+
+    def test_no_se_quita_a_si_misma_la_administracion(self):
+        r = self._post('/api/compras/tareas/personas/actualizar', {'id': self.jefa, 'rol_tareas': 'personal'})
+        self.assertEqual(r.status_code, 400)
+
+
 class TestCatalogo(_Base):
+
+    def test_catalogo_inicial_una_sola_vez(self):
+        n = tareas.asegurar_catalogo_inicial()
+        self.assertEqual(n, len(tareas.CATALOGO_SUGERIDO))
+        pid = tareas.listar_plantillas()[0]['id']
+        tareas.actualizar_plantilla(pid, {'activa': False})
+        self.assertEqual(tareas.asegurar_catalogo_inicial(), 0)   # no las revive
 
     def test_catalogo_no_duplica_y_es_valido(self):
         n = tareas.cargar_catalogo()
