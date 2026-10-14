@@ -2138,8 +2138,13 @@ las asistentes de orto rotan, así que se estima el tiempo libre del **grupo**, 
 persona. La asistente del Dr. Vial es fija con él: libre cuando él no atiende, y el
 **martes AM** es su bloque de labores administrativas de Vial.
 
-**Vive en la app de Compras** (pestaña **✅ Tareas**): reusa usuarios, login de 30 días y el
-celular de cada persona. Lo que cada una ve lo decide su **`usuarios.puesto`**
+**Sitio propio: `/tareas`** (`admin/tareas.html` + `admin/tareas-app.js`), separado de
+Compras a pedido del usuario (2026-10-14) pero con **los mismos usuarios y la misma sesión**:
+usa `/api/compras/login` y la clave `localStorage['compras_token']`, así que quien entra a uno
+queda dentro del otro. Pestañas: *Mis tareas* (personal), *Administrar* y *Personas* (admin:
+crear gente con rol Equipo, asignar puesto, cambiar clave — con las mismas rutas
+`/api/compras/usuarios*`). Un usuario rol `equipo` que abre `/compras` es enviado a `/tareas`;
+Compras muestra un enlace "✅ Tareas" a quien tenga puesto o sea admin. Lo que cada una ve lo decide su **`usuarios.puesto`**
 (`secretaria` · `asistente_orto` · `asistente_vial` · `aseo`), **no su rol** — una persona
 puede ser rol Inventario y puesto asistente. Rol nuevo **`equipo`** = solo `tareas`. Todo
 rol tiene la capacidad `tareas` salvo `escaner` (es un equipo compartido). Tablas en la

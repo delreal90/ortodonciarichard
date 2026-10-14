@@ -7409,6 +7409,19 @@ def compras_tareas_resumen():
         return _err400(e)
 
 
+# El sitio propio de Tareas. Mismo login y misma sesión que Compras (las rutas de API
+# siguen bajo /api/compras/tareas*); solo la página es distinta.
+
+@app.route('/tareas')
+def tareas_app():
+    return send_from_directory('.', 'tareas.html')
+
+
+@app.route('/tareas-app.js')
+def tareas_app_js():
+    return send_from_directory('.', 'tareas-app.js')
+
+
 # Revisión de la propuesta desde el link del correo: la llave es un token firmado que
 # vence en 16 h y solo sirve para ESA fecha. No da acceso a nada más de la app.
 
