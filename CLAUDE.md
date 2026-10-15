@@ -622,6 +622,18 @@ asignador de Linux (glibc) se queda con lo liberado, sobre todo con ~20 hilos.
   lanzar los hilos); `memoria.tarea('nombre')` envuelve cada tarea pesada (cosecha,
   proyección, perfil, geocodificación, reactivación, respaldo) y al terminar hace
   `gc` + `malloc_trim(0)`; `_loop_memoria` lo repite cada 5 min.
+- ⚠️⚠️ **La causa de fondo: `--preload`.** Render arranca gunicorn con `--preload` (su
+  `GUNICORN_CMD_ARGS` por defecto; el comando del panel es `gunicorn server:app`, worker
+  **sync**, no el gthread de `render.yaml`). El scheduler arrancaba al importar, o sea en el
+  **proceso maestro**, que no atiende a nadie, y el worker nacía como copia (fork) con los
+  candados que esos hilos tenían tomados. Resultado: un respaldo lanzado desde el panel
+  quedaba colgado para siempre importando la librería de Google, el calentador entibiaba la
+  agenda del proceso que no atiende pacientes y la app estaba dos veces en memoria. Ahora el
+  scheduler arranca con la **primera solicitud** del proceso
+  (`_arrancar_scheduler_en_este_proceso`); `/api/salud` → `scheduler_aqui` debe ser `true`.
+  Como el worker sí se reinicia (gunicorn lo mata si una solicitud pasa de 30 s), **todas las
+  marcas de "ya corrió hoy/esta semana" de los loops viven en disco** (`loops_estado.json`).
+  `GET /api/diagnostico/hilos` (ADMIN_TOKEN) muestra en qué línea está cada hilo.
 - **`/api/salud`** informa `memoria_mb`, `memoria_pico` y `memoria_subidas` (tareas o
   rutas que subieron 25+ MB de una vez, solo el path). **Ante un reinicio de la tarde,
   mirar eso primero.**

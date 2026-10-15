@@ -813,6 +813,10 @@ def api_salud():
         'wa_respuestas_detectadas': mensajes_libres.respuestas_vistas(),
         # Memoria (limite de Render: 512 MB). 'subidas' = tareas o rutas que la
         # hicieron subir 25+ MB de una vez: ahi se busca la causa de un reinicio.
+        # El scheduler tiene que vivir en el MISMO proceso que atiende (ver
+        # _arrancar_scheduler_en_este_proceso): si es False en Render, los hilos
+        # quedaron en otro proceso.
+        'scheduler_aqui': _SCHEDULER_PID == os.getpid(),
         'memoria_mb': round(memoria.rss_mb() or 0),
         'memoria_pico': memoria.pico(),
         'memoria_subidas': list(memoria.SUBIDAS)[-10:],
@@ -8654,7 +8658,7 @@ def _loop_recaptacion_programados():
     cita en DentiDesk y volver a evaluar citas_futuras_paciente, que sin
     DentiDesk habilitado no tiene con que trabajar."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('recaptacion_programados')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
@@ -8673,8 +8677,9 @@ def _loop_recaptacion_programados():
             # usa <=, asi que el programado sale al dia siguiente.
             if (cfg_dd['dentidesk']['enabled']
                     and hora_cfg <= slot < _LIMITE_PROGRAMADOS
-                    and ya_corrio != ahora.date()):
-                ya_corrio = ahora.date()
+                    and ya_corrio != ahora.date().isoformat()):
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('recaptacion_programados', ya_corrio)
                 r = _procesar_programados_vencidos(cfg_dd, ahora.date())
                 print('[recaptacion-programados]', slot, r)
         except Exception as e:
@@ -8822,7 +8827,7 @@ def _loop_control_dental():
     clinica reviso la cartera inscrita por el backfill) y
     cfg_dd['dentidesk']['enabled'] (el barrido necesita leer getAgendaDay)."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('control_dental')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
@@ -8833,8 +8838,9 @@ def _loop_control_dental():
             if (cfg_cd.get('activo')
                     and cfg_dd['dentidesk']['enabled']
                     and hora_cfg <= slot < '17:00'
-                    and ya_corrio != ahora.date()):
-                ya_corrio = ahora.date()
+                    and ya_corrio != ahora.date().isoformat()):
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('control_dental', ya_corrio)
                 r = _procesar_control_dental(cfg_cd, ahora.date())
                 print('[control-dental]', slot, r)
         except Exception as e:
@@ -8856,7 +8862,7 @@ def _loop_fotos_finales():
     Respeta cfg['activo'] (False por defecto -- se enciende cuando el doctor
     reviso la lista que dejo el backfill) y que DentiDesk este habilitado."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('fotos_finales')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
@@ -8868,8 +8874,9 @@ def _loop_fotos_finales():
                     and cfg_dd['dentidesk']['enabled']
                     and ahora.isoweekday() <= 5
                     and hora_cfg <= slot < '23:30'
-                    and ya_corrio != ahora.date()):
-                ya_corrio = ahora.date()
+                    and ya_corrio != ahora.date().isoformat()):
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('fotos_finales', ya_corrio)
                 r = _procesar_fotos_finales(cfg_ff, ahora.date())
                 print('[fotos-finales]', slot, r)
         except Exception as e:
@@ -8885,7 +8892,7 @@ def _loop_seguimiento_pc():
     DentiDesk este habilitado (el barrido lee getAgendaDay). NO manda nada: solo
     puebla el registro que despues consume el reporte diario."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('seguimiento_pc')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
@@ -8896,8 +8903,9 @@ def _loop_seguimiento_pc():
             if (cfg_sp.get('activo')
                     and cfg_dd['dentidesk']['enabled']
                     and hora_cfg <= slot < '17:00'
-                    and ya_corrio != ahora.date()):
-                ya_corrio = ahora.date()
+                    and ya_corrio != ahora.date().isoformat()):
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('seguimiento_pc', ya_corrio)
                 r = seguimiento_pc.barrer(cfg_sp)
                 print('[seguimiento-pc]', slot, r)
         except Exception as e:
@@ -8994,13 +9002,14 @@ def _loop_geocodificar():
     geocodificar.py). No depende de DentiDesk."""
     import time
     import geocodificar
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('geocodificar')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
-            if _GEO_HORA <= slot < _GEO_LIMITE and ya_corrio != ahora.date():
-                ya_corrio = ahora.date()
+            if _GEO_HORA <= slot < _GEO_LIMITE and ya_corrio != ahora.date().isoformat():
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('geocodificar', ya_corrio)
                 # Primero las direcciones que recepcion escribio en formularios de
                 # seguro (solo donde a la base le falta), para ubicarlas esta noche.
                 try:
@@ -9026,7 +9035,7 @@ def _loop_reactivacion():
     un request: en Render/gunicorn un hilo lanzado por un request no sobrevive.
     Respeta cfg['activo'] y DentiDesk habilitado."""
     import time
-    ya_corrio_semana = None
+    ya_corrio_semana = _loop_marca_leer('reactivacion_semana')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
@@ -9035,12 +9044,13 @@ def _loop_reactivacion():
             if cfg_re.get('activo') and cfg_dd['dentidesk']['enabled']:
                 slot = ahora.strftime('%H:%M')
                 hora_cfg = cfg_re.get('hora_barrido', '02:00')
-                semana = ahora.isocalendar()[:2]         # (año, nº de semana ISO)
+                semana = '%d-W%02d' % tuple(ahora.isocalendar()[:2])         # (año, nº de semana ISO)
                 nunca_corrio = not reactivacion.estado_barrido()
                 slot_semanal = (ahora.weekday() == 0 and hora_cfg <= slot < '06:00'
                                 and ya_corrio_semana != semana)
                 if nunca_corrio or slot_semanal:
                     ya_corrio_semana = semana
+                    _loop_marca_escribir('reactivacion_semana', semana)
                     with memoria.tarea('reactivacion'):
                         r = reactivacion.barrer(cfg_re)
                     print('[reactivacion]', {k: r.get(k) for k in
@@ -9058,14 +9068,15 @@ def _loop_reporte_semanal():
     en el hilo del scheduler. Env BACKUP-like: no tiene toggle propio; se apaga
     quitando el hilo o con SMTP sin credenciales (no enviaria)."""
     import time
-    ya_corrio_semana = None
+    ya_corrio_semana = _loop_marca_leer('reporte_semanal')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
-            semana = ahora.isocalendar()[:2]
+            semana = '%d-W%02d' % tuple(ahora.isocalendar()[:2])
             if ahora.weekday() == 0 and '08:00' <= slot < '12:00' and ya_corrio_semana != semana:
                 ya_corrio_semana = semana
+                _loop_marca_escribir('reporte_semanal', semana)
                 desde, hasta = reporte_semanal.ventana_semana_anterior()
                 kpis = reporte_semanal.agregar(desde, hasta)
                 enviado = notify.enviar_reporte_semanal(reporte_semanal.asunto(kpis),
@@ -9192,13 +9203,14 @@ def _loop_vigilante_respaldos():
     Va de manana: DIGITAL1 respalda de 21:00 en adelante, asi que a esa hora ya
     dejo su resumen de anoche."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('vigilante_respaldos')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
-            if '08:00' <= slot < '12:00' and ya_corrio != ahora.date():
-                ya_corrio = ahora.date()
+            if '08:00' <= slot < '12:00' and ya_corrio != ahora.date().isoformat():
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('vigilante_respaldos', ya_corrio)
                 r = vigilante_respaldos.revisar()
                 print('[vigilante-respaldos]', slot, r.get('correo'),
                       {k: v.get('dias') for k, v in r['respaldos'].items()})
@@ -9245,7 +9257,7 @@ def _loop_alerta_consentimientos():
     mandaria un correo sobre el lunes. No hay config propia ni toggle: son 2
     llamadas a la agenda al dia, y siempre es util saberlo."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('alerta_consentimientos')
     HORA_ENVIO = '08:30'
     while True:
         try:
@@ -9255,8 +9267,9 @@ def _loop_alerta_consentimientos():
             if (cfg_dd['dentidesk']['enabled']
                     and ahora.isoweekday() < 6
                     and HORA_ENVIO <= slot < '17:00'
-                    and ya_corrio != ahora.date()):
-                ya_corrio = ahora.date()
+                    and ya_corrio != ahora.date().isoformat()):
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('alerta_consentimientos', ya_corrio)
                 hoy, manana = _procesar_alerta_consentimientos()
                 print('[alerta-consentimientos]', slot,
                       f'{len(hoy)} hoy, {len(manana)} manana')
@@ -9587,12 +9600,13 @@ def _loop_recurrentes():
     suscripción). Independiente de DentiDesk — corre siempre que el scheduler esté
     activo. Mismo esqueleto que _loop_confirmaciones (poll cada 60s, un disparo/día)."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('recurrentes')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
-            if ahora.strftime('%H:%M') == '09:00' and ya_corrio != ahora.date():
-                ya_corrio = ahora.date()
+            if ahora.strftime('%H:%M') == '09:00' and ya_corrio != ahora.date().isoformat():
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('recurrentes', ya_corrio)
                 import compras as _c
                 gen = _c.generar_recurrentes_pendientes()
                 if gen:
@@ -9605,15 +9619,17 @@ def _iniciar_scheduler():
     """Arranca el refresco de pacientes + el barrido de confirmaciones en segundo
     plano. Activo en Render (o si se define RUN_PATIENT_SYNC=true). En local no
     corre salvo que se pida explicitamente."""
-    global _SCHEDULER_INICIADO
-    if _SCHEDULER_INICIADO:
-        return
-    activar = bool(os.environ.get('RENDER')) or \
-        os.environ.get('RUN_PATIENT_SYNC', '').strip().lower() in ('1', 'true', 'yes', 'on')
-    if not activar:
-        return
+    global _SCHEDULER_INICIADO, _SCHEDULER_PID
+    with _SCHEDULER_LOCK:
+        if _SCHEDULER_INICIADO:
+            return
+        activar = bool(os.environ.get('RENDER')) or \
+            os.environ.get('RUN_PATIENT_SYNC', '').strip().lower() in ('1', 'true', 'yes', 'on')
+        if not activar:
+            return
+        _SCHEDULER_INICIADO = True
+        _SCHEDULER_PID = os.getpid()
     import threading
-    _SCHEDULER_INICIADO = True
     threading.Thread(target=_loop_refresco_pacientes, daemon=True).start()
     threading.Thread(target=_loop_confirmaciones, daemon=True).start()
     threading.Thread(target=_loop_recordatorios, daemon=True).start()
@@ -9644,7 +9660,26 @@ def _iniciar_scheduler():
     print('[alerta-consentimientos] scheduler iniciado (barrido diario 09:30, aviso a recepcion)')
     print('[fotos-finales] scheduler iniciado (aviso de collage post-tratamiento, 19:45)')
 
-_iniciar_scheduler()
+# ⚠️ El scheduler arranca con la PRIMERA SOLICITUD que atiende este proceso, nunca
+# al importar el modulo. Render arranca gunicorn con `--preload` (va en su
+# GUNICORN_CMD_ARGS por defecto): el proceso maestro importa la app y despues se
+# copia (fork) en el worker que atiende. Arrancando al importar, los ~20 hilos
+# vivian en el MAESTRO, que no atiende a nadie, y el worker nacia como copia con
+# los candados que esos hilos tenian tomados en ese instante (el de importar una
+# libreria, el de SQLite...) y sin nadie que los soltara. Lo que se vio el
+# 2026-10-15: el respaldo lanzado desde el panel colgado para siempre importando la
+# libreria de Google, el calentador entibiando la agenda del proceso que no atiende
+# pacientes, y la app entera dos veces en memoria. El maestro no recibe
+# solicitudes, asi que con esto los hilos viven solo en el worker.
+_SCHEDULER_LOCK = _threading.Lock()
+_SCHEDULER_PID = None
+
+
+@app.before_request
+def _arrancar_scheduler_en_este_proceso():
+    if not _SCHEDULER_INICIADO:
+        _iniciar_scheduler()
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', '5001'))
