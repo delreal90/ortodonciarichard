@@ -6244,11 +6244,21 @@ def reactivacion_run():
 
 @app.route('/api/backup/run', methods=['POST'])
 def backup_run():
-    """Fuerza un respaldo ahora (para probar o antes de un cambio riesgoso)."""
+    """Fuerza un respaldo ahora (para probar o antes de un cambio riesgoso).
+
+    Corre en un hilo aparte y responde al tiro: armar el zip y subirlo a Drive
+    puede pasar del tope de 60 s de gunicorn, que mata al worker a mitad del
+    respaldo (paso el 2026-10-15). El resultado se ve en /api/backup/estado."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    r = backup.respaldar()
-    return jsonify(r), (200 if r.get('ok') else 502)
+
+    def _correr():
+        with memoria.tarea('backup-manual'):
+            r = backup.respaldar()
+        print('[backup-manual]', {k: r.get(k) for k in ('ok', 'nombre', 'archivos', 'subido', 'error')})
+    _threading.Thread(target=_correr, daemon=True).start()
+    return jsonify({'ok': True, 'en_curso': True,
+                    'mensaje': 'Respaldo iniciado; ver /api/backup/estado en un minuto.'}), 202
 
 
 @app.route('/api/backup/estado', methods=['GET'])

@@ -158,7 +158,9 @@ def _foto_sqlite(origen, destino):
         try:
             dst = sqlite3.connect(str(destino))
             try:
-                src.backup(dst, pages=256)
+                # sleep=0: el default (0,25 s entre tandas) hacia durar la copia
+                # mas que el tope de 60 s de gunicorn al lanzarla desde el panel.
+                src.backup(dst, pages=1024, sleep=0)
             finally:
                 dst.close()
         finally:
