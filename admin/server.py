@@ -1728,6 +1728,12 @@ def agenda_reservar():
     # endpoint; este solo acepta motivos con IdReason real de DentiDesk.
     if cfg['motivos'][motivo].get('compuesto') or not cfg['motivos'][motivo].get('id_reason'):
         return jsonify({'ok': False, 'error': 'Este motivo se agenda por un flujo especial'}), 400
+    # 'solo_link' (instalaciones: 1-2 horas de sillon): solo con el link que
+    # genero la secretaria desde el F2. 'solo_filtrado' ya lo esconde del menu
+    # de la web, pero eso es solo el frontend -- sin esta guarda, una peticion
+    # armada a mano podia bloquear 2 horas de agenda.
+    if cfg['motivos'][motivo].get('solo_link') and not link_token:
+        return jsonify({'ok': False, 'error': 'Este motivo solo se agenda con el link que te envió la clínica.'}), 403
     try:
         fecha = datetime.strptime(data['fecha'], '%Y-%m-%d').date()
     except (KeyError, ValueError):
@@ -2824,9 +2830,15 @@ def set_scheduling_config():
             new_motivos['_comment'] = comment
         for m in (data['motivos'] or []):
             key = (m.get('key') or '').strip()
-            if not key:
+            if not key or key.startswith('_'):
                 continue
+            # Se parte del motivo que ya existia: el panel solo edita estos 6
+            # campos, y reconstruir desde cero borraba los que no conoce
+            # (solo_filtrado, solo_link, oculto, compuesto...) -- un guardado
+            # desde el panel dejaba la instalacion de 2 h reservable en la web
+            # y rompia el Estudio Integral.
             new_motivos[key] = {
+                **(cfg['motivos'].get(key) or {}),
                 'label':           m.get('label', ''),
                 'especialidad':    m.get('especialidad', 'ortodoncia'),
                 'id_reason':       str(m.get('id_reason', '')),

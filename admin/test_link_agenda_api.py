@@ -156,6 +156,22 @@ class TestAsistenteLinkAgenda(unittest.TestCase):
         self.assertTrue(resuelto['ok'])
         self.assertEqual(resuelto['motivo'], 'control_pasivo')
 
+    def test_instalaciones_son_reservables_via_link(self):
+        """Las 2 instalaciones (frenillos total / alineadores) son 'solo_link':
+        solo existen para la secretaria via F2, y el link SI las acepta."""
+        for motivo in ('instalacion_frenillos_total', 'instalacion_alineadores'):
+            r = self._post({'rut': RUT_1, 'doctor_key': 'alberto', 'motivo': motivo})
+            self.assertEqual(r.status_code, 200, motivo)
+            token = r.get_json()['url'].rsplit('=', 1)[-1]
+            self.assertEqual(link_agenda.resolver(token)['motivo'], motivo)
+
+    def test_instalaciones_anotan_el_motivo_real_de_dentidesk(self):
+        cfg = scheduling.load_config()
+        self.assertEqual(cfg['motivos']['instalacion_frenillos_total']['id_reason'], '18163')
+        self.assertEqual(cfg['motivos']['instalacion_frenillos_total']['duracion_min'], 120)
+        self.assertEqual(cfg['motivos']['instalacion_alineadores']['id_reason'], '20113')
+        self.assertEqual(cfg['motivos']['instalacion_alineadores']['duracion_min'], 60)
+
     def test_rut_invalido_da_400(self):
         r = self._post({'rut': 'no-es-un-rut', 'doctor_key': 'alberto', 'motivo': 'control_fijo'})
         self.assertEqual(r.status_code, 400)
@@ -260,6 +276,48 @@ class TestReservarConLinkToken(unittest.TestCase):
         r = self.client.post('/api/agenda/reservar', json={'link_token': 'no-existe-jamas'})
         self.assertEqual(r.status_code, 409)
         self.assertEqual(r.get_json().get('motivo'), 'no_existe')
+
+    def test_motivo_solo_link_sin_token_da_403(self):
+        """Una instalacion de 2 h no se puede reservar armando la peticion a
+        mano desde la web: sin link_token el servidor la rechaza."""
+        r = self.client.post('/api/agenda/reservar', json={
+            'doctor': 'alberto', 'motivo': 'instalacion_frenillos_total',
+            'fecha': '2030-01-07', 'hora': '10:00', 'rut': RUT_1})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(r.get_json()['ok'])
+
+
+class TestPanelConservaMarcasDeMotivo(unittest.TestCase):
+    """POST /api/scheduling-config reconstruia cada motivo con solo los 6 campos
+    que edita el panel y borraba solo_filtrado/solo_link/oculto/compuesto."""
+
+    def setUp(self):
+        self.client = server.app.test_client()
+        self._orig_load = scheduling.load_config
+        self._orig_save = scheduling.save_config
+        self.cfg = scheduling.load_config()
+        self.guardado = {}
+        scheduling.load_config = lambda: self.cfg
+        scheduling.save_config = lambda c: self.guardado.update(c)
+
+    def tearDown(self):
+        scheduling.load_config = self._orig_load
+        scheduling.save_config = self._orig_save
+
+    def test_guardar_motivos_no_borra_las_marcas(self):
+        motivos = [{'key': k, 'label': v['label'], 'especialidad': v['especialidad'],
+                    'id_reason': v['id_reason'], 'duracion_min': v['duracion_min'],
+                    'urgencia': v.get('urgencia'), 'notificar_agenda': v.get('notificar_agenda')}
+                   for k, v in self.cfg['motivos'].items() if not k.startswith('_')]
+        r = self.client.post('/api/scheduling-config', json={'motivos': motivos})
+        self.assertEqual(r.status_code, 200)
+        m = self.guardado['motivos']
+        self.assertTrue(m['instalacion_frenillos_total']['solo_link'])
+        self.assertTrue(m['instalacion_frenillos_total']['solo_filtrado'])
+        self.assertTrue(m['control_pasivo']['solo_filtrado'])
+        self.assertTrue(m['estudio_registros']['oculto'])
+        self.assertEqual(m['estudio_integral']['compuesto'],
+                         ['estudio_registros', 'estudio_explicacion'])
 
 
 class TestCitasFuturasConLinkToken(unittest.TestCase):

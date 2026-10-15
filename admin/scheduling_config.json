@@ -310,6 +310,28 @@
       "solo_filtrado": true,
       "_comment": "'Control de Evolucion' no existe como motivo en DentiDesk: se usa 'Segunda Consulta' (IdReason 18165, 15 min) para el paciente que ya tuvo su primera consulta pero aun no inicia tratamiento. Mismo flag 'solo_filtrado' que control_pasivo."
     },
+    "instalacion_frenillos_total": {
+      "label": "Instalación de Frenillos Total",
+      "especialidad": "ortodoncia",
+      "id_reason": "18163",
+      "duracion_min": 120,
+      "urgencia": false,
+      "notificar_agenda": true,
+      "solo_filtrado": true,
+      "solo_link": true,
+      "_comment": "En DentiDesk queda como 'Montaje Total' (IdReason 18163). 'solo_link': SOLO se reserva con un link pre-cargado del F2 (el servidor rechaza la reserva sin link_token) -- son 2 horas de sillon y no deben quedar al alcance de la agenda publica. 'solo_filtrado' lo saca ademas del menu de la web."
+    },
+    "instalacion_alineadores": {
+      "label": "Instalación de Alineadores",
+      "especialidad": "ortodoncia",
+      "id_reason": "20113",
+      "duracion_min": 60,
+      "urgencia": false,
+      "notificar_agenda": true,
+      "solo_filtrado": true,
+      "solo_link": true,
+      "_comment": "En DentiDesk queda como 'Instalar Digitrack' (IdReason 20113). Mismos flags que instalacion_frenillos_total: solo por link del F2."
+    },
     "urgencia": {
       "label": "Urgencia de Ortodoncia (bracket suelto, fierro pincha, etc.)",
       "especialidad": "ortodoncia",
