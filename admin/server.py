@@ -6256,9 +6256,27 @@ def backup_run():
         with memoria.tarea('backup-manual'):
             r = backup.respaldar()
         print('[backup-manual]', {k: r.get(k) for k in ('ok', 'nombre', 'archivos', 'subido', 'error')})
-    _threading.Thread(target=_correr, daemon=True).start()
+    _threading.Thread(target=_correr, daemon=True, name='backup-manual').start()
     return jsonify({'ok': True, 'en_curso': True,
                     'mensaje': 'Respaldo iniciado; ver /api/backup/estado en un minuto.'}), 202
+
+
+@app.route('/api/diagnostico/hilos', methods=['GET'])
+def diagnostico_hilos():
+    """En que linea esta cada hilo del proceso (para un trabajo que se cuelga sin
+    error). Solo nombres de archivo, funciones y lineas de codigo: ningun dato."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import sys as _sys
+    import traceback as _tb
+    nombres = {t.ident: t.name for t in _threading.enumerate()}
+    hilos = []
+    for ident, frame in _sys._current_frames().items():
+        pila = _tb.extract_stack(frame)[-12:]
+        hilos.append({'hilo': nombres.get(ident, str(ident)),
+                      'pila': [f'{Path(f.filename).name}:{f.lineno} {f.name} | {(f.line or "")[:90]}'
+                               for f in pila]})
+    return jsonify({'ok': True, 'hilos': hilos})
 
 
 @app.route('/api/backup/estado', methods=['GET'])
