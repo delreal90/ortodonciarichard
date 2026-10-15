@@ -172,6 +172,19 @@ class TestAsistenteLinkAgenda(unittest.TestCase):
         self.assertEqual(cfg['motivos']['instalacion_alineadores']['id_reason'], '20113')
         self.assertEqual(cfg['motivos']['instalacion_alineadores']['duracion_min'], 60)
 
+    def test_instalaciones_solo_terminan_antes_de_almuerzo(self):
+        """Pedido 2026-10-15: ambas instalaciones TERMINAN a mas tardar 13:15."""
+        cfg = scheduling.load_config()
+        frenillos = cfg['motivos']['instalacion_frenillos_total']    # 120 min
+        alineadores = cfg['motivos']['instalacion_alineadores']      # 60 min
+        self.assertTrue(scheduling._termina_a_tiempo('11:15', frenillos))   # 13:15 justo
+        self.assertFalse(scheduling._termina_a_tiempo('11:30', frenillos))  # 13:30
+        self.assertTrue(scheduling._termina_a_tiempo('12:15', alineadores))
+        self.assertFalse(scheduling._termina_a_tiempo('12:30', alineadores))
+        self.assertFalse(scheduling._termina_a_tiempo('15:00', alineadores))
+        # Un motivo sin 'termina_antes' no se toca.
+        self.assertTrue(scheduling._termina_a_tiempo('18:00', cfg['motivos']['control_fijo']))
+
     def test_rut_invalido_da_400(self):
         r = self._post({'rut': 'no-es-un-rut', 'doctor_key': 'alberto', 'motivo': 'control_fijo'})
         self.assertEqual(r.status_code, 400)

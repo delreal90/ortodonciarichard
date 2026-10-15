@@ -319,6 +319,7 @@
       "notificar_agenda": true,
       "solo_filtrado": true,
       "solo_link": true,
+      "termina_antes": "13:15",
       "_comment": "En DentiDesk queda como 'Montaje Total' (IdReason 18163). 'solo_link': SOLO se reserva con un link pre-cargado del F2 (el servidor rechaza la reserva sin link_token) -- son 2 horas de sillon y no deben quedar al alcance de la agenda publica. 'solo_filtrado' lo saca ademas del menu de la web."
     },
     "instalacion_alineadores": {
@@ -330,6 +331,7 @@
       "notificar_agenda": true,
       "solo_filtrado": true,
       "solo_link": true,
+      "termina_antes": "13:15",
       "_comment": "En DentiDesk queda como 'Instalar Digitrack' (IdReason 20113). Mismos flags que instalacion_frenillos_total: solo por link del F2."
     },
     "urgencia": {

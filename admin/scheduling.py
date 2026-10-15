@@ -319,7 +319,22 @@ def horas_disponibles(doc_id, target_date, motivo_key, libres, ocupados, cfg, ah
     )
     return [h for h in disponibles
             if cumple_anticipacion(target_date, h, motivo_cfg, cfg, ahora)
-            and _dentro_horario(h, cfg)]
+            and _dentro_horario(h, cfg)
+            and _termina_a_tiempo(h, motivo_cfg)]
+
+
+def _termina_a_tiempo(hhmm, motivo_cfg):
+    """Si el motivo trae 'termina_antes' ("HH:MM"), la cita tiene que TERMINAR
+    a esa hora o antes (inicio + duracion_min). Pedido del usuario 2026-10-15:
+    las instalaciones solo antes del almuerzo -> terminan a mas tardar 13:15.
+    Se filtra aca y no en el frontend porque esta misma funcion valida la hora
+    al reservar: una hora mandada a mano tampoco pasa."""
+    tope = (motivo_cfg or {}).get('termina_antes')
+    if not tope:
+        return True
+    inicio = datetime.combine(date.min, _parse_hhmm(hhmm))
+    fin = inicio + timedelta(minutes=int(motivo_cfg.get('duracion_min') or 0))
+    return fin <= datetime.combine(date.min, _parse_hhmm(tope))
 
 
 def _dentro_horario(hhmm, cfg):
