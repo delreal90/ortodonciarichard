@@ -625,9 +625,12 @@ asignador de Linux (glibc) se queda con lo liberado, sobre todo con ~20 hilos.
 - **`/api/salud`** informa `memoria_mb`, `memoria_pico` y `memoria_subidas` (tareas o
   rutas que subieron 25+ MB de una vez, solo el path). **Ante un reinicio de la tarde,
   mirar eso primero.**
-- **Respaldo**: ahora a las **04:30** (`BACKUP_HORA`), con marca en disco, y cada base
-  SQLite se copia con `VACUUM INTO` (sin sus `-wal`/`-shm`; la API `backup()` de Python reintenta para siempre si la base está ocupada y dejó un respaldo colgado). `/api/backup/estado` → `en_curso` dice en qué paso va; `/api/backup/run` corre en un hilo aparte. El 15-oct
-  falló entero porque `compras.db-wal` desapareció entre listarlo y comprimirlo.
+- **Respaldo**: ahora a las **04:30** (`BACKUP_HORA`), con marca en disco. El 15-oct
+  falló entero porque `compras.db-wal` desapareció entre listarlo y comprimirlo: ahora un
+  archivo que desaparece se salta. ⚠️ **No copiar las bases con SQLite** (`backup()` o
+  `VACUUM INTO`): se probó y en Render el hilo quedó colgado abriendo `compras.db`, sin
+  error. `/api/backup/estado` → `en_curso` dice en qué paso va, y `/api/backup/run`
+  corre en un hilo aparte (en el request pasaba el tope de tiempo de gunicorn).
 
 **Documentación fuera del sitio:** GitHub Pages arma `www.ortodonciarichard.cl` con Jekyll a
 partir de TODO el repo, y publicaba `CLAUDE.md`, `admin/server.py`, etc. `_config.yml` (raíz)

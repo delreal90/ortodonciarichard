@@ -29,9 +29,7 @@ Config (env vars):
 
 import os
 import logging
-import sqlite3
 import zipfile
-import tempfile
 import threading
 from pathlib import Path
 
@@ -101,15 +99,16 @@ def archivos_a_respaldar(base_dir=None):
     # quedo a medio migrar —o alguien tiene KPI_DB_PATH seteada, que impide el
     # renombre— igual se respalda lo que haya.
     #
-    # ⚠️ Solo el .db, NUNCA su -wal ni su -shm: crear_zip() no copia el archivo tal
-    # cual sino una FOTO consistente hecha con la API de respaldo de SQLite, que ya
-    # trae adentro lo que estaba en el -wal. Copiar los tres archivos sueltos con la
-    # base en uso daba una copia inconsistente, y el 2026-10-15 el -wal desaparecio
-    # (SQLite lo consolido) entre listarlo y comprimirlo: el respaldo fallo entero.
+    # Van el .db y su -wal/-shm tal cual. ⚠️ El -wal puede DESAPARECER entre listarlo
+    # y comprimirlo (SQLite lo consolida al cerrar la ultima conexion): crear_zip()
+    # lo salta en vez de abortar. El 2026-10-15 eso tumbo el respaldo entero.
+    # Se probo copiar con SQLite (backup() y VACUUM INTO) y en Render el proceso
+    # quedaba colgado abriendo compras.db, sin error: por eso se copia el archivo.
     for nombre in _BASES:
-        p = base / nombre
-        if p.exists():
-            out.append((p, nombre))
+        for sufijo in ('', '-wal', '-shm'):
+            p = base / (nombre + sufijo)
+            if p.exists():
+                out.append((p, nombre + sufijo))
     # Firmas de los doctores (imagenes chicas, irreemplazables).
     firmas = base / 'seguros_firmas'
     if firmas.is_dir():
@@ -131,45 +130,19 @@ def crear_zip(destino_dir=None, base_dir=None, nombre=None):
     ruta = destino / nombre
     archivos = archivos_a_respaldar(base)
     incluidos = []
-    with tempfile.TemporaryDirectory(prefix='backup_', dir=str(destino)) as tmp,             zipfile.ZipFile(ruta, 'w', zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(ruta, 'w', zipfile.ZIP_DEFLATED) as z:
         for origen, arcname in archivos:
-            fuente = origen
-            if Path(origen).name in _BASES:
-                fuente = _foto_sqlite(origen, Path(tmp) / Path(origen).name)
+            _paso(f'comprimiendo {arcname}')
             try:
-                z.write(fuente, arcname)
+                z.write(origen, arcname)
             except FileNotFoundError:
-                # Un archivo que existia al listarlo y ya no (un .tmp de jsonstore,
-                # por ejemplo) no puede tumbar el respaldo de todo lo demas.
+                # Existia al listarlo y ya no (un -wal consolidado, un .tmp de
+                # jsonstore): no puede tumbar el respaldo de todo lo demas.
                 log.warning('backup: %s desaparecio antes de comprimirlo', arcname)
                 continue
             incluidos.append(arcname)
     return {'ruta': str(ruta), 'nombre': nombre,
             'archivos': incluidos, 'tamano': ruta.stat().st_size}
-
-
-def _foto_sqlite(origen, destino):
-    """Copia consistente de una base SQLite en uso, con `VACUUM INTO`: una sola
-    sentencia que lee la base dentro de una transaccion de lectura y escribe la
-    copia en disco (no la carga en memoria). Devuelve la ruta a comprimir.
-
-    ⚠️ No se usa la API `Connection.backup()`: si la base esta ocupada, el bucle de
-    Python reintenta PARA SIEMPRE sin avisar. El 2026-10-15 un respaldo quedo
-    colgado asi en Render, sin error y sin terminar. `VACUUM INTO` respeta el
-    `timeout` y, si no puede, lanza un error. Si falla, o el archivo no es una base
-    valida, cae a comprimir el original tal cual: mejor una copia cruda que ninguna."""
-    _paso(f'copiando {Path(origen).name}')
-    try:
-        con = sqlite3.connect(str(origen), timeout=30)
-        try:
-            con.execute('VACUUM INTO ?', (str(destino),))
-        finally:
-            con.close()
-        return destino
-    except sqlite3.Error as e:
-        log.warning('backup: %s no se pudo copiar como SQLite (%s); va tal cual',
-                    Path(origen).name, e)
-        return origen
 
 
 # En que va el respaldo en curso (lo muestra /api/backup/estado). Un respaldo que
