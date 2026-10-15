@@ -28,7 +28,10 @@ Config (env vars):
 """
 
 import os
+import logging
+import sqlite3
 import zipfile
+import tempfile
 import threading
 from pathlib import Path
 
@@ -40,6 +43,8 @@ _BASE_DIR = Path(os.environ.get('PATIENT_INDEX_PATH',
                                  Path(__file__).parent / 'patient_index.json')).parent
 REGISTRO_PATH = Path(os.environ.get('BACKUP_REGISTRO_PATH', _BASE_DIR / 'backup_registro.json'))
 
+log = logging.getLogger(__name__)
+
 _LOCK = threading.Lock()
 
 # Prefijo del nombre del zip -> tambien es la marca por la que se listan/rotan en Drive.
@@ -47,6 +52,10 @@ _PREFIJO = 'backup_ortodoncia_'
 
 # Nombres que NUNCA van al zip (el propio registro del backup y los temporales).
 _EXCLUIR = {'backup_registro.json'}
+
+# Bases SQLite que se respaldan (ver archivos_a_respaldar). Escritas a mano: una base
+# nueva o renombrada que no se agregue aca deja de respaldarse EN SILENCIO.
+_BASES = ('compras.db', 'clinica.db', 'kpi.db')
 
 _STORE = jsonstore.JsonStore(REGISTRO_PATH, indent=2,
                              default={'ultimo': {}, 'historial': []},
@@ -91,9 +100,13 @@ def archivos_a_respaldar(base_dir=None):
     # `clinica.db` (ver basedatos.py) y los dos nombres se mantienen: si un disco
     # quedo a medio migrar —o alguien tiene KPI_DB_PATH seteada, que impide el
     # renombre— igual se respalda lo que haya.
-    for nombre in ('compras.db', 'compras.db-wal', 'compras.db-shm',
-                   'clinica.db', 'clinica.db-wal', 'clinica.db-shm',
-                   'kpi.db', 'kpi.db-wal', 'kpi.db-shm'):
+    #
+    # ⚠️ Solo el .db, NUNCA su -wal ni su -shm: crear_zip() no copia el archivo tal
+    # cual sino una FOTO consistente hecha con la API de respaldo de SQLite, que ya
+    # trae adentro lo que estaba en el -wal. Copiar los tres archivos sueltos con la
+    # base en uso daba una copia inconsistente, y el 2026-10-15 el -wal desaparecio
+    # (SQLite lo consolido) entre listarlo y comprimirlo: el respaldo fallo entero.
+    for nombre in _BASES:
         p = base / nombre
         if p.exists():
             out.append((p, nombre))
@@ -117,11 +130,44 @@ def crear_zip(destino_dir=None, base_dir=None, nombre=None):
         nombre = f'{_PREFIJO}{sello}.zip'
     ruta = destino / nombre
     archivos = archivos_a_respaldar(base)
-    with zipfile.ZipFile(ruta, 'w', zipfile.ZIP_DEFLATED) as z:
+    incluidos = []
+    with tempfile.TemporaryDirectory(prefix='backup_', dir=str(destino)) as tmp,             zipfile.ZipFile(ruta, 'w', zipfile.ZIP_DEFLATED) as z:
         for origen, arcname in archivos:
-            z.write(origen, arcname)
+            fuente = origen
+            if Path(origen).name in _BASES:
+                fuente = _foto_sqlite(origen, Path(tmp) / Path(origen).name)
+            try:
+                z.write(fuente, arcname)
+            except FileNotFoundError:
+                # Un archivo que existia al listarlo y ya no (un .tmp de jsonstore,
+                # por ejemplo) no puede tumbar el respaldo de todo lo demas.
+                log.warning('backup: %s desaparecio antes de comprimirlo', arcname)
+                continue
+            incluidos.append(arcname)
     return {'ruta': str(ruta), 'nombre': nombre,
-            'archivos': [a for _, a in archivos], 'tamano': ruta.stat().st_size}
+            'archivos': incluidos, 'tamano': ruta.stat().st_size}
+
+
+def _foto_sqlite(origen, destino):
+    """Copia consistente de una base SQLite en uso (API de respaldo de SQLite: lee
+    pagina a pagina, sin cargar la base en memoria, y respeta las escrituras en
+    curso). Devuelve la ruta a comprimir. Si el archivo no es una base valida, cae
+    a comprimir el original tal cual: mejor una copia cruda que ninguna."""
+    try:
+        src = sqlite3.connect(f'file:{origen}?mode=ro', uri=True, timeout=30)
+        try:
+            dst = sqlite3.connect(str(destino))
+            try:
+                src.backup(dst, pages=256)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        return destino
+    except sqlite3.DatabaseError as e:
+        log.warning('backup: %s no se pudo copiar como SQLite (%s); va tal cual',
+                    Path(origen).name, e)
+        return origen
 
 
 def _rotar_en_drive(retener=None):

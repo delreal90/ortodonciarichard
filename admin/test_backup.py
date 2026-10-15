@@ -55,7 +55,9 @@ class TestArchivos(unittest.TestCase):
         self.assertIn('nps_registro.json', arcnames)
         self.assertIn('eventos.jsonl', arcnames)
         self.assertIn('compras.db', arcnames)
-        self.assertIn('compras.db-wal', arcnames)
+        # El -wal NO va suelto: la base se copia con la API de respaldo de SQLite,
+        # que ya trae lo que estaba en el -wal (ver crear_zip).
+        self.assertNotIn('compras.db-wal', arcnames)
         # clinica.db: las citas se pueden re-barrer de DentiDesk, pero la tabla
         # `disponibilidad` NO (getAvailableHours solo responde por dias futuros).
         self.assertIn('clinica.db', arcnames)
@@ -74,6 +76,49 @@ class TestArchivos(unittest.TestCase):
         self.assertIn('patient_index.json', nombres)
         self.assertIn('seguros_firmas/alberto.png', nombres)
         self.assertNotIn('backup_registro.json', nombres)
+
+
+class TestBaseEnUso(unittest.TestCase):
+    """El 2026-10-15 el respaldo fallo entero: compras.db-wal desaparecio (SQLite lo
+    consolido) entre listarlo y comprimirlo."""
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix='backup_wal_'))
+
+    def test_base_en_modo_wal_con_conexion_abierta(self):
+        import sqlite3
+        ruta = self.base / 'compras.db'
+        con = sqlite3.connect(str(ruta))
+        con.execute('PRAGMA journal_mode=WAL')
+        con.execute('CREATE TABLE t (x INTEGER)')
+        con.executemany('INSERT INTO t VALUES (?)', [(i,) for i in range(500)])
+        con.commit()          # queda en el -wal, sin consolidar
+        self.assertTrue((self.base / 'compras.db-wal').exists())
+        try:
+            info = backup.crear_zip(destino_dir=self.base, base_dir=self.base)
+        finally:
+            con.close()
+        self.assertIn('compras.db', info['archivos'])
+        salida = Path(tempfile.mkdtemp(prefix='backup_restaura_'))
+        with zipfile.ZipFile(info['ruta']) as z:
+            self.assertNotIn('compras.db-wal', z.namelist())
+            z.extract('compras.db', salida)
+        con2 = sqlite3.connect(str(salida / 'compras.db'))
+        try:
+            # La foto trae lo que estaba en el -wal.
+            self.assertEqual(con2.execute('SELECT COUNT(*) FROM t').fetchone()[0], 500)
+        finally:
+            con2.close()
+
+    def test_archivo_que_desaparece_no_tumba_el_respaldo(self):
+        (self.base / 'a.json').write_text('{}', encoding='utf-8')
+        (self.base / 'b.json').write_text('{}', encoding='utf-8')
+        real = backup.archivos_a_respaldar(self.base)
+        fantasma = (self.base / 'se_fue.json', 'se_fue.json')
+        with mock.patch.object(backup, 'archivos_a_respaldar', return_value=real + [fantasma]):
+            info = backup.crear_zip(destino_dir=self.base, base_dir=self.base)
+        self.assertIn('a.json', info['archivos'])
+        self.assertNotIn('se_fue.json', info['archivos'])
 
 
 class TestRespaldar(unittest.TestCase):

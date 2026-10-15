@@ -237,7 +237,8 @@ class TestSaludYLentas(unittest.TestCase):
         self.assertEqual(set(d), {'ok', 'inicio', 'uptime_s', 'version',
                                   'lentas_recientes', 'ultimas_lentas',
                                   'topes_activos', 'ip_fuente',
-                                  'wa_respuestas_detectadas'})
+                                  'wa_respuestas_detectadas',
+                                  'memoria_mb', 'memoria_pico', 'memoria_subidas'})
         self.assertTrue(d['ok'])
         self.assertIsInstance(d['uptime_s'], int)
         datetime.fromisoformat(d['inicio'])

@@ -610,6 +610,25 @@ Repetir un RUT ya visto no cuenta. Responde 429 **con `codigo: 'tope_rut'`** →
 reintenta y sigue como paciente nuevo, así que una persona real igual agenda. Con
 `ADMIN_TOKEN` no hay tope. En memoria (un solo worker).
 
+### 🧠 Reinicios por memoria (512 MB) — arreglado 2026-10-15
+
+Render reinició el backend 6 veces entre el 25-sep y el 15-oct por pasar los 512 MB
+(correo "exceeded its memory limit"). Cuatro fueron a las **03:30**: el respaldo
+nocturno se cruzaba con la proyección clínica de las 03:20. El gráfico de memoria
+mostraba una **escalera que nunca baja**: cada tarea pesada sube un escalón y el
+asignador de Linux (glibc) se queda con lo liberado, sobre todo con ~20 hilos.
+
+- **`admin/memoria.py`**: `configurar()` limita las arenas de malloc a 2 (va antes de
+  lanzar los hilos); `memoria.tarea('nombre')` envuelve cada tarea pesada (cosecha,
+  proyección, perfil, geocodificación, reactivación, respaldo) y al terminar hace
+  `gc` + `malloc_trim(0)`; `_loop_memoria` lo repite cada 5 min.
+- **`/api/salud`** informa `memoria_mb`, `memoria_pico` y `memoria_subidas` (tareas o
+  rutas que subieron 25+ MB de una vez, solo el path). **Ante un reinicio de la tarde,
+  mirar eso primero.**
+- **Respaldo**: ahora a las **04:30** (`BACKUP_HORA`), con marca en disco, y cada base
+  SQLite se copia con la API de respaldo de SQLite (sin sus `-wal`/`-shm`). El 15-oct
+  falló entero porque `compras.db-wal` desapareció entre listarlo y comprimirlo.
+
 **Documentación fuera del sitio:** GitHub Pages arma `www.ortodonciarichard.cl` con Jekyll a
 partir de TODO el repo, y publicaba `CLAUDE.md`, `admin/server.py`, etc. `_config.yml` (raíz)
 los excluye. ⚠️ **Dejar el repo privado NO lo evita**, y sin GitHub Pro **apaga Pages** (el

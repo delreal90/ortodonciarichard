@@ -726,6 +726,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fechas       # hoy_chile()/ahora_chile(). Render corre en UTC: un date.today()
                     # pelado ya es MANIANA entre las 20:00 y medianoche hora Chile.
+import memoria      # tope de 512 MB en Render: ver memoria.py. configurar() va ANTES
+memoria.configurar()  # de lanzar los hilos (limita las arenas de malloc).
 import scheduling
 import dentidesk
 import notify
@@ -766,6 +768,7 @@ _LENTAS = _deque(maxlen=30)
 @app.before_request
 def _marcar_inicio_solicitud():
     _g._t0 = _time.monotonic()
+    _g._rss0 = memoria.rss_mb()
 
 
 @app.after_request
@@ -779,6 +782,12 @@ def _registrar_solicitud_lenta(resp):
             _LENTAS.append({'hora': fechas.ahora_chile().isoformat(timespec='seconds'),
                             'metodo': request.method, 'path': request.path,
                             'status': resp.status_code, 'seg': round(seg, 1)})
+    # Que solicitud hizo subir la memoria (solo el path, nunca la query string).
+    try:
+        memoria.anotar_subida(f'{request.method} {request.path}',
+                              getattr(_g, '_rss0', None), memoria.rss_mb())
+    except Exception:
+        pass
     return resp
 
 
@@ -802,6 +811,11 @@ def api_salud():
         # arranque. Si recepcion contesta y esto sigue en 0, Meta no avisa de
         # los mensajes de la bandeja y el correo sale siempre a los 5 min.
         'wa_respuestas_detectadas': mensajes_libres.respuestas_vistas(),
+        # Memoria (limite de Render: 512 MB). 'subidas' = tareas o rutas que la
+        # hicieron subir 25+ MB de una vez: ahi se busca la causa de un reinicio.
+        'memoria_mb': round(memoria.rss_mb() or 0),
+        'memoria_pico': memoria.pico(),
+        'memoria_subidas': list(memoria.SUBIDAS)[-10:],
     })
 
 
@@ -8900,10 +8914,12 @@ def _loop_kpi_cosecha():
                     and ya_corrio != ahora.date().isoformat()):
                 ya_corrio = ahora.date().isoformat()
                 _loop_marca_escribir('kpi_cosecha', ya_corrio)
-                r = kpi.cosechar(cfg)
+                with memoria.tarea('kpi-cosecha'):
+                    r = kpi.cosechar(cfg)
                 print('[kpi-cosecha]', slot, r)
                 try:
-                    d = kpi.capturar_disponibilidad(cfg)
+                    with memoria.tarea('kpi-disponibilidad'):
+                        d = kpi.capturar_disponibilidad(cfg)
                     print('[kpi-disponibilidad]', d)
                 except Exception as e:
                     # La disponibilidad es un extra: si falla, la cosecha de citas
@@ -8918,14 +8934,18 @@ def _loop_kpi_cosecha():
                 ya_proyecto = ahora.date().isoformat()
                 _loop_marca_escribir('clinico_proyeccion', ya_proyecto)
                 try:
-                    print('[clinico-proyeccion]', slot, clinico.proyectar_todo())
+                    with memoria.tarea('clinico-proyeccion'):
+                        r_cp = clinico.proyectar_todo()
+                    print('[clinico-proyeccion]', slot, r_cp)
                 except Exception as e:
                     print('[clinico-proyeccion] error:', e)
                 # La foto mensual del perfil de pacientes (tendencias). Va despues
                 # de la proyeccion para leer lo recien proyectado.
                 try:
                     import perfil
-                    print('[perfil-snapshot]', perfil.guardar_snapshot())
+                    with memoria.tarea('perfil-snapshot'):
+                        r_ps = perfil.guardar_snapshot()
+                    print('[perfil-snapshot]', r_ps)
                 except Exception as e:
                     print('[perfil-snapshot] error:', e)
         except Exception as e:
@@ -8960,7 +8980,9 @@ def _loop_geocodificar():
                     print('[direcciones-seguros]', pacientes.direcciones_desde_seguros())
                 except Exception as e:
                     print('[direcciones-seguros] error:', e)
-                print('[geocodificar]', slot, geocodificar.correr(maximo=_GEO_MAX_NOCHE))
+                with memoria.tarea('geocodificar'):
+                    r_geo = geocodificar.correr(maximo=_GEO_MAX_NOCHE)
+                print('[geocodificar]', slot, r_geo)
         except Exception as e:
             print('[geocodificar] error:', e)
         time.sleep(60)
@@ -8991,7 +9013,8 @@ def _loop_reactivacion():
                                 and ya_corrio_semana != semana)
                 if nunca_corrio or slot_semanal:
                     ya_corrio_semana = semana
-                    r = reactivacion.barrer(cfg_re)
+                    with memoria.tarea('reactivacion'):
+                        r = reactivacion.barrer(cfg_re)
                     print('[reactivacion]', {k: r.get(k) for k in
                                              ('dias_procesados', 'dias_con_citas', 'candidatos', 'errores_scan', 'error')})
         except Exception as e:
@@ -9110,17 +9133,25 @@ def _loop_backup():
     (hora_backup <= slot < '06:00', una vez al dia) igual que _loop_control_dental
     -- corre de madrugada, cuando la clinica no opera. No exige DentiDesk (no lo
     usa); solo intenta si hay credenciales de Drive (si no, backup.respaldar deja
-    el error registrado y no revienta). Env BACKUP_HORA (default '03:30')."""
+    el error registrado y no revienta). Env BACKUP_HORA (default '04:30').
+
+    ⚠️ 04:30 y no 03:30: a las 03:30 todavia podia estar corriendo la proyeccion
+    clinica de las 03:20, y las dos juntas pasaban el limite de 512 MB de Render
+    (reinicios del 25, 29 y 30-sep y del 15-oct, todos a las 03:30). La marca va en
+    disco como la de los KPIs: si un respaldo llegara a tumbar el proceso, al
+    reiniciar no se vuelve a intentar en el acto (sin eso se reintentaria en bucle)."""
     import time
-    ya_corrio = None
+    ya_corrio = _loop_marca_leer('backup')
     while True:
         try:
             ahora = fechas.ahora_chile_aware()
             slot = ahora.strftime('%H:%M')
-            hora_cfg = os.environ.get('BACKUP_HORA', '03:30')
-            if hora_cfg <= slot < '06:00' and ya_corrio != ahora.date():
-                ya_corrio = ahora.date()
-                r = backup.respaldar()
+            hora_cfg = os.environ.get('BACKUP_HORA', '04:30')
+            if hora_cfg <= slot < '06:00' and ya_corrio != ahora.date().isoformat():
+                ya_corrio = ahora.date().isoformat()
+                _loop_marca_escribir('backup', ya_corrio)
+                with memoria.tarea('backup'):
+                    r = backup.respaldar()
                 print('[backup]', slot, {k: r.get(k) for k in ('ok', 'nombre', 'archivos', 'subido', 'error')})
         except Exception as e:
             print('[backup] error:', e)
@@ -9508,6 +9539,19 @@ def _loop_calentador():
             print('[calentador] error:', e)
         time.sleep(20 * 60)
 
+def _loop_memoria():
+    """Cada 5 minutos devuelve al sistema la memoria que el proceso ya libero
+    (ver memoria.py: sin esto el consumo sube en escalones que nunca bajan, hasta
+    pasar los 512 MB de Render). Cuesta milisegundos."""
+    import time
+    while True:
+        try:
+            memoria.liberar()
+        except Exception as e:
+            print('[memoria] error:', e)
+        time.sleep(5 * 60)
+
+
 def _loop_recurrentes():
     """Barrido diario de cargos recurrentes (compras.suscripciones): a las 09:00 hora
     Chile revisa cuáles ya llegaron a su día de cobro este mes y genera la compra sola
@@ -9561,6 +9605,7 @@ def _iniciar_scheduler():
     threading.Thread(target=_loop_vigilante_respaldos, daemon=True).start()
     threading.Thread(target=_loop_nps, daemon=True).start()
     threading.Thread(target=_loop_alerta_consentimientos, daemon=True).start()
+    threading.Thread(target=_loop_memoria, daemon=True).start()
     print('[refresco pacientes] scheduler iniciado (cada 12h)')
     print('[recordatorios] scheduler iniciado (semana/dia/inasistencia, horas configurables en el panel)')
     print('[recaptacion-programados] scheduler iniciado (hora configurable en el panel)')
