@@ -626,7 +626,7 @@ asignador de Linux (glibc) se queda con lo liberado, sobre todo con ~20 hilos.
   rutas que subieron 25+ MB de una vez, solo el path). **Ante un reinicio de la tarde,
   mirar eso primero.**
 - **Respaldo**: ahora a las **04:30** (`BACKUP_HORA`), con marca en disco, y cada base
-  SQLite se copia con la API de respaldo de SQLite (sin sus `-wal`/`-shm`). El 15-oct
+  SQLite se copia con `VACUUM INTO` (sin sus `-wal`/`-shm`; la API `backup()` de Python reintenta para siempre si la base está ocupada y dejó un respaldo colgado). `/api/backup/estado` → `en_curso` dice en qué paso va; `/api/backup/run` corre en un hilo aparte. El 15-oct
   falló entero porque `compras.db-wal` desapareció entre listarlo y comprimirlo.
 
 **Documentación fuera del sitio:** GitHub Pages arma `www.ortodonciarichard.cl` con Jekyll a

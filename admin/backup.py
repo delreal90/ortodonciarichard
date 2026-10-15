@@ -149,27 +149,37 @@ def crear_zip(destino_dir=None, base_dir=None, nombre=None):
 
 
 def _foto_sqlite(origen, destino):
-    """Copia consistente de una base SQLite en uso (API de respaldo de SQLite: lee
-    pagina a pagina, sin cargar la base en memoria, y respeta las escrituras en
-    curso). Devuelve la ruta a comprimir. Si el archivo no es una base valida, cae
-    a comprimir el original tal cual: mejor una copia cruda que ninguna."""
+    """Copia consistente de una base SQLite en uso, con `VACUUM INTO`: una sola
+    sentencia que lee la base dentro de una transaccion de lectura y escribe la
+    copia en disco (no la carga en memoria). Devuelve la ruta a comprimir.
+
+    ⚠️ No se usa la API `Connection.backup()`: si la base esta ocupada, el bucle de
+    Python reintenta PARA SIEMPRE sin avisar. El 2026-10-15 un respaldo quedo
+    colgado asi en Render, sin error y sin terminar. `VACUUM INTO` respeta el
+    `timeout` y, si no puede, lanza un error. Si falla, o el archivo no es una base
+    valida, cae a comprimir el original tal cual: mejor una copia cruda que ninguna."""
+    _paso(f'copiando {Path(origen).name}')
     try:
-        src = sqlite3.connect(f'file:{origen}?mode=ro', uri=True, timeout=30)
+        con = sqlite3.connect(str(origen), timeout=30)
         try:
-            dst = sqlite3.connect(str(destino))
-            try:
-                # sleep=0: el default (0,25 s entre tandas) hacia durar la copia
-                # mas que el tope de 60 s de gunicorn al lanzarla desde el panel.
-                src.backup(dst, pages=1024, sleep=0)
-            finally:
-                dst.close()
+            con.execute('VACUUM INTO ?', (str(destino),))
         finally:
-            src.close()
+            con.close()
         return destino
-    except sqlite3.DatabaseError as e:
+    except sqlite3.Error as e:
         log.warning('backup: %s no se pudo copiar como SQLite (%s); va tal cual',
                     Path(origen).name, e)
         return origen
+
+
+# En que va el respaldo en curso (lo muestra /api/backup/estado). Un respaldo que
+# se cuelga no deja error: sin esto no hay como saber en que paso quedo.
+ESTADO = {'paso': '', 'desde': ''}
+
+
+def _paso(texto):
+    ESTADO['paso'] = texto
+    ESTADO['desde'] = fechas.ahora_chile().isoformat(timespec='seconds')
 
 
 def _rotar_en_drive(retener=None):
@@ -203,11 +213,13 @@ def respaldar(subir=True, base_dir=None):
     }
     ruta_zip = None
     try:
+        _paso('armando el zip')
         info = crear_zip(base_dir=base_dir)
         ruta_zip = info['ruta']
         resultado.update({'nombre': info['nombre'], 'archivos': len(info['archivos']),
                           'tamano': info['tamano']})
         if subir:
+            _paso('subiendo a Drive')
             r = drive_backup.subir_archivo(info['ruta'], info['nombre'],
                                            mimetype='application/zip', folder_id=_folder_id())
             resultado['subido'] = bool(r.get('ok'))
@@ -234,6 +246,7 @@ def respaldar(subir=True, base_dir=None):
             except OSError:
                 pass
 
+    _paso('')
     try:
         with _LOCK:
             reg = _STORE.load()
@@ -249,4 +262,5 @@ def respaldar(subir=True, base_dir=None):
 def estado():
     """Ultimo respaldo + un poco de historial, para el panel/diagnostico."""
     reg = _STORE.load()
-    return {'ultimo': reg.get('ultimo') or {}, 'historial': (reg.get('historial') or [])[-10:]}
+    return {'ultimo': reg.get('ultimo') or {}, 'historial': (reg.get('historial') or [])[-10:],
+            'en_curso': dict(ESTADO)}
