@@ -11,6 +11,9 @@ const CACHE = { categorias: [], proveedores: [], productos: [] };
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const clp = n => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
+// 'YYYY-MM-DD' → 'DD-MM-AA' (cómo se leen las fechas en la clínica). Lo que no calce
+// con el formato se muestra tal cual, para no esconder un dato raro.
+const fechaCorta = f => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(f || ''); return m ? `${m[3]}-${m[2]}-${m[1].slice(2)}` : (f || ''); };
 const money = (n, moneda) => moneda === 'USD'
   ? 'US$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   : clp(n);
@@ -746,7 +749,11 @@ RENDER.historial = async () => {
           ${FORMAS_PAGO.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
           <option value="credito">${PAGO_LEGADO.credito}</option></select></div>
       </div>
-      <button class="btn ghost sm" id="hFiltrar">Filtrar</button>
+      <div class="flex wrap" style="gap:6px">
+        <button class="btn ghost sm" id="hFiltrar">Filtrar</button>
+        <button class="btn ghost sm" data-hper="mes">Este mes</button>
+        <button class="btn ghost sm" data-hper="mes_ant">Mes anterior</button>
+      </div>
       <div id="hResumen" class="muted" style="margin-top:10px"></div>
       <div class="tablewrap" style="margin-top:14px"><table id="hTabla"></table></div>
     </div>`;
@@ -772,7 +779,7 @@ RENDER.historial = async () => {
         : '';
       $('#hTabla').innerHTML = `<tr><th>Fecha</th><th>Proveedor</th><th>Doc</th><th>Categoría</th><th>Pago</th><th>Tipo</th><th class="num">Total</th><th></th></tr>` +
         (j.compras.length ? j.compras.map(c => `<tr>
-          <td>${esc(c.fecha)}</td><td>${esc(c.proveedor_nombre || '—')}</td>
+          <td style="white-space:nowrap">${esc(fechaCorta(c.fecha))}</td><td>${esc(c.proveedor_nombre || '—')}</td>
           <td>${esc(c.tipo_doc || '')} ${esc(c.nro_doc || '')}</td>
           <td>${esc(c.categoria_nombre || '—')}</td>
           <td class="muted">${esc(labelPago(c.forma_pago))}</td>
@@ -784,7 +791,14 @@ RENDER.historial = async () => {
       $$('#hTabla [data-ver]').forEach(b => b.onclick = () => verCompra(b.dataset.ver));
     } catch (e) { toast(e.message, 'err'); }
   };
-  $('#hFiltrar').onclick = cargar;
+  // Botones de período (mismo cálculo que Reportes: rangoPeriodo, en hora de Chile).
+  const marcar = k => $$('#tab-historial [data-hper]').forEach(b => {
+    b.classList.toggle('gold', b.dataset.hper === k); b.classList.toggle('ghost', b.dataset.hper !== k); });
+  $$('#tab-historial [data-hper]').forEach(b => b.onclick = () => {
+    const [d, h] = rangoPeriodo(b.dataset.hper);
+    $('#hDesde').value = d; $('#hHasta').value = h; marcar(b.dataset.hper); cargar();
+  });
+  $('#hFiltrar').onclick = () => { marcar(''); cargar(); };
   cargar();
 };
 
