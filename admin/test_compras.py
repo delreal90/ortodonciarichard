@@ -1001,6 +1001,30 @@ class TestGastosFijos(_Base):
         compras.omitir_obligatorio(self.arr, '2026-07', deshacer=True)
         self.assertEqual(compras.estado_obligatorios('2026-07')[0]['estado'], 'pendiente')
 
+    def test_corregir_el_mes_que_cubre_un_pago(self):
+        """Caso real (2026-10-18): los pagos de septiembre se anotaron con la pestaña en
+        octubre. Corregir el mes los mueve sin borrar ni tocar el monto."""
+        cid = compras.registrar_obligatorio(self.arr, '2026-10', 12100000, fecha='2026-09-30')
+        self.assertEqual(compras.estado_obligatorios('2026-09')[0]['estado'], 'pendiente')
+        compras.actualizar_compra(cid, {'periodo': '2026-09'})
+        self.assertEqual(compras.estado_obligatorios('2026-09')[0]['estado'], 'registrado')
+        self.assertEqual(compras.estado_obligatorios('2026-10')[0]['estado'], 'pendiente')
+        self.assertEqual(compras.obtener_compra(cid)['total'], 12100000)
+
+    def test_el_mes_mal_escrito_se_rechaza_y_vacio_lo_quita(self):
+        cid = compras.registrar_obligatorio(self.arr, '2026-07', 12100000, fecha='2026-08-03')
+        with self.assertRaises(ValueError):
+            compras.actualizar_compra(cid, {'periodo': '2026-13'})
+        self.assertEqual(compras.obtener_compra(cid)['periodo'], '2026-07')
+        compras.actualizar_compra(cid, {'periodo': ''})       # sin mes: cuenta por su fecha
+        self.assertIsNone(compras.obtener_compra(cid)['periodo'])
+        self.assertEqual(compras.estado_obligatorios('2026-08')[0]['estado'], 'registrado')
+
+    def test_editar_otra_cosa_no_toca_el_mes(self):
+        cid = compras.registrar_obligatorio(self.arr, '2026-07', 12100000, fecha='2026-08-03')
+        compras.actualizar_compra(cid, {'forma_pago': 'transferencia'})
+        self.assertEqual(compras.obtener_compra(cid)['periodo'], '2026-07')
+
     def test_un_duplicado_no_cuenta_como_pago(self):
         cid = self._pago('2026-06-30')
         compras.marcar_naturaleza(cid, 'duplicado')

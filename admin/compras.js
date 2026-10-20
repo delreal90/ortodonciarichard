@@ -930,6 +930,10 @@ const mesLegible = p => `${MESES_ES[+p.slice(5, 7) - 1]} ${p.slice(0, 4)}`;
 const mesHoyCL = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date()).slice(0, 7);
 const hoyCL = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
 let GF_PERIODO = null;
+// Si la persona todavía no eligió mes, la pestaña salta al mes ATRASADO más antiguo: lo
+// que hay que anotar casi siempre es el mes que acaba de cerrar, y partir en el mes en
+// curso fue lo que hizo que los pagos de septiembre quedaran anotados como de octubre.
+let GF_ELEGIDO = false;
 
 RENDER.gastosfijos = async () => {
   const s = $('#tab-gastosfijos');
@@ -949,7 +953,7 @@ RENDER.gastosfijos = async () => {
         <button class="btn ghost sm" id="gfNuevo">➕ Agregar gasto fijo</button></div>
       <div class="tablewrap" style="margin-top:10px"><table id="gfLista"></table></div>
     </div>`;
-  $('#gfMes').onchange = e => { GF_PERIODO = e.target.value || mesHoyCL(); cargarGastosFijos(); };
+  $('#gfMes').onchange = e => { GF_PERIODO = e.target.value || mesHoyCL(); GF_ELEGIDO = true; cargarGastosFijos(); };
   $('#gfNuevo').onclick = () => editarGastoFijo({});
   cargarGastosFijos();
 };
@@ -959,6 +963,11 @@ async function cargarGastosFijos() {
   try { j = await api('/api/compras/gastos-fijos?periodo=' + GF_PERIODO); }
   catch (e) { return toast(e.message, 'err'); }
   actualizarBadgeFijos(j.atrasados.length);
+  if (!GF_ELEGIDO && j.atrasados.length) {
+    const masViejo = j.atrasados.map(a => a.periodo).sort()[0];
+    GF_ELEGIDO = true;
+    if (masViejo !== GF_PERIODO) { GF_PERIODO = masViejo; $('#gfMes').value = masViejo; return cargarGastosFijos(); }
+  }
   // Atrasados de meses ya terminados, agrupados por mes (clic = ir a ese mes).
   const porMes = {};
   j.atrasados.forEach(a => (porMes[a.periodo] = porMes[a.periodo] || []).push(a.nombre));
@@ -969,7 +978,7 @@ async function cargarGastosFijos() {
           ${esc(porMes[p].join(', '))}</div>`).join('')}</div>`
     : `<p style="color:#2F855A;margin-bottom:12px">✅ Todos los meses cerrados tienen sus gastos fijos anotados.</p>`;
   $$('#gfAtrasados [data-mes]').forEach(a => a.onclick = ev => {
-    ev.preventDefault(); GF_PERIODO = a.dataset.mes; $('#gfMes').value = GF_PERIODO; cargarGastosFijos(); });
+    ev.preventDefault(); GF_PERIODO = a.dataset.mes; GF_ELEGIDO = true; $('#gfMes').value = GF_PERIODO; cargarGastosFijos(); });
 
   const E = {
     registrado: g => `<span class="pill" style="background:#F0FFF4;color:#2F855A">✅ anotado</span> ${clp(g.pagado)}`,
@@ -1029,6 +1038,24 @@ function anotarGastoFijo(g) {
   m.querySelector('#agOk').onclick = async () => {
     const monto = Number(m.querySelector('#agMonto').value);
     if (!(monto > 0)) return toast('Falta el monto', 'err');
+    const fecha = m.querySelector('#agFecha').value;
+    // Aviso 1: la fecha es de otro mes. Un pago de septiembre anotado para octubre deja
+    // septiembre «sin anotar» y lleva a anotarlo dos veces (pasó el 2026-10-18).
+    if (fecha && fecha.slice(0, 7) !== GF_PERIODO && !confirm(
+        `La fecha de pago (${fechaCorta(fecha)}) es de ${mesLegible(fecha.slice(0, 7))}, pero lo estás anotando para ` +
+        `${mesLegible(GF_PERIODO)}.\n\nSi este pago corresponde a ${mesLegible(fecha.slice(0, 7))}, cancela y cambia ` +
+        `el mes arriba. ¿Lo anoto igual para ${mesLegible(GF_PERIODO)}?`)) return;
+    // Aviso 2: ya hay un pago igual de este proveedor cerca de esa fecha.
+    try {
+      const d0 = new Date((fecha || hoyCL()) + 'T12:00:00');
+      const iso = n => new Date(d0.getTime() + n * 864e5).toISOString().slice(0, 10);
+      const { compras } = await api(`/api/compras/compras?proveedor_id=${g.proveedor_id}&desde=${iso(-45)}&hasta=${iso(45)}`);
+      const igual = compras.find(c => Math.abs((Number(c.total_clp) || Number(c.total) || 0) - monto) < 1
+        && (c.naturaleza || 'gasto') !== 'duplicado');
+      if (igual && !confirm(`Ya hay un pago de ${clp(monto)} a ${g.proveedor_nombre || 'este proveedor'} del ` +
+          `${fechaCorta(igual.fecha)}${igual.periodo ? ' (anotado para ' + mesLegible(igual.periodo) + ')' : ''}.\n\n` +
+          `¿Es un pago distinto? Si es el mismo, cancela.`)) return;
+    } catch { /* si la revisión falla, no bloquea el registro */ }
     try {
       await api('/api/compras/gastos-fijos/registrar', { method: 'POST', body: { id: g.id, periodo: GF_PERIODO, monto,
         fecha: m.querySelector('#agFecha').value, forma_pago: m.querySelector('#agPago').value,
@@ -1088,6 +1115,10 @@ function editarCostosCompra(c) {
       <div class="field"><label>Costo despacho (${mon})</label><input id="ecDesp" type="number" step="any" min="0" value="${c.costo_despacho || 0}"></div>
       <div class="field"><label>Costo importación (CLP)</label><input id="ecImp" type="number" step="any" min="0" value="${c.costo_importacion || 0}"></div>
     </div>
+    ${c.obligatorio_id || c.periodo ? `<div class="field"><label>Mes que cubre (gasto fijo)</label>
+      <input id="ecPeriodo" type="month" value="${esc(c.periodo || '')}" style="max-width:220px">
+      <p class="muted" style="font-size:12px;margin-top:4px">El mes al que corresponde este pago en «🗓️ Gastos fijos»
+        (puede ser distinto del mes en que se pagó: el arriendo de julio pagado el 3 de agosto cubre julio).</p></div>` : ''}
     <div class="flex" style="margin-top:6px"><div class="spacer"></div>
       <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
       <button class="btn gold" id="ecOk">Guardar</button></div>`);
@@ -1101,6 +1132,7 @@ function editarCostosCompra(c) {
       tipo_cambio: moneda === 'USD' ? (Number(m.querySelector('#ecTC').value) || 0) : 1,
       costo_despacho: Number(m.querySelector('#ecDesp').value) || 0,
       costo_importacion: Number(m.querySelector('#ecImp').value) || 0 };
+    if (m.querySelector('#ecPeriodo')) body.periodo = m.querySelector('#ecPeriodo').value;
     if (moneda === 'USD' && body.tipo_cambio <= 0) return toast('Ingresa el tipo de cambio', 'err');
     try {
       const r = await api('/api/compras/compras/actualizar', { method: 'POST', body });

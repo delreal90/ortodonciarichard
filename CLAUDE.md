@@ -1756,6 +1756,16 @@ barato y el margen mentía.
   anteriores a la lista.
 - Pruebas: `TestNaturaleza`, `TestCorregirItem`, `TestGastosFijos` (test_compras) y
   `TestGastosFijosEnElMargen` (test_kpi).
+- ⚠️ **Septiembre de 2026 quedó anotado dos veces (arreglado el 2026-10-20).** La pestaña
+  partía en el **mes en curso**: el 18-10 se anotaron los 18 pagos de septiembre (con sus
+  fechas reales) estando en octubre, así que quedaron como de octubre; el 19-10, al ver
+  septiembre «sin anotar», se anotaron otra vez 12 de ellos. Septiembre sumaba ~2× en Reportes
+  y KPIs. Arreglo de datos: los 18 del día 18 pasaron a `periodo` 2026-09 y los 12 del 19 se
+  marcaron `duplicado` (no se borraron). Arreglo de código: el **mes que cubre** se edita en
+  ✏️ Editar del detalle (`actualizar_compra(periodo=)`, '' lo quita); la pestaña abre en el
+  **mes atrasado más antiguo** mientras nadie elija otro (`GF_ELEGIDO`); y «Anotar pago»
+  avisa si la fecha es de **otro mes** que el que se anota, o si ya hay un pago **del mismo
+  monto** a ese proveedor ±45 días. Pruebas en `TestGastosFijos`.
 
 ### Etiquetas QR en hojas de stickers — reemplaza a la térmica (2026-09-25)
 

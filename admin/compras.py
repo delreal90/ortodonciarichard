@@ -1663,7 +1663,14 @@ def actualizar_compra(compra_id, campos):
     total_clp a partir de los ítems existentes + los costos nuevos."""
     permit = {'fecha', 'proveedor_id', 'tipo_doc', 'nro_doc', 'forma_pago', 'tipo_gasto',
               'categoria_id', 'notas', 'moneda', 'tipo_cambio', 'costo_despacho',
-              'costo_importacion'}
+              'costo_importacion', 'periodo'}
+    # El MES QUE CUBRE un pago de gasto fijo (2026-10-20): un pago de septiembre anotado
+    # con la pestaña parada en octubre quedaba contando para octubre, y no había cómo
+    # corregirlo sin borrarlo. '' lo deja sin mes (cuenta por su fecha).
+    if 'periodo' in (campos or {}):
+        crudo = _norm(campos.get('periodo'))
+        if crudo and not _periodo(crudo):
+            raise ValueError('Mes no válido (AAAA-MM)')
     con = _conn()
     try:
         actual = _row(con.execute('SELECT * FROM compras WHERE id=?', (compra_id,)).fetchone())
@@ -1699,6 +1706,9 @@ def actualizar_compra(compra_id, campos):
              nuevo.get('tipo_doc'), _norm(nuevo.get('nro_doc')), nuevo.get('forma_pago'),
              nuevo['tipo_gasto'], nuevo.get('categoria_id'), moneda, tc, despacho,
              importacion, total, total_clp, _norm(nuevo.get('notas')), compra_id))
+        if 'periodo' in (campos or {}):
+            con.execute('UPDATE compras SET periodo=? WHERE id=?',
+                        (_periodo(campos.get('periodo')) or None, compra_id))
         con.commit()
         return {'total': total, 'total_clp': total_clp, 'moneda': moneda}
     finally:
