@@ -5854,6 +5854,65 @@ def fotos_finales_buscar_paciente():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ORDENAR FOTOS (observador de DIGITAL1) ── Claude Code Playground\ordenar-fotos
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# El observador corre en DIGITAL1, solo MIRA cómo las asistentes ordenan las fotos
+# y predice a quién corresponde cada sesión antes de que lo hagan. Estas dos rutas
+# son lo único que necesita del backend: la agenda del día (para cruzar la hora de
+# la foto con las citas) y mandar un correo sin guardar credenciales SMTP allá.
+# Su estado vive en DIGITAL1 (son fotos de pacientes); no entra a clinica.db.
+
+@app.route('/api/fotos/agenda-dia', methods=['GET'])
+def fotos_agenda_dia():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    try:
+        dia = date.fromisoformat(request.args.get('fecha') or '')
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'fecha invalida (YYYY-MM-DD)'}), 400
+    if dia > fechas.hoy_chile():
+        return jsonify({'ok': False, 'error': 'fecha futura'}), 400
+    cfg = scheduling.load_config()
+    if not cfg['dentidesk']['enabled']:
+        return jsonify({'ok': False, 'error': 'Modo demo: sin credenciales DentiDesk'}), 400
+    import pacientes
+    citas = []
+    for c in dentidesk._get_agenda_day(cfg, dia, max_age=1800):
+        rut = (c.get('PatientDocument') or '').strip()
+        reg = pacientes.lookup(rut) or {}
+        citas.append({
+            'hora': (c.get('time') or '')[:5],
+            'duracion': c.get('duration'),
+            'doctor': dentidesk.sin_titulo_doctor(c.get('ProfessionalName') or ''),
+            'motivo': c.get('Reason') or '',
+            'estado': c.get('Status') or '',
+            'id_status': c.get('IdStatus'),
+            'rut': rut,
+            'nombre_agenda': c.get('PatientName') or '',
+            'nombres': reg.get('nombres', ''),
+            'apellidos': reg.get('apellidos', ''),
+        })
+    return jsonify({'ok': True, 'fecha': dia.isoformat(), 'citas': citas})
+
+
+@app.route('/api/fotos/aviso', methods=['POST'])
+def fotos_aviso():
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    data = request.json or {}
+    tipo = data.get('tipo')
+    if tipo not in ('listo', 'detenido'):
+        return jsonify({'ok': False, 'error': "tipo debe ser 'listo' o 'detenido'"}), 400
+    resumen = data.get('resumen') or {}
+    if not isinstance(resumen, dict) or len(resumen) > 30:
+        return jsonify({'ok': False, 'error': 'resumen invalido'}), 400
+    destino = psq.email_doctor('alberto') or os.getenv('SMTP_USER', '').strip()
+    r = notify.avisar_ordenar_fotos(destino, tipo, resumen)
+    return jsonify(r), (200 if r.get('ok') else 502)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ESTADO DEL PACIENTE (menu filtrado de la agenda online) ── paciente_estado.py
 # ══════════════════════════════════════════════════════════════════════════════
 #

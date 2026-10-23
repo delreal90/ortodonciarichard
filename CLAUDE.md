@@ -4340,6 +4340,27 @@ sugerencia queda solo como respaldo.
 
 ---
 
+## Observador de fotos de DIGITAL1 — rutas `/api/fotos/*` (2026-10-23)
+
+El sistema vive **fuera de este repo** (`Claude Code Playground\ordenar-fotos\`, corre en
+DIGITAL1, no se versiona: maneja fotos de pacientes). Mira cómo las asistentes ordenan las
+fotos de `Carpeta 1..4` a la carpeta de cada paciente, predice antes que ellas a quién
+corresponde cada sesión y se pone nota. Decisión del Dr. Alberto: **nada automático ni
+pantalla nueva** hasta acertar ≥95 % de los nombres sin asignar nunca a otro paciente.
+
+Del backend solo usa dos rutas (ADMIN_TOKEN, regla 4), en el bloque `ORDENAR FOTOS` de
+`server.py`:
+- `GET /api/fotos/agenda-dia?fecha=` — citas de un día **pasado o de hoy** (hora, doctor sin
+  título, motivo, estado, RUT y nombres/apellidos de la base). Con RUT: es dato personal.
+- `POST /api/fotos/aviso` `{tipo:'listo'|'detenido', resumen}` — correo al Dr.
+  (`notify.avisar_ordenar_fotos`, `_email_layout`, regla 6) a `EMAIL_ALBERTO`. Así DIGITAL1
+  no guarda credenciales SMTP.
+
+Sin adaptador en `clinico.ADAPTADORES` (regla 9) a propósito: su estado son fotos clínicas y
+vive en DIGITAL1 (`C:\FotosAprende\aprende.db`). Pruebas: `test_fotos_api.py`.
+
+---
+
 ## Aviso de collage post-tratamiento (`fotos_finales.py`, 2026-09-04)
 
 Cuando el Dr. Alberto termina un tratamiento, el paciente vuelve unas semanas después —ya

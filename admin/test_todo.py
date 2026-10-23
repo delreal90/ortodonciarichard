@@ -57,6 +57,7 @@ SUITES = [
     ('clinico',      'test_clinico.py',      'proyeccion clinica: percentiles, clases por lado y el contador de muestra'),
     ('perfil',       'test_perfil.py',       'perfil de pacientes: referidos sin adivinar, geocodificacion sin RUT, tasas solo de cohortes cerradas'),
     ('loops',        'test_loops.py',        'los hilos del scheduler: ninguna variable se lee antes de existir'),
+    ('fotos_api',    'test_fotos_api.py',    'observador de fotos de DIGITAL1: agenda del dia y aviso por correo'),
     ('carpetas',     'test_carpetas.py',     'carpeta de fotos del paciente: la inicial suelta no es un comodin'),
     ('llamadas',     'test_llamadas.py',     'llamadas de WhatsApp que nadie puede contestar: rechazar, responder, avisar'),
     ('tareas',       'test_tareas.py',       'bolsa de tareas: nunca proponer mas de lo que cabe ni que dos tomen la misma'),

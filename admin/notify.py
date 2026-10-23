@@ -1682,3 +1682,37 @@ def html_resumen_tareas(res):
 def enviar_resumen_tareas(destino, res):
     return _enviar_html(destino, f"Resumen semanal de tareas · {res['desde']} a {res['hasta']}",
                         html_resumen_tareas(res))
+
+
+def avisar_ordenar_fotos(destino, tipo, resumen):
+    """Aviso del observador de fotos de DIGITAL1 (Claude Code Playground\ordenar-fotos).
+
+    tipo='listo'    -> la evaluacion semanal cumplio el criterio (>=95 % de aciertos,
+                       cero asignaciones a otro paciente, 4 semanas seguidas).
+    tipo='detenido' -> lleva dias habiles sin registrar sesiones: el observador
+                       podria estar caido y "aprendiendo" nada en silencio.
+
+    `resumen` es un dict de numeros y textos cortos armado por el observador;
+    todo pasa por _escapar_html. No trae RUT ni nombres de pacientes.
+    """
+    resumen = resumen or {}
+    if tipo == 'listo':
+        titulo = 'El ordenador de fotos está listo para pasar a automático'
+        intro = ('Durante las últimas semanas el sistema adivinó, antes de que la '
+                 'asistente ordenara, a qué paciente correspondía cada sesión de fotos, '
+                 'y lo comparó con lo que ella hizo. Ya cumple el nivel que pediste.')
+    else:
+        titulo = 'El observador de fotos dejó de ver sesiones'
+        intro = ('Hace varios días hábiles que no registra ninguna sesión nueva. '
+                 'Puede que DIGITAL1 esté apagado o que el programa se haya detenido.')
+    filas = ''.join(
+        f'<tr><td style="padding:8px 12px;color:#4A5568;border-top:1px solid #e2e8f0">'
+        f'{_escapar_html(str(k))}</td><td style="padding:8px 12px;font-weight:700;'
+        f'color:#1A2E4A;border-top:1px solid #e2e8f0">{_escapar_html(str(v))}</td></tr>'
+        for k, v in resumen.items())
+    cuerpo = (f'<p style="margin:0 0 16px;color:#1A2535;font-size:15px;line-height:1.5">'
+              f'{intro}</p>'
+              f'<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0">'
+              f'{filas}</table>')
+    html = _email_layout(titulo, cuerpo)
+    return _enviar_html(destino, titulo, html)
