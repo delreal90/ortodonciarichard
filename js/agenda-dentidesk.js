@@ -529,7 +529,13 @@ function pasoConfirmarLink() {
 }
 
 function continuarDesdeLink() {
-  track('datos'); track('profesional'); track('motivo');
+  track('datos'); track('profesional');
+  // Link del Estudio Integral (el QR del informe de evaluacion): son DOS citas,
+  // asi que va por el flujo del estudio, no por una hora suelta. Antes entraba
+  // como una hora normal y el servidor rechazaba la reserva al confirmar.
+  const comp = _motivoCfg(agenda.sel.motivo);
+  if (comp && comp.compuesto) { estudioComenzar(); return; }
+  track('motivo');
   agenda._horasT0 = Date.now();
   pasoFechaHora();
 }
@@ -844,10 +850,13 @@ function pasoResumenEstudio() {
         <span><i class="fas fa-calendar"></i> 2️⃣ Explicación del Plan: ${e.cita2.fechaLegible} · ${e.cita2.hora} hrs</span>
       </div>
     </div>
-    <ul class="agenda-detalle">
+    ${agenda.linkExacto
+      // Modo link: el RUT nunca llega al navegador (lo resuelve el servidor desde el token).
+      ? `<ul class="agenda-detalle"><li><span>Paciente</span><b>${(agenda.linkDatos || {}).nombres || ''}</b></li></ul>`
+      : `<ul class="agenda-detalle">
       <li><span>Paciente</span><b>${s.datos.nombres} ${s.datos.apellidos}</b></li>
       <li><span>RUT</span><b>${s.rutFmt}</b></li>
-    </ul>
+    </ul>`}
     ${agenda.config.turnstile_sitekey ? '<div id="agenda-captcha" style="margin:14px 0;display:flex;justify-content:center"></div>' : ''}
     <button class="btn btn-primary btn-lg agenda-submit" id="agendaConfirmBtn" onclick="confirmarReservaEstudio()"${agenda.config.turnstile_sitekey ? ' disabled' : ''}>
       <i class="fas fa-check"></i> Confirmar ambas citas
@@ -871,7 +880,8 @@ async function confirmarReservaEstudio() {
     const r = await agendaApi('/api/agenda/reservar-estudio', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        doctor: s.doctor, rut: s.rut,
+        doctor: s.doctor, rut: s.rut || '',
+        link_token: agenda.linkExacto ? (agenda.linkToken || '') : '',
         fecha1: e.cita1.fecha, hora1: e.cita1.hora,
         fecha2: e.cita2.fecha, hora2: e.cita2.hora,
         nombres: s.datos.nombres, apellidos: s.datos.apellidos,

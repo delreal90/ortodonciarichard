@@ -357,5 +357,82 @@ class TestCitasFuturasConLinkToken(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
 
 
+class TestEstudioConLinkToken(unittest.TestCase):
+    """El link del Estudio Integral que va impreso (con QR) en el informe de
+    evaluacion. Hasta el 2026-10-28 la pagina lo trataba como una hora suelta y
+    /reservar lo rechazaba ('flujo especial'): nadie pudo agendar con ese QR."""
+
+    def setUp(self):
+        from unittest import mock
+        self.client = server.app.test_client()
+        _limpiar_links()
+        self.creadas = []
+
+        def _crear(**kw):
+            self.creadas.append(kw)
+            return {'ok': True, 'id_cita': f'id{len(self.creadas)}', 'mock': True}
+
+        for obj, attr, val in (
+                (server.dentidesk, 'disponibilidad_real', lambda *a, **k: ([], [])),
+                (server.scheduling, 'horas_disponibles', lambda *a, **k: ['10:00', '11:00']),
+                (server.scheduling, 'dentro_de_ventana', lambda *a, **k: True),
+                (server.scheduling, 'cumple_anticipacion', lambda *a, **k: True),
+                (server.dentidesk, 'crear_cita', _crear),
+                (server, '_refrescar_dia_reservado', lambda *a, **k: None),
+                (server.notify, 'enviar_confirmacion', lambda *a, **k: {'ok': True}),
+                (server.notify, 'enviar_aviso_agendamiento', lambda *a, **k: None)):
+            p = mock.patch.object(obj, attr, val)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _reservar(self, token, **extra):
+        body = {'link_token': token, 'doctor': 'octavio',
+                'fecha1': '2030-01-07', 'hora1': '10:00',
+                'fecha2': '2030-01-28', 'hora2': '11:00',
+                'nombres': 'Demo', 'email': 'demo@demo.cl'}
+        body.update(extra)
+        return self.client.post('/api/agenda/reservar-estudio', json=body)
+
+    def test_con_el_link_agenda_las_dos_citas_con_el_rut_y_doctor_del_link(self):
+        creado = link_agenda.crear(RUT_1, 'alberto', 'estudio_integral')
+        r = self._reservar(creado['token'])
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(len(self.creadas), 2)
+        for c in self.creadas:
+            self.assertEqual(c['rut'], scheduling.limpiar_rut(RUT_1))
+            self.assertEqual(c['doc_id'], 'alberto')   # el del link, no el que mando el navegador
+
+    def test_el_link_queda_usado(self):
+        creado = link_agenda.crear(RUT_1, 'alberto', 'estudio_integral')
+        self._reservar(creado['token'])
+        self.assertEqual(link_agenda.resolver(creado['token']).get('motivo'), 'usado')
+        r = self._reservar(creado['token'])
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(len(self.creadas), 2)   # no se agendo otra vez
+
+    def test_link_de_otro_motivo_no_sirve_para_el_estudio(self):
+        creado = link_agenda.crear(RUT_1, 'alberto', 'control_fijo')
+        r = self._reservar(creado['token'])
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.creadas, [])
+
+    def test_link_vencido_no_agenda(self):
+        creado = link_agenda.crear(RUT_1, 'alberto', 'estudio_integral', dias_expira=-1)
+        r = self._reservar(creado['token'])
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.get_json().get('motivo'), 'expirado')
+        self.assertEqual(self.creadas, [])
+
+    def test_la_pagina_manda_el_link_del_estudio_al_flujo_de_dos_citas(self):
+        """El arreglo del lado del navegador: un link cuyo motivo es compuesto
+        entra por estudioComenzar(), y la reserva viaja con el link_token."""
+        js = (Path(__file__).parent.parent / 'js' / 'agenda-dentidesk.js').read_text(encoding='utf-8')
+        cuerpo = js.split('function continuarDesdeLink()', 1)[1].split(chr(10) + 'function ', 1)[0]
+        self.assertIn('compuesto', cuerpo)
+        self.assertIn('estudioComenzar()', cuerpo)
+        envio = js.split('async function confirmarReservaEstudio()', 1)[1].split(chr(10) + 'function ', 1)[0]
+        self.assertIn('link_token', envio)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

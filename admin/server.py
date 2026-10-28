@@ -2131,7 +2131,10 @@ def agenda_reservar_estudio():
       - Ambas horas se revalidan EN VIVO contra DentiDesk antes de crear.
       - Si la 2a cita falla tras crear la 1a, la 1a se cancela (rollback)
         para no dejar el estudio a medias.
-    Body: {doctor, fecha1, hora1, fecha2, hora2, rut, captcha_token}."""
+    Body: {doctor, fecha1, hora1, fecha2, hora2, rut, captcha_token} o, en vez
+    de 'rut', 'link_token': el link del Estudio que va impreso (con QR) en el
+    informe de evaluacion. El token resuelve RUT y doctor en el servidor (el
+    RUT nunca viaja en la URL) y queda usado al agendar las dos citas."""
     data = request.json or {}
     cfg = scheduling.load_config()
 
@@ -2144,10 +2147,24 @@ def agenda_reservar_estudio():
     sep_min = int(comp.get('separacion_min_dias') or 14)
 
     doctor = data.get('doctor')
+    rut = data.get('rut', '')
+    link_token = (data.get('link_token') or '').strip()
+    if link_token:
+        resuelto_link = link_agenda.resolver(link_token)
+        if not resuelto_link.get('ok'):
+            motivo_falla = resuelto_link.get('motivo', 'no_existe')
+            return jsonify({'ok': False, 'motivo': motivo_falla,
+                            'error': _LINK_AGENDA_SIN_SERVIR.get(
+                                motivo_falla, _LINK_AGENDA_SIN_SERVIR['no_existe'])}), 409
+        if resuelto_link.get('motivo') != 'estudio_integral':
+            return jsonify({'ok': False, 'error': 'Este link no es para el Estudio Integral'}), 400
+        # Lo que fijo la clinica manda sobre lo que mande el navegador.
+        rut = resuelto_link.get('rut', '')
+        doctor = resuelto_link.get('doctor') or doctor
+
     if doctor not in cfg['doctores'] or m1_key not in cfg['motivos'] or m2_key not in cfg['motivos']:
         return jsonify({'ok': False, 'error': 'Parametros invalidos'}), 400
 
-    rut = data.get('rut', '')
     if not scheduling.rut_valido(rut):
         return jsonify({'ok': False, 'error': 'RUT invalido'}), 400
     try:
@@ -2212,6 +2229,12 @@ def agenda_reservar_estudio():
 
     _refrescar_dia_reservado(doctor, fecha1, cfg)
     _refrescar_dia_reservado(doctor, fecha2, cfg)
+
+    if link_token:
+        try:
+            link_agenda.marcar_usado(link_token)
+        except Exception as e:
+            app.logger.error('No se pudo marcar usado el link del estudio: %s', e)
 
     # Que el barrido de confirmaciones no las reenvie.
     try:
