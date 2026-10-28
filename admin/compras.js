@@ -268,16 +268,31 @@ function buscador({ items, placeholder, onPick, onCrear, labelKey = 'nombre', va
 let compraItems = [];   // {producto_id, producto_nombre, unidad, cantidad, precio_unitario}
 let compraProvId = null, compraFoto = null;
 let tcEditadoAMano = false;   // si la persona escribió el tipo de cambio, no se pisa
+let cuotaInicioAMano = false; // idem con el mes de la primera cuota
+// Editar una compra del Historial abre ESTE mismo formulario, lleno. EDIT_COMPRA es el
+// pedido (lo pone editarCompra); compraEditando, la compra que el formulario está
+// editando. Salir de la pestaña y volver deja una compra nueva en blanco.
+let EDIT_COMPRA = null, compraEditando = null;
+
+function editarCompra(c) {
+  closeModal();
+  EDIT_COMPRA = c;
+  irTab('compras');
+}
 
 RENDER.compras = () => {
   if (!puede('registrar')) { $('#tab-compras').innerHTML = soloLectura(); return; }
-  compraItems = []; compraProvId = null; compraFoto = null; tcEditadoAMano = false;
+  compraEditando = EDIT_COMPRA; EDIT_COMPRA = null;
+  const ed = compraEditando;
+  compraItems = []; compraProvId = null; compraFoto = null; tcEditadoAMano = false; cuotaInicioAMano = false;
   const s = $('#tab-compras');
   const hoy = new Date().toISOString().slice(0, 10);
   s.innerHTML = `
     <div class="card">
-      <h2>Nueva compra</h2>
-      <div class="sub">Ingresa una factura o boleta con uno o varios productos.</div>
+      <div class="flex"><h2 style="margin:0">${ed ? `✏️ Editar compra #${ed.id}` : 'Nueva compra'}</h2><div class="spacer"></div>
+        ${ed ? '<button class="btn ghost sm" id="cCancelarEd">← Volver al historial sin guardar</button>' : ''}</div>
+      <div class="sub">${ed ? 'Cambia lo que necesites y aprieta «Guardar cambios». Si cambias productos o cantidades, el stock se ajusta solo por la diferencia.'
+        : 'Ingresa una factura o boleta con uno o varios productos.'}</div>
       <div class="row c2">
         <div class="field"><label>Fecha de compra</label><input type="date" id="cFecha" value="${hoy}"></div>
         <div class="field"><label>Proveedor</label><div id="cProvSlot"></div></div>
@@ -289,12 +304,26 @@ RENDER.compras = () => {
         <div class="field"><label>Forma de pago</label>
           <select id="cPago">${optsPago('transferencia')}</select></div>
       </div>
+      <div class="row c3" id="cuotasRow">
+        <div class="field"><label>Cuotas o cheques</label>
+          <input id="cCuotas" type="number" min="1" max="48" step="1" value="1"
+                 title="Si pagaste en 3 cuotas o con 3 cheques, pon 3: el gasto se reparte en 3 meses"></div>
+        <div class="field hidden" id="cCuotaIniWrap"><label>Primera cuota en</label>
+          <input id="cCuotaIni" type="month"></div>
+        <div class="field" style="align-self:end"><p class="muted" id="cCuotasNota" style="font-size:12px;margin:0 0 10px">
+          1 = pago único: todo el gasto cuenta en el mes de la compra.</p></div>
+      </div>
+      <div class="field hidden" id="cPeriodoWrap"><label>Mes que cubre (gasto fijo)</label>
+        <input id="cPeriodo" type="month" style="max-width:220px">
+        <p class="muted" style="font-size:12px;margin-top:4px">El mes al que corresponde este pago en «🗓️ Gastos fijos»
+          (puede ser distinto del mes en que se pagó: el arriendo de julio pagado el 3 de agosto cubre julio).</p></div>
       <div class="row c3">
         <div class="field"><label>Tipo de gasto</label>
           <select id="cTipoGasto"><option value="variable">Variable</option><option value="fijo">Fijo</option>${puede('recurrentes') ? '<option value="recurrente">Recurrente (mensual)</option>' : ''}</select></div>
         <div class="field"><label>Categoría</label><select id="cCategoria"></select></div>
         <div class="field"><label>Foto factura/boleta (opcional)</label>
-          <input type="file" id="cFoto" accept="image/*,application/pdf" capture="environment"></div>
+          <input type="file" id="cFoto" accept="image/*,application/pdf" capture="environment">
+          ${ed && ed.foto_path ? `<p class="muted" style="font-size:12px;margin-top:4px">📎 <a href="${API}/api/compras/foto/${encodeURIComponent(ed.foto_path)}" target="_blank">Ya tiene un documento adjunto</a> — subir otro lo reemplaza.</p>` : ''}</div>
       </div>
       <div class="row c4">
         <div class="field"><label>Moneda</label>
@@ -353,12 +382,14 @@ RENDER.compras = () => {
     </div>
 
     <div class="field" id="notaSlot"><label>Notas (opcional)</label><textarea id="cNotas" rows="2"></textarea></div>
-    <div class="flex"><div class="spacer"></div><button class="btn gold" id="cGuardar">💾 Guardar compra</button></div>
+    <div class="flex"><div class="spacer"></div>
+      ${ed ? '<button class="btn ghost" id="cCancelarEd2">Cancelar</button>' : ''}
+      <button class="btn gold" id="cGuardar">💾 ${ed ? 'Guardar cambios' : 'Guardar compra'}</button></div>
   `;
 
   // proveedor
   const provBus = buscador({
-    items: CACHE.proveedores, placeholder: 'Buscar proveedor…',
+    items: CACHE.proveedores, placeholder: 'Buscar proveedor…', valorInicial: ed ? (ed.proveedor_nombre || '') : '',
     onPick: it => { compraProvId = it.id; },
     onCrear: async txt => {
       try { const j = await api('/api/compras/proveedores', { method: 'POST', body: { nombre: txt } });
@@ -403,8 +434,68 @@ RENDER.compras = () => {
   $('#cImportacion').oninput = recalcTotal;
   $('#cTipoGasto').onchange = () => pintarItems();
   $('#rHasta').onchange = e => $('#rFechaFinWrap').classList.toggle('hidden', e.target.value !== 'fecha');
+  $('#cCuotas').oninput = pintarCuotas;
+  $('#cCuotaIni').oninput = () => { cuotaInicioAMano = true; pintarCuotas(); };
+  const fechaPrev = $('#cFecha').onchange;
+  $('#cFecha').onchange = e => { fechaPrev(e); pintarCuotas(); };
+  if (ed) llenarEdicion(ed, onMoneda);
   pintarItems();
 };
+
+// Pone la compra que se edita en el formulario de Nueva compra.
+function llenarEdicion(c, onMoneda) {
+  const v = (id, val) => { const el = $(id); if (el && val != null) el.value = val; };
+  compraProvId = c.proveedor_id || null;
+  compraFoto = c.foto_path || null;
+  v('#cFecha', c.fecha); v('#cTipoDoc', c.tipo_doc || 'factura'); v('#cNroDoc', c.nro_doc || '');
+  $('#cPago').innerHTML = optsPago(c.forma_pago);
+  if (c.tipo_gasto === 'recurrente' && !$('#cTipoGasto option[value=recurrente]'))
+    $('#cTipoGasto').insertAdjacentHTML('beforeend', '<option value="recurrente">Recurrente (mensual)</option>');
+  v('#cTipoGasto', c.tipo_gasto || 'variable');
+  $('#cCategoria').innerHTML = '<option value="">(sin categoría)</option>' + optsCategorias(c.categoria_id);
+  v('#cMoneda', c.moneda || 'CLP');
+  tcEditadoAMano = true;                        // el tipo de cambio guardado no se pisa
+  v('#cTipoCambio', c.tipo_cambio || '');
+  onMoneda();
+  v('#cDespacho', c.costo_despacho || 0); v('#cImportacion', c.costo_importacion || 0);
+  v('#cNotas', c.notas || '');
+  v('#cMontoDirecto', Math.round((Number(c.total) - Number(c.costo_despacho || 0)) * 100) / 100);
+  if (c.detalle_estado) $('#cMontoLabel').textContent = 'Total de la factura';
+  v('#cCuotas', c.cuotas || 1);
+  if ((c.cuotas || 1) > 1) { v('#cCuotaIni', c.cuota_inicio); cuotaInicioAMano = true; }
+  if (c.obligatorio_id || c.periodo) { $('#cPeriodoWrap').classList.remove('hidden'); v('#cPeriodo', c.periodo || ''); }
+  compraItems = (c.items || []).map(i => ({ producto_id: i.producto_id, producto_nombre: i.producto_nombre || '—',
+    unidad: i.unidad || 'unidad', marca: i.marca || '', cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario) }));
+  if (c.detalle_estado === 'pendiente') {
+    // Sus productos los ingresa inventario en «Por detallar»: acá solo se edita la factura.
+    $('#addProdSlot').innerHTML = '<p class="muted">📥 Los productos de esta factura los ingresa inventario en «Por detallar».</p>';
+  }
+  const volver = () => { compraEditando = null; irTab('historial'); };
+  $('#cCancelarEd').onclick = volver;
+  $('#cCancelarEd2').onclick = volver;
+}
+
+// Cuotas o cheques: el gasto se reparte en N meses desde la primera cuota.
+let ultimoTotalCLP = 0;
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const mesCorto = p => `${MESES_CORTOS[+p.slice(5, 7) - 1]} ${p.slice(2, 4)}`;
+function sumarMes(p, k) {
+  const m = +p.slice(5, 7) - 1 + k, a = +p.slice(0, 4) + Math.floor(m / 12);
+  return `${a}-${String(m % 12 + 1).padStart(2, '0')}`;
+}
+function pintarCuotas() {
+  const inp = $('#cCuotas'); if (!inp) return;
+  const n = Math.floor(Number(inp.value) || 1);
+  const wrap = $('#cCuotaIniWrap'), ini = $('#cCuotaIni'), nota = $('#cCuotasNota');
+  wrap.classList.toggle('hidden', n <= 1);
+  if (n <= 1) { nota.textContent = '1 = pago único: todo el gasto cuenta en el mes de la compra.'; return; }
+  if (!cuotaInicioAMano || !ini.value) ini.value = ($('#cFecha').value || hoyChile()).slice(0, 7);
+  if (n > 48) { nota.innerHTML = '<span style="color:var(--danger)">Máximo 48 cuotas.</span>'; return; }
+  const p = ini.value;
+  const monto = ultimoTotalCLP > 0 ? ` de <b>${clp(ultimoTotalCLP / n)}</b>` : '';
+  nota.innerHTML = `${n} cuotas${monto} · ${p ? `de <b>${mesCorto(p)}</b> a <b>${mesCorto(sumarMes(p, n - 1))}</b>` : ''}<br>
+    En Reportes y KPIs el gasto se reparte en esos meses.`;
+}
 
 // Propone el dólar observado (Banco Central) del día de la compra. No pisa el valor
 // si la persona ya lo escribió a mano, y si la consulta falla deja el campo libre
@@ -442,15 +533,18 @@ function pintarItems() {
   const hayItems = compraItems.length > 0;
   $('#itemsEmpty').classList.toggle('hidden', hayItems);
   // el monto directo solo aplica cuando NO hay productos
-  const mw = $('#montoDirectoWrap'); if (mw) mw.classList.toggle('hidden', hayItems);
+  const mw = $('#montoDirectoWrap'); if (mw) mw.classList.toggle('hidden', hayItems && !compraEditando?.detalle_estado);
   // los campos de recurrencia (día de cobro, indefinido/hasta fecha) solo tienen
   // sentido para un gasto sin productos marcado "recurrente" (suscripción/servicio)
   const rb = $('#recurBox');
-  if (rb) rb.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value !== 'recurrente');
+  if (rb) rb.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value !== 'recurrente' || !!compraEditando);
+  // Un cargo recurrente nuevo es una plantilla mensual: no lleva cuotas.
+  const cr = $('#cuotasRow');
+  if (cr) cr.classList.toggle('hidden', !compraEditando && !hayItems && $('#cTipoGasto')?.value === 'recurrente');
   // "Los productos los ingresa otra persona": solo sin productos y si no es un cargo
   // recurrente (un cargo mensual no trae productos que contar).
   const dw = $('#detWrap');
-  if (dw) dw.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value === 'recurrente');
+  if (dw) dw.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value === 'recurrente' || !!compraEditando);
   box.innerHTML = compraItems.map((it, i) => `
     <div class="item-row">
       <div>${esc(it.producto_nombre)} <span class="muted" style="font-size:12px">(${esc(it.unidad)})</span></div>
@@ -472,19 +566,22 @@ function recalcTotal() {
   const el = $('#cTotal'); if (!el) return;
   const moneda = $('#cMoneda')?.value || 'CLP';
   const despacho = Number($('#cDespacho')?.value) || 0;
-  const base = compraItems.length
+  const base = compraItems.length && !compraEditando?.detalle_estado
     ? compraItems.reduce((a, it) => a + it.cantidad * it.precio_unitario, 0)
     : (Number($('#cMontoDirecto')?.value) || 0);
   const total = base + despacho;                 // en la moneda de la compra
   const importacion = Number($('#cImportacion')?.value) || 0;
   if (moneda === 'USD') {
     const tc = Number($('#cTipoCambio')?.value) || 0;
+    ultimoTotalCLP = tc > 0 ? total * tc + importacion : 0;
     el.innerHTML = money(total, 'USD') + (tc > 0
       ? `<div style="font-size:13px;color:var(--text-mid);font-weight:600">≈ ${clp(total * tc + importacion)}</div>`
       : `<div style="font-size:12px;color:var(--danger);font-weight:600">falta tipo de cambio</div>`);
   } else {
+    ultimoTotalCLP = total + importacion;
     el.textContent = clp(total + importacion);
   }
+  pintarCuotas();
 }
 
 async function subirFoto(e) {
@@ -514,13 +611,16 @@ function downscale(file, max = 1600, q = 0.72) {
 
 async function guardarCompra() {
   const montoDirecto = Number($('#cMontoDirecto')?.value) || 0;
-  if (!compraItems.length && montoDirecto <= 0)
-    return toast('Agrega productos o ingresa un monto directo', 'err');
+  const ed = compraEditando;
+  if ((!compraItems.length || ed?.detalle_estado) && montoDirecto <= 0)
+    return toast(ed?.detalle_estado ? 'Ingresa el total de la factura' : 'Agrega productos o ingresa un monto directo', 'err');
+  const cuotas = Math.floor(Number($('#cCuotas')?.value) || 1);
+  if (cuotas < 1 || cuotas > 48) return toast('Las cuotas van de 1 a 48', 'err');
   const moneda = $('#cMoneda').value;
   const tipoCambio = moneda === 'USD' ? (Number($('#cTipoCambio').value) || 0) : 1;
   if (moneda === 'USD' && tipoCambio <= 0)
     return toast('Ingresa el tipo de cambio (CLP por dólar)', 'err');
-  const esRecurrente = $('#cTipoGasto').value === 'recurrente' && !compraItems.length;
+  const esRecurrente = $('#cTipoGasto').value === 'recurrente' && !compraItems.length && !ed;
 
   if (esRecurrente) {
     const nombre = $('#rNombre').value.trim();
@@ -548,8 +648,21 @@ async function guardarCompra() {
     moneda, tipo_cambio: tipoCambio,
     costo_despacho: Number($('#cDespacho').value) || 0,
     costo_importacion: Number($('#cImportacion').value) || 0,
-    total: compraItems.length ? undefined : montoDirecto
+    total: compraItems.length && !ed?.detalle_estado ? undefined : montoDirecto,
+    cuotas, cuota_inicio: cuotas > 1 ? $('#cCuotaIni').value : null
   };
+  if (ed) {
+    if (!$('#cPeriodoWrap').classList.contains('hidden')) cab.periodo = $('#cPeriodo').value;
+    const items = ed.detalle_estado === 'pendiente' ? [] : compraItems.map(i => ({ producto_id: i.producto_id,
+      marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario }));
+    try {
+      const r = await api('/api/compras/compras/editar', { method: 'POST', body: { id: ed.id, cabecera: cab, items } });
+      toast(`Compra #${ed.id} actualizada · Total ${clp(r.total_clp)}${r.stock === 'ajustado' ? ' · stock ajustado' : ''} ✓`, 'ok');
+      compraEditando = null;
+      await recargarCaches(); refrescarPendientesBadge(); irTab('historial');
+    } catch (e) { toast(e.message, 'err'); }
+    return;
+  }
   const detPend = !compraItems.length && $('#cDetPend')?.checked && !$('#detWrap').classList.contains('hidden');
   if (detPend) { cab.detalle_pendiente = true; cab.detalle_nota = $('#cDetNota').value; }
   const items = compraItems.map(i => ({ producto_id: i.producto_id, marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario }));
@@ -770,8 +883,9 @@ RENDER.historial = async () => {
       // compara contra la cartola del banco.
       // Un duplicado no es un pago real (ya está anotado en otra compra): no suma. Las
       // inversiones y los ahorros sí salieron de la cuenta, así que cuentan para la cartola.
+      // Una compra en cuotas suma solo las cuotas que caen en el período (monto_periodo).
       const suma = j.compras.filter(c => (c.naturaleza || 'gasto') !== 'duplicado')
-        .reduce((a, c) => a + (Number(c.total_clp) || Number(c.total) || 0), 0);
+        .reduce((a, c) => a + montoFila(c), 0);
       const cortada = j.compras.length >= 200 && !q.get('desde') && !q.get('forma_pago');
       $('#hResumen').innerHTML = j.compras.length
         ? `<b>${j.compras.length}</b> compra(s) · total <b>${clp(suma)}</b>` +
@@ -785,7 +899,8 @@ RENDER.historial = async () => {
           <td class="muted">${esc(labelPago(c.forma_pago))}</td>
           <td><span class="pill ${c.tipo_gasto}">${c.tipo_gasto}</span>${c.detalle_estado === 'pendiente'
             ? ' <span class="pill low" title="Falta que inventario ingrese sus productos">📥 sin productos</span>' : ''}${pillNaturaleza(c)}${c.moneda === 'USD' ? ' <span class="pill" style="background:#EBF8FF;color:#2B6CB0">USD</span>' : ''}</td>
-          <td class="num">${clp(c.total_clp || c.total)}</td>
+          <td class="num">${clp(montoFila(c))}${(c.cuotas || 1) > 1 ? `<div class="muted" style="font-size:11px;white-space:nowrap"
+            title="Pagada en ${c.cuotas} cuotas o cheques">cuota ${(c.cuotas_periodo || []).join(', ')}/${c.cuotas} · total ${clp(c.total_clp || c.total)}</div>` : ''}</td>
           <td><button class="btn ghost sm" data-ver="${c.id}">Ver</button></td></tr>`).join('')
           : `<tr><td colspan="8" class="empty">Sin compras en el período.</td></tr>`);
       $$('#hTabla [data-ver]').forEach(b => b.onclick = () => verCompra(b.dataset.ver));
@@ -801,6 +916,8 @@ RENDER.historial = async () => {
   $('#hFiltrar').onclick = () => { marcar(''); cargar(); };
   cargar();
 };
+
+const montoFila = c => c.monto_periodo != null ? Number(c.monto_periodo) : (Number(c.total_clp) || Number(c.total) || 0);
 
 async function verCompra(id) {
   try {
@@ -825,6 +942,10 @@ async function verCompra(id) {
         <tr><td colspan="4" class="num">Total ${mon}</td><td class="num"><b>${money(c.total, mon)}</b></td></tr>
         ${mon === 'USD' || c.costo_importacion ? `<tr><td colspan="4" class="num"><b>Total CLP</b></td><td class="num"><b>${clp(c.total_clp || c.total)}</b></td></tr>` : ''}</table></div>
       ${costos.length ? `<p class="muted" style="margin-top:10px">${costos.join(' · ')}</p>` : ''}
+      ${(c.cuotas || 1) > 1 ? `<p class="muted" style="margin-top:10px">💳 Pagada en <b>${c.cuotas} cuotas</b> de
+        ${clp((c.total_clp || c.total) / c.cuotas)}, de ${mesCorto(c.cuota_inicio || c.fecha.slice(0, 7))} a
+        ${mesCorto(sumarMes(c.cuota_inicio || c.fecha.slice(0, 7), c.cuotas - 1))}.</p>` : ''}
+      ${c.periodo ? `<p class="muted" style="margin-top:6px">🗓️ Cubre el mes de ${esc(mesLegible(c.periodo))}.</p>` : ''}
       ${c.notas ? `<p class="muted" style="margin-top:10px">📝 ${esc(c.notas)}</p>` : ''}
       ${c.detalle_estado === 'pendiente' ? `<p class="muted" style="margin-top:10px">📥 Factura ingresada por
         ${esc(c.registrado_por_nombre || '—')}; los productos los ingresa inventario.${c.detalle_nota ? ' Nota: ' + esc(c.detalle_nota) : ''}</p>` : ''}
@@ -834,12 +955,12 @@ async function verCompra(id) {
       ${foto}
       <div class="flex" style="margin-top:16px">
         ${puede('registrar') && c.detalle_estado === 'pendiente' ? `<button class="btn gold sm" id="detIr">📥 Ingresar productos</button>` : ''}
-        ${puede('registrar') ? `<button class="btn gold sm" id="editCostos">✏️ Editar pago, categoría y costos</button>` : ''}
+        ${puede('registrar') && puede('historial') ? `<button class="btn gold sm" id="editCompra">✏️ Editar compra</button>` : ''}
         ${puede('admin') ? `<button class="btn ghost sm" id="natCompra" title="Inversión, ahorro, duplicado…">🏷️ ¿Es gasto del mes?</button>` : ''}
         <div class="spacer"></div>
         ${puede('admin') ? `<button class="btn danger sm" id="delCompra">Eliminar</button>` : ''}
         <button class="btn ghost sm" onclick="document.getElementById('modalRoot').innerHTML=''">Cerrar</button></div>`);
-    if (puede('registrar')) m.querySelector('#editCostos').onclick = () => editarCostosCompra(c);
+    if (puede('registrar') && puede('historial')) m.querySelector('#editCompra').onclick = () => editarCompra(c);
     if (puede('admin')) {
       m.querySelector('#natCompra').onclick = () => marcarNaturaleza(c);
       $$('[data-item]', m).forEach(b => b.onclick = () =>
@@ -1091,53 +1212,6 @@ function editarGastoFijo(o) {
     try {
       await api('/api/compras/gastos-fijos' + (nuevo ? '' : '/actualizar'), { method: 'POST', body });
       closeModal(); toast('Guardado ✓', 'ok'); cargarGastosFijos();
-    } catch (e) { toast(e.message, 'err'); }
-  };
-}
-
-function editarCostosCompra(c) {
-  const mon = c.moneda || 'CLP';
-  const m = modal(`
-    <h3>Editar compra #${c.id}</h3>
-    <p class="muted" style="margin-bottom:12px">Ajusta despacho, moneda o agrega el <b>costo de importación</b> (aduana/courier) que suele llegar después por FedEx, DHL, etc. El total se recalcula solo.</p>
-    <div class="row c2">
-      <div class="field"><label>Forma de pago</label><select id="ecPago">${optsPago(c.forma_pago)}</select></div>
-      <div class="field"><label>Categoría</label><select id="ecCat"><option value="">(sin categoría)</option>${optsCategorias(c.categoria_id)}</select></div>
-    </div>
-    <div class="row c2">
-      <div class="field"><label>Moneda</label><select id="ecMoneda">
-        <option value="CLP" ${mon === 'CLP' ? 'selected' : ''}>Peso (CLP)</option>
-        <option value="USD" ${mon === 'USD' ? 'selected' : ''}>Dólar (USD)</option></select></div>
-      <div class="field ${mon === 'USD' ? '' : 'hidden'}" id="ecTCWrap"><label>Tipo de cambio (CLP/USD)</label>
-        <input id="ecTC" type="number" step="any" min="0" value="${c.tipo_cambio || ''}"></div>
-    </div>
-    <div class="row c2">
-      <div class="field"><label>Costo despacho (${mon})</label><input id="ecDesp" type="number" step="any" min="0" value="${c.costo_despacho || 0}"></div>
-      <div class="field"><label>Costo importación (CLP)</label><input id="ecImp" type="number" step="any" min="0" value="${c.costo_importacion || 0}"></div>
-    </div>
-    ${c.obligatorio_id || c.periodo ? `<div class="field"><label>Mes que cubre (gasto fijo)</label>
-      <input id="ecPeriodo" type="month" value="${esc(c.periodo || '')}" style="max-width:220px">
-      <p class="muted" style="font-size:12px;margin-top:4px">El mes al que corresponde este pago en «🗓️ Gastos fijos»
-        (puede ser distinto del mes en que se pagó: el arriendo de julio pagado el 3 de agosto cubre julio).</p></div>` : ''}
-    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
-      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
-      <button class="btn gold" id="ecOk">Guardar</button></div>`);
-  m.querySelector('#ecMoneda').onchange = e => m.querySelector('#ecTCWrap').classList.toggle('hidden', e.target.value !== 'USD');
-  m.querySelector('#ecOk').onclick = async () => {
-    const moneda = m.querySelector('#ecMoneda').value;
-    // La categoría decide en qué bloque de gastos cae (operación / administración) y es
-    // la que usa el panel de KPIs: lo que se paga a los doctores va en Sueldos.
-    const body = { id: c.id, moneda, forma_pago: m.querySelector('#ecPago').value,
-      categoria_id: m.querySelector('#ecCat').value || null,
-      tipo_cambio: moneda === 'USD' ? (Number(m.querySelector('#ecTC').value) || 0) : 1,
-      costo_despacho: Number(m.querySelector('#ecDesp').value) || 0,
-      costo_importacion: Number(m.querySelector('#ecImp').value) || 0 };
-    if (m.querySelector('#ecPeriodo')) body.periodo = m.querySelector('#ecPeriodo').value;
-    if (moneda === 'USD' && body.tipo_cambio <= 0) return toast('Ingresa el tipo de cambio', 'err');
-    try {
-      const r = await api('/api/compras/compras/actualizar', { method: 'POST', body });
-      closeModal(); toast('Compra actualizada · Total ' + clp(r.total_clp) + ' ✓', 'ok');
-      RENDER.historial();
     } catch (e) { toast(e.message, 'err'); }
   };
 }

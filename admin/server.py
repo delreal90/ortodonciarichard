@@ -8044,6 +8044,32 @@ def compras_actualizar():
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, **res})
 
+@app.route('/api/compras/compras/editar', methods=['POST'])
+def compras_editar():
+    """Edición completa de una compra (cabecera, productos y cuotas) desde el
+    formulario de Nueva compra. El stock se ajusta por la diferencia."""
+    u, err = _require_compras('registrar')
+    if err:
+        return err
+    d = request.json or {}
+    if not _compras.tiene_cap(u['rol'], 'historial'):
+        return jsonify({'ok': False, 'error': 'Compra no encontrada'}), 404
+    try:
+        cid = int(d.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Compra no válida'}), 400
+    if not _compras.obtener_compra(cid, solo_ambito=_ambito_de(u)):
+        return jsonify({'ok': False, 'error': 'Compra no encontrada'}), 404
+    cab = d.get('cabecera') or {}
+    malo = _destino_oculto(u, cab.get('categoria_id'), cab.get('proveedor_id'))
+    if malo:
+        return jsonify({'ok': False, 'error': malo}), 400
+    try:
+        res = _compras.editar_compra(cid, cab, d.get('items', []), u['id'])
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, **res})
+
 @app.route('/api/compras/compras/eliminar', methods=['POST'])
 def compras_eliminar():
     _, err = _require_compras('admin')

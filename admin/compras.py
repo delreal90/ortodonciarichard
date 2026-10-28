@@ -419,6 +419,14 @@ def _migrar(con):
         con.execute('UPDATE compras SET total_clp=total WHERE total_clp=0')
     if 'suscripcion_id' not in ccol:
         con.execute('ALTER TABLE compras ADD COLUMN suscripcion_id INTEGER REFERENCES suscripciones(id)')
+    # Pago en cuotas o cheques (2026-10-28): el gasto se reparte en N meses desde
+    # `cuota_inicio` (AAAA-MM). 1 = pago único (todo en el mes de la compra).
+    for col, ddl in (
+        ('cuotas', 'ALTER TABLE compras ADD COLUMN cuotas INTEGER NOT NULL DEFAULT 1'),
+        ('cuota_inicio', 'ALTER TABLE compras ADD COLUMN cuota_inicio TEXT'),
+    ):
+        if col not in ccol:
+            con.execute(ddl)
     # Factura en dos manos (2026-10-01): una persona ingresa la factura (total, forma de
     # pago) y otra los productos. NULL = compra normal · 'pendiente' · 'completo'.
     for col, ddl in (
@@ -1278,6 +1286,51 @@ def _total_clp(total_moneda, tipo_cambio, costo_importacion):
     return round(float(total_moneda) * float(tipo_cambio) + float(costo_importacion or 0), 2)
 
 
+CUOTAS_MAX = 48
+
+
+def _cuotas_de(cab):
+    """(cuotas, cuota_inicio) validados desde la cabecera. Sin cuotas o con 1 → (1, None):
+    un pago único cuenta en el mes de su fecha, como siempre."""
+    crudo = cab.get('cuotas')
+    try:
+        n = 1 if crudo in (None, '') else int(crudo)
+    except (TypeError, ValueError):
+        raise ValueError('Cantidad de cuotas no válida')
+    if n < 1 or n > CUOTAS_MAX:
+        raise ValueError(f'Las cuotas van de 1 a {CUOTAS_MAX}')
+    if n == 1:
+        return 1, None
+    inicio = _periodo(cab.get('cuota_inicio') or '') or _periodo(_norm(cab.get('fecha')) or _hoy_cl())
+    if not inicio:
+        raise ValueError('Mes de la primera cuota no válido (AAAA-MM)')
+    return n, inicio
+
+
+def _meses_cuotas(cuotas, inicio):
+    """['AAAA-MM', …] de cada cuota."""
+    return [_sumar_mes(inicio, k) for k in range(cuotas)]
+
+
+# Fuente de los TOTALES DE GASTO con las cuotas repartidas: una fila por cuota, con la
+# misma forma que la tabla `compras` (alias `c`). Una compra en 3 cuotas aparece 3 veces,
+# en el día 1 de cada mes y con un tercio del monto; un pago único aparece igual que
+# siempre. La usan resumen_gastos y gasto_por_mes_ambito (Reportes, KPIs, reporte
+# semanal): así el gasto se ve en los meses en que de verdad se paga.
+_SQL_CUOTAS = f"""WITH RECURSIVE _k(k) AS (SELECT 0 UNION ALL SELECT k+1 FROM _k WHERE k < {CUOTAS_MAX - 1}),
+_gc AS (
+  SELECT c.id, c.categoria_id, c.proveedor_id, c.tipo_gasto, c.naturaleza,
+    CASE WHEN COALESCE(c.cuotas,1) > 1
+         THEN date(COALESCE(c.cuota_inicio, substr(c.fecha,1,7)) || '-01', '+' || _k.k || ' months')
+         ELSE c.fecha END AS fecha,
+    (CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END) * 1.0
+        / MAX(COALESCE(c.cuotas,1),1) AS total_clp,
+    (CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END) * 1.0
+        / MAX(COALESCE(c.cuotas,1),1) AS total
+  FROM compras c JOIN _k ON _k.k < MAX(COALESCE(c.cuotas,1),1))
+"""
+
+
 def _normalizar_items(items):
     """[(producto_id, marca, cantidad, precio, subtotal)] y la suma. Valida cada ítem."""
     norm, subtotal = [], 0.0
@@ -1351,6 +1404,7 @@ def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
     despacho = round(float(cab.get('costo_despacho') or 0), 2)
     importacion = round(float(cab.get('costo_importacion') or 0), 2)
     pendiente = bool(cab.get('detalle_pendiente')) and not items
+    cuotas, cuota_inicio = _cuotas_de(cab)
 
     # Gasto SIN productos (arriendo, luz, servicios): se registra solo el monto,
     # no toca stock. Requiere un total > 0 en la cabecera. Es también la factura que
@@ -1378,6 +1432,8 @@ def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
                  cab.get('foto_path'), _norm(cab.get('notas')), suscripcion_id, usuario_id, ahora,
                  'pendiente' if pendiente else None,
                  _norm(cab.get('detalle_nota')) if pendiente else None))
+            con.execute('UPDATE compras SET cuotas=?, cuota_inicio=? WHERE id=?',
+                        (cuotas, cuota_inicio, cur.lastrowid))
             con.commit()
             return cur.lastrowid
         finally:
@@ -1401,6 +1457,8 @@ def crear_compra(cab, items, usuario_id=None, suscripcion_id=None):
              despacho, importacion, total, total_clp,
              cab.get('foto_path'), _norm(cab.get('notas')), suscripcion_id, usuario_id, ahora))
         compra_id = cur.lastrowid
+        con.execute('UPDATE compras SET cuotas=?, cuota_inicio=? WHERE id=?',
+                    (cuotas, cuota_inicio, compra_id))
         _insertar_items(con, compra_id, norm_items, usuario_id, ahora)
         con.commit()
         return compra_id
@@ -1728,10 +1786,17 @@ def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
              'LEFT JOIN usuarios ur ON ur.id=c.usuario_id '
              'LEFT JOIN categorias cat ON cat.id=c.categoria_id')
         cond, vals = [], []
-        if desde:
-            cond.append('c.fecha>=?'); vals.append(desde)
-        if hasta:
-            cond.append('c.fecha<=?'); vals.append(hasta)
+        # Una compra en cuotas entra al período si alguna de sus cuotas cae en él (la
+        # cuota k cuenta el día 1 de su mes, igual que en _SQL_CUOTAS). El cruce exacto
+        # se termina abajo, en Python, junto con el monto de las cuotas del período.
+        if desde or hasta:
+            ini = "COALESCE(c.cuota_inicio, substr(c.fecha,1,7)) || '-01'"
+            cond.append(
+                f"(CASE WHEN COALESCE(c.cuotas,1) > 1 THEN ({ini} <= ? AND "
+                f"date({ini}, '+' || (c.cuotas - 1) || ' months') >= ?) "
+                "ELSE (c.fecha >= ? AND c.fecha <= ?) END)")
+            vals += [hasta or '9999-12-31', desde or '0000-01-01',
+                     desde or '0000-01-01', hasta or '9999-12-31']
         if proveedor_id:
             cond.append('c.proveedor_id=?'); vals.append(proveedor_id)
         if categoria_id:
@@ -1755,9 +1820,32 @@ def listar_compras(desde=None, hasta=None, proveedor_id=None, categoria_id=None,
             q += ' WHERE ' + ' AND '.join(cond)
         q += ' ORDER BY c.fecha DESC, c.id DESC LIMIT ?'
         vals.append(limite)
-        return _rows(con.execute(q, vals))
+        return _con_cuotas_periodo(_rows(con.execute(q, vals)), desde, hasta)
     finally:
         con.close()
+
+
+def _con_cuotas_periodo(filas, desde=None, hasta=None):
+    """Anota en cada compra `monto_periodo` (CLP que cae en el período) y, si es en
+    cuotas, `cuotas_periodo` (los números de cuota del período, desde 1). Sin período,
+    el monto es el total. Descarta las compras en cuotas sin ninguna cuota en el rango."""
+    d, h = desde or '0000-01-01', hasta or '9999-12-31'
+    out = []
+    for c in filas:
+        monto = float(c.get('total_clp') or 0) or float(c.get('total') or 0)
+        n = int(c.get('cuotas') or 1)
+        if n <= 1:
+            c['monto_periodo'] = monto
+            out.append(c)
+            continue
+        inicio = c.get('cuota_inicio') or (c.get('fecha') or '')[:7]
+        ks = [k + 1 for k, m in enumerate(_meses_cuotas(n, inicio)) if d <= m + '-01' <= h]
+        if not ks:
+            continue
+        c['cuotas_periodo'] = ks
+        c['monto_periodo'] = round(monto * len(ks) / n, 2)
+        out.append(c)
+    return out
 
 
 def obtener_compra(compra_id, solo_ambito=None):
@@ -1788,6 +1876,127 @@ def obtener_compra(compra_id, solo_ambito=None):
         con.close()
 
 
+def _stock_aplicado(con, compra_id):
+    """{producto_id: cantidad} que esta compra tiene sumada hoy en el stock: sus entradas
+    menos las salidas que dejaron sus ediciones. Vacío si nunca sumó (histórico)."""
+    out = {}
+    for r in con.execute(
+            "SELECT producto_id, tipo, cantidad FROM movimientos_stock "
+            "WHERE compra_id=? AND tipo IN ('entrada','salida')", (compra_id,)):
+        signo = 1 if r['tipo'] == 'entrada' else -1
+        out[r['producto_id']] = out.get(r['producto_id'], 0) + signo * float(r['cantidad'])
+    return out
+
+
+def editar_compra(compra_id, cab, items, usuario_id=None):
+    """Edición COMPLETA de una compra ya registrada (cabecera, productos, cuotas), como
+    si se volviera a llenar Nueva compra. En una transacción:
+    - el stock se ajusta por la DIFERENCIA de cada producto (movimientos de entrada o
+      salida «Edición compra #id»), y solo si la compra había sumado stock: las
+      importadas del histórico nunca sumaron y siguen sin tocarlo;
+    - una factura que espera sus productos no recibe productos por acá (los ingresa
+      inventario en «Por detallar»), y en una factura de dos manos el total es el de la
+      factura (`cab.total`), no la suma de los productos;
+    - se conservan la naturaleza, el gasto fijo y el cargo recurrente de origen."""
+    items = items or []
+    moneda, tc = _moneda_de(cab)
+    despacho = round(float(cab.get('costo_despacho') or 0), 2)
+    importacion = round(float(cab.get('costo_importacion') or 0), 2)
+    if 'periodo' in cab and _norm(cab.get('periodo')) and not _periodo(cab.get('periodo')):
+        raise ValueError('Mes no válido (AAAA-MM)')
+    ahora = ahora_cl().isoformat(timespec='seconds')
+    con = _conn()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        actual = _row(con.execute('SELECT * FROM compras WHERE id=?', (compra_id,)).fetchone())
+        if not actual:
+            raise ValueError('Compra no encontrada')
+        estado = actual.get('detalle_estado')
+        if estado == 'pendiente' and items:
+            raise ValueError('Los productos de esta factura los ingresa inventario en '
+                             '«📥 Por detallar».')
+        fecha = _norm(cab.get('fecha')) or actual['fecha']
+        cuotas, cuota_inicio = _cuotas_de({**cab, 'fecha': fecha})
+        nuevo = {**actual, **cab}
+        if estado == 'pendiente':
+            _validar_detalle_pendiente(con, nuevo)
+        tipo_gasto = cab.get('tipo_gasto') if cab.get('tipo_gasto') in TIPOS_GASTO \
+            else actual.get('tipo_gasto') or 'variable'
+
+        norm_items, subtotal = _normalizar_items(items)
+        if norm_items and not estado:
+            total = round(subtotal + despacho, 2)
+        else:
+            base = round(float(cab.get('total') or 0), 2)
+            if base <= 0:
+                raise ValueError('Ingresa el total de la factura' if estado
+                                 else 'La compra no tiene productos ni monto')
+            total = round(base + despacho, 2)
+        total_clp = _total_clp(total, tc, importacion)
+
+        # ¿Esta compra mueve stock? Sí si ya lo había sumado, o si era un gasto sin
+        # productos registrado en el sistema (al agregarle productos, suman como en una
+        # compra nueva). Las del histórico ([hist]) nunca.
+        aplicado = _stock_aplicado(con, compra_id)
+        viejos = con.execute('SELECT COUNT(*) FROM compra_items WHERE compra_id=?',
+                             (compra_id,)).fetchone()[0]
+        hist = (actual.get('notas') or '').startswith('[hist]')
+        mueve_stock = bool(aplicado) or (not viejos and not hist and estado != 'pendiente')
+
+        notas = _norm(cab.get('notas'))
+        if hist and not (notas or '').startswith('[hist]'):
+            notas = ('[hist] ' + (notas or '')).strip()   # la reimportación la reconoce así
+        con.execute(
+            'UPDATE compras SET fecha=?,proveedor_id=?,tipo_doc=?,nro_doc=?,forma_pago=?,'
+            'tipo_gasto=?,categoria_id=?,moneda=?,tipo_cambio=?,costo_despacho=?,'
+            'costo_importacion=?,total=?,total_clp=?,notas=?,foto_path=?,cuotas=?,'
+            'cuota_inicio=? WHERE id=?',
+            (fecha, cab.get('proveedor_id'), cab.get('tipo_doc'), _norm(cab.get('nro_doc')),
+             cab.get('forma_pago'), tipo_gasto, cab.get('categoria_id') or None, moneda, tc,
+             despacho, importacion, total, total_clp, notas,
+             cab.get('foto_path') if 'foto_path' in cab else actual.get('foto_path'),
+             cuotas, cuota_inicio, compra_id))
+        if 'periodo' in cab:
+            con.execute('UPDATE compras SET periodo=? WHERE id=?',
+                        (_periodo(cab.get('periodo')) or None, compra_id))
+
+        if estado != 'pendiente':
+            antes = {r[0] for r in con.execute(
+                'SELECT producto_id FROM compra_items WHERE compra_id=?', (compra_id,))}
+            con.execute('DELETE FROM compra_items WHERE compra_id=?', (compra_id,))
+            nuevas = {}
+            for pid, marca, cant, precio, sub in norm_items:
+                con.execute(
+                    'INSERT INTO compra_items(compra_id,producto_id,marca,cantidad,'
+                    'precio_unitario,subtotal) VALUES(?,?,?,?,?,?)',
+                    (compra_id, pid, marca, cant, precio, sub))
+                nuevas[pid] = nuevas.get(pid, 0) + cant
+                if marca:
+                    con.execute('UPDATE productos SET marca=? WHERE id=?', (marca, pid))
+            if mueve_stock:
+                for pid in set(aplicado) | set(nuevas):
+                    delta = round(nuevas.get(pid, 0) - aplicado.get(pid, 0), 6)
+                    if not delta:
+                        continue
+                    con.execute(
+                        'INSERT INTO movimientos_stock(producto_id,tipo,cantidad,motivo,'
+                        'compra_id,usuario_id,creado) VALUES(?,?,?,?,?,?,?)',
+                        (pid, 'entrada' if delta > 0 else 'salida', abs(delta),
+                         f'Edición compra #{compra_id}', compra_id, usuario_id, ahora))
+                    con.execute('UPDATE productos SET stock_actual=stock_actual+? WHERE id=?',
+                                (delta, pid))
+                _resolver_pendientes(con, [pid for pid in nuevas if pid not in antes],
+                                     compra_id, ahora)
+        con.commit()
+        return {'total': total, 'total_clp': total_clp, 'moneda': moneda,
+                'stock': 'ajustado' if mueve_stock and estado != 'pendiente' else 'sin cambios'}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def eliminar_compra(compra_id):
     """Borra una compra y REVIERTE el stock que había sumado (registra la reversión
     como movimiento de ajuste para dejar rastro)."""
@@ -1802,16 +2011,17 @@ def eliminar_compra(compra_id):
             mes = (compra['fecha'] or '')[:7]
             con.execute("UPDATE suscripciones SET ultima_generada=NULL "
                        "WHERE id=? AND ultima_generada=?", (compra['suscripcion_id'], mes))
-        items = con.execute('SELECT producto_id,cantidad FROM compra_items WHERE compra_id=?',
-                            (compra_id,)).fetchall()
-        for it in items:
+        # Solo se revierte lo que la compra SUMÓ (sus movimientos). Las importadas del
+        # histórico nunca sumaron stock: restarles los ítems dejaba el stock bajo cero.
+        for pid, cant in _stock_aplicado(con, compra_id).items():
+            if not cant:
+                continue
             con.execute('UPDATE productos SET stock_actual=stock_actual-? WHERE id=?',
-                        (it['cantidad'], it['producto_id']))
+                        (cant, pid))
             con.execute(
                 'INSERT INTO movimientos_stock(producto_id,tipo,cantidad,motivo,creado) '
                 'VALUES(?,?,?,?,?)',
-                (it['producto_id'], 'ajuste', it['cantidad'],
-                 f'Reversión por borrado de compra #{compra_id}', ahora))
+                (pid, 'ajuste', cant, f'Reversión por borrado de compra #{compra_id}', ahora))
         # Desacoplar los movimientos de la compra (mantiene el historial del libro
         # mayor, pero libera la FK para poder borrar la compra).
         con.execute('UPDATE movimientos_stock SET compra_id=NULL WHERE compra_id=?', (compra_id,))
@@ -2391,37 +2601,37 @@ def resumen_gastos(desde=None, hasta=None, ambito=None):
         # total_clp puede ser 0 en filas viejas antes de la migración → cae a total.
         M = 'CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END'
         fuera = {r['naturaleza']: {'total': round(r['t'] or 0), 'n': r['n']} for r in con.execute(
-            f"SELECT COALESCE(c.naturaleza,'gasto') AS naturaleza, SUM({M}) AS t, COUNT(*) AS n "
-            f"FROM compras c{where_todo} GROUP BY 1", vals) if r['naturaleza'] != 'gasto'}
+            _SQL_CUOTAS + f"SELECT COALESCE(c.naturaleza,'gasto') AS naturaleza, SUM({M}) AS t, COUNT(DISTINCT c.id) AS n "
+            f"FROM _gc c{where_todo} GROUP BY 1", vals) if r['naturaleza'] != 'gasto'}
         # Etiqueta de ámbito: sin categoría se muestra aparte para no mezclarlo.
         A = ("COALESCE((SELECT ambito FROM categorias WHERE id=c.categoria_id),"
              "'sin_categoria')")
 
-        total = con.execute(f'SELECT COALESCE(SUM({M}),0) AS t, COUNT(*) AS n '
-                            f'FROM compras c{where}', vals).fetchone()
+        total = con.execute(_SQL_CUOTAS + f'SELECT COALESCE(SUM({M}),0) AS t, COUNT(DISTINCT c.id) AS n '
+                            f'FROM _gc c{where}', vals).fetchone()
 
         por_mes = _rows(con.execute(
-            f"SELECT substr(c.fecha,1,7) AS mes, SUM({M}) AS total, COUNT(*) AS n "
-            f"FROM compras c{where} GROUP BY mes ORDER BY mes", vals))
+            _SQL_CUOTAS + f"SELECT substr(c.fecha,1,7) AS mes, SUM({M}) AS total, COUNT(DISTINCT c.id) AS n "
+            f"FROM _gc c{where} GROUP BY mes ORDER BY mes", vals))
 
         por_cat = _rows(con.execute(
-            f"SELECT COALESCE(cat.nombre,'(sin categoría)') AS label, SUM({M}) AS total, "
-            f"COUNT(*) AS n, COALESCE(cat.ambito,'sin_categoria') AS ambito "
-            f"FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id"
+            _SQL_CUOTAS + f"SELECT COALESCE(cat.nombre,'(sin categoría)') AS label, SUM({M}) AS total, "
+            f"COUNT(DISTINCT c.id) AS n, COALESCE(cat.ambito,'sin_categoria') AS ambito "
+            f"FROM _gc c LEFT JOIN categorias cat ON cat.id=c.categoria_id"
             f"{where} GROUP BY label ORDER BY total DESC", vals))
 
         por_prov = _rows(con.execute(
-            f"SELECT COALESCE(pr.nombre,'(sin proveedor)') AS label, SUM({M}) AS total, "
-            f"COUNT(*) AS n FROM compras c LEFT JOIN proveedores pr ON pr.id=c.proveedor_id"
+            _SQL_CUOTAS + f"SELECT COALESCE(pr.nombre,'(sin proveedor)') AS label, SUM({M}) AS total, "
+            f"COUNT(DISTINCT c.id) AS n FROM _gc c LEFT JOIN proveedores pr ON pr.id=c.proveedor_id"
             f"{where} GROUP BY label ORDER BY total DESC", vals))
 
         por_tipo = _rows(con.execute(
-            f"SELECT c.tipo_gasto AS label, SUM({M}) AS total, COUNT(*) AS n "
-            f"FROM compras c{where} GROUP BY c.tipo_gasto", vals))
+            _SQL_CUOTAS + f"SELECT c.tipo_gasto AS label, SUM({M}) AS total, COUNT(DISTINCT c.id) AS n "
+            f"FROM _gc c{where} GROUP BY c.tipo_gasto", vals))
 
         por_ambito = _rows(con.execute(
-            f"SELECT {A} AS label, SUM({M}) AS total, COUNT(*) AS n "
-            f"FROM compras c{where} GROUP BY label ORDER BY total DESC", vals))
+            _SQL_CUOTAS + f"SELECT {A} AS label, SUM({M}) AS total, COUNT(DISTINCT c.id) AS n "
+            f"FROM _gc c{where} GROUP BY label ORDER BY total DESC", vals))
 
         return {
             'total': round(total['t'], 2),
@@ -2447,9 +2657,9 @@ def gasto_por_mes_ambito():
     try:
         M = 'CASE WHEN c.total_clp>0 THEN c.total_clp ELSE c.total END'
         return _rows(con.execute(
-            f"SELECT substr(c.fecha,1,7) AS mes, "
+            _SQL_CUOTAS + f"SELECT substr(c.fecha,1,7) AS mes, "
             f"COALESCE(cat.ambito,'sin_categoria') AS ambito, SUM({M}) AS total "
-            f"FROM compras c LEFT JOIN categorias cat ON cat.id=c.categoria_id "
+            f"FROM _gc c LEFT JOIN categorias cat ON cat.id=c.categoria_id "
             f"WHERE {_SQL_ES_GASTO} GROUP BY mes, ambito ORDER BY mes"))
     finally:
         con.close()

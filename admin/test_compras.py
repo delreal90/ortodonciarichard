@@ -1043,5 +1043,209 @@ class TestGastosFijos(_Base):
         self.assertEqual(compras.estado_obligatorios('2026-07'), [])
 
 
+
+class TestCuotas(_Base):
+    """Pago en 3 cuotas o 3 cheques (2026-10-28): el gasto se reparte en los meses en que
+    de verdad se paga, en Reportes, KPIs e Historial."""
+
+    def setUp(self):
+        super().setUp()
+        self.cat = compras.crear_categoria('Insumos', 'operacion')
+
+    def _compra(self, total=300000, **kw):
+        return compras.crear_compra(dict({'fecha': '2026-10-15', 'categoria_id': self.cat,
+                                          'total': total}, **kw), [])
+
+    def test_por_defecto_es_un_solo_pago(self):
+        c = compras.obtener_compra(self._compra())
+        self.assertEqual((c['cuotas'], c['cuota_inicio']), (1, None))
+        self.assertEqual(compras.resumen_gastos('2026-10-01', '2026-10-31')['total'], 300000)
+
+    def test_tres_cuotas_se_reparten_en_tres_meses(self):
+        self._compra(cuotas=3)
+        for mes in ('2026-10', '2026-11', '2026-12'):
+            r = compras.resumen_gastos(mes + '-01', mes + '-31')
+            self.assertAlmostEqual(r['total'], 100000, msg=mes)
+        self.assertEqual(compras.resumen_gastos('2027-01-01', '2027-01-31')['total'], 0)
+        meses = {x['mes']: x['total'] for x in compras.gasto_por_mes_ambito()}
+        self.assertAlmostEqual(meses.get('2026-11', 0), 100000)
+        self.assertAlmostEqual(sum(x['total'] for x in compras.gasto_por_mes_ambito()), 300000)
+
+    def test_la_primera_cuota_puede_ser_otro_mes(self):
+        cid = self._compra(cuotas=2, cuota_inicio='2026-11')
+        self.assertEqual(compras.obtener_compra(cid)['cuota_inicio'], '2026-11')
+        self.assertEqual(compras.resumen_gastos('2026-10-01', '2026-10-31')['total'], 0)
+        self.assertAlmostEqual(compras.resumen_gastos('2026-12-01', '2026-12-31')['total'], 150000)
+
+    def test_contar_compras_no_cuenta_cuotas(self):
+        self._compra(cuotas=3)
+        self.assertEqual(compras.resumen_gastos('2026-01-01', '2027-12-31')['n_compras'], 1)
+
+    def test_cuotas_invalidas(self):
+        for n in (0, 49, 'x'):
+            with self.assertRaises(ValueError, msg=n):
+                self._compra(cuotas=n)
+
+    def test_historial_muestra_la_cuota_del_periodo(self):
+        cid = self._compra(cuotas=3)
+        lista = compras.listar_compras('2026-11-01', '2026-11-30')
+        c = next(x for x in lista if x['id'] == cid)
+        self.assertEqual(c['cuotas_periodo'], [2])
+        self.assertAlmostEqual(c['monto_periodo'], 100000)
+        self.assertNotIn(cid, {x['id'] for x in compras.listar_compras('2027-01-01', '2027-01-31')})
+        c = next(x for x in compras.listar_compras('2026-10-01', '2026-12-31') if x['id'] == cid)
+        self.assertEqual(c['cuotas_periodo'], [1, 2, 3])
+        self.assertAlmostEqual(c['monto_periodo'], 300000)
+        c = next(x for x in compras.listar_compras() if x['id'] == cid)   # sin período: todo
+        self.assertAlmostEqual(c['monto_periodo'], 300000)
+
+    def test_un_pago_unico_sigue_filtrando_por_su_fecha(self):
+        cid = self._compra()
+        self.assertIn(cid, {x['id'] for x in compras.listar_compras('2026-10-15', '2026-10-15')})
+        self.assertNotIn(cid, {x['id'] for x in compras.listar_compras('2026-10-16', '2026-10-31')})
+
+
+class TestEditarCompra(_Base):
+    """Editar una compra desde el Historial como si fuera una compra nueva: todo se puede
+    cambiar y el stock se ajusta solo por la diferencia."""
+
+    def setUp(self):
+        super().setUp()
+        self.a = compras.crear_producto('Guantes M', unidad='caja')
+        self.b = compras.crear_producto('Mascarillas', unidad='caja')
+        self.cab = {'fecha': '2026-10-10', 'tipo_gasto': 'variable', 'moneda': 'CLP',
+                    'forma_pago': 'transferencia'}
+
+    def _stock(self, pid):
+        return compras.obtener_producto(pid)['stock_actual']
+
+    def test_cambia_productos_y_ajusta_el_stock_por_la_diferencia(self):
+        cid = compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.a, 'cantidad': 10, 'precio_unitario': 1000}])
+        r = compras.editar_compra(cid, dict(self.cab, forma_pago='tc_oficina_ods'), [
+            {'producto_id': self.a, 'cantidad': 4, 'precio_unitario': 1000},
+            {'producto_id': self.b, 'cantidad': 3, 'precio_unitario': 500}])
+        self.assertEqual(r['total_clp'], 5500)
+        self.assertEqual((self._stock(self.a), self._stock(self.b)), (4, 3))
+        c = compras.obtener_compra(cid)
+        self.assertEqual(c['forma_pago'], 'tc_oficina_ods')
+        self.assertEqual(len(c['items']), 2)
+        # y si después se borra, se devuelve exactamente lo que quedó sumado
+        compras.eliminar_compra(cid)
+        self.assertEqual((self._stock(self.a), self._stock(self.b)), (0, 0))
+
+    def test_quitar_un_producto_le_resta_el_stock(self):
+        cid = compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.a, 'cantidad': 2, 'precio_unitario': 10},
+            {'producto_id': self.b, 'cantidad': 5, 'precio_unitario': 10}])
+        compras.editar_compra(cid, dict(self.cab), [
+            {'producto_id': self.a, 'cantidad': 2, 'precio_unitario': 10}])
+        self.assertEqual((self._stock(self.a), self._stock(self.b)), (2, 0))
+
+    def test_una_del_historico_no_toca_el_stock(self):
+        cid = compras.crear_compra(dict(self.cab, notas='[hist] excel'), [
+            {'producto_id': self.a, 'cantidad': 100, 'precio_unitario': 10}])
+        con = compras._conn()
+        con.execute('DELETE FROM movimientos_stock WHERE compra_id=?', (cid,))
+        con.execute('UPDATE productos SET stock_actual=0')
+        con.commit(); con.close()
+        compras.editar_compra(cid, dict(self.cab, notas='excel corregido'), [
+            {'producto_id': self.a, 'cantidad': 1, 'precio_unitario': 10}])
+        self.assertEqual(self._stock(self.a), 0)
+        self.assertTrue(compras.obtener_compra(cid)['notas'].startswith('[hist]'))
+        compras.eliminar_compra(cid)                       # tampoco resta al borrarla
+        self.assertEqual(self._stock(self.a), 0)
+
+    def test_gasto_sin_productos_al_que_se_le_agregan(self):
+        cid = compras.crear_compra(dict(self.cab, total=5000), [])
+        compras.editar_compra(cid, dict(self.cab), [
+            {'producto_id': self.a, 'cantidad': 3, 'precio_unitario': 1000}])
+        self.assertEqual(self._stock(self.a), 3)
+
+    def test_cuotas_y_periodo_se_editan(self):
+        cid = compras.crear_compra(dict(self.cab, total=90000), [])
+        compras.editar_compra(cid, dict(self.cab, total=90000, cuotas=3, cuota_inicio='2026-11',
+                                        periodo='2026-09'), [])
+        c = compras.obtener_compra(cid)
+        self.assertEqual((c['cuotas'], c['cuota_inicio'], c['periodo']), (3, '2026-11', '2026-09'))
+        self.assertAlmostEqual(compras.resumen_gastos('2027-01-01', '2027-01-31')['total'], 30000)
+        compras.editar_compra(cid, dict(self.cab, total=90000, cuotas=1), [])
+        self.assertIsNone(compras.obtener_compra(cid)['cuota_inicio'])
+
+    def test_conserva_naturaleza(self):
+        cid = compras.crear_compra(dict(self.cab, total=5000), [])
+        compras.marcar_naturaleza(cid, 'duplicado')
+        compras.editar_compra(cid, dict(self.cab, total=6000), [])
+        self.assertEqual(compras.obtener_compra(cid)['naturaleza'], 'duplicado')
+
+    def test_factura_pendiente_no_recibe_productos_por_aca(self):
+        cid = compras.crear_compra(dict(self.cab, total=119000, detalle_pendiente=True), [])
+        with self.assertRaises(ValueError):
+            compras.editar_compra(cid, dict(self.cab, total=119000), [
+                {'producto_id': self.a, 'cantidad': 1, 'precio_unitario': 1}])
+        compras.editar_compra(cid, dict(self.cab, total=120000), [])   # el total sí
+        c = compras.obtener_compra(cid)
+        self.assertEqual((c['total'], c['detalle_estado']), (120000, 'pendiente'))
+
+    def test_factura_detallada_conserva_el_total_de_la_factura(self):
+        cid = compras.crear_compra(dict(self.cab, total=119000, detalle_pendiente=True), [])
+        compras.detallar_compra(cid, [{'producto_id': self.a, 'cantidad': 10,
+                                       'precio_unitario': 10000}])
+        compras.editar_compra(cid, dict(self.cab, total=119000), [
+            {'producto_id': self.a, 'cantidad': 8, 'precio_unitario': 10000}])
+        c = compras.obtener_compra(cid)
+        self.assertEqual(c['total'], 119000)
+        self.assertEqual(self._stock(self.a), 8)
+
+    def test_resuelve_solicitudes_de_productos_nuevos(self):
+        cid = compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.a, 'cantidad': 1, 'precio_unitario': 10}])
+        compras.crear_solicitud([{'producto_id': self.b, 'cantidad': 2}])
+        compras.editar_compra(cid, dict(self.cab), [
+            {'producto_id': self.a, 'cantidad': 1, 'precio_unitario': 10},
+            {'producto_id': self.b, 'cantidad': 1, 'precio_unitario': 10}])
+        con = compras._conn()
+        est = con.execute('SELECT estado FROM pendientes_compra WHERE producto_id=?',
+                          (self.b,)).fetchone()[0]
+        con.close()
+        self.assertEqual(est, 'comprado')
+
+
+class TestEditarCompraRutas(_Base):
+    """La ruta de edición completa respeta lo mismo que editar la cabecera."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['DENTIDESK_ENABLED'] = 'false'
+        os.environ.pop('RENDER', None)
+        os.environ.pop('RUN_PATIENT_SYNC', None)
+        import server
+        cls.app = server.app.test_client()
+
+    def setUp(self):
+        super().setUp()
+        inv = compras.crear_usuario('ana', 'Ana', 'clave-larga-123', rol='inventario')
+        reg = compras.crear_usuario('reg', 'Reg', 'clave-larga-123', rol='registro')
+        self.h_inv = {'X-Compras-Token': compras.crear_sesion(inv)}
+        self.h_reg = {'X-Compras-Token': compras.crear_sesion(reg)}
+        self.cid = compras.crear_compra({'fecha': '2026-10-10', 'total': 1000}, [])
+
+    def test_registro_edita(self):
+        r = self.app.post('/api/compras/compras/editar', headers=self.h_reg, json={
+            'id': self.cid, 'cabecera': {'fecha': '2026-10-11', 'total': 3000, 'cuotas': 3},
+            'items': []})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(compras.obtener_compra(self.cid)['cuotas'], 3)
+
+    def test_inventario_no_edita(self):
+        r = self.app.post('/api/compras/compras/editar', headers=self.h_inv, json={
+            'id': self.cid, 'cabecera': {'total': 5}, 'items': []})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(compras.obtener_compra(self.cid)['total'], 1000)
+
+    def test_sin_sesion(self):
+        r = self.app.post('/api/compras/compras/editar', json={'id': self.cid})
+        self.assertIn(r.status_code, (401, 403))
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -1606,6 +1606,43 @@ historial de precios.
   detalló una factura).
 - Pruebas: `TestDetalleEnDosManos` y `TestDetalleRutas` en `test_compras.py`.
 
+### Pago en cuotas o cheques + editar una compra completa (2026-10-28)
+
+**Cuotas.** En Nueva compra, «Cuotas o cheques» (por defecto 1) y, si es más de 1, «Primera
+cuota en» (mes; por defecto el de la compra). Se guarda en `compras.cuotas` +
+`compras.cuota_inicio` (AAAA-MM, NULL si es pago único); tope `CUOTAS_MAX = 48`.
+- **Reportes, KPIs y el reporte semanal** reparten el gasto: `resumen_gastos()` y
+  `gasto_por_mes_ambito()` leen de `_SQL_CUOTAS` (CTE `_gc`), que pone una fila por cuota con
+  el monto ÷ N, el **día 1** de cada mes. Un pago único sale igual que siempre. `n_compras`
+  cuenta compras, no cuotas (`COUNT(DISTINCT c.id)`).
+- **Historial con período**: una compra en cuotas aparece en cada mes con una cuota suya (no
+  por su fecha), y `listar_compras` le agrega `monto_periodo` (lo que cae en el rango) y
+  `cuotas_periodo` (números de cuota). El total del Historial suma `monto_periodo`: con una
+  tarjeta y un mes, es la cuota que trae la cartola. Sin período, `monto_periodo` = total.
+- ⚠️ **Si se agrega otra consulta de totales de gasto, que lea de `_gc`** (con `_SQL_CUOTAS`
+  delante), no de `compras`: si no, ese número cuenta toda la compra en el mes de la fecha.
+- Un cargo recurrente nuevo no ofrece cuotas (es una plantilla mensual).
+
+**Editar compra completa** (`compras.editar_compra`, `POST /api/compras/compras/editar`, caps
+`registrar` + `historial`, con `_destino_oculto` y el filtro de ámbito): el botón
+**✏️ Editar compra** del detalle abre **el mismo formulario de Nueva compra lleno** (reemplazó
+al modal «Editar pago, categoría y costos»). Todo se puede cambiar: cabecera, productos,
+cuotas, mes que cubre (si es gasto fijo), foto.
+- ⚠️ **El stock se ajusta por la diferencia por producto**, con movimientos
+  `entrada`/`salida` «Edición compra #id» enlazados a la compra. Lo que una compra tiene sumado
+  es `_stock_aplicado()` = sus entradas − sus salidas. **Solo si la compra había sumado stock**
+  (o era un gasto sin productos del sistema al que se le agregan): las del histórico
+  (`[hist]`) nunca sumaron y siguen sin tocarlo; el prefijo `[hist]` de sus notas se conserva.
+- Una factura **pendiente de detalle** no recibe productos por acá (los ingresa inventario en
+  «Por detallar»). En una de dos manos (pendiente o completa) el total es el de la factura
+  (`cab.total`), no la suma de los productos.
+- Se conservan naturaleza, gasto fijo (`obligatorio_id`) y cargo recurrente de origen.
+- Productos que se agregan al editar resuelven sus solicitudes pendientes.
+- 🐛 **Arreglado de paso: `eliminar_compra` restaba los ítems aunque la compra nunca hubiera
+  sumado stock** (las 950 del histórico): borrar una dejaba el stock bajo cero. Ahora revierte
+  `_stock_aplicado()`.
+- Pruebas: `TestCuotas`, `TestEditarCompra`, `TestEditarCompraRutas` en `test_compras.py`.
+
 ### Forma de pago por tarjeta de crédito, para cuadrar con la cartola (2026-09-30)
 
 "Crédito" se reemplazó por 7 tarjetas (`compras.TARJETAS_CREDITO`: Oficina ODS/ROW/ADV,
@@ -2044,7 +2081,8 @@ agrega un índice sobre una columna nueva, va en ese segundo bloque.
 - **Editar compra (`actualizar_compra` / `POST /api/compras/compras/actualizar`, rol
   registro+):** edita la cabecera (NO los ítems) y recalcula total/total_clp desde los
   ítems existentes + costos nuevos. Uso clave: **agregar el costo de importación que llega
-  después** (FedEx/DHL). Botón "✏️ Editar costos" en el detalle de la compra.
+  después** (FedEx/DHL). Desde el 2026-10-28 la pantalla usa la edición completa
+  (`editar_compra`, ver «Pago en cuotas…»); `actualizar_compra` sigue en uso por la API.
 - **Escáner — auto-descuento sin Enter:** la salida de stock detecta un escáner por la
   VELOCIDAD ENTRE TECLAS (ráfaga: 6+ chars con gap máx <35ms → procesa solo). Tipeo manual
   (gaps grandes) NUNCA auto-envía: exige Enter (evita el bug de "envía solo a los 4 dígitos").
@@ -2071,7 +2109,7 @@ agrega un índice sobre una columna nueva, va en ese segundo bloque.
 - **Reportes**: tiles (total, n° compras, fijos, variables), barras por mes/categoría/
   proveedor, filtro por fechas, **export a Excel** (openpyxl, una fila por ítem).
 - **Historial** de compras con filtros; ver detalle (ítems + foto adjunta); eliminar (admin)
-  **revierte el stock** (movimiento 'ajuste') y desacopla ANTES de borrar tres cosas que
+  **revierte el stock que la compra sumó** (movimiento 'ajuste'; nada en las del histórico) y desacopla ANTES de borrar tres cosas que
   referencian `compras.id` por FK (si no, el DELETE falla con 500 — bug real encontrado y
   corregido 2026-07-09, reproducido en vivo):
   1. `movimientos_stock.compra_id` → se pone NULL (mantiene el libro mayor).
