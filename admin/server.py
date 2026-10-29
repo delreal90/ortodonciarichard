@@ -2642,11 +2642,13 @@ def asistente_link_agenda():
     if motivo not in cfg['motivos']:
         return jsonify({'ok': False, 'error': 'Motivo invalido'}), 400
     motivo_cfg = cfg['motivos'][motivo]
-    # Estudio Integral agenda 2 citas encadenadas (ver reservar-estudio) -- ese
-    # flujo compuesto queda fuera de esta v1 del link pre-cargado.
-    if motivo_cfg.get('compuesto'):
-        return jsonify({'ok': False, 'error': 'Este motivo se agenda por un flujo especial, '
-                                              'no por link'}), 400
+    # Estudio Integral (compuesto, 2 citas) SI va por link: la pagina lo manda
+    # al flujo de dos etapas y /reservar-estudio acepta el link_token. Los
+    # sub-motivos ocultos (registros/explicacion sueltos) no: el link agendaria
+    # media cita del Estudio.
+    if motivo_cfg.get('oculto'):
+        return jsonify({'ok': False, 'error': 'Ese motivo es parte del Estudio Integral: '
+                                              'genera el link del Estudio completo'}), 400
 
     # doctor_key (explicito, elegido a mano por la secretaria en un <select>
     # de una ambiguedad previa) tiene PRECEDENCIA sobre doctor_texto -- si

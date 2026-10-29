@@ -132,8 +132,17 @@ class TestAsistenteLinkAgenda(unittest.TestCase):
         resuelto = link_agenda.resolver(token)
         self.assertEqual(resuelto['doctor'], 'alberto')
 
-    def test_motivo_compuesto_estudio_integral_rechazado(self):
+    def test_motivo_compuesto_estudio_integral_genera_link(self):
+        """El F2 ofrece el Estudio (2 citas): el link guarda el motivo compuesto
+        y la pagina lo lleva al flujo de dos etapas."""
         r = self._post({'rut': RUT_1, 'doctor_key': 'alberto', 'motivo': 'estudio_integral'})
+        self.assertEqual(r.status_code, 200)
+        token = r.get_json()['url'].rsplit('=', 1)[-1]
+        self.assertEqual(link_agenda.resolver(token)['motivo'], 'estudio_integral')
+
+    def test_sub_motivo_oculto_del_estudio_rechazado(self):
+        """Registros o explicacion sueltos serian media cita del Estudio."""
+        r = self._post({'rut': RUT_1, 'doctor_key': 'alberto', 'motivo': 'estudio_registros'})
         self.assertEqual(r.status_code, 400)
         self.assertFalse(r.get_json()['ok'])
 
