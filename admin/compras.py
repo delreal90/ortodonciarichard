@@ -404,6 +404,15 @@ def _migrar(con):
         con.execute('ALTER TABLE productos ADD COLUMN marca TEXT')
     if 'marca' not in _cols('compra_items'):
         con.execute('ALTER TABLE compra_items ADD COLUMN marca TEXT')
+    # Compra por paquetes (2026-11-05): el mismo producto llega en paquetes de 10 o de 30.
+    # El stock y el precio se guardan SIEMPRE por unidad; el paquete solo recuerda cómo
+    # vino esa compra. NULL = compra por unidad, como siempre.
+    icol = _cols('compra_items')
+    for col in ('paquetes', 'por_paquete'):
+        if col not in icol:
+            con.execute(f'ALTER TABLE compra_items ADD COLUMN {col} REAL')
+    if 'por_paquete' not in _cols('productos'):
+        con.execute('ALTER TABLE productos ADD COLUMN por_paquete REAL')   # último tamaño usado
     ccol = _cols('compras')
     for col, ddl in (
         ('moneda', "ALTER TABLE compras ADD COLUMN moneda TEXT NOT NULL DEFAULT 'CLP'"),
@@ -1253,7 +1262,8 @@ def historial_precios(prod_id, limite=50, solo_ambito=None):
     con = _conn()
     try:
         return _rows(con.execute(
-            'SELECT c.fecha, pr.nombre AS proveedor, i.precio_unitario, i.cantidad, i.marca '
+            'SELECT c.fecha, pr.nombre AS proveedor, i.precio_unitario, i.cantidad, i.marca, '
+            'i.paquetes, i.por_paquete '
             'FROM compra_items i JOIN compras c ON c.id=i.compra_id '
             'LEFT JOIN proveedores pr ON pr.id=c.proveedor_id '
             'LEFT JOIN categorias cat ON cat.id=c.categoria_id '
@@ -1332,38 +1342,61 @@ _gc AS (
 
 
 def _normalizar_items(items):
-    """[(producto_id, marca, cantidad, precio, subtotal)] y la suma. Valida cada ítem."""
+    """[(producto_id, marca, cantidad, precio, subtotal, paquetes, por_paquete)] y la suma.
+    Valida cada ítem. Un ítem por paquetes ({paquetes, por_paquete, precio_paquete}) se
+    guarda en UNIDADES: 2 paquetes de 30 a $15.000 = 60 unidades a $500, subtotal $30.000."""
     norm, subtotal = [], 0.0
     for it in items:
         pid = it.get('producto_id')
-        cant = float(it.get('cantidad') or 0)
-        precio = float(it.get('precio_unitario') or 0)
+        paq = float(it.get('paquetes') or 0)
+        por = float(it.get('por_paquete') or 0)
+        if paq > 0 or por > 0:
+            if paq <= 0 or por <= 0:
+                raise ValueError('Indica cuántos paquetes y cuántas unidades trae cada uno')
+            precio_paq = float(it.get('precio_paquete') or 0)
+            if precio_paq < 0:
+                raise ValueError('El precio no puede ser negativo')
+            cant, precio, sub = paq * por, precio_paq / por, round(paq * precio_paq, 2)
+        else:
+            paq = por = None
+            cant = float(it.get('cantidad') or 0)
+            precio = float(it.get('precio_unitario') or 0)
+            if precio < 0:
+                raise ValueError('El precio no puede ser negativo')
+            sub = round(cant * precio, 2)
         if not pid or cant <= 0:
             raise ValueError('Cada ítem necesita producto y cantidad > 0')
-        if precio < 0:
-            raise ValueError('El precio no puede ser negativo')
-        sub = round(cant * precio, 2)
         subtotal += sub
-        norm.append((int(pid), _norm(it.get('marca')), cant, precio, sub))
+        norm.append((int(pid), _norm(it.get('marca')), cant, precio, sub, paq, por))
     return norm, round(subtotal, 2)
+
+
+def _insertar_item(con, compra_id, n):
+    """Inserta un ítem normalizado y recuerda la última marca y tamaño de paquete."""
+    pid, marca, cant, precio, sub, paq, por = n
+    con.execute(
+        'INSERT INTO compra_items(compra_id,producto_id,marca,cantidad,precio_unitario,'
+        'subtotal,paquetes,por_paquete) VALUES(?,?,?,?,?,?,?,?)',
+        (compra_id, pid, marca, cant, precio, sub, paq, por))
+    # referencial, para prellenar la próxima compra
+    if marca:
+        con.execute('UPDATE productos SET marca=? WHERE id=?', (marca, pid))
+    if por:
+        con.execute('UPDATE productos SET por_paquete=? WHERE id=?', (por, pid))
 
 
 def _insertar_items(con, compra_id, norm_items, usuario_id, ahora):
     """Ítems + entrada de stock + última marca + solicitudes resueltas, dentro de la
     transacción del que llama. Lo comparten crear_compra y detallar_compra."""
-    for pid, marca, cant, precio, sub in norm_items:
-        con.execute(
-            'INSERT INTO compra_items(compra_id,producto_id,marca,cantidad,precio_unitario,'
-            'subtotal) VALUES(?,?,?,?,?,?)', (compra_id, pid, marca, cant, precio, sub))
+    for n in norm_items:
+        pid, cant = n[0], n[2]
+        _insertar_item(con, compra_id, n)
         con.execute(
             'INSERT INTO movimientos_stock(producto_id,tipo,cantidad,motivo,compra_id,'
             'usuario_id,creado) VALUES(?,?,?,?,?,?,?)',
             (pid, 'entrada', cant, f'Compra #{compra_id}', compra_id, usuario_id, ahora))
         con.execute('UPDATE productos SET stock_actual=stock_actual+? WHERE id=?',
                     (cant, pid))
-        # recordar la última marca comprada del producto (referencial, prellenado)
-        if marca:
-            con.execute('UPDATE productos SET marca=? WHERE id=?', (marca, pid))
     # Auto-resolver: si algún producto comprado estaba pendiente por comprar, se
     # marca 'comprado' y sale de la lista de pendientes.
     _resolver_pendientes(con, [n[0] for n in norm_items], compra_id, ahora)
@@ -1965,14 +1998,9 @@ def editar_compra(compra_id, cab, items, usuario_id=None):
                 'SELECT producto_id FROM compra_items WHERE compra_id=?', (compra_id,))}
             con.execute('DELETE FROM compra_items WHERE compra_id=?', (compra_id,))
             nuevas = {}
-            for pid, marca, cant, precio, sub in norm_items:
-                con.execute(
-                    'INSERT INTO compra_items(compra_id,producto_id,marca,cantidad,'
-                    'precio_unitario,subtotal) VALUES(?,?,?,?,?,?)',
-                    (compra_id, pid, marca, cant, precio, sub))
-                nuevas[pid] = nuevas.get(pid, 0) + cant
-                if marca:
-                    con.execute('UPDATE productos SET marca=? WHERE id=?', (marca, pid))
+            for n in norm_items:
+                _insertar_item(con, compra_id, n)
+                nuevas[n[0]] = nuevas.get(n[0], 0) + n[2]
             if mueve_stock:
                 for pid in set(aplicado) | set(nuevas):
                     delta = round(nuevas.get(pid, 0) - aplicado.get(pid, 0), 6)
@@ -2710,7 +2738,9 @@ def corregir_item(item_id, cantidad=None, precio_unitario=None):
                   else float(it['precio_unitario']))
         if cant <= 0 or precio < 0:
             raise ValueError('Cantidad o precio no válidos')
-        con.execute('UPDATE compra_items SET cantidad=?, precio_unitario=?, subtotal=? WHERE id=?',
+        # Corrige en unidades; si el ítem venía por paquetes, ese dato ya no calzaría.
+        con.execute('UPDATE compra_items SET cantidad=?, precio_unitario=?, subtotal=?, '
+                    'paquetes=NULL, por_paquete=NULL WHERE id=?',
                     (cant, precio, round(cant * precio, 2), item_id))
         c = _row(con.execute('SELECT * FROM compras WHERE id=?', (it['compra_id'],)).fetchone())
         if not c.get('detalle_estado'):

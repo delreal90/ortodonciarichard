@@ -1606,6 +1606,29 @@ historial de precios.
   detalló una factura).
 - Pruebas: `TestDetalleEnDosManos` y `TestDetalleRutas` en `test_compras.py`.
 
+### Compra por paquetes de tamaño variable (2026-11-05)
+
+El mismo producto llega una vez en paquetes de 10 y otra en paquetes de 30, con el precio
+**por paquete**. Crear un producto por cada tamaño partiría el stock. Como en Odoo/Bsale, el
+stock y el precio se llevan **siempre en la unidad del producto**; el paquete solo describe
+cómo vino esa compra.
+- En cada fila de productos (Nueva compra, Editar compra y «📥 Por detallar», que comparten
+  `pintarFilas()` en `compras.js`) la casilla **📦 viene en paquetes** pide N° de paquetes,
+  cuánto trae cada uno y precio del paquete. El servidor (`_normalizar_items`) guarda
+  `cantidad = paquetes × por_paquete`, `precio_unitario = precio_paquete ÷ por_paquete` y
+  `subtotal = paquetes × precio_paquete` (exacto, sin redondeo del precio unitario), más
+  `compra_items.paquetes` / `.por_paquete` para mostrarlo. NULL = compra por unidad.
+- `productos.por_paquete` recuerda el último tamaño: la próxima compra del producto parte en
+  modo paquete con ese tamaño (editable).
+- El historial de precios queda **por unidad**: un paquete de 30 y uno de 10 se comparan.
+- ⚠️ Un producto que se cuenta en **caja/paquete/set** muestra un aviso: la compra sumará esa
+  unidad (10 paquetes de 10 cajas = 100 cajas). Si en realidad trae unidades sueltas, el
+  enlace **«pásalo a contarse por unidad»** cambia la unidad a `unidad` y fija el stock con
+  un conteo (`ajuste`), porque «3 cajas» no se traduce solo a unidades.
+- `corregir_item` corrige en unidades y borra el dato del paquete (dejaría de calzar); para
+  cambiar el paquete, usar ✏️ Editar compra.
+- Pruebas: `TestPaquetes` en `test_compras.py`.
+
 ### Pago en cuotas o cheques + editar una compra completa (2026-10-28)
 
 **Cuotas.** En Nueva compra, «Cuotas o cheques» (por defecto 1) y, si es más de 1, «Primera

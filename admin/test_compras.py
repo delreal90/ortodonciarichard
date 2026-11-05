@@ -1247,5 +1247,77 @@ class TestEditarCompraRutas(_Base):
         r = self.app.post('/api/compras/compras/editar', json={'id': self.cid})
         self.assertIn(r.status_code, (401, 403))
 
+
+class TestPaquetes(_Base):
+    """El mismo producto llega a veces en paquetes de 10 y a veces de 30, con el precio por
+    paquete (2026-11-05). El stock y el precio se llevan siempre por UNIDAD."""
+
+    def setUp(self):
+        super().setUp()
+        self.p = compras.crear_producto('Brackets MBT', unidad='unidad')
+        self.cab = {'fecha': '2026-11-05', 'tipo_gasto': 'variable', 'moneda': 'CLP'}
+
+    def _stock(self):
+        return compras.obtener_producto(self.p)['stock_actual']
+
+    def test_paquetes_se_guardan_en_unidades(self):
+        cid = compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.p, 'paquetes': 2, 'por_paquete': 30, 'precio_paquete': 15000}])
+        c = compras.obtener_compra(cid)
+        it = c['items'][0]
+        self.assertEqual((it['cantidad'], it['precio_unitario'], it['subtotal']), (60, 500, 30000))
+        self.assertEqual((it['paquetes'], it['por_paquete']), (2, 30))
+        self.assertEqual(c['total'], 30000)
+        self.assertEqual(self._stock(), 60)
+
+    def test_distintos_tamanos_suman_al_mismo_producto(self):
+        compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.p, 'paquetes': 2, 'por_paquete': 30, 'precio_paquete': 15000}])
+        compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.p, 'paquetes': 1, 'por_paquete': 10, 'precio_paquete': 6000}])
+        self.assertEqual(self._stock(), 70)
+        precios = [h['precio_unitario'] for h in compras.historial_precios(self.p)]
+        self.assertEqual(sorted(precios), [500, 600])       # comparables por unidad
+
+    def test_recuerda_el_ultimo_tamano(self):
+        compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.p, 'paquetes': 1, 'por_paquete': 25, 'precio_paquete': 100}])
+        self.assertEqual(compras.obtener_producto(self.p)['por_paquete'], 25)
+
+    def test_sin_paquete_funciona_como_siempre(self):
+        cid = compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.p, 'cantidad': 3, 'precio_unitario': 100}])
+        it = compras.obtener_compra(cid)['items'][0]
+        self.assertIsNone(it['paquetes'])
+        self.assertEqual(self._stock(), 3)
+
+    def test_paquete_incompleto_se_rechaza(self):
+        for malo in ({'paquetes': 2}, {'por_paquete': 30}, {'paquetes': 2, 'por_paquete': 30,
+                                                            'precio_paquete': -1}):
+            with self.assertRaises(ValueError, msg=malo):
+                compras.crear_compra(dict(self.cab), [dict(malo, producto_id=self.p)])
+        self.assertEqual(self._stock(), 0)
+
+    def test_editar_y_detallar_con_paquetes(self):
+        cid = compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.p, 'paquetes': 2, 'por_paquete': 30, 'precio_paquete': 15000}])
+        compras.editar_compra(cid, dict(self.cab), [
+            {'producto_id': self.p, 'paquetes': 1, 'por_paquete': 30, 'precio_paquete': 15000}])
+        self.assertEqual(self._stock(), 30)
+        fac = compras.crear_compra(dict(self.cab, total=11900, detalle_pendiente=True), [])
+        compras.detallar_compra(fac, [
+            {'producto_id': self.p, 'paquetes': 1, 'por_paquete': 10, 'precio_paquete': 10000}])
+        self.assertEqual(self._stock(), 40)
+        self.assertEqual(compras.obtener_compra(fac)['items'][0]['paquetes'], 1)
+
+    def test_corregir_en_unidades_olvida_el_paquete(self):
+        cid = compras.crear_compra(dict(self.cab), [
+            {'producto_id': self.p, 'paquetes': 2, 'por_paquete': 30, 'precio_paquete': 15000}])
+        item = compras.obtener_compra(cid)['items'][0]
+        compras.corregir_item(item['id'], cantidad=50)
+        it = compras.obtener_compra(cid)['items'][0]
+        self.assertEqual((it['cantidad'], it['paquetes']), (50, None))
+        self.assertEqual(self._stock(), 50)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

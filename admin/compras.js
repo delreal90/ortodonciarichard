@@ -464,8 +464,13 @@ function llenarEdicion(c, onMoneda) {
   v('#cCuotas', c.cuotas || 1);
   if ((c.cuotas || 1) > 1) { v('#cCuotaIni', c.cuota_inicio); cuotaInicioAMano = true; }
   if (c.obligatorio_id || c.periodo) { $('#cPeriodoWrap').classList.remove('hidden'); v('#cPeriodo', c.periodo || ''); }
-  compraItems = (c.items || []).map(i => ({ producto_id: i.producto_id, producto_nombre: i.producto_nombre || '—',
-    unidad: i.unidad || 'unidad', marca: i.marca || '', cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario) }));
+  compraItems = (c.items || []).map(i => {
+    const it = { producto_id: i.producto_id, producto_nombre: i.producto_nombre || '—', unidad: i.unidad || 'unidad',
+      marca: i.marca || '', cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), paq: false };
+    if (Number(i.paquetes) > 0) Object.assign(it, { paq: true, paquetes: Number(i.paquetes), por_paquete: Number(i.por_paquete),
+      precio_paquete: Math.round(Number(i.precio_unitario) * Number(i.por_paquete) * 100) / 100 });
+    return it;
+  });
   if (c.detalle_estado === 'pendiente') {
     // Sus productos los ingresa inventario en «Por detallar»: acá solo se edita la factura.
     $('#addProdSlot').innerHTML = '<p class="muted">📥 Los productos de esta factura los ingresa inventario en «Por detallar».</p>';
@@ -520,13 +525,128 @@ async function autocompletarDolar() {
   }
 }
 
-function agregarItem(prod) {
-  const ya = compraItems.find(i => i.producto_id === prod.id);
-  if (ya) { ya.cantidad++; pintarItems(); return; }
+function agregarItem(prod) { sumarUno(compraItems, prod); pintarItems(); }
+
+/* ── Filas de productos: las comparten Nueva compra y Por detallar ──
+   Un producto puede venir en paquetes («2 paquetes de 30 a $15.000 el paquete»). Se anota
+   así, pero el stock y el precio quedan por UNIDAD (60 unidades a $500): el mismo producto
+   comprado una vez en paquetes de 10 y otra de 30 sigue siendo uno solo, y los precios se
+   comparan entre sí. La cuenta definitiva la hace el servidor (_normalizar_items). */
+const SE_CUENTA_EN_PAQ = ['caja', 'paquete', 'set'];
+const fmtN = n => Number(n || 0).toLocaleString('es-CL', { maximumFractionDigits: 2 });
+const subItem = it => it.paq ? (it.paquetes || 0) * (it.precio_paquete || 0) : it.cantidad * it.precio_unitario;
+function sincPaq(it) {
+  if (!it.paq) return;
+  it.cantidad = (it.paquetes || 0) * (it.por_paquete || 0);
+  it.precio_unitario = it.por_paquete ? (it.precio_paquete || 0) / it.por_paquete : 0;
+}
+function nuevoItem(prod) {
   const ult = prod.ultima_compra || {};
-  compraItems.push({ producto_id: prod.id, producto_nombre: prod.nombre, unidad: prod.unidad || 'unidad',
-    marca: prod.marca || ult.marca || '', cantidad: 1, precio_unitario: ult.precio_unitario || 0 });
-  pintarItems();
+  const it = { producto_id: prod.id, producto_nombre: prod.nombre, unidad: prod.unidad || 'unidad',
+    marca: prod.marca || ult.marca || '', cantidad: 1, precio_unitario: ult.precio_unitario || 0, paq: false };
+  const por = Number(prod.por_paquete) || 0;          // si la última vez vino en paquetes
+  if (por > 0) Object.assign(it, { paq: true, paquetes: 1, por_paquete: por,
+    precio_paquete: Math.round((ult.precio_unitario || 0) * por) });
+  sincPaq(it);
+  return it;
+}
+function sumarUno(lista, prod) {
+  const ya = lista.find(i => i.producto_id === prod.id);
+  if (!ya) { lista.push(nuevoItem(prod)); return; }
+  if (ya.paq) ya.paquetes = (ya.paquetes || 0) + 1; else ya.cantidad++;
+  sincPaq(ya);
+}
+const itemApi = i => i.paq
+  ? { producto_id: i.producto_id, marca: i.marca || '', paquetes: i.paquetes, por_paquete: i.por_paquete, precio_paquete: i.precio_paquete }
+  : { producto_id: i.producto_id, marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario };
+const enUnidades = u => ({ unidad: 'unidades', par: 'pares' })[u] || (/s$/.test(u) ? u : u + 's');
+const resumenPaq = (it, mon) =>
+  `= <b>${fmtN(it.cantidad)} ${esc(enUnidades(it.unidad))}</b> a ${money(it.precio_unitario, mon)} c/u`;
+const avisoPaq = (it, i) => `⚠️ Este producto se cuenta en «${esc(it.unidad)}»: esta compra sumará
+  <span data-cuenta>${fmtN(it.cantidad)}</span> ${esc(enUnidades(it.unidad))} al stock. Si cada paquete trae unidades sueltas,
+  <a href="#" data-aunidad="${i}">pásalo a contarse por unidad</a>.`;
+
+// lista: compraItems o detItems · alCambiar: recalcula totales · repintar: vuelve a
+// dibujar todo (al agregar/quitar filas o activar «en paquetes»).
+function pintarFilas(lista, box, { alCambiar, repintar, mon = 'CLP' }) {
+  box.innerHTML = lista.map((it, i) => `
+    <div class="item-row" data-fila="${i}">
+      <div>${esc(it.producto_nombre)} <span class="muted" style="font-size:12px">(${esc(it.unidad)})</span>
+        <label class="paq-tog"><input type="checkbox" data-paq="${i}" ${it.paq ? 'checked' : ''}> 📦 viene en paquetes</label></div>
+      <input class="marca" type="text" placeholder="Marca" value="${esc(it.marca || '')}" data-i="${i}" data-k="marca">
+      <input type="number" min="0" step="any" value="${it.paq ? +it.cantidad.toFixed(2) : it.cantidad}" data-i="${i}" data-k="cantidad"
+        ${it.paq ? 'disabled title="Se calcula: paquetes × lo que trae cada uno"' : ''}>
+      <input type="number" min="0" step="any" value="${it.paq ? +it.precio_unitario.toFixed(2) : it.precio_unitario}" data-i="${i}" data-k="precio_unitario"
+        ${it.paq ? 'disabled title="Se calcula: precio del paquete ÷ lo que trae"' : ''}>
+      <div class="sub">${money(subItem(it), mon)}</div>
+      <div class="item-x" data-del="${i}">✕</div>
+    </div>
+    ${it.paq ? `<div class="paq-line" data-linea="${i}">
+      <input type="number" min="0" step="any" value="${it.paquetes || ''}" data-i="${i}" data-k="paquetes"> paquete(s) de
+      <input type="number" min="0" step="any" value="${it.por_paquete || ''}" placeholder="¿cuántas?" data-i="${i}" data-k="por_paquete">
+      ${esc(enUnidades(it.unidad))} a
+      <input type="number" min="0" step="any" value="${it.precio_paquete || ''}" data-i="${i}" data-k="precio_paquete"> el paquete
+      <span class="muted" data-res>${resumenPaq(it, mon)}</span>
+      ${SE_CUENTA_EN_PAQ.includes(it.unidad) ? `<div class="paq-aviso">${avisoPaq(it, i)}</div>` : ''}
+    </div>` : ''}`).join('');
+  box.querySelectorAll('input[data-k]').forEach(inp => inp.oninput = () => {
+    const i = inp.dataset.i, it = lista[i], k = inp.dataset.k;
+    it[k] = k === 'marca' ? inp.value : (Number(inp.value) || 0);
+    if (k === 'marca') return;
+    sincPaq(it);
+    const fila = box.querySelector(`.item-row[data-fila="${i}"]`);
+    if (it.paq) {
+      fila.querySelector('[data-k=cantidad]').value = +it.cantidad.toFixed(2);
+      fila.querySelector('[data-k=precio_unitario]').value = +it.precio_unitario.toFixed(2);
+      const linea = box.querySelector(`[data-linea="${i}"]`);
+      linea.querySelector('[data-res]').innerHTML = resumenPaq(it, mon);
+      const cuenta = linea.querySelector('[data-cuenta]'); if (cuenta) cuenta.textContent = fmtN(it.cantidad);
+    }
+    fila.querySelector('.sub').textContent = money(subItem(it), mon);
+    alCambiar();
+  });
+  box.querySelectorAll('[data-paq]').forEach(cb => cb.onchange = () => {
+    const it = lista[cb.dataset.paq];
+    if (cb.checked) {
+      const por = it.por_paquete || Number((CACHE.productos.find(p => p.id === it.producto_id) || {}).por_paquete) || 0;
+      Object.assign(it, { paq: true, paquetes: it.paquetes || 1, por_paquete: por,
+        precio_paquete: por ? Math.round(it.precio_unitario * por) : 0 });
+      sincPaq(it);
+    } else it.paq = false;                 // queda en unidades, con lo ya calculado
+    repintar();
+  });
+  box.querySelectorAll('[data-del]').forEach(x => x.onclick = () => { lista.splice(+x.dataset.del, 1); repintar(); });
+  box.querySelectorAll('[data-aunidad]').forEach(a => a.onclick = e => {
+    e.preventDefault(); pasarAUnidad(lista[a.dataset.aunidad], repintar);
+  });
+}
+
+// Un producto que se contaba en cajas o paquetes pasa a contarse por unidad suelta. Su
+// stock se fija con un conteo, porque «3 cajas» no se puede traducir solo a unidades.
+function pasarAUnidad(it, alTerminar) {
+  const prod = CACHE.productos.find(p => p.id === it.producto_id) || {};
+  const m = modal(`<h3>Contar «${esc(it.producto_nombre)}» por unidad</h3>
+    <p class="muted" style="margin-bottom:12px">Hoy se cuenta en <b>${esc(it.unidad)}</b> y el stock dice
+      <b>${fmtN(prod.stock_actual)} ${esc(enUnidades(it.unidad))}</b>. Desde ahora se contará por unidad suelta.
+      Para que el stock quede bien, cuenta cuántas unidades sueltas hay hoy en total (sin contar esta compra).</p>
+    <div class="field" style="max-width:220px"><label>Unidades que hay hoy</label><input id="auCant" type="number" min="0" step="any"></div>
+    <div class="flex" style="margin-top:6px"><div class="spacer"></div>
+      <button class="btn ghost" onclick="document.getElementById('modalRoot').innerHTML=''">Cancelar</button>
+      <button class="btn gold" id="auOk">Pasar a unidad</button></div>`);
+  m.querySelector('#auCant').focus();
+  m.querySelector('#auOk').onclick = async () => {
+    const txt = m.querySelector('#auCant').value, cant = Number(txt);
+    if (txt === '' || !(cant >= 0)) return toast('Ingresa cuántas unidades hay hoy (0 si no queda ninguna)', 'err');
+    try {
+      await api('/api/compras/productos/actualizar', { method: 'POST', body: { id: it.producto_id, unidad: 'unidad' } });
+      await api('/api/compras/movimiento', { method: 'POST', body: { producto_id: it.producto_id, tipo: 'ajuste',
+        cantidad: cant, motivo: `Pasa a contarse por unidad (antes en ${it.unidad})` } });
+      const antes = it.unidad;
+      it.unidad = 'unidad'; prod.unidad = 'unidad'; prod.stock_actual = cant;
+      closeModal(); toast(`Listo: se cuenta por unidad (antes en ${antes}) · stock ${fmtN(cant)} ✓`, 'ok');
+      alTerminar();
+    } catch (e) { toast(e.message, 'err'); }
+  };
 }
 function pintarItems() {
   const box = $('#itemsBox'); if (!box) return;
@@ -545,21 +665,7 @@ function pintarItems() {
   // recurrente (un cargo mensual no trae productos que contar).
   const dw = $('#detWrap');
   if (dw) dw.classList.toggle('hidden', hayItems || $('#cTipoGasto')?.value === 'recurrente' || !!compraEditando);
-  box.innerHTML = compraItems.map((it, i) => `
-    <div class="item-row">
-      <div>${esc(it.producto_nombre)} <span class="muted" style="font-size:12px">(${esc(it.unidad)})</span></div>
-      <input class="marca" type="text" placeholder="Marca" value="${esc(it.marca || '')}" data-i="${i}" data-k="marca">
-      <input type="number" min="0" step="any" value="${it.cantidad}" data-i="${i}" data-k="cantidad">
-      <input type="number" min="0" step="any" value="${it.precio_unitario}" data-i="${i}" data-k="precio_unitario">
-      <div class="sub">${clp(it.cantidad * it.precio_unitario)}</div>
-      <div class="item-x" data-del="${i}">✕</div>
-    </div>`).join('');
-  box.querySelectorAll('input').forEach(inp => inp.oninput = () => {
-    const k = inp.dataset.k;
-    compraItems[inp.dataset.i][k] = k === 'marca' ? inp.value : (Number(inp.value) || 0);
-    if (k !== 'marca') recalcTotal();
-  });
-  box.querySelectorAll('[data-del]').forEach(x => x.onclick = () => { compraItems.splice(+x.dataset.del, 1); pintarItems(); });
+  pintarFilas(compraItems, box, { alCambiar: recalcTotal, repintar: pintarItems, mon: $('#cMoneda')?.value || 'CLP' });
   recalcTotal();
 }
 function recalcTotal() {
@@ -567,7 +673,7 @@ function recalcTotal() {
   const moneda = $('#cMoneda')?.value || 'CLP';
   const despacho = Number($('#cDespacho')?.value) || 0;
   const base = compraItems.length && !compraEditando?.detalle_estado
-    ? compraItems.reduce((a, it) => a + it.cantidad * it.precio_unitario, 0)
+    ? compraItems.reduce((a, it) => a + subItem(it), 0)
     : (Number($('#cMontoDirecto')?.value) || 0);
   const total = base + despacho;                 // en la moneda de la compra
   const importacion = Number($('#cImportacion')?.value) || 0;
@@ -653,8 +759,7 @@ async function guardarCompra() {
   };
   if (ed) {
     if (!$('#cPeriodoWrap').classList.contains('hidden')) cab.periodo = $('#cPeriodo').value;
-    const items = ed.detalle_estado === 'pendiente' ? [] : compraItems.map(i => ({ producto_id: i.producto_id,
-      marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario }));
+    const items = ed.detalle_estado === 'pendiente' ? [] : compraItems.map(itemApi);
     try {
       const r = await api('/api/compras/compras/editar', { method: 'POST', body: { id: ed.id, cabecera: cab, items } });
       toast(`Compra #${ed.id} actualizada · Total ${clp(r.total_clp)}${r.stock === 'ajustado' ? ' · stock ajustado' : ''} ✓`, 'ok');
@@ -665,7 +770,7 @@ async function guardarCompra() {
   }
   const detPend = !compraItems.length && $('#cDetPend')?.checked && !$('#detWrap').classList.contains('hidden');
   if (detPend) { cab.detalle_pendiente = true; cab.detalle_nota = $('#cDetNota').value; }
-  const items = compraItems.map(i => ({ producto_id: i.producto_id, marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario }));
+  const items = compraItems.map(itemApi);
   try {
     const j = await api('/api/compras/compras', { method: 'POST', body: { cabecera: cab, items } });
     toast(detPend ? 'Factura #' + j.id + ' guardada · quedó esperando sus productos en 📥 Por detallar ✓'
@@ -776,34 +881,12 @@ async function abrirDetalle(id) {
   pintarDet();
 }
 
-function agregarDet(prod) {
-  const ya = detItems.find(i => i.producto_id === prod.id);
-  if (ya) { ya.cantidad++; pintarDet(); return; }
-  const ult = prod.ultima_compra || {};
-  detItems.push({ producto_id: prod.id, producto_nombre: prod.nombre, unidad: prod.unidad || 'unidad',
-    marca: prod.marca || ult.marca || '', cantidad: 1, precio_unitario: ult.precio_unitario || 0 });
-  pintarDet();
-}
+function agregarDet(prod) { sumarUno(detItems, prod); pintarDet(); }
 
 function pintarDet() {
   const box = $('#detItemsBox'); if (!box) return;
   $('#detItemsEmpty').classList.toggle('hidden', detItems.length > 0);
-  box.innerHTML = detItems.map((it, i) => `
-    <div class="item-row">
-      <div>${esc(it.producto_nombre)} <span class="muted" style="font-size:12px">(${esc(it.unidad)})</span></div>
-      <input class="marca" type="text" placeholder="Marca" value="${esc(it.marca || '')}" data-i="${i}" data-k="marca">
-      <input type="number" min="0" step="any" value="${it.cantidad}" data-i="${i}" data-k="cantidad">
-      <input type="number" min="0" step="any" value="${it.precio_unitario}" data-i="${i}" data-k="precio_unitario">
-      <div class="sub">${clp(it.cantidad * it.precio_unitario)}</div>
-      <div class="item-x" data-del="${i}">✕</div>
-    </div>`).join('');
-  box.querySelectorAll('input').forEach(inp => inp.oninput = () => {
-    const k = inp.dataset.k;
-    detItems[inp.dataset.i][k] = k === 'marca' ? inp.value : (Number(inp.value) || 0);
-    if (k !== 'marca') { inp.closest('.item-row').querySelector('.sub').textContent =
-      clp(detItems[inp.dataset.i].cantidad * detItems[inp.dataset.i].precio_unitario); pintarCuadre(); }
-  });
-  box.querySelectorAll('[data-del]').forEach(x => x.onclick = () => { detItems.splice(+x.dataset.del, 1); pintarDet(); });
+  pintarFilas(detItems, box, { alCambiar: pintarCuadre, repintar: pintarDet, mon: detCompra?.moneda || 'CLP' });
   pintarCuadre();
 }
 
@@ -813,7 +896,7 @@ function pintarCuadre() {
   const el = $('#detCuadre'); if (!el || !detCompra) return;
   const mon = detCompra.moneda || 'CLP';
   const total = (Number(detCompra.total) || 0) - (Number(detCompra.costo_despacho) || 0);
-  const suma = detItems.reduce((a, it) => a + it.cantidad * it.precio_unitario, 0);
+  const suma = detItems.reduce((a, it) => a + subItem(it), 0);
   const dif = total - suma;
   const tol = Math.max(2, total * 0.005);           // redondeos de la factura
   let msg;
@@ -838,7 +921,7 @@ async function guardarDetalle() {
   try {
     const r = await api('/api/compras/compras/detallar', { method: 'POST', body: {
       id: detCompra.id,
-      items: detItems.map(i => ({ producto_id: i.producto_id, marca: i.marca || '', cantidad: i.cantidad, precio_unitario: i.precio_unitario })) } });
+      items: detItems.map(itemApi) } });
     toast(r.items + ' producto(s) ingresado(s) · stock actualizado ✓', 'ok');
     await recargarCaches(); refrescarPendientesBadge(); RENDER.detallar();
   } catch (e) { btn.disabled = false; toast(e.message, 'err'); }
@@ -935,7 +1018,7 @@ async function verCompra(id) {
       ${(c.naturaleza || 'gasto') !== 'gasto' ? `<p style="margin-bottom:10px">${pillNaturaleza(c)}
         <span class="muted">No cuenta como gasto del mes.${c.naturaleza_nota ? ' ' + esc(c.naturaleza_nota) : ''}</span></p>` : ''}
       <div class="tablewrap"><table><tr><th>Producto</th><th>Marca</th><th class="num">Cant.</th><th class="num">P. unit.</th><th class="num">Subtotal</th></tr>
-        ${c.items.map(i => `<tr><td>${esc(i.producto_nombre || '—')}${puede('admin') ? ` <button class="btn ghost sm" data-item="${i.id}" title="Corregir cantidad o precio">✏️</button>` : ''}</td><td class="muted">${esc(i.marca || '—')}</td><td class="num">${i.cantidad}</td><td class="num">${money(i.precio_unitario, mon)}</td><td class="num">${money(i.subtotal, mon)}</td></tr>`).join('')}
+        ${c.items.map(i => `<tr><td>${esc(i.producto_nombre || '—')}${puede('admin') ? ` <button class="btn ghost sm" data-item="${i.id}" title="Corregir cantidad o precio">✏️</button>` : ''}</td><td class="muted">${esc(i.marca || '—')}</td><td class="num">${i.paquetes ? `${fmtN(i.paquetes)} paq. × ${fmtN(i.por_paquete)}<div class="muted" style="font-size:11px">= ${fmtN(i.cantidad)} ${esc(enUnidades(i.unidad || 'unidad'))}</div>` : fmtN(i.cantidad)}</td><td class="num">${money(i.precio_unitario, mon)}${i.paquetes ? `<div class="muted" style="font-size:11px">${money(i.precio_unitario * i.por_paquete, mon)} el paquete</div>` : ''}</td><td class="num">${money(i.subtotal, mon)}</td></tr>`).join('')}
         ${c.items.length ? '' : `<tr><td colspan="5" class="muted">${c.detalle_estado === 'pendiente'
           ? '📥 Esperando que inventario ingrese los productos' : 'Gasto sin productos'}</td></tr>`}
         ${c.detalle_estado && c.items.length ? `<tr><td colspan="4" class="num muted">Suma de productos</td><td class="num muted">${money(c.items.reduce((a, i) => a + (Number(i.subtotal) || 0), 0), mon)}</td></tr>` : ''}
@@ -1311,7 +1394,7 @@ async function verProducto(id) {
           <button class="btn ghost sm" id="vpAddCod">Asociar</button>
           <button class="btn gold sm" id="vpGenCod" title="Crea un código propio y agrega su etiqueta a la hoja de stickers">Generar código + etiqueta</button></div>` : ''}</div>
       <div class="field"><label>Historial de precios</label>
-        ${hist.length ? hist.map(h => `<div class="bar"><div class="lab">${esc(h.fecha)}${h.marca ? ' · ' + esc(h.marca) : ''}</div>
+        ${hist.length ? hist.map(h => `<div class="bar"><div class="lab">${esc(h.fecha)}${h.marca ? ' · ' + esc(h.marca) : ''}${h.por_paquete ? ' · 📦 de ' + fmtN(h.por_paquete) : ''}</div>
           <div class="track"><div class="fill" style="width:${Math.round(h.precio_unitario / maxP * 100)}%"></div></div>
           <div class="val">${clp(h.precio_unitario)}</div></div>`).join('') : '<p class="muted">Sin compras registradas.</p>'}</div>
       <div class="field"><label>Movimientos recientes</label>
