@@ -29,7 +29,7 @@ import fechas         # noqa: E402
 import link_agenda     # noqa: E402
 
 # RUT sintetico valido modulo 11 (mismo que usa test_avisos.py).
-RUT = '17.406.985-9'
+RUT = '14.141.411-9'
 
 
 def _limpiar():

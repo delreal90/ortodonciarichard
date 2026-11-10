@@ -45,8 +45,8 @@ def _secret():
     # Se reusa el secreto de los consentimientos: es el mismo tipo de link
     # (firmado, corto, para el paciente) y tener dos secretos que rotar por
     # separado seria una fuente de errores sin ninguna ganancia.
-    return (os.environ.get('TAMIZAJE_SECRET') or os.environ.get('CONSENT_SECRET')
-            or 'dev-secret-cambiar-en-produccion')
+    import secretos
+    return secretos.firma('TAMIZAJE_SECRET', 'CONSENT_SECRET')
 
 
 def _serializer():

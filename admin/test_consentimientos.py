@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import consentimientos    # noqa: E402
 
 RUT = '22222222-9'          # ficticio (el repo es publico: nunca un RUT real)
-OTRO_RUT = '17406985-9'
+OTRO_RUT = '14141411-9'
 TIPO = 'ortodoncia'
 
 
@@ -325,7 +325,7 @@ class TestPendientesConCitaEn(unittest.TestCase):
     def test_los_firmados_y_reemplazados_no_aparecen(self):
         _poner('firmado1', RUT, TIPO, 'firmado', _hace(2), firmado=_hace(2))
         _poner('reemp', OTRO_RUT, TIPO, 'reemplazado', _hace(2))
-        cfg, agenda = _con_dentidesk([_cita('22222222-9'), _cita('17406985-9')])
+        cfg, agenda = _con_dentidesk([_cita('22222222-9'), _cita('14141411-9')])
         with cfg, agenda:
             self.assertEqual(consentimientos.pendientes_con_cita_en(HOY), [])
 
@@ -335,7 +335,7 @@ class TestPendientesConCitaEn(unittest.TestCase):
         consentimientos.obtener_o_crear_registro(RUT, TIPO, 'mail')
         consentimientos.obtener_o_crear_registro(OTRO_RUT, TIPO, 'mail')
         consentimientos.obtener_o_crear_registro('11111111-1', TIPO, 'mail')
-        cfg, agenda = _con_dentidesk([_cita('22222222-9'), _cita('17406985-9')])
+        cfg, agenda = _con_dentidesk([_cita('22222222-9'), _cita('14141411-9')])
         with cfg, agenda as m:
             r = consentimientos.pendientes_con_cita_en(HOY)
         self.assertEqual(len(r), 2)
@@ -373,7 +373,7 @@ class TestPendientesConCitaEn(unittest.TestCase):
         consentimientos.obtener_o_crear_registro(RUT, TIPO, 'mail')
         consentimientos.obtener_o_crear_registro(OTRO_RUT, TIPO, 'mail')
         cfg, agenda = _con_dentidesk([_cita('22222222-9', hora='16:00'),
-                                      _cita('17406985-9', hora='09:00')])
+                                      _cita('14141411-9', hora='09:00')])
         with cfg, agenda:
             r = consentimientos.pendientes_con_cita_en(HOY)
         self.assertEqual([i['hora_cita'] for i in r], ['09:00', '16:00'])

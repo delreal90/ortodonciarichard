@@ -33,7 +33,7 @@ import scheduling           # noqa: E402
 
 # RUTs sinteticos, DV valido modulo 11 (mismos que usa test_link_agenda.py /
 # test_avisos.py -- ningun RUT real en este repo publico).
-RUT_1 = '17.406.985-9'
+RUT_1 = '14.141.411-9'
 RUT_2 = '12.345.678-5'
 
 

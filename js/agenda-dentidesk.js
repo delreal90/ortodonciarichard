@@ -354,6 +354,13 @@ function cerrarAgenda() {
   agenda.linkDatos = null;
 }
 
+// Escapa texto antes de meterlo en HTML (nombres, motivos: vienen del backend o
+// los escribio una persona). Sin esto, un nombre con <script> se ejecutaba aca.
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 function setBody(html) { document.getElementById('agendaBody').innerHTML = html; }
 function setPaso(n) {
   document.querySelectorAll('.agenda-step-dot').forEach((d, i) => {
@@ -432,7 +439,7 @@ async function continuarRut(e) {
   // En segundo plano (sin bloquear): buscar si ya tiene citas activas futuras.
   // El aviso se muestra antes de confirmar (paso resumen), cuando ya está listo.
   agenda.citaPreviaAck = false;
-  agenda.citasPreviasPromise = agendaApi('/api/agenda/citas-futuras?rut=' + encodeURIComponent(agenda.sel.rut))
+  agenda.citasPreviasPromise = agendaApi('/api/agenda/citas-futuras?rut=' + encodeURIComponent(agenda.sel.rut) + _excluirReagenda())
     .then(r => r.citas || []).catch(() => []);
   pasoDatos();
 }
@@ -451,7 +458,7 @@ function pasoDatos() {
       <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
       <div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> Te reconocimos. Confirma que eres tú para continuar.</div>
       <ul class="agenda-detalle">
-        <li><span>Nombre</span><b>${d.nombres || ''} ${d.apellidos || ''}</b></li>
+        <li><span>Nombre</span><b>${esc(d.nombres)} ${esc(d.apellidos)}</b></li>
         <li><span>Email</span><b>${d.email_masked || '—'}</b></li>
         <li><span>Teléfono</span><b>${d.telefono_masked || '—'}</b></li>
       </ul>
@@ -466,13 +473,13 @@ function pasoDatos() {
   if (agenda.sel.existe && !d.tiene_email) {
     agenda.sel.completarDatos = true;
     setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
-      <h3 class="agenda-q">¡Hola, ${d.nombres || ''}!</h3>
+      <h3 class="agenda-q">¡Hola, ${esc(d.nombres)}!</h3>
       <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
-      <div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> Te reconocimos como <strong>${d.nombres || ''} ${d.apellidos || ''}</strong>. Solo necesitamos tus datos de contacto para enviarte la confirmación.</div>
+      <div class="agenda-aviso ok"><i class="fas fa-circle-check"></i> Te reconocimos como <strong>${esc(d.nombres)} ${esc(d.apellidos)}</strong>. Solo necesitamos tus datos de contacto para enviarte la confirmación.</div>
       <form class="agenda-form" onsubmit="return continuarDatos(event)">
-        <input name="nombres"   type="hidden" value="${d.nombres || ''}">
-        <input name="apellidos" type="hidden" value="${d.apellidos || ''}">
-        <input name="telefono" placeholder="Celular (ej: +56 9 1234 5678)" value="${d.telefono || ''}" required>
+        <input name="nombres"   type="hidden" value="${esc(d.nombres)}">
+        <input name="apellidos" type="hidden" value="${esc(d.apellidos)}">
+        <input name="telefono" placeholder="Celular (ej: +56 9 1234 5678)" value="${esc(d.telefono)}" required>
         <input name="email" type="email" placeholder="Email" value="" required>
         <button type="submit" class="btn btn-primary btn-lg agenda-submit">Continuar</button>
       </form>
@@ -482,17 +489,17 @@ function pasoDatos() {
 
   // Paciente NUEVO o "no soy yo": formulario completo (email obligatorio).
   const aviso = agenda.sel.esNoSoyYo
-    ? `<div class="agenda-aviso"><i class="fas fa-user-pen"></i> Te reconocemos como <strong>${d.nombres} ${d.apellidos}</strong>. Ingresa tus datos de contacto actualizados — tu hora quedará agendada y notificaremos a la clínica para actualizar tu ficha.</div>`
+    ? `<div class="agenda-aviso"><i class="fas fa-user-pen"></i> Te reconocemos como <strong>${esc(d.nombres)} ${esc(d.apellidos)}</strong>. Ingresa tus datos de contacto actualizados — tu hora quedará agendada y notificaremos a la clínica para actualizar tu ficha.</div>`
     : `<div class="agenda-aviso"><i class="fas fa-user-pen"></i> Completa tus datos para confirmar la reserva.</div>`;
   setBody(`<button class="agenda-back" onclick="pasoRut()"><i class="fas fa-arrow-left"></i> Volver</button>
     <h3 class="agenda-q">Tus datos</h3>
     <p class="agenda-sub">RUT ${agenda.sel.rutFmt}</p>
     ${aviso}
     <form class="agenda-form" onsubmit="return continuarDatos(event)">
-      <input name="nombres"   placeholder="Nombres" value="${d.nombres || ''}" required>
-      <input name="apellidos" placeholder="Apellidos" value="${d.apellidos || ''}" required>
-      <input name="telefono" placeholder="Celular (ej: +56 9 1234 5678)" value="${d.telefono || ''}" required>
-      <input name="email" type="email" placeholder="Email" value="${d.email || ''}" required>
+      <input name="nombres"   placeholder="Nombres" value="${agenda.sel.existe ? '' : esc(d.nombres)}" required>
+      <input name="apellidos" placeholder="Apellidos" value="${agenda.sel.existe ? '' : esc(d.apellidos)}" required>
+      <input name="telefono" placeholder="Celular (ej: +56 9 1234 5678)" value="${esc(d.telefono)}" required>
+      <input name="email" type="email" placeholder="Email" value="${esc(d.email)}" required>
       <button type="submit" class="btn btn-primary btn-lg agenda-submit">Continuar</button>
     </form>`);
 }
@@ -506,7 +513,7 @@ function pasoConfirmarLink() {
   setPaso(3);
   const p = agenda.linkDatos || {};
   const s = agenda.sel;
-  const saludo = p.nombres ? `¿Eres tú, ${p.nombres}?` : 'Confirmemos tu hora';
+  const saludo = p.nombres ? `¿Eres tú, ${esc(p.nombres)}?` : 'Confirmemos tu hora';
   const contacto = (p.email_masked || p.telefono_masked) ? `
     <ul class="agenda-detalle">
       ${p.email_masked ? `<li><span>Email</span><b>${p.email_masked}</b></li>` : ''}
@@ -524,7 +531,7 @@ function pasoConfirmarLink() {
   // El aviso de "ya tienes una hora agendada" también aplica acá; el backend
   // resuelve el RUT desde el token (nunca viaja en la URL).
   agenda.citaPreviaAck = false;
-  agenda.citasPreviasPromise = agendaApi('/api/agenda/citas-futuras?link_token=' + encodeURIComponent(agenda.linkToken))
+  agenda.citasPreviasPromise = agendaApi('/api/agenda/citas-futuras?link_token=' + encodeURIComponent(agenda.linkToken) + _excluirReagenda())
     .then(r => r.citas || []).catch(() => []);
 }
 
@@ -854,7 +861,7 @@ function pasoResumenEstudio() {
       // Modo link: el RUT nunca llega al navegador (lo resuelve el servidor desde el token).
       ? `<ul class="agenda-detalle"><li><span>Paciente</span><b>${(agenda.linkDatos || {}).nombres || ''}</b></li></ul>`
       : `<ul class="agenda-detalle">
-      <li><span>Paciente</span><b>${s.datos.nombres} ${s.datos.apellidos}</b></li>
+      <li><span>Paciente</span><b>${esc(s.datos.nombres)} ${esc(s.datos.apellidos)}</b></li>
       <li><span>RUT</span><b>${s.rutFmt}</b></li>
     </ul>`}
     ${agenda.config.turnstile_sitekey ? '<div id="agenda-captcha" style="margin:14px 0;display:flex;justify-content:center"></div>' : ''}
@@ -1203,14 +1210,16 @@ async function irAResumen() {
     let citas = [];
     setBody('<div class="agenda-loading"><i class="fas fa-spinner fa-spin"></i> Un momento…</div>');
     try { citas = await agenda.citasPreviasPromise; } catch (e) { citas = []; }
-    // En reagenda: NO avisar de la propia cita que se está reagendando (sigue
+    // En reagenda la propia cita NO viene: el servidor la excluye (?excluir=). (sigue
     // activa hasta que se confirme la nueva) — solo de OTRAS citas del paciente.
-    if (agenda.reagendaId) {
-      citas = citas.filter(c => String(c.id_agenda) !== String(agenda.reagendaId));
-    }
     if (citas && citas.length) return pasoAvisoCitaPrevia(citas);
   }
   pasoResumen();
+}
+
+// En reagenda, el servidor saca de la lista la cita que se esta cambiando.
+function _excluirReagenda() {
+  return agenda.reagendaId ? '&excluir=' + encodeURIComponent(agenda.reagendaId) : '';
 }
 
 function _fechaCitaLegible(f) {
@@ -1225,7 +1234,7 @@ function _fechaCitaLegible(f) {
 function pasoAvisoCitaPrevia(citas) {
   const varias = citas.length > 1;
   const items = citas.map(c => `
-    <li><span>${_fechaCitaLegible(c.fecha)} · ${c.hora} hrs</span><b>${c.profesional}${c.motivo ? ' — ' + c.motivo : ''}</b></li>`).join('');
+    <li><span>${_fechaCitaLegible(c.fecha)} · ${c.hora} hrs</span><b>${esc(c.profesional)}${c.motivo ? ' — ' + esc(c.motivo) : ''}</b></li>`).join('');
   setBody(`
     <div class="agenda-aviso" style="background:#fff7e6;border-color:#C9A84C;color:#7a5b00">
       <i class="fas fa-triangle-exclamation"></i> ${varias ? 'Ya tienes horas agendadas' : 'Ya tienes una hora agendada'}
@@ -1251,9 +1260,9 @@ function _resumenPacienteHTML() {
   const s = agenda.sel;
   if (agenda.linkExacto) {
     const p = agenda.linkDatos || {};
-    return p.nombres ? `<li><span>Paciente</span><b>${p.nombres}</b></li>` : '';
+    return p.nombres ? `<li><span>Paciente</span><b>${esc(p.nombres)}</b></li>` : '';
   }
-  return `<li><span>Paciente</span><b>${s.datos.nombres} ${s.datos.apellidos}</b></li>
+  return `<li><span>Paciente</span><b>${esc(s.datos.nombres)} ${esc(s.datos.apellidos)}</b></li>
       <li><span>RUT</span><b>${s.rutFmt}</b></li>`;
 }
 
@@ -1458,7 +1467,7 @@ async function confirmarReserva() {
               telefono_nuevo: s.datos.telefono || '',
             }),
             ...(s.completarDatos && { es_completar_datos: true }),
-            ...(agenda.reagendaId && { reagenda_id_agenda: agenda.reagendaId }),
+            ...(agenda.reagendaId && { reagenda_id_agenda: agenda.reagendaId, reagenda_fecha: agenda.reagendaFecha || '' }),
             captcha_token: agenda.captchaToken || '',
           }),
         });

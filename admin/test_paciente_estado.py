@@ -31,7 +31,7 @@ import control_dental               # noqa: E402
 import paciente_estado as pe        # noqa: E402
 
 RUT_1 = '12.345.678-5'   # sintetico, DV valido modulo 11
-RUT_2 = '17.406.985-9'   # sintetico, DV valido modulo 11
+RUT_2 = '14.141.411-9'   # sintetico, DV valido modulo 11
 
 # cfg minimo de scheduling que necesitan clasificar()/estado_por_motivo(): los
 # motivos que existen de verdad y (cuando el test lo pida) overrides.

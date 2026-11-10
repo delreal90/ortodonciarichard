@@ -752,6 +752,10 @@ def enviar_solicitud_cambio_datos(datos, cfg=None):
     if not smtp_user or not smtp_pass:
         return False
 
+    # Estos datos los escribio una persona en el sitio publico: se escapan antes
+    # de ir al HTML del correo (si no, se podia colar un enlace falso en un
+    # correo legitimo de la clinica -- auditoria 2026-11-10).
+    datos = {k: (_escapar_html(v) if isinstance(v, str) else v) for k, v in datos.items()}
     nombre   = datos.get('nombre', 'Paciente')
     rut      = datos.get('rut_fmt', '')
 
@@ -843,7 +847,7 @@ def enviar_aviso_agendamiento(datos, cfg=None):
         return f"""
       <tr>
         <td style="padding:10px 14px;font-weight:700;color:#1A2E4A;white-space:nowrap;border-top:1px solid #e2e8f0">{label}</td>
-        <td style="padding:10px 14px;color:#1A2535;border-top:1px solid #e2e8f0">{valor or '—'}</td>
+        <td style="padding:10px 14px;color:#1A2535;border-top:1px solid #e2e8f0">{_escapar_html(str(valor)) if valor else '—'}</td>
       </tr>"""
 
     filas = (

@@ -179,3 +179,6 @@ admin/fichas_perfil.json
 admin/referidos_config.json
 admin/geocache.json
 admin/geocodificar_estado.json
+
+# Informes internos de la revision SEO programada: no son parte del sitio.
+informes-seo/

@@ -92,7 +92,10 @@ def _secret():
     # F2), un atacante podria forjar links validos de cualquier RUT y cosechar
     # nombres de pacientes o firmar consentimientos falsos. En dev local sin
     # CONSENT_SECRET usa un valor fijo NO apto para produccion.
-    return os.environ.get('CONSENT_SECRET') or 'dev-secret-cambiar-en-produccion'
+    # En Render, si falta, secretos.firma() lanza error en vez de firmar con
+    # el valor de desarrollo (que es publico: esta en el repo).
+    import secretos
+    return secretos.firma('CONSENT_SECRET')
 
 
 def _serializer():

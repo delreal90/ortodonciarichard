@@ -291,6 +291,89 @@ def _rut_con_dv(cuerpo):
     return f'{cuerpo}-{dv}'
 
 
+class TestLlavesYCabeceras(unittest.TestCase):
+    """Auditoria 2026-11-10. En local se trabaja sin llaves; en Render, una llave
+    que falta tiene que CERRAR. Antes abria: sin ADMIN_TOKEN quedaban ~120 rutas
+    sin proteccion, y los links se firmaban con un valor escrito en el repo."""
+
+    VARS = ('RENDER', 'ADMIN_TOKEN', 'KIOSK_TOKEN', 'PRINT_TOKEN', 'CONSENT_SECRET',
+            'SEGUROS_SECRET', 'TAMIZAJE_SECRET', 'TAREAS_SECRET')
+
+    def setUp(self):
+        self.client = server.app.test_client()
+        # ⚠️ Con RENDER=1 la primera solicitud arrancaria los ~20 hilos del
+        # scheduler dentro de la prueba. Se anula ANTES de tocar la variable.
+        from unittest import mock
+        parche = mock.patch.object(server, '_iniciar_scheduler', lambda: None)
+        parche.start()
+        self.addCleanup(parche.stop)
+        self._antes = {k: os.environ.get(k) for k in self.VARS}
+        for k in self.VARS:
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        for k, v in self._antes.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_en_local_sin_llaves_se_puede_trabajar(self):
+        self.assertTrue(server.secretos.token_ok('ADMIN_TOKEN', ''))
+        self.assertEqual(server.secretos.firma('CONSENT_SECRET'), server.secretos._DEV)
+
+    def test_en_render_sin_llave_se_rechaza(self):
+        os.environ['RENDER'] = '1'
+        self.assertFalse(server.secretos.token_ok('ADMIN_TOKEN', ''))
+        self.assertFalse(server.secretos.token_ok('KIOSK_TOKEN', 'cualquiera'))
+        self.assertEqual(self.client.get('/api/consentimientos').status_code, 403)
+        self.assertFalse(self.client.get('/api/salud').get_json()['secretos_ok'])
+
+    def test_en_render_no_se_firma_con_la_llave_publica(self):
+        os.environ['RENDER'] = '1'
+        with self.assertRaises(RuntimeError):
+            server.secretos.firma('SEGUROS_SECRET', 'CONSENT_SECRET')
+        os.environ['CONSENT_SECRET'] = 'una-llave-de-verdad'
+        self.assertEqual(server.secretos.firma('SEGUROS_SECRET', 'CONSENT_SECRET'),
+                         'una-llave-de-verdad')
+
+    def test_ningun_modulo_trae_la_llave_de_repuesto(self):
+        """El valor de desarrollo vive SOLO en secretos.py."""
+        aqui = Path(__file__).parent
+        con = [p.name for p in aqui.glob('*.py')
+               if not p.name.startswith('test_') and p.name != 'secretos.py'
+               and 'dev-secret' in p.read_text(encoding='utf-8')]
+        self.assertEqual(con, [])
+
+    def test_token_correcto_e_incorrecto(self):
+        os.environ['ADMIN_TOKEN'] = 'llave-ñ-123'
+        self.assertTrue(server.secretos.token_ok('ADMIN_TOKEN', 'llave-ñ-123'))
+        self.assertFalse(server.secretos.token_ok('ADMIN_TOKEN', 'otra'))
+        # un header con tildes hacia reventar la comparacion (500): ahora es un 403
+        r = self.client.get('/api/consentimientos', headers={'X-Admin-Token': 'x'})
+        self.assertEqual(r.status_code, 403)
+
+    def test_cola_de_impresion_cerrada_en_render_sin_print_token(self):
+        antes = server.EN_RENDER
+        server.EN_RENDER = True
+        os.environ['RENDER'] = '1'
+        try:
+            with server.app.test_request_context('/api/compras/impresion/cola'):
+                self.assertFalse(server._print_autorizado())
+        finally:
+            server.EN_RENDER = antes
+
+    def test_cabeceras_de_proteccion(self):
+        r = self.client.get('/api/salud')
+        self.assertEqual(r.headers.get('X-Content-Type-Options'), 'nosniff')
+        self.assertEqual(r.headers.get('X-Frame-Options'), 'SAMEORIGIN')
+        self.assertIn("frame-ancestors 'self'", r.headers.get('Content-Security-Policy', ''))
+        self.assertEqual(r.headers.get('Cache-Control'), 'no-store')
+        self.assertTrue(r.headers.get('Referrer-Policy'))
+        # la camara tiene que seguir permitida: Compras escanea codigos con ella
+        self.assertIn('camera=(self)', r.headers.get('Permissions-Policy', ''))
+
+
 class TestLimitesDeVelocidad(unittest.TestCase):
     """Los topes contra abusos. En 12 rutas de la agenda el @rate_limit estaba ARRIBA
     del @app.route: Flask registraba la funcion sin envolver y el tope no existia

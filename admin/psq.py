@@ -223,7 +223,7 @@ def resolver_destinatario(rut, cfg, hoy_iso=None):
     try:
         doc_key = dentidesk.doctor_de_paciente(rut, hoy_iso, cfg, dias_atras=DIAS_ATRAS_DOCTOR)
     except Exception as e:
-        log.warning('psq: fallo al resolver el doctor tratante de %s: %r', rut, e)
+        log.warning('psq: fallo al resolver el doctor tratante de ...%s: %r', str(rut)[-4:], e)
     if not doc_key:
         return EMAIL_RESPALDO, '', 'sin_doctor'
     email = email_doctor(doc_key)

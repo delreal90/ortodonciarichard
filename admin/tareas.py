@@ -820,8 +820,8 @@ VIGENCIA_TOKEN = 16 * 3600
 
 
 def _serializer():
-    secreto = (os.environ.get('TAREAS_SECRET') or os.environ.get('CONSENT_SECRET')
-               or 'dev-secret-cambiar-en-produccion')
+    import secretos
+    secreto = secretos.firma('TAREAS_SECRET', 'CONSENT_SECRET')
     return URLSafeTimedSerializer(secreto, salt='tareas-propuesta')
 
 

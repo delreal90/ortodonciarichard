@@ -44,7 +44,7 @@ if getattr(server, 'limiter', None):
     server.limiter.enabled = False   # esta suite hace >60 llamadas seguidas; no prueba el limite
 
 # RUTs sinteticos, DV valido (ningun RUT real en este repo publico).
-RUT_1 = '17.406.985-9'
+RUT_1 = '14.141.411-9'
 RUT_2 = '12.345.678-5'
 
 CFG_DD = {'dentidesk': {'enabled': True, 'base_url': 'https://ejemplo.invalido',
@@ -191,7 +191,9 @@ class TestEndpointCitasFuturas(unittest.TestCase):
             # Mismo RUT escrito distinto = misma clave.
             r3 = self.client.get('/api/agenda/citas-futuras?rut=' + RUT_1.replace('.', ''))
         self.assertEqual(r1.status_code, 200)
-        self.assertEqual(r1.get_json(), {'ok': True, 'citas': citas})
+        # la ruta es publica: el numero de la cita (id_agenda) no sale
+        publicas = [{k: v for k, v in c.items() if k != 'id_agenda'} for c in citas]
+        self.assertEqual(r1.get_json(), {'ok': True, 'citas': publicas})
         self.assertEqual(r2.get_json(), r1.get_json())
         self.assertEqual(r3.get_json(), r1.get_json())
         self.assertEqual(m.call_count, 1)
@@ -239,7 +241,7 @@ class TestSaludYLentas(unittest.TestCase):
                                   'topes_activos', 'ip_fuente',
                                   'wa_respuestas_detectadas',
                                   'memoria_mb', 'memoria_pico', 'memoria_subidas',
-                                  'scheduler_aqui'})
+                                  'scheduler_aqui', 'secretos_ok', 'captcha_activo'})
         self.assertTrue(d['ok'])
         self.assertIsInstance(d['uptime_s'], int)
         datetime.fromisoformat(d['inicio'])

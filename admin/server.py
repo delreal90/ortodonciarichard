@@ -65,6 +65,13 @@ def _ip_cliente():
             or request.remote_addr or '?')
 
 
+def _rut_log(rut):
+    """RUT para los logs: solo los ultimos 4 caracteres. Los logs de Render los
+    ve mas gente y duran mas que la base; alcanza para ubicar el caso."""
+    limpio = ''.join(ch for ch in str(rut or '') if ch.isalnum())
+    return '...' + limpio[-4:] if limpio else '(sin rut)'
+
+
 def _fuente_ip():
     """Que dato se usa como IP del visitante (para /api/salud, sin el valor)."""
     return 'cf-connecting-ip' if request.headers.get('CF-Connecting-IP') else 'remote_addr'
@@ -104,6 +111,34 @@ def _cors(resp):
         resp.headers['Access-Control-Allow-Origin'] = origin
     resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Admin-Token, X-Kiosk-Token, X-Compras-Token, X-Print-Token'
     resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    resp.headers.add('Vary', 'Origin')
+    return resp
+
+
+# Cabeceras de proteccion (auditoria 2026-11-10: no habia ninguna).
+#  - nosniff: el navegador no "adivina" el tipo de un archivo subido.
+#  - frame-ancestors/X-Frame-Options: ninguna pagina ajena puede incrustar el
+#    panel, Compras o la firma de consentimientos (clickjacking). 'self' porque
+#    /seguro muestra su PDF en un iframe del mismo origen.
+#  - Referrer-Policy: los links con ?token= no viajan completos a otros sitios.
+#  - no-store en JSON: respuestas con datos de pacientes no quedan en cache.
+#  - HSTS solo en Render (en local se trabaja por http).
+# ⚠️ NO hay 'script-src': panel.html, compras.html y las paginas de firma usan
+# scripts y onclick en linea. Restringirlos sin reescribirlas las deja en blanco.
+@app.after_request
+def _cabeceras_seguridad(resp):
+    h = resp.headers
+    h.setdefault('X-Content-Type-Options', 'nosniff')
+    h.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    h.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    h.setdefault('Content-Security-Policy',
+                 "frame-ancestors 'self'; object-src 'none'; base-uri 'self'")
+    # camera=(self): Compras escanea codigos con la camara del celular.
+    h.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=(self)')
+    if resp.mimetype == 'application/json':
+        h.setdefault('Cache-Control', 'no-store')
+    if EN_RENDER:
+        h.setdefault('Strict-Transport-Security', 'max-age=31536000')
     return resp
 
 @app.route('/api/<path:_any>', methods=['OPTIONS'])
@@ -726,6 +761,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fechas       # hoy_chile()/ahora_chile(). Render corre en UTC: un date.today()
                     # pelado ya es MANIANA entre las 20:00 y medianoche hora Chile.
+import secretos     # llaves: en Render, una que falta CIERRA (ver secretos.py)
 import memoria      # tope de 512 MB en Render: ver memoria.py. configurar() va ANTES
 memoria.configurar()  # de lanzar los hilos (limita las arenas de malloc).
 import scheduling
@@ -806,6 +842,10 @@ def api_salud():
         # Diagnostico de los topes por IP, sin la IP: si 'ip_fuente' dice
         # remote_addr en Render, los topes vuelven a no funcionar.
         'topes_activos': limiter is not None,
+        # Llaves obligatorias presentes y captcha encendido (sin decir cuales ni
+        # sus valores). False en Render = hay funciones cerradas por configuracion.
+        'secretos_ok': not secretos.faltantes(),
+        'captcha_activo': bool(os.environ.get('TURNSTILE_SECRET', '').strip()),
         'ip_fuente': _fuente_ip(),
         # Respuestas de recepcion a mensajes de WhatsApp detectadas desde el
         # arranque. Si recepcion contesta y esto sigue en 0, Meta no avisa de
@@ -969,18 +1009,42 @@ def agenda_paciente():
     # endpoint es publico). Best-effort: si clasificar() revienta, el paciente
     # no debe quedar bloqueado del wizard -- se cae a menu completo (None).
     motivos_permitidos = None
-    estado_categoria = None
     try:
         clasif = paciente_estado.clasificar(rut)
         motivos_permitidos = clasif.get('motivos_permitidos')
-        estado_categoria = clasif.get('estado')
     except Exception as e:
-        app.logger.warning('paciente_estado.clasificar fallo para %s: %s', rut, e)
+        app.logger.warning('paciente_estado.clasificar fallo (RUT ...%s): %s',
+                           scheduling.limpiar_rut(rut)[-4:], e)
+
+    # Ruta PUBLICA (auditoria 2026-11-10): a quien escribe un RUT solo se le
+    # muestra lo justo para reconocerse -- primer nombre + inicial del apellido.
+    # El nombre completo NO sale: al reservar, el servidor usa el de la ficha.
+    # Tampoco sale la etapa de tratamiento (estado_categoria): es dato de salud y
+    # el frontend no la necesita (el menu ya llega filtrado en motivos_permitidos).
+    datos = dict(info.get('datos') or {})
+    if info.get('existe'):
+        datos['nombres'], datos['apellidos'] = _nombre_publico(
+            datos.get('nombres'), datos.get('apellidos'))
 
     return jsonify({'ok': True, 'rut': scheduling.formatear_rut(rut),
-                    'existe': info['existe'], 'datos': info['datos'],
-                    'motivos_permitidos': motivos_permitidos,
-                    'estado_categoria': estado_categoria})
+                    'existe': info['existe'], 'datos': datos,
+                    'motivos_permitidos': motivos_permitidos})
+
+
+def _limpiar_nombre(v):
+    """Nombre escrito por el publico: sin caracteres de control ni de HTML, sin
+    espacios repetidos y con largo acotado. Termina en DentiDesk, en correos a
+    recepcion y de vuelta en pantalla, asi que se sanea al entrar."""
+    s = re.sub(r'[\x00-\x1f\x7f<>"`{}\\]+', ' ', str(v or ''))
+    return re.sub(r'\s+', ' ', s).strip()[:80]
+
+
+def _nombre_publico(nombres, apellidos):
+    """'María José', 'Pérez Soto' -> ('María', 'P.'). Suficiente para que el
+    paciente se reconozca, insuficiente para identificar a un tercero por su RUT."""
+    primer = ((nombres or '').split() or [''])[0]
+    ap = (apellidos or '').strip()
+    return primer, (ap[0].upper() + '.' if ap else '')
 
 import threading as _threading
 
@@ -1455,11 +1519,8 @@ def _check_admin_token():
     SEGURIDAD: solo se acepta por header, NO por ?token= en la URL — las URLs
     quedan en logs, historial y Referer, filtrando el token. Comparacion de
     tiempo constante (hmac.compare_digest) para evitar timing attacks."""
-    tok = os.environ.get('ADMIN_TOKEN')
-    if not tok:
-        return True
-    provisto = request.headers.get('X-Admin-Token') or ''
-    return hmac.compare_digest(provisto, tok)
+    # En Render, si ADMIN_TOKEN faltara, se RECHAZA (antes quedaba todo abierto).
+    return secretos.token_ok('ADMIN_TOKEN', request.headers.get('X-Admin-Token'))
 
 @app.route('/api/pacientes/actualizar', methods=['POST'])
 def pacientes_actualizar():
@@ -1777,16 +1838,18 @@ def agenda_reservar():
         return jsonify({'ok': False, 'error': 'La hora ya no esta disponible'}), 409
 
     # Nombres/apellidos vienen separados; si no, se parte 'nombre'
-    nombre = (data.get('nombres') or '').strip()
-    apellido = (data.get('apellidos') or '').strip()
+    nombre = _limpiar_nombre(data.get('nombres'))
+    apellido = _limpiar_nombre(data.get('apellidos'))
     if not nombre:
-        partes = (data.get('nombre') or '').strip().split(' ', 1)
+        partes = _limpiar_nombre(data.get('nombre')).split(' ', 1)
         nombre, apellido = partes[0], (partes[1] if len(partes) > 1 else '')
 
     # Telefono: si reconocimos al paciente, usamos el suyo registrado
     telefono = (rec.get('telefono') if rec else '') or data.get('telefono', '')
-    # Nombre/apellido: si vienen vacios pero hay ficha, usamos los de la base
-    if not nombre and rec:
+    # Nombre/apellido: si hay ficha, mandan SIEMPRE los de la base. El frontend
+    # solo conoce el nombre recortado ("María P.", ver _nombre_publico), y un
+    # nombre escrito por el publico no debe pisar el de un paciente existente.
+    if rec and rec.get('nombres'):
         nombre, apellido = rec.get('nombres', ''), rec.get('apellidos', '')
 
     # Si es un reagendamiento (fallback por este endpoint) PARA EL DIA SIGUIENTE
@@ -1794,6 +1857,11 @@ def agenda_reservar():
     # viene interactuando por WhatsApp. Solo aplica a reagenda; una reserva
     # normal para mañana sigue naciendo "No confirmado".
     _reag_id = ''.join(c for c in str(data.get('reagenda_id_agenda') or '') if c.isdigit())
+    # La cita vieja solo se marca "Re-agendado" si es del MISMO paciente. Si no
+    # se puede comprobar, esto pasa a ser una reserva nueva comun y corriente.
+    if _reag_id and not _reagenda_es_del_paciente(cfg, _reag_id, data.get('reagenda_fecha'), rut):
+        log.warning('reservar: reagenda_id_agenda=%s no verificable para ese RUT; se trata como hora nueva', _reag_id)
+        _reag_id = ''
     id_status_nueva = None
     if _reag_id and scheduling.es_dia_siguiente_habil(fecha):
         id_status_nueva = cfg['dentidesk'].get('id_status_confirmado_whatsapp')
@@ -1828,7 +1896,7 @@ def agenda_reservar():
         paciente_estado.registrar_reserva_online(rut, motivo)
     except Exception as e:
         app.logger.error('No se pudo registrar estado del paciente %s (motivo %s): %s',
-                         rut, motivo, e)
+                         _rut_log(rut), motivo, e)
 
     # Si la reserva vino por link pre-cargado, sellarlo como usado -- de un
     # solo uso, igual que el resto de tokens del proyecto. Best-effort: la
@@ -1837,7 +1905,7 @@ def agenda_reservar():
         try:
             link_agenda.marcar_usado(link_token)
         except Exception as e:
-            app.logger.error('No se pudo marcar usado el link de agenda %s: %s', link_token, e)
+            app.logger.error('No se pudo marcar usado el link de agenda ...%s: %s', link_token[-4:], e)
 
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
@@ -1875,7 +1943,7 @@ def agenda_reservar():
     # cita vieja por la API; ver dentidesk.actualizar_estado_cita.)
     # Solo dígitos (viene del hash de un link nuestro). Si falla el update, se
     # loguea pero NO se rompe la reserva nueva (que sí quedó hecha).
-    reagenda_id = ''.join(c for c in str(data.get('reagenda_id_agenda') or '') if c.isdigit())
+    reagenda_id = _reag_id          # ya verificado arriba contra el RUT de la cita
     es_reagenda = bool(reagenda_id)
     if es_reagenda:
         id_status_reag = cfg['dentidesk'].get('id_status_reagendada')
@@ -1931,6 +1999,27 @@ def agenda_reservar():
                     'solicitud_cambio': es_no_soy_yo or es_completar,
                     'reagenda': es_reagenda})
 
+def _cita_es_del_rut(cita, rut):
+    """True solo si la cita de DentiDesk pertenece a ese RUT. Una cita sin RUT
+    registrado NO calza con nadie: ante la duda no se toca una cita ajena."""
+    if not cita:
+        return False
+    de_la_cita = scheduling.limpiar_rut(str(cita.get('PatientDocument') or ''))
+    return bool(de_la_cita) and de_la_cita == scheduling.limpiar_rut(str(rut or ''))
+
+
+def _reagenda_es_del_paciente(cfg, id_agenda, fecha_str, rut):
+    """Para el flujo de respaldo (/api/agenda/reservar con reagenda_id_agenda):
+    relee la cita vieja y comprueba que sea del mismo RUT. Si no se puede
+    comprobar (sin fecha, cita no encontrada, DentiDesk caido) devuelve False y
+    la reserva sigue como una hora NUEVA, sin tocar la cita vieja."""
+    try:
+        f = datetime.strptime((fecha_str or '').strip(), '%Y-%m-%d').date()
+        return _cita_es_del_rut(dentidesk.info_cita(cfg, id_agenda, f), rut)
+    except Exception:
+        return False
+
+
 @app.route('/api/agenda/reservar-reagenda', methods=['POST'])
 @rate_limit('10 per minute')
 def agenda_reservar_reagenda():
@@ -1982,6 +2071,14 @@ def agenda_reservar_reagenda():
         if any(s in estado_txt for s in _ESTADOS_NO_REAGENDABLES):
             log.warning('reservar-reagenda: cita no vigente id_agenda=%s fecha=%s estado=%r', id_agenda, fecha_original, estado_txt)
             return jsonify({'ok': False, 'error': 'Esta cita ya no está vigente.', 'codigo': 'cita_no_vigente'}), 409
+        # El link de reagendar NO es una llave: solo lleva id_agenda + fecha. Sin
+        # esta comparacion, cualquiera que conociera el numero de una cita ajena
+        # podia marcarla "Re-agendado" y crear otra a su nombre (auditoria 2026-11-10).
+        if not _cita_es_del_rut(c, rut):
+            log.warning('reservar-reagenda: el RUT enviado no es el de la cita id_agenda=%s', id_agenda)
+            return jsonify({'ok': False, 'codigo': 'rut_no_coincide',
+                            'error': 'El RUT ingresado no corresponde al paciente de esta cita. '
+                                     'Revisa el RUT o escríbenos por WhatsApp.'}), 403
         doctor_real = dentidesk.doc_key_por_nombre(cfg, (c.get('ProfessionalName') or '').strip())
         if doctor_real != doctor:
             log.warning('reservar-reagenda: datos cambiaron id_agenda=%s doctor_esperado=%s doctor_real=%s',
@@ -2033,10 +2130,10 @@ def agenda_reservar_reagenda():
             log.warning('reservar-reagenda: email invalido o faltante id_agenda=%s doctor=%s', id_agenda, doctor)
             return jsonify({'ok': False, 'error': 'El email es obligatorio', 'codigo': 'email_invalido'}), 400
 
-        nombre = (data.get('nombres') or '').strip()
-        apellido = (data.get('apellidos') or '').strip()
+        nombre = _limpiar_nombre(data.get('nombres'))
+        apellido = _limpiar_nombre(data.get('apellidos'))
         telefono = (rec.get('telefono') if rec else '') or data.get('telefono', '')
-        if not nombre and rec:
+        if rec and rec.get('nombres'):      # mismo criterio que /reservar
             nombre, apellido = rec.get('nombres', ''), rec.get('apellidos', '')
 
         # Si reagenda para el DIA SIGUIENTE habil, la cita nueva nace "Confirmado
@@ -2258,7 +2355,7 @@ def agenda_reservar_estudio():
     try:
         paciente_estado.registrar_reserva_online(rut, 'control_evolucion')
     except Exception as e:
-        app.logger.error('No se pudo registrar estado del paciente %s (estudio integral): %s', rut, e)
+        app.logger.error('No se pudo registrar estado del paciente %s (estudio integral): %s', _rut_log(rut), e)
 
     doctors = read_doctor_data()
     doctor_nombre = doctors.get(doctor, {}).get('name', doctor.title())
@@ -2522,10 +2619,19 @@ def agenda_citas_futuras():
     # Cache corto por RUT: absorbe reintentos y dobles clics sin volver a barrer la agenda.
     clave = scheduling.limpiar_rut(rut)
     ahora = _time.monotonic()
+    # Ruta PUBLICA: el numero de la cita (id_agenda) nunca sale de aca -- era lo
+    # que permitia armar a mano un link de reagendar de otra persona. En reagenda
+    # el frontend manda ?excluir=<id> y la cita propia se filtra en el servidor.
+    excluir = ''.join(ch for ch in request.args.get('excluir', '') if ch.isdigit())
+
+    def _publicas(lista):
+        return [{k: v for k, v in c.items() if k != 'id_agenda'} for c in lista
+                if not (excluir and str(c.get('id_agenda') or '') == excluir)]
+
     with _CITAS_FUT_LOCK:
         hit = _CITAS_FUT_CACHE.get(clave)
         if hit and ahora - hit[0] < _CITAS_FUT_TTL:
-            return jsonify({'ok': True, 'citas': hit[1]})
+            return jsonify({'ok': True, 'citas': _publicas(hit[1])})
     cfg = scheduling.load_config()
     try:
         citas = dentidesk.citas_futuras_paciente(rut, cfg)
@@ -2536,7 +2642,7 @@ def agenda_citas_futuras():
             for k in [k for k, v in _CITAS_FUT_CACHE.items() if ahora - v[0] >= _CITAS_FUT_TTL]:
                 _CITAS_FUT_CACHE.pop(k, None)
         _CITAS_FUT_CACHE[clave] = (ahora, citas)
-    return jsonify({'ok': True, 'citas': citas})
+    return jsonify({'ok': True, 'citas': _publicas(citas)})
 
 
 # ── Links de agenda pre-cargados (F2 -> paciente) ────────────────────────────
@@ -3729,12 +3835,9 @@ def _check_kiosk_token():
     (KIOSK_TOKEN), distinto de ADMIN_TOKEN: la tablet no debe tener el mismo
     nivel de acceso que el panel admin. Sin KIOSK_TOKEN configurado (dev local)
     se permite, igual que _check_admin_token."""
-    tok = os.environ.get('KIOSK_TOKEN')
-    if not tok:
-        return True
-    # Solo header (no ?kiosk_token= en la URL). Tiempo constante.
-    provisto = request.headers.get('X-Kiosk-Token') or ''
-    return hmac.compare_digest(provisto, tok)
+    # Solo header (no ?kiosk_token= en la URL). Tiempo constante. En Render,
+    # sin KIOSK_TOKEN se rechaza.
+    return secretos.token_ok('KIOSK_TOKEN', request.headers.get('X-Kiosk-Token'))
 
 
 @app.route('/consentimiento')
@@ -3964,9 +4067,9 @@ def consentimiento_firmar():
             tipo_label = consentimientos.TIPOS_DOCUMENTO.get(tipo, 'Consentimiento informado')
             resultado_copia = notify.enviar_copia_consentimiento(rec, ruta_pdf, tipo_label)
             if not resultado_copia.get('ok'):
-                print(f"[consentimiento] Copia por mail falló para {consent_id} ({email_pac}): {resultado_copia.get('error')}")
+                print(f"[consentimiento] Copia por mail falló para {consent_id}: {resultado_copia.get('error')}")
         else:
-            print(f"[consentimiento] Sin email registrado para {consent_id} (rut={rut}) — no se envía copia")
+            print(f"[consentimiento] Sin email registrado para {consent_id} — no se envía copia")
     except Exception as e:
         print(f"[consentimiento] Envío de copia al paciente falló para {consent_id}: {e}")
 
@@ -7182,12 +7285,11 @@ def _require_compras(cap):
 def _print_autorizado():
     """El agente de impresión se autentica con X-Print-Token (env PRINT_TOKEN) o
     con una sesión admin. Sin PRINT_TOKEN configurado (local) se permite."""
-    tok_env = os.environ.get('PRINT_TOKEN')
-    if tok_env:
-        if hmac.compare_digest(request.headers.get('X-Print-Token') or '', tok_env):
+    # Sin PRINT_TOKEN: en local pasa; en Render NO (la cola quedaba abierta a
+    # cualquiera -- auditoria 2026-11-10). Una sesion admin de Compras siempre sirve.
+    if os.environ.get('PRINT_TOKEN') or not EN_RENDER:
+        if secretos.token_ok('PRINT_TOKEN', request.headers.get('X-Print-Token')):
             return True
-    else:
-        return True
     u = _compras_user()
     return bool(u and u['rol'] == 'admin')
 
@@ -8926,7 +9028,7 @@ def _procesar_control_dental(cfg_cd, hoy):
 
         resultado = notify.enviar_recordatorio_control_dental(p, cfg_cd)
         if not resultado.get('ok'):
-            print('[control-dental] fallo al enviar a', rut, resultado.get('error'))
+            print('[control-dental] fallo al enviar a', _rut_log(rut), resultado.get('error'))
             stats['omitidos'] += 1
             continue  # no se marca nada -- reintenta manana, no consume el ciclo
 
@@ -9516,7 +9618,7 @@ def _procesar_nps(cfg_nps, cfg_dd, ahora):
             nps.marcar_override(ida, 'enviado')
             enviados += 1
         else:
-            print('[nps] fallo al enviar override a', rut, r.get('error'))
+            print('[nps] fallo al enviar override a', _rut_log(rut), r.get('error'))
             # queda pendiente -- reintenta en el proximo barrido
 
     # ── Fase 2: barrido automatico de citas atendidas ──────────────────────
@@ -9618,7 +9720,7 @@ def _procesar_nps(cfg_nps, cfg_dd, ahora):
                 nps.marcar_visto(ida, target.isoformat())
                 enviados += 1
             else:
-                print('[nps] fallo al enviar a', rut, r.get('error'))
+                print('[nps] fallo al enviar a', _rut_log(rut), r.get('error'))
                 # no se marca visto -- reintenta en el proximo barrido
 
     return {'ok': True, 'enviados': enviados}

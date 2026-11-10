@@ -334,13 +334,106 @@ class TestDiagnostico(_EndpointBase):
         llevar RUT, telefono ni email (repo publico, logs de Render)."""
         cita = {'Status': 'No confirmado', 'ProfessionalName': 'Alberto Del Real',
                 'Reason': 'Control Fijo', 'duration': 15, 'time': '10:00:00',
-                'PatientDocument': '17.406.985-9', 'Phone': '56900000000',
+                'PatientDocument': '14.141.411-9', 'Phone': '56900000000',
                 'PatientEmail': 'paciente@example.cl', 'PatientName': 'Nombre Apellido'}
         with self._con_cita(cita):
             crudo = self._diag().get_data(as_text=True)
-        for sensible in ('17.406.985-9', '17406985', '56900000000',
+        for sensible in ('14.141.411-9', '14141411', '56900000000',
                          'paciente@example.cl', 'Nombre Apellido'):
             self.assertNotIn(sensible, crudo)
+
+
+RUT_DUENO = '12.345.678-5'   # sinteticos, DV valido
+RUT_OTRO = '11.111.111-1'
+
+
+class TestReagendaSoloElDueno(_EndpointBase):
+    """Auditoria 2026-11-10: el link de reagendar no es una llave (solo lleva
+    id_agenda + fecha) y /citas-futuras entregaba ese id a quien escribiera un
+    RUT. Con eso, un tercero podia marcar 'Re-agendado' la cita de otra persona.
+    Estas pruebas fijan los dos cierres."""
+
+    CITA = {'Status': 'No confirmado', 'ProfessionalName': 'Alberto Del Real',
+            'Reason': 'Control Fijo', 'duration': 15, 'time': '10:00:00',
+            'PatientDocument': RUT_DUENO}
+
+    def _reagendar(self, rut, cita=None):
+        cuerpo = {'id_agenda': '555', 'fecha_original': '2026-08-06', 'doctor': 'alberto',
+                  'fecha': '2026-08-20', 'hora': '10:00', 'rut': rut,
+                  'nombres': 'Ana', 'apellidos': 'Prueba', 'email': 'a@example.cl'}
+        with mock.patch.object(server.dentidesk, 'info_cita', return_value=cita or self.CITA), \
+             mock.patch.object(server.dentidesk, 'crear_cita') as crear, \
+             mock.patch.object(server.dentidesk, 'actualizar_estado_cita') as actualizar:
+            r = self.client.post('/api/agenda/reservar-reagenda', json=cuerpo)
+        return r, crear, actualizar
+
+    def test_rut_ajeno_no_toca_la_cita(self):
+        r, crear, actualizar = self._reagendar(RUT_OTRO)
+        self.assertEqual(r.status_code, 403, r.get_data(as_text=True))
+        self.assertEqual(r.get_json()['codigo'], 'rut_no_coincide')
+        crear.assert_not_called()
+        actualizar.assert_not_called()
+
+    def test_cita_sin_rut_no_calza_con_nadie(self):
+        cita = dict(self.CITA, PatientDocument='')
+        r, crear, actualizar = self._reagendar(RUT_OTRO, cita)
+        self.assertEqual(r.status_code, 403)
+        crear.assert_not_called()
+        actualizar.assert_not_called()
+
+    def test_el_dueno_pasa_la_verificacion(self):
+        """Con su propio RUT no se corta en 'rut_no_coincide' (lo que venga
+        despues -- ventana, disponibilidad -- es otra prueba)."""
+        r, _, _ = self._reagendar(RUT_DUENO.replace('.', ''))
+        self.assertNotEqual((r.get_json() or {}).get('codigo'), 'rut_no_coincide')
+
+    def test_respaldo_por_reservar_tambien_verifica(self):
+        cfg = server.scheduling.load_config()
+        with mock.patch.object(server.dentidesk, 'info_cita', return_value=self.CITA):
+            self.assertTrue(server._reagenda_es_del_paciente(cfg, '555', '2026-08-06', RUT_DUENO))
+            self.assertFalse(server._reagenda_es_del_paciente(cfg, '555', '2026-08-06', RUT_OTRO))
+            # sin fecha no hay como releer la cita: no se da por verificada
+            self.assertFalse(server._reagenda_es_del_paciente(cfg, '555', '', RUT_DUENO))
+        with mock.patch.object(server.dentidesk, 'info_cita', side_effect=RuntimeError('caido')):
+            self.assertFalse(server._reagenda_es_del_paciente(cfg, '555', '2026-08-06', RUT_DUENO))
+
+    def test_citas_futuras_no_entrega_el_numero_de_cita(self):
+        citas = [{'id_agenda': '555', 'fecha': '2026-08-06', 'hora': '10:00',
+                  'profesional': 'Alberto Del Real', 'motivo': 'Control Fijo', 'estado': 'No confirmado'},
+                 {'id_agenda': '777', 'fecha': '2026-08-13', 'hora': '11:00',
+                  'profesional': 'Alberto Del Real', 'motivo': 'Control Fijo', 'estado': 'No confirmado'}]
+        server._CITAS_FUT_CACHE.clear()
+        with mock.patch.object(server.dentidesk, 'citas_futuras_paciente', return_value=citas):
+            todas = self.client.get(f'/api/agenda/citas-futuras?rut={RUT_DUENO}').get_json()['citas']
+            sin_la_propia = self.client.get(
+                f'/api/agenda/citas-futuras?rut={RUT_DUENO}&excluir=555').get_json()['citas']
+        self.assertEqual(len(todas), 2)
+        self.assertTrue(all('id_agenda' not in c for c in todas))
+        self.assertEqual([c['fecha'] for c in sin_la_propia], ['2026-08-13'])
+
+
+class TestNombreAlPublico(unittest.TestCase):
+    """/api/agenda/paciente es publica: RUT -> nombre completo + etapa de
+    tratamiento era un dato de salud con nombre y apellido para cualquiera."""
+
+    def test_solo_primer_nombre_e_inicial(self):
+        self.assertEqual(server._nombre_publico('María José', 'Pérez Soto'), ('María', 'P.'))
+        self.assertEqual(server._nombre_publico('', ''), ('', ''))
+
+    def test_la_ruta_no_devuelve_apellido_ni_etapa(self):
+        info = {'existe': True, 'datos': {'nombres': 'María José', 'apellidos': 'Pérez Soto',
+                                          'email_masked': 'ma***@gm***.cl', 'tiene_email': True}}
+        with mock.patch.object(server.dentidesk, 'buscar_paciente', return_value=info):
+            cuerpo = server.app.test_client().get('/api/agenda/paciente?rut=' + RUT_OTRO).get_json()
+        self.assertEqual(cuerpo['datos']['nombres'], 'María')
+        self.assertEqual(cuerpo['datos']['apellidos'], 'P.')
+        self.assertNotIn('estado_categoria', cuerpo)
+        self.assertNotIn('Soto', str(cuerpo))
+
+    def test_nombre_del_publico_se_sanea(self):
+        self.assertEqual(server._limpiar_nombre('  <script>alert(1)</script> Ana\n'),
+                         'script alert(1) /script Ana')
+        self.assertLessEqual(len(server._limpiar_nombre('x' * 500)), 80)
 
 
 if __name__ == '__main__':

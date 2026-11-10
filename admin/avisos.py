@@ -46,8 +46,8 @@ def rut_key(rut):
 
     Distintos formatos del MISMO rut (con o sin puntos, con o sin guion,
     minuscula o mayuscula en la K) tienen que caer en la misma entrada — si no,
-    un paciente marcado "no molestar" como 17.406.985-9 seguiria recibiendo
-    mensajes cuando el sistema lo lea como 174069859.
+    un paciente marcado "no molestar" como 14.141.411-9 seguiria recibiendo
+    mensajes cuando el sistema lo lea como 141414119.
 
     El fallback al string tal cual importa: si viniera vacio o algo que no es un
     RUT, es preferible una clave rara pero estable a colapsar todos los casos

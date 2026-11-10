@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import reagenda_pendientes as rp   # noqa: E402
 import server                      # noqa: E402
 
-RUT = '17.406.985-9'   # sintetico, DV valido modulo 11
+RUT = '14.141.411-9'   # sintetico, DV valido modulo 11
 CFG = {'dentidesk': {'enabled': True}}
 
 
@@ -169,7 +169,7 @@ class TestEndpoints(unittest.TestCase):
         rp.registrar('100', '56988887777', 'Ana Prueba', '2026-08-06', RUT)
         crudo = self.client.get('/api/reagenda-pendientes', headers=self.headers).get_data(as_text=True)
         self.assertIn('Ana Prueba', crudo)
-        for sensible in ('56988887777', RUT, '17406985'):
+        for sensible in ('56988887777', RUT, '14141411'):
             self.assertNotIn(sensible, crudo)
 
 

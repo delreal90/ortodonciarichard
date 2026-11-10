@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import link_aseguradora  # noqa: E402
 
 # RUT sintetico valido (mismo que usa test_avisos.py / test_link_agenda.py).
-RUT = '17.406.985-9'
+RUT = '14.141.411-9'
 
 
 def _limpiar():

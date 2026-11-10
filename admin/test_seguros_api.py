@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import server    # noqa: E402
 import seguros   # noqa: E402
 
-RUT = '17.406.985-9'          # RUT sintetico, DV valido (repo publico)
+RUT = '14.141.411-9'          # RUT sintetico, DV valido (repo publico)
 
 
 class _Base(unittest.TestCase):

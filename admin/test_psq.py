@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import psq  # noqa: E402
 
-RUT = '17.406.985-9'
+RUT = '14.141.411-9'
 
 
 def _respuestas(si_no='no', frecuencia='nunca', **overrides):

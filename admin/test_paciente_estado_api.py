@@ -29,7 +29,7 @@ import server                     # noqa: E402
 import paciente_estado as pe      # noqa: E402
 
 RUT_1 = '12.345.678-5'   # sintetico, DV valido modulo 11
-RUT_2 = '17.406.985-9'   # sintetico, DV valido modulo 11
+RUT_2 = '14.141.411-9'   # sintetico, DV valido modulo 11
 
 
 class TestAgendaPacienteMenuFiltrado(unittest.TestCase):
@@ -46,9 +46,9 @@ class TestAgendaPacienteMenuFiltrado(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         body = r.get_json()
         self.assertIn('motivos_permitidos', body)
-        self.assertIn('estado_categoria', body)
         self.assertIsNone(body['motivos_permitidos'])
-        self.assertEqual(body['estado_categoria'], 'nuevo')
+        # La etapa de tratamiento es dato de salud: no sale por una ruta publica.
+        self.assertNotIn('estado_categoria', body)
 
     def test_estado_fijo_filtra_el_menu(self):
         """El filtrado real: un paciente con aparatos fijos hoy no deberia ver
@@ -57,7 +57,7 @@ class TestAgendaPacienteMenuFiltrado(unittest.TestCase):
         r = self.client.get(f'/api/agenda/paciente?rut={RUT_1}')
         self.assertEqual(r.status_code, 200)
         body = r.get_json()
-        self.assertEqual(body['estado_categoria'], 'fijo')
+        self.assertNotIn('estado_categoria', body)
         self.assertEqual(sorted(body['motivos_permitidos']), ['control_fijo', 'urgencia'])
 
     def test_rut_invalido_sigue_dando_400(self):

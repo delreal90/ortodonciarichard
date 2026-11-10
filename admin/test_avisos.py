@@ -37,7 +37,7 @@ import nps                # noqa: E402
 import recordatorios_wa   # noqa: E402
 import confirmaciones     # noqa: E402
 
-RUT = '17.406.985-9'
+RUT = '14.141.411-9'
 
 
 def _limpiar(modulo):
@@ -171,8 +171,8 @@ class TestGuardasControlDental(unittest.TestCase):
 
     def test_rut_con_y_sin_puntos_son_el_mismo_paciente(self):
         self._inscribir()
-        control_dental.agregar_no_molestar('17406985-9')
-        self.assertEqual(control_dental.evaluar('17.406.985-9', self.cfg)['motivo'],
+        control_dental.agregar_no_molestar('14141411-9')
+        self.assertEqual(control_dental.evaluar('14.141.411-9', self.cfg)['motivo'],
                          'no_molestar')
 
 
@@ -448,9 +448,9 @@ class TestBaseCompartida(unittest.TestCase):
                                     f'{nombre} deberia exponer {fn}()')
 
     def test_los_tres_normalizan_el_rut_igual(self):
-        """Si divergieran, un paciente marcado como 17.406.985-9 en un sistema
-        seguiria recibiendo mensajes de otro que lo lee como 174069859."""
-        formatos = ['17.406.985-9', '17406985-9', '174069859', '17.406.985-K']
+        """Si divergieran, un paciente marcado como 14.141.411-9 en un sistema
+        seguiria recibiendo mensajes de otro que lo lee como 141414119."""
+        formatos = ['14.141.411-9', '14141411-9', '141414119', '14.141.411-K']
         for f in formatos:
             claves = {m._rut_key(f) for _, m in self.MODULOS}
             with self.subTest(rut=f):
@@ -459,9 +459,9 @@ class TestBaseCompartida(unittest.TestCase):
     def test_distintos_formatos_del_mismo_rut_son_el_mismo_paciente(self):
         for nombre, m in self.MODULOS:
             with self.subTest(modulo=nombre):
-                m.agregar_no_molestar('17.406.985-9')
-                self.assertTrue(m.en_no_molestar('174069859'))
-                self.assertTrue(m.en_no_molestar('17406985-9'))
+                m.agregar_no_molestar('14.141.411-9')
+                self.assertTrue(m.en_no_molestar('141414119'))
+                self.assertTrue(m.en_no_molestar('14141411-9'))
 
     def test_no_molestar_es_independiente_entre_sistemas(self):
         """A proposito: decir "no me manden encuestas" no es decir "no me avisen

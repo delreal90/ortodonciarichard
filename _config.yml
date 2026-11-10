@@ -18,3 +18,4 @@ exclude:
   - requirements.txt
   - Panel Admin.bat
   - motivos_consulta.txt
+  - informes-seo

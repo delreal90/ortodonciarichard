@@ -160,9 +160,8 @@ PDF_TOKEN_MAX_AGE_SEGUNDOS = 4 * 3600
 def _secret():
     # Secreto dedicado (SEGUROS_SECRET); cae a CONSENT_SECRET si no esta para
     # no exigir otra env var en Render, y a un valor de dev en local.
-    return (os.environ.get('SEGUROS_SECRET')
-            or os.environ.get('CONSENT_SECRET')
-            or 'dev-secret-cambiar-en-produccion')
+    import secretos
+    return secretos.firma('SEGUROS_SECRET', 'CONSENT_SECRET')
 
 
 def _serializer():

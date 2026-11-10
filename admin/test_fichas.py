@@ -55,7 +55,7 @@ class TestInterpretar(unittest.TestCase):
 
     def test_adulto(self):
         f, _ = fichas.interpretar(HEADERS, [fila(
-            rut='17.406.985-9', nombres='Alberto', apellidos='Del Real',
+            rut='14.141.411-9', nombres='Alberto', apellidos='Del Real',
             fnac_ad='5/03/1990', cel='+56 9 1234 5678', correo='a@b.cl',
             dir='Paul Harris 10349', comuna='Las Condes, Santiago')])
         self.assertEqual(len(f), 1)
@@ -89,7 +89,7 @@ class TestInterpretar(unittest.TestCase):
     def test_titulo_renombrado_no_revienta(self):
         """Si el formulario cambia un titulo, ese campo queda vacio, no crashea."""
         hdr = list(HEADERS); hdr[2] = 'Primer Nombre'   # ya no calza con 'nombres'
-        f, _ = fichas.interpretar(hdr, [fila(rut='17.406.985-9', nombres='Alberto')])
+        f, _ = fichas.interpretar(hdr, [fila(rut='14.141.411-9', nombres='Alberto')])
         self.assertEqual(f[0]['nombres'], '')            # no lo encontro, pero no revento
 
 
@@ -99,11 +99,11 @@ class TestMerge(unittest.TestCase):
         pacientes.vaciar()
 
     def test_crea_paciente_nuevo(self):
-        pacientes.merge_fichas([{'rut': '17.406.985-9', 'nombres': 'Alberto',
+        pacientes.merge_fichas([{'rut': '14.141.411-9', 'nombres': 'Alberto',
                                  'apellidos': 'Del Real', 'email': 'a@b.cl',
                                  'telefono': '+56 9 1', 'fecha_nacimiento': '1990-03-05',
                                  'direccion': 'x', 'comuna': 'Las Condes'}])
-        rec = pacientes.lookup('17.406.985-9')
+        rec = pacientes.lookup('14.141.411-9')
         self.assertEqual(rec['nombres'], 'Alberto')
         self.assertEqual(rec['email'], 'a@b.cl')
 
@@ -115,30 +115,30 @@ class TestMerge(unittest.TestCase):
     def test_no_pisa_email_existente(self):
         """La regla de oro: en un menor el correo del form es del apoderado, y
         pisar el de DentiDesk romperia la dedup RUT+EMAIL."""
-        pacientes.merge_fichas([{'rut': '17.406.985-9', 'email': 'original@dentidesk.cl'}])
-        pacientes.merge_fichas([{'rut': '17.406.985-9', 'email': 'apoderado@form.cl'}])
-        self.assertEqual(pacientes.lookup('17.406.985-9')['email'], 'original@dentidesk.cl')
+        pacientes.merge_fichas([{'rut': '14.141.411-9', 'email': 'original@dentidesk.cl'}])
+        pacientes.merge_fichas([{'rut': '14.141.411-9', 'email': 'apoderado@form.cl'}])
+        self.assertEqual(pacientes.lookup('14.141.411-9')['email'], 'original@dentidesk.cl')
 
     def test_rellena_solo_lo_que_falta(self):
-        pacientes.merge_fichas([{'rut': '17.406.985-9', 'nombres': 'Alberto'}])
+        pacientes.merge_fichas([{'rut': '14.141.411-9', 'nombres': 'Alberto'}])
         # segunda ficha trae apellido y telefono nuevos, pero otro nombre
-        pacientes.merge_fichas([{'rut': '17.406.985-9', 'nombres': 'OTRO',
+        pacientes.merge_fichas([{'rut': '14.141.411-9', 'nombres': 'OTRO',
                                  'apellidos': 'Del Real', 'telefono': '+56 9 2'}])
-        rec = pacientes.lookup('17.406.985-9')
+        rec = pacientes.lookup('14.141.411-9')
         self.assertEqual(rec['nombres'], 'Alberto')       # NO se piso
         self.assertEqual(rec['apellidos'], 'Del Real')    # se relleno (estaba vacio)
         self.assertEqual(rec['telefono'], '+56 9 2')
 
     def test_no_toca_la_parte_clinica(self):
         """La ficha trae antecedentes medicos; NO deben entrar a la base."""
-        pacientes.merge_fichas([{'rut': '17.406.985-9', 'nombres': 'A',
+        pacientes.merge_fichas([{'rut': '14.141.411-9', 'nombres': 'A',
                                  'alergias': 'SI', 'ronca': 'NO'}])
-        rec = pacientes.lookup('17.406.985-9')
+        rec = pacientes.lookup('14.141.411-9')
         self.assertNotIn('alergias', rec)
         self.assertNotIn('ronca', rec)
 
     def test_idempotente(self):
-        fichas_ = [{'rut': '17.406.985-9', 'nombres': 'A', 'email': 'a@b.cl'}]
+        fichas_ = [{'rut': '14.141.411-9', 'nombres': 'A', 'email': 'a@b.cl'}]
         pacientes.merge_fichas(fichas_)
         r2 = pacientes.merge_fichas(fichas_)
         self.assertEqual(r2['nuevos'], 0)

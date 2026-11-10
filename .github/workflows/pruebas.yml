@@ -1,0 +1,40 @@
+# Corre la bateria completa del backend en cada push que toque admin/.
+#
+# Por que existe (auditoria 2026-11-10): en este proyecto `git push` ES el deploy
+# (Render publica solo) y nada impedia publicar con pruebas rotas. Para que esto
+# FRENE un deploy malo hay que cambiar en Render:
+#   Settings -> Auto-Deploy -> "After CI Checks Pass"
+# Mientras siga en "On Commit", este workflow solo AVISA (correo de GitHub si falla).
+#
+# Las pruebas son cero red / cero correo / cero WhatsApp / cero DentiDesk: no
+# necesitan ningun secreto, y por eso este archivo no define ninguno.
+name: Pruebas del backend
+
+on:
+  push:
+    branches: [main]
+    paths: ['admin/**', 'requirements.txt', '.github/workflows/pruebas.yml']
+  pull_request:
+    paths: ['admin/**', 'requirements.txt']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: test_todo.py
+        working-directory: admin
+        env:
+          DENTIDESK_ENABLED: 'false'
+          TZ: America/Santiago
+        run: python test_todo.py
