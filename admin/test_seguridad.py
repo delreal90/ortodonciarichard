@@ -205,6 +205,7 @@ class TestCoberturaDeAuth(unittest.TestCase):
         '/api/seguro/link-info':                'token opaco del link "cambié mi aseguradora" (rate limit 10/min)',
         '/api/seguro/actualizar-aseguradora':   'el paciente actualiza su aseguradora con el token del correo (rate limit 10/min)',
         '/api/whatsapp/webhook':                'firma HMAC de Meta, fail-closed',
+        '/api/baja':                            'darse de baja de los recordatorios: la llave es el token firmado del enlace del correo (rate limit 10/min)',
         '/api/psq/enviar':                      'cuestionario de sueño: el paciente lo envía sin sesión (rate limit 10/min)',
         '/api/tamizaje/datos':                  'cuestionario de sueño del informe: lo abre el paciente escaneando el QR, sin sesión. La llave es un token firmado que vence en 2 h (rate limit 30/min)',
         '/api/tamizaje/enviar':                 'el paciente responde ese cuestionario desde su teléfono; mismo token firmado y con vencimiento (rate limit 10/min)',
@@ -372,6 +373,37 @@ class TestLlavesYCabeceras(unittest.TestCase):
         self.assertTrue(r.headers.get('Referrer-Policy'))
         # la camara tiene que seguir permitida: Compras escanea codigos con ella
         self.assertIn('camera=(self)', r.headers.get('Permissions-Policy', ''))
+
+
+class TestPsqExigeAutorizacion(unittest.TestCase):
+    """Ley 21.719: el cuestionario de sueno son datos de salud de un menor y la
+    ruta es publica. Sin la autorizacion del apoderado no se guarda nada."""
+
+    def setUp(self):
+        self.client = server.app.test_client()
+        if server.limiter:
+            server.limiter.reset()
+        self.cuerpo = {'rut': _rut_con_dv(12345678), 'nombre': 'Ana', 'apellido': 'Prueba',
+                       'respuestas': {}}
+
+    def test_sin_casilla_se_rechaza_antes_de_guardar(self):
+        from unittest import mock
+        with mock.patch.object(server.psq, 'guardar_envio') as guardar:
+            r = self.client.post('/api/psq/enviar', json=self.cuerpo)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()['codigo'], 'sin_consentimiento')
+        guardar.assert_not_called()
+
+    def test_con_casilla_queda_la_evidencia(self):
+        from unittest import mock
+        cuerpo = dict(self.cuerpo, consentimiento=True, consentimiento_version='psq-2026-11')
+        with mock.patch.object(server.psq, 'validar_respuestas', return_value=None),              mock.patch.object(server.psq, 'calcular_riesgo',
+                               return_value={'puntaje': 0, 'riesgo': 'bajo'}),              mock.patch.object(server.psq, 'guardar_envio') as guardar,              mock.patch.object(server, '_procesar_psq'):
+            r = self.client.post('/api/psq/enviar', json=cuerpo)
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        guardado = guardar.call_args[0][1]
+        self.assertTrue(guardado['consentimiento']['aceptado'])
+        self.assertEqual(guardado['consentimiento']['version'], 'psq-2026-11')
 
 
 class TestLimitesDeVelocidad(unittest.TestCase):

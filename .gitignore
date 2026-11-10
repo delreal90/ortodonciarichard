@@ -182,3 +182,7 @@ admin/geocodificar_estado.json
 
 # Informes internos de la revision SEO programada: no son parte del sitio.
 informes-seo/
+
+# Lista general de bajas de avisos (RUT de pacientes).
+admin/bajas_global.json
+admin/aceptaciones.json

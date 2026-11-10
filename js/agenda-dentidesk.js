@@ -356,6 +356,11 @@ function cerrarAgenda() {
 
 // Escapa texto antes de meterlo en HTML (nombres, motivos: vienen del backend o
 // los escribio una persona). Sin esto, un nombre con <script> se ejecutaba aca.
+// Version del texto de la casilla de datos personales (pasoResumen). Si se
+// cambia ESE texto, subir esta version: es lo que el servidor guarda como
+// evidencia de que acepto el paciente.
+const CONSENT_VERSION = 'agenda-2026-08';
+
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, ch => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -1441,6 +1446,7 @@ async function confirmarReserva() {
           body: JSON.stringify({
             link_token: agenda.linkToken, fecha: s.fecha, hora: s.hora,
             captcha_token: agenda.captchaToken || '',
+            consentimiento: true, consentimiento_version: CONSENT_VERSION,
           }),
         })
       : agenda.reagendaExacto
@@ -1452,6 +1458,7 @@ async function confirmarReserva() {
             nombres: s.datos.nombres, apellidos: s.datos.apellidos,
             email: s.datos.email || '', telefono: s.datos.telefono || '',
             captcha_token: agenda.captchaToken || '',
+            consentimiento: true, consentimiento_version: CONSENT_VERSION,
           }),
         })
       : await agendaApi('/api/agenda/reservar', {
@@ -1469,6 +1476,7 @@ async function confirmarReserva() {
             ...(s.completarDatos && { es_completar_datos: true }),
             ...(agenda.reagendaId && { reagenda_id_agenda: agenda.reagendaId, reagenda_fecha: agenda.reagendaFecha || '' }),
             captcha_token: agenda.captchaToken || '',
+            consentimiento: true, consentimiento_version: CONSENT_VERSION,
           }),
         });
     if (r.ok) { track('reservado'); pasoExito(r); } else pasoError(r.error || 'No se pudo agendar.');

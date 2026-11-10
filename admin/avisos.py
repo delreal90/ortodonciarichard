@@ -114,7 +114,12 @@ class ListaNoMolestar:
         return list(self._load().get(self._clave) or [])
 
     def contiene(self, rut):
-        return rut_key(rut) in (self._load().get(self._clave) or [])
+        # La lista propia del sistema O la baja GENERAL que pidio el paciente
+        # (enlace de un correo, 'BAJA' por WhatsApp). Ver bajas.py.
+        if rut_key(rut) in (self._load().get(self._clave) or []):
+            return True
+        import bajas
+        return bajas.contiene(rut)
 
     def guarda(self, detalle):
         """Devuelve una guarda lista para `primera_guarda()`. `detalle` es el

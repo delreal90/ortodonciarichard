@@ -448,6 +448,13 @@ class TestEventos(Base):
             {'id': 'wacid.1', 'rut': '111111111', 'telefono': '56912345678',
              'nombre': 'X', 'cuando': '2026-05-01T10:00:00',
              'respondido': True}]}), encoding='utf-8')
+        (reg / 'bajas_global.json').write_text(json.dumps({'bajas': {
+            '111111111': {'fecha_iso': '2026-06-01T10:00:00', 'origen': 'correo',
+                          'detalle': ''}}}), encoding='utf-8')
+        (reg / 'aceptaciones.json').write_text(json.dumps({'items': [
+            {'rut': '222222222', 'fecha_iso': '2026-06-02T10:00:00',
+             'origen': 'agenda_online', 'version': 'agenda-2026-08', 'ref': '9',
+             'aceptado': True}]}), encoding='utf-8')
 
         # Los registros sembrados los leen TODOS los módulos, así que hay que
         # retirarlos: si no, las pruebas que corren después proyectan eventos que

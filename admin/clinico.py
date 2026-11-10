@@ -553,6 +553,21 @@ def _ev_llamadas_perdidas():
                {'telefono': it.get('telefono'), 'nombre': it.get('nombre')})
 
 
+def _ev_aceptaciones():
+    import aceptaciones
+    for it in aceptaciones.listar(_LIMITE_EVENTOS):
+        yield ('', it.get('rut'), it.get('fecha_iso'), 'aceptacion_datos',
+               'aceptado' if it.get('aceptado') else 'sin_registro',
+               {'origen': it.get('origen'), 'version': it.get('version'), 'ref': it.get('ref')})
+
+
+def _ev_bajas():
+    import bajas
+    for it in bajas.listar()[:_LIMITE_EVENTOS]:
+        yield ('baja:' + it.get('rut', ''), it.get('rut'), it.get('fecha_iso'),
+               'baja_avisos', it.get('origen') or 'panel', {})
+
+
 ADAPTADORES = (
     ('consentimiento', _ev_consentimientos),
     ('nps', _ev_nps),
@@ -563,6 +578,8 @@ ADAPTADORES = (
     ('seguro', _ev_seguros),
     ('reactivacion', _ev_reactivacion),
     ('llamada_perdida', _ev_llamadas_perdidas),
+    ('baja', _ev_bajas),
+    ('aceptacion', _ev_aceptaciones),
 )
 
 

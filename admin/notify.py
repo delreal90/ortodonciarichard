@@ -1123,7 +1123,7 @@ def _frecuencia_label(frecuencia_meses):
     return f'{n} meses'
 
 
-def _html_control_dental(nombre, saludo_sufijo, frecuencia_meses=6):
+def _html_control_dental(nombre, saludo_sufijo, frecuencia_meses=6, enlace_baja=''):
     """HTML del recordatorio de control dental (limpieza y revision de
     caries con el dentista general del paciente, mientras dura el
     tratamiento de ortodoncia). Molde: _html_formulario_seguro. saludo_sufijo
@@ -1134,6 +1134,11 @@ def _html_control_dental(nombre, saludo_sufijo, frecuencia_meses=6):
       <p style="margin:0 0 16px;color:#4A5568;font-size:15px;">Han pasado {frecuencia_txt} desde nuestro último recordatorio. Durante el tratamiento de ortodoncia te recomendamos agendar un control con tu dentista para limpieza y revisión de caries.</p>
       <p style="margin:0 0 20px;color:#4A5568;font-size:15px;">Mantener una buena higiene permite que el tratamiento de ortodoncia avance en los tiempos esperados, además de poder terminarlo de la mejor manera.</p>
       <p style="margin:0;color:#a0aec0;font-size:12px;">Si ya fuiste recientemente a tu control dental, por favor no consideres este correo.</p>"""
+    if enlace_baja:
+        # Derecho de oposicion (Ley 21.719): un clic, sin clave. La baja vale para
+        # todos los recordatorios no asistenciales (ver bajas.py).
+        cuerpo += f"""
+      <p style="margin:10px 0 0;color:#a0aec0;font-size:12px;">¿No quieres recibir estos recordatorios? <a href="{enlace_baja}" style="color:#8fa8c8;">Darme de baja</a>.</p>"""
     return _email_layout('Recordatorio: control con tu dentista', cuerpo, pie=PIE_COMPLETO,
                          title_tag='Recordatorio de control dental')
 
@@ -1159,7 +1164,16 @@ def enviar_recordatorio_control_dental(paciente, cfg=None):
     msg['To'] = dest
     msg['Subject'] = 'Recordatorio: control con tu dentista'
     msg['Reply-To'] = smtp_user
-    msg.attach(MIMEText(_html_control_dental(nombre, saludo_sufijo, frecuencia_meses), 'html', 'utf-8'))
+    enlace_baja = ''
+    try:
+        import bajas
+        if paciente.get('rut'):
+            enlace_baja = bajas.enlace(paciente['rut'])
+            msg['List-Unsubscribe'] = f'<{enlace_baja}>'
+    except Exception as e:      # sin enlace el correo sale igual
+        log.warning('control dental: no se pudo armar el enlace de baja: %r', e)
+    msg.attach(MIMEText(_html_control_dental(nombre, saludo_sufijo, frecuencia_meses,
+                                             enlace_baja), 'html', 'utf-8'))
 
     try:
         ctx = ssl.create_default_context()

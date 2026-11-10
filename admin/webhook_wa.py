@@ -185,10 +185,40 @@ def _procesar_llamada(llamada, cfg, contactos=None):
     return True
 
 
+def _baja_por_texto(msg):
+    """El paciente escribio BAJA / STOP / 'no mas mensajes': se anota en la lista
+    general (bajas.py) y se le confirma. True solo si quedo anotado; si el
+    telefono no calza con UN paciente, el mensaje sigue su camino normal y lo
+    lee recepcion (no se adivina a quien dar de baja). Nunca lanza."""
+    try:
+        import bajas
+        if msg.get('type') != 'text':
+            return False
+        if not bajas.es_pedido_de_baja((msg.get('text') or {}).get('body')):
+            return False
+        telefono = msg.get('from') or ''
+        pac = pacientes.buscar_por_telefono(telefono) or {}
+        if not pac.get('rut'):
+            return False
+        bajas.agregar(pac['rut'], 'whatsapp')
+        notify.enviar_texto_libre(
+            telefono,
+            'Listo: no le enviaremos más recordatorios ni encuestas. '
+            'Las confirmaciones de sus horas agendadas seguirán llegando. '
+            'Si fue un error, escríbanos por aquí.')
+        log.warning('Baja de avisos por WhatsApp registrada (...%s)', telefono[-4:])
+        return True
+    except Exception as e:
+        log.warning('Baja por WhatsApp: no se pudo procesar: %r', e)
+        return False
+
+
 def _procesar_mensaje(msg, cfg, contactos=None):
     if msg.get('type') != 'button':
         # Texto libre, audio, imagen...: el bot no contesta, pero recepcion tiene
         # que enterarse (nunca lanza: un fallo ahi no puede tumbar el webhook).
+        if _baja_por_texto(msg):
+            return True
         return mensajes_libres.procesar(msg, cfg, contactos)
 
     boton = msg.get('button') or {}

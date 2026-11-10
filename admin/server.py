@@ -1877,6 +1877,7 @@ def agenda_reservar():
         return jsonify({'ok': False, 'error': 'No se pudo crear la cita'}), 502
     # La hora recien tomada debe desaparecer al instante para quien este mirando.
     _refrescar_dia_reservado(doctor, fecha, cfg)
+    _anotar_aceptacion(rut, data, res.get('id_cita'))
 
     # Registrar esta cita online como "ya confirmada" para que el barrido de
     # confirmaciones (citas presenciales/telefono) no le reenvie el correo.
@@ -1998,6 +1999,14 @@ def agenda_reservar():
                     'confirmacion': confirm, 'mock': res.get('mock', False),
                     'solicitud_cambio': es_no_soy_yo or es_completar,
                     'reagenda': es_reagenda})
+
+def _anotar_aceptacion(rut, data, id_cita):
+    """Deja la evidencia de la casilla de datos personales de la agenda online
+    (aceptaciones.py). No rechaza nada: una pagina vieja en cache no la manda."""
+    import aceptaciones
+    aceptaciones.registrar(rut, 'agenda_online', data.get('consentimiento_version'),
+                           ref=id_cita, aceptado=data.get('consentimiento') is True)
+
 
 def _cita_es_del_rut(cita, rut):
     """True solo si la cita de DentiDesk pertenece a ese RUT. Una cita sin RUT
@@ -2164,6 +2173,7 @@ def agenda_reservar_reagenda():
         return jsonify({'ok': False, 'error': 'Tuvimos un problema técnico momentáneo con tu reagendamiento. Por favor intenta de nuevo en unos minutos o escríbenos por WhatsApp.', 'codigo': 'error_dentidesk'}), 502
 
     _refrescar_dia_reservado(doctor, fecha, cfg)
+    _anotar_aceptacion(rut, data, res.get('id_cita'))
 
     try:
         import confirmaciones
@@ -4205,6 +4215,73 @@ def consentimiento_limpiar_huerfanos():
 import psq
 
 
+# ── Darse de baja de los avisos no asistenciales (bajas.py) ──────────────────
+_BAJA_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Darse de baja · Ortodoncia Richard</title>
+<style>body{margin:0;background:#F0F5FB;font-family:Arial,Helvetica,sans-serif;color:#1A2535}
+.c{max-width:460px;margin:8vh auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 12px rgba(26,46,74,.1)}
+h1{font-size:20px;color:#1A2E4A;margin:0 0 12px}p{font-size:15px;line-height:1.5;color:#4A5568}
+button{width:100%;padding:14px;border:0;border-radius:8px;background:#1A2E4A;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+small{color:#718096}</style></head><body><div class="c" id="c">
+<h1>¿Dejar de recibir recordatorios?</h1>
+<p>No le enviaremos más recordatorios de control, encuestas ni invitaciones de la clínica.</p>
+<p><small>Las confirmaciones y recordatorios de una hora que usted ya agendó seguirán llegando: son parte de su atención.</small></p>
+<button id="b">Sí, darme de baja</button></div>
+<script>
+document.getElementById('b').onclick = async function () {
+  this.disabled = true;
+  var t = new URLSearchParams(location.search).get('token') || '';
+  var ok = false;
+  try {
+    var r = await fetch('/api/baja', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                      body: JSON.stringify({token: t})});
+    ok = (await r.json()).ok;
+  } catch (e) {}
+  document.getElementById('c').innerHTML = ok
+    ? '<h1>Listo</h1><p>Quedó registrada su baja. Si fue un error, escríbanos a recepcion@ortodonciarichard.cl.</p>'
+    : '<h1>No pudimos registrar la baja</h1><p>El enlace no es válido. Escríbanos a recepcion@ortodonciarichard.cl y lo hacemos por usted.</p>';
+};
+</script></body></html>"""
+
+
+@app.route('/baja')
+def baja_page():
+    # Abrir la pagina NO da de baja (los correos pre-abren los enlaces): hay boton.
+    return _BAJA_HTML
+
+
+@app.route('/api/baja', methods=['POST'])
+@rate_limit('10 per minute')
+def baja_confirmar():
+    """Publica: la llave es el token firmado del enlace del correo."""
+    import bajas
+    rut = bajas.rut_de_token((request.json or {}).get('token'))
+    if not rut:
+        return jsonify({'ok': False, 'error': 'Enlace no válido'}), 400
+    bajas.agregar(rut, 'correo')
+    return jsonify({'ok': True})
+
+
+@app.route('/api/bajas', methods=['GET', 'POST'])
+def bajas_admin():
+    """Panel: ver la lista general, agregar a alguien o deshacer una baja.
+    POST {rut, quitar?, detalle?}."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    import bajas
+    if request.method == 'POST':
+        data = request.json or {}
+        rut = data.get('rut', '')
+        if not scheduling.rut_valido(rut):
+            return jsonify({'ok': False, 'error': 'RUT inválido'}), 400
+        if data.get('quitar'):
+            bajas.quitar(rut)
+        else:
+            bajas.agregar(rut, 'panel', data.get('detalle', ''))
+    return jsonify({'ok': True, 'bajas': bajas.listar()})
+
+
 @app.route('/psq')
 def psq_page():
     return send_from_directory('.', 'psq.html')
@@ -4247,6 +4324,12 @@ def psq_enviar():
         return jsonify({'ok': False, 'error': 'RUT inválido'}), 400
     if not nombre or not apellido:
         return jsonify({'ok': False, 'error': 'Falta el nombre o apellido del paciente'}), 400
+    # Ley 21.719: son datos de salud de un menor. Sin la autorizacion expresa del
+    # apoderado no se guarda nada (la casilla del navegador no basta: se exige aca).
+    if data.get('consentimiento') is not True:
+        return jsonify({'ok': False, 'codigo': 'sin_consentimiento',
+                        'error': 'Falta la autorización del apoderado'}), 400
+    consent_version = re.sub(r'[^\w.\-]', '', str(data.get('consentimiento_version') or ''))[:40]
     error_resp = psq.validar_respuestas(respuestas)
     if error_resp:
         return jsonify({'ok': False, 'error': error_resp}), 400
@@ -4261,6 +4344,9 @@ def psq_enviar():
         'fecha_iso': ahora.isoformat(), 'respuestas': respuestas,
         'puntaje': resultado['puntaje'], 'riesgo': resultado['riesgo'],
         'estado': 'pendiente',
+        # Evidencia de la autorizacion: quien declaro ser, cuando y que texto acepto.
+        'consentimiento': {'aceptado': True, 'rol': 'apoderado', 'version': consent_version,
+                           'fecha_iso': ahora.isoformat()},
     })
 
     paciente_ctx = {

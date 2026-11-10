@@ -63,6 +63,7 @@ SUITES = [
     ('tareas',       'test_tareas.py',       'bolsa de tareas: nunca proponer mas de lo que cabe ni que dos tomen la misma'),
     ('mensajes_libres', 'test_mensajes_libres.py', 'mensajes escritos al WhatsApp: aviso a recepcion sin inundar, auto-respuesta fuera de horario'),
     ('respaldos',    'test_vigilante_respaldos.py', 'vigilante de respaldos: avisa a los 4 dias, no todos los dias'),
+    ('bajas',        'test_bajas.py',        'darse de baja: lista general, enlace del correo, BAJA por WhatsApp y evidencia de aceptacion'),
     ('rendimiento', 'test_rendimiento_agenda.py', 'agenda online: citas-futuras con cache, /api/salud, lentas y marcas de KPIs'),
 ]
 

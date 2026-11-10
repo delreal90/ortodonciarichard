@@ -108,6 +108,16 @@
     <div id="preguntas-conducta"></div>
   </div>
 
+  <div class="card">
+    <h2>Autorización</h2>
+    <p class="intro">Este cuestionario recoge información de salud de su hijo/a para que el ortodoncista tratante evalúe su respiración y sueño. La verá solo el equipo clínico y se guarda junto a su ficha.</p>
+    <label style="display:flex;gap:10px;align-items:flex-start;font-size:.92rem;line-height:1.45;cursor:pointer">
+      <input type="checkbox" id="in-consent" style="width:20px;height:20px;margin-top:2px;flex:none">
+      <span>Soy madre, padre o tutor legal del paciente y autorizo este uso de sus datos. Leí la <a href="https://www.ortodonciarichard.cl/privacidad.html" target="_blank" rel="noopener">política de privacidad</a>.</span>
+    </label>
+    <p class="error-inline" id="err-consent"></p>
+  </div>
+
   <p class="progreso" id="progreso">0 de 22 respondidas</p>
   <p class="error-inline" id="err-envio"></p>
   <div id="enviar-sticky">
@@ -236,6 +246,12 @@ async function enviar() {
     return;
   }
 
+  document.getElementById('err-consent').style.display = 'none';
+  if (!document.getElementById('in-consent').checked) {
+    mostrarError('err-consent', 'Para enviar el cuestionario necesitamos su autorización.');
+    return;
+  }
+
   const btn = document.getElementById('btn-enviar');
   btn.disabled = true;
   btn.textContent = 'Enviando…';
@@ -244,7 +260,8 @@ async function enviar() {
     const r = await fetch(`${API_BASE}/api/psq/enviar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rut, nombre, apellido, respuestas }),
+      body: JSON.stringify({ rut, nombre, apellido, respuestas,
+                             consentimiento: true, consentimiento_version: 'psq-2026-11' }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.ok) {
