@@ -61,6 +61,26 @@ def lookup(rut):
     return _load_index().get(_limpiar_rut(rut))
 
 
+
+
+def nombres_de(ruts):
+    """{rut_limpio: "Nombres Apellidos"} para una lista de RUT, leyendo la base
+    UNA sola vez. Pensado para listados (ej. el historial de seguros, que guarda
+    solo el RUT): resolver con lookup() uno por uno recorre el indice por cada
+    fila. Un RUT que no este en la base simplemente no aparece en el resultado."""
+    idx = _load_index()
+    out = {}
+    for rut in ruts:
+        k = _limpiar_rut(rut)
+        if not k or k in out:
+            continue
+        rec = idx.get(k)
+        if rec:
+            nombre = ' '.join(x for x in (rec.get('nombres'), rec.get('apellidos')) if x)
+            if nombre.strip():
+                out[k] = nombre.strip()
+    return out
+
 # La tabla nombre->sexo se arma recorriendo la base entera, asi que se cachea.
 # Se invalida por el TAMANIO de la base: cuando entran pacientes nuevos --que es
 # justo cuando la tabla se queda corta-- se rearma sola. No hace falta mas

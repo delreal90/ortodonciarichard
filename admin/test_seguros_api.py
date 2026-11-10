@@ -115,5 +115,70 @@ class TestAutoConfigEndpoint(_Base):
         self.assertEqual(self.client.get('/api/seguro/auto-config').status_code, 403)
 
 
+
+class TestHistorialDelPanel(_Base):
+    """El historial es lo que contesta "a este paciente, se le envio o no?".
+
+    Nacio de un reclamo real: el apoderado de una paciente dijo que nunca le
+    habia llegado el formulario y NO habia donde mirarlo -- el registro guarda
+    solo el RUT, asi que buscarla por nombre no daba nada. Estas pruebas fijan
+    que el historial traiga el NOMBRE y distinga "enviado" de "quedo en vista
+    previa", que era justo el caso de esa paciente (29 PDF generados, 0 enviados).
+    """
+
+    def setUp(self):
+        super().setUp()
+        import pacientes
+        pacientes._STORE.save({'141414119': {'nombres': 'Ana Maria',
+                                             'apellidos': 'Soto Vera',
+                                             'email': 'ana@ejemplo.cl'}})
+        self.gen = seguros.crear_registro({'rut': RUT, 'aseguradora': 'metlife',
+                                      'doctor': 'alberto', 'email': 'ana@ejemplo.cl',
+                                      'fecha_atencion': '2026-11-03',
+                                      'prestaciones': [{'descripcion': 'CONTROL', 'valor': 50000},
+                                                       {'descripcion': 'RX', 'valor': 25000}]})
+
+    def _hist(self, qs=''):
+        r = self.client.get('/api/seguro/admin/historial' + qs,
+                            headers={'X-Admin-Token': 'token-de-prueba'})
+        self.assertEqual(r.status_code, 200)
+        return r.get_json()
+
+    def test_trae_el_nombre_del_paciente(self):
+        item = self._hist()['items'][0]
+        self.assertIn('Ana Maria', item['nombre'])
+        self.assertIn('Soto Vera', item['nombre'])
+
+    def test_suma_el_total_y_cuenta_las_prestaciones(self):
+        item = self._hist()['items'][0]
+        self.assertEqual(item['total'], 75000)
+        self.assertEqual(item['n_prestaciones'], 2)
+
+    def test_distingue_enviado_de_solo_generado(self):
+        d = self._hist()
+        self.assertEqual(d['resumen']['sin_enviar'], 1)
+        self.assertEqual(d['resumen']['enviados'], 0)
+        seguros.marcar_enviado(self.gen, canal='email')
+        d = self._hist()
+        self.assertEqual(d['resumen']['sin_enviar'], 0)
+        self.assertEqual(d['resumen']['enviados'], 1)
+
+    def test_no_filtra_la_ruta_interna_del_pdf(self):
+        # pdf_path es una ruta del disco del servidor: al panel solo va el flag
+        item = self._hist()['items'][0]
+        self.assertNotIn('pdf_path', item)
+        self.assertIn('pdf_disponible', item)
+
+    def test_exige_token(self):
+        self.assertEqual(self.client.get('/api/seguro/admin/historial').status_code, 403)
+        self.assertEqual(self.client.get('/api/seguro/admin/pdf-link?form_id=x').status_code, 403)
+
+    def test_pdf_link_404_si_el_formulario_no_existe(self):
+        r = self.client.get('/api/seguro/admin/pdf-link?form_id=noexiste',
+                            headers={'X-Admin-Token': 'token-de-prueba'})
+        self.assertEqual(r.status_code, 404)
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -5652,11 +5652,58 @@ def seguro_admin_firma():
 
 @app.route('/api/seguro/admin/historial', methods=['GET'])
 def seguro_admin_historial():
+    """Historial de formularios para la pestana Seguros del panel.
+
+    El registro guarda solo el RUT, asi que aca se le agrega el NOMBRE del
+    paciente: sin eso no hay forma de buscar "a quien se le envio" (fue
+    justamente lo que impidio revisar un reclamo). Tambien se calcula el total
+    y si el PDF sigue en disco, para saber si se puede reenviar."""
     if not _check_admin_token():
         return jsonify({'ok': False, 'error': 'No autorizado'}), 403
-    return jsonify({'ok': True, 'items': seguros.listar_registros(
-        estado=request.args.get('estado') or None,
-        rut=request.args.get('rut') or None)})
+    import pacientes as _pac
+    items = seguros.listar_registros(estado=request.args.get('estado') or None,
+                                     rut=request.args.get('rut') or None)
+    nombres = _pac.nombres_de([i.get('rut', '') for i in items])
+    for i in items:
+        rut = ''.join(c for c in (i.get('rut') or '').upper() if c.isdigit() or c == 'K')
+        i['nombre'] = nombres.get(rut, '')
+        i['total'] = sum(int(p.get('valor') or 0) for p in (i.get('prestaciones') or []))
+        i['n_prestaciones'] = len(i.get('prestaciones') or [])
+        i['pdf_disponible'] = bool(i.get('pdf_path') and os.path.exists(i['pdf_path']))
+        i.pop('pdf_path', None)          # ruta interna del servidor: no sale al panel
+    return jsonify({'ok': True, 'items': items,
+                    'resumen': _seguro_resumen_historial(items)})
+
+
+def _seguro_resumen_historial(items):
+    """Contadores para la cabecera de la pestana. 'sin_enviar' son los que
+    quedaron en 'generado': se vio la vista previa y nunca se apreto enviar."""
+    mes = fechas.ahora_chile().strftime('%Y-%m')
+    enviados = [i for i in items if i.get('estado') == 'enviado']
+    sin_enviar = [i for i in items if i.get('estado') != 'enviado']
+    return {
+        'total': len(items),
+        'enviados': len(enviados),
+        'sin_enviar': len(sin_enviar),
+        'este_mes': sum(1 for i in enviados if (i.get('enviado') or '')[:7] == mes),
+        'pacientes': len({i.get('rut') for i in items if i.get('rut')}),
+    }
+
+
+@app.route('/api/seguro/admin/pdf-link', methods=['GET'])
+def seguro_admin_pdf_link():
+    """Link temporal para abrir el PDF de un formulario desde el panel. El PDF
+    se sirve por /api/seguro/pdf, que se autentica con un token firmado en la
+    URL (un iframe o una pestana nueva no mandan headers)."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    form_id = (request.args.get('form_id') or '').strip()
+    item = seguros.obtener_registro(form_id)
+    if not item:
+        return jsonify({'ok': False, 'error': 'Formulario no encontrado'}), 404
+    if not item.get('pdf_path') or not os.path.exists(item['pdf_path']):
+        return jsonify({'ok': False, 'error': 'El PDF ya no esta en el servidor'}), 404
+    return jsonify({'ok': True, 'url': '/api/seguro/pdf?token=' + seguros.generar_token_pdf(form_id)})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -995,11 +995,20 @@
 
       <!-- 1. Historial -->
       <div class="card" style="margin-bottom:18px">
-        <h3 style="margin-bottom:10px">📋 Historial de formularios</h3>
+        <h3 style="margin-bottom:4px">📋 Formularios enviados a los pacientes</h3>
+        <p class="desc" style="margin-bottom:10px">Busca por nombre o RUT para responder "¿le llegó su formulario?". Los <b>Sin enviar</b> son los que se dejaron en vista previa y nunca se mandaron.</p>
+        <div id="seg-hist-resumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+          <input id="seg-hist-buscar" type="search" placeholder="🔎 Buscar paciente por nombre o RUT…"
+                 oninput="renderSegHistorial()" style="flex:1;min-width:240px;padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:.9rem">
+          <select id="seg-hist-aseg" onchange="renderSegHistorial()" style="padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:.9rem">
+            <option value="">Todas las aseguradoras</option>
+          </select>
+        </div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
           <div class="tab-bar" id="seg-hist-filtros" style="margin-bottom:0">
             <button class="active" onclick="filtrarSegHistorial('', this)">Todos</button>
-            <button onclick="filtrarSegHistorial('generado', this)">Generados</button>
+            <button onclick="filtrarSegHistorial('generado', this)">Sin enviar</button>
             <button onclick="filtrarSegHistorial('enviado', this)">Enviados</button>
           </div>
           <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadSegHistorial()">🔄 Recargar</button>
@@ -5265,7 +5274,7 @@ async function publicar() {
 // SEGUROS — historial, aseguradoras, prestaciones, sugerencias, firmas
 // ══════════════════════════════════════════════════════
 let SEG_ASEGURADORAS = [], SEG_PRESTACIONES = [], SEG_MAPEO = {},
-    SEG_FIRMAS = [], SEG_HISTORIAL = [], SEG_HIST_FILTRO = '';
+    SEG_FIRMAS = [], SEG_HISTORIAL = [], SEG_HIST_FILTRO = '', SEG_HIST_RESUMEN = null;
 
 function initSeguros() {
   // Comparte token/URL con Estadísticas/Consentimientos/WhatsApp: mismo ADMIN_TOKEN, mismo backend.
@@ -5361,6 +5370,8 @@ async function loadSeguros() {
     SEG_MAPEO         = dPrest.ok   ? (dPrest.mapeo || {})          : {};
     SEG_FIRMAS        = dFirma.ok   ? (dFirma.firmas || [])         : [];
     SEG_HISTORIAL     = dHist.ok    ? (dHist.items || [])           : [];
+    SEG_HIST_RESUMEN  = dHist.ok    ? (dHist.resumen || null)        : null;
+    _segPoblarAseguradoras();
   } catch (e) {
     toast('No se pudo conectar con el backend', false);
     return;
@@ -5384,40 +5395,138 @@ async function loadSegHistorial() {
   try {
     const r = await fetch(_segUrl() + '/api/seguro/admin/historial', { headers: _segHeaders(false) });
     const d = await r.json();
-    if (d.ok) { SEG_HISTORIAL = d.items || []; renderSegHistorial(); toast('✅ Historial actualizado'); }
+    if (d.ok) {
+      SEG_HISTORIAL = d.items || [];
+      SEG_HIST_RESUMEN = d.resumen || null;
+      _segPoblarAseguradoras();
+      renderSegHistorial();
+      toast('✅ Historial actualizado');
+    }
     else toast('❌ ' + (d.error || 'Error'), false);
   } catch (e) { toast('❌ No se pudo conectar', false); }
 }
 
 function _segTotal(i) {
-  return (i.prestaciones || []).reduce((s, p) => s + (+p.valor || 0), 0);
+  // El backend ya manda 'total'; se recalcula solo si viniera de una version vieja.
+  return (i.total != null) ? i.total
+       : (i.prestaciones || []).reduce((s, p) => s + (+p.valor || 0), 0);
+}
+
+function _segPoblarAseguradoras() {
+  const sel = document.getElementById('seg-hist-aseg');
+  if (!sel) return;
+  const prev = sel.value;
+  const claves = [...new Set(SEG_HISTORIAL.map(i => i.aseguradora).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Todas las aseguradoras</option>' +
+    claves.map(k => `<option value="${_esc(k)}">${_esc(k)}</option>`).join('');
+  sel.value = prev;
+}
+
+// Busca por nombre y por RUT a la vez. El RUT se compara sin puntos ni guion
+// para que de igual como lo escriban.
+function _segCoincide(i, q) {
+  if (!q) return true;
+  const rut = (i.rut || '').replace(/[^0-9kK]/g, '').toLowerCase();
+  const qRut = q.replace(/[^0-9kK]/g, '').toLowerCase();
+  if (qRut.length >= 3 && rut.includes(qRut)) return true;
+  const nombre = (i.nombre || '').toLowerCase();
+  // todos los trozos tienen que estar: "maino jose" encuentra "Josefina Maino"
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every(t => nombre.includes(t));
+}
+
+function renderSegHistResumen() {
+  const cont = document.getElementById('seg-hist-resumen');
+  if (!cont) return;
+  const r = SEG_HIST_RESUMEN;
+  if (!r) { cont.innerHTML = ''; return; }
+  const tile = (n, etiqueta, color) =>
+    `<div style="flex:1;min-width:120px;background:#f8fafc;border-left:3px solid ${color};border-radius:6px;padding:8px 12px">
+       <div style="font-size:1.3rem;font-weight:600;color:${color}">${n}</div>
+       <div style="font-size:.75rem;color:#718096">${etiqueta}</div></div>`;
+  cont.innerHTML =
+    tile(r.enviados, 'enviados', '#38a169') +
+    tile(r.este_mes, 'enviados este mes', '#3182ce') +
+    tile(r.sin_enviar, 'sin enviar', r.sin_enviar ? '#dd6b20' : '#a0aec0') +
+    tile(r.pacientes, 'pacientes', '#4a5568');
 }
 
 function renderSegHistorial() {
   const cont = document.getElementById('seg-historial');
-  const items = SEG_HIST_FILTRO ? SEG_HISTORIAL.filter(i => i.estado === SEG_HIST_FILTRO) : SEG_HISTORIAL;
+  renderSegHistResumen();
+  const q = ((document.getElementById('seg-hist-buscar') || {}).value || '').trim();
+  const aseg = (document.getElementById('seg-hist-aseg') || {}).value || '';
+  let items = SEG_HIST_FILTRO ? SEG_HISTORIAL.filter(i => i.estado === SEG_HIST_FILTRO) : SEG_HISTORIAL;
+  if (aseg) items = items.filter(i => i.aseguradora === aseg);
+  items = items.filter(i => _segCoincide(i, q));
   if (!items.length) {
-    cont.innerHTML = '<p style="color:#718096;font-size:.85rem">Sin formularios que coincidan.</p>';
+    cont.innerHTML = q
+      ? `<p style="color:#718096;font-size:.85rem">Ningún formulario para <b>${_esc(q)}</b>. Si el paciente existe pero no aparece acá, es que nunca se le generó uno.</p>`
+      : '<p style="color:#718096;font-size:.85rem">Sin formularios que coincidan.</p>';
     return;
   }
   cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
     <thead><tr style="background:#f8fafc;text-align:left">
-      <th style="padding:8px 10px">Creado</th><th style="padding:8px 10px">RUT</th>
+      <th style="padding:8px 10px">Paciente</th>
+      <th style="padding:8px 10px">Atención</th>
       <th style="padding:8px 10px">Aseguradora</th><th style="padding:8px 10px">Doctor</th>
       <th style="padding:8px 10px">Total</th><th style="padding:8px 10px">Estado</th>
-      <th style="padding:8px 10px">Canal</th>
+      <th style="padding:8px 10px">Se envió a</th>
+      <th style="padding:8px 10px"></th>
     </tr></thead>
-    <tbody>${items.map(i => `
-      <tr style="border-top:1px solid #e2e8f0">
-        <td style="padding:8px 10px;color:#718096">${_esc(_fechaCorta(i.creado))}</td>
-        <td style="padding:8px 10px">${_esc(_rutFmt(i.rut))}</td>
+    <tbody>${items.map(i => {
+      const enviado = i.estado === 'enviado';
+      return `
+      <tr style="border-top:1px solid #e2e8f0;${enviado ? '' : 'background:#fffaf0'}">
+        <td style="padding:8px 10px">
+          <div>${_esc(i.nombre || '(sin nombre en la base)')}</div>
+          <div style="font-size:.75rem;color:#a0aec0">${_esc(_rutFmt(i.rut))}</div>
+        </td>
+        <td style="padding:8px 10px;color:#718096">${_esc(i.fecha_atencion || _fechaCorta(i.creado))}</td>
         <td style="padding:8px 10px">${_esc(i.aseguradora || '—')}</td>
         <td style="padding:8px 10px">${_esc(i.doctor || '—')}</td>
-        <td style="padding:8px 10px">$${_segTotal(i).toLocaleString('es-CL')}</td>
-        <td style="padding:8px 10px"><span class="tag" style="border-color:${i.estado === 'enviado' ? '#38a169' : '#a0aec0'};color:${i.estado === 'enviado' ? '#38a169' : '#a0aec0'}">${_esc(i.estado === 'enviado' ? 'Enviado' : 'Generado')}</span></td>
-        <td style="padding:8px 10px">${_esc(i.canal || '—')}</td>
-      </tr>`).join('')}</tbody>
+        <td style="padding:8px 10px">$${_segTotal(i).toLocaleString('es-CL')}<div style="font-size:.72rem;color:#a0aec0">${i.n_prestaciones || 0} ítem(s)</div></td>
+        <td style="padding:8px 10px"><span class="tag" style="border-color:${enviado ? '#38a169' : '#dd6b20'};color:${enviado ? '#38a169' : '#dd6b20'}">${enviado ? 'Enviado' : 'Sin enviar'}</span></td>
+        <td style="padding:8px 10px;font-size:.78rem;color:#718096">
+          ${enviado ? _esc(i.email || '—') + (i.enviado ? `<div style="color:#a0aec0">${_esc(_fechaCorta(i.enviado))}</div>` : '')
+                    : '<span style="color:#dd6b20">quedó en vista previa</span>'}
+        </td>
+        <td style="padding:8px 10px;white-space:nowrap">
+          ${i.pdf_disponible ? `<button class="btn btn-sm" style="background:#e2e8f0" onclick="verSegPdf('${_esc(i.id)}')">Ver PDF</button>` : ''}
+          ${(!enviado && i.pdf_disponible) ? `<button class="btn btn-sm" style="background:#dd6b20;color:#fff;margin-left:4px" onclick="enviarSegFormulario('${_esc(i.id)}', this)">Enviar</button>` : ''}
+          ${(enviado && i.pdf_disponible) ? `<button class="btn btn-sm" style="background:#e2e8f0;margin-left:4px" onclick="enviarSegFormulario('${_esc(i.id)}', this, true)">Reenviar</button>` : ''}
+        </td>
+      </tr>`; }).join('')}</tbody>
   </table></div>`;
+}
+
+async function verSegPdf(formId) {
+  try {
+    const r = await fetch(_segUrl() + '/api/seguro/admin/pdf-link?form_id=' + encodeURIComponent(formId),
+                          { headers: _segHeaders(false) });
+    const d = await r.json();
+    if (!d.ok) { toast('❌ ' + (d.error || 'No se pudo abrir'), false); return; }
+    window.open(_segUrl() + d.url, '_blank');
+  } catch (e) { toast('❌ No se pudo conectar', false); }
+}
+
+// Reusa /api/seguro/enviar: manda el PDF ya generado al email del paciente y
+// marca el registro como enviado. Sirve igual para el primer envio (los que
+// quedaron en vista previa) que para reenviar uno que el paciente perdio.
+async function enviarSegFormulario(formId, btn, esReenvio) {
+  const item = SEG_HISTORIAL.find(i => i.id === formId) || {};
+  const quien = item.nombre || _rutFmt(item.rut);
+  if (!confirm(`${esReenvio ? 'Reenviar' : 'Enviar'} el formulario de ${quien} a ${item.email || 'su email registrado'}?`)) return;
+  const txt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  try {
+    const r = await fetch(_segUrl() + '/api/seguro/enviar', {
+      method: 'POST', headers: _segHeaders(true),
+      body: JSON.stringify({ form_id: formId })
+    });
+    const d = await r.json();
+    if (d.ok) { toast('✅ Enviado a ' + (d.email_enmascarado || 'el paciente')); loadSegHistorial(); }
+    else { toast('❌ ' + (d.error || 'No se pudo enviar'), false); btn.disabled = false; btn.textContent = txt; }
+  } catch (e) { toast('❌ No se pudo conectar', false); btn.disabled = false; btn.textContent = txt; }
 }
 
 // ── 2. Aseguradoras ──────────────────────────────────
