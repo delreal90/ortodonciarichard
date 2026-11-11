@@ -588,6 +588,98 @@ def crear_registro(datos):
     return form_id
 
 
+def crear_o_actualizar_borrador(datos):
+    """Como crear_registro, pero REUTILIZA el borrador del mismo formulario.
+
+    Cada clic en "Vista previa del PDF" creaba un registro y un PDF nuevos. Una
+    secretaria ajustando valores deja 20 o 30 filas identicas en el historial y
+    otros tantos PDF en el disco: a una paciente real le quedaron 29, y con eso
+    el historial no sirve para contestar "se le envio o no?".
+
+    Se considera el MISMO formulario si es el mismo paciente, la misma
+    aseguradora y la misma fecha de atencion, y sigue SIN enviarse. Un registro
+    ya enviado nunca se toca (es el comprobante de lo que salio), asi que
+    corregir y volver a generar despues de enviar si crea uno nuevo.
+
+    Devuelve (form_id, reutilizado)."""
+    rut = _limpiar_rut(datos.get('rut', ''))
+    aseg = datos.get('aseguradora')
+    fecha = datos.get('fecha_atencion', '')
+    with _LOCK:
+        idx = _load(REGISTRO_PATH)
+        previo = None
+        for fid, reg in idx.items():
+            if (reg.get('estado') == 'generado' and reg.get('rut') == rut
+                    and reg.get('aseguradora') == aseg
+                    and (reg.get('fecha_atencion') or '') == (fecha or '')):
+                if previo is None or (reg.get('creado') or '') > (idx[previo].get('creado') or ''):
+                    previo = fid
+        if previo is None:
+            form_id = None
+        else:
+            form_id = previo
+            anterior = idx[previo].get('pdf_path') or ''
+            idx[previo].update({
+                'doctor': datos.get('doctor'),
+                'prestaciones': datos.get('prestaciones', []),
+                'id_agenda': datos.get('id_agenda'),
+                'pdf_path': str(datos.get('pdf_path') or ''),
+                'email': datos.get('email', ''),
+                'actualizado': ahora_chile().isoformat(timespec='seconds'),
+                'intentos': int(idx[previo].get('intentos') or 1) + 1,
+            })
+            _save(REGISTRO_PATH, idx)
+            # el PDF viejo ya no lo referencia nadie: el token lleva el form_id,
+            # que no cambio, asi que seguira sirviendo el PDF nuevo.
+            if anterior and anterior != idx[previo]['pdf_path']:
+                try:
+                    os.remove(anterior)
+                except OSError:
+                    pass
+    if form_id:
+        return form_id, True
+    return crear_registro(datos), False
+
+
+def compactar_borradores():
+    """Deja UN solo borrador por (paciente, aseguradora, fecha de atencion),
+    el mas reciente, y borra los PDF que quedan sueltos. Es la version
+    retroactiva de crear_o_actualizar_borrador, para el historial que ya quedo
+    lleno de vistas previas repetidas.
+
+    Nunca toca un registro ENVIADO. Idempotente: correrlo dos veces no cambia
+    nada la segunda vez. Devuelve {grupos, eliminados, pdfs_borrados}."""
+    with _LOCK:
+        idx = _load(REGISTRO_PATH)
+        grupos = {}
+        for fid, reg in idx.items():
+            if reg.get('estado') != 'generado':
+                continue
+            clave = (reg.get('rut'), reg.get('aseguradora'), reg.get('fecha_atencion') or '')
+            grupos.setdefault(clave, []).append(fid)
+        eliminados, pdfs = 0, 0
+        for clave, fids in grupos.items():
+            if len(fids) < 2:
+                continue
+            fids.sort(key=lambda f: idx[f].get('creado') or '')
+            se_queda = fids[-1]
+            idx[se_queda]['intentos'] = max(int(idx[se_queda].get('intentos') or 1), len(fids))
+            for fid in fids[:-1]:
+                ruta = idx[fid].get('pdf_path') or ''
+                if ruta and ruta != (idx[se_queda].get('pdf_path') or ''):
+                    try:
+                        os.remove(ruta)
+                        pdfs += 1
+                    except OSError:
+                        pass
+                del idx[fid]
+                eliminados += 1
+        if eliminados:
+            _save(REGISTRO_PATH, idx)
+    return {'grupos': sum(1 for v in grupos.values() if len(v) > 1),
+            'eliminados': eliminados, 'pdfs_borrados': pdfs}
+
+
 def folio_ya_enviado(folio):
     """True si ya existe un formulario ENVIADO para esa boleta (folio SII).
     Guarda contra reenviar el mismo DTE — el ancla anti-duplicado del auto-envío."""

@@ -128,6 +128,7 @@ class TestHistorialDelPanel(_Base):
 
     def setUp(self):
         super().setUp()
+        seguros._save(seguros.REGISTRO_PATH, {})
         import pacientes
         pacientes._STORE.save({'141414119': {'nombres': 'Ana Maria',
                                              'apellidos': 'Soto Vera',
@@ -177,6 +178,86 @@ class TestHistorialDelPanel(_Base):
         r = self.client.get('/api/seguro/admin/pdf-link?form_id=noexiste',
                             headers={'X-Admin-Token': 'token-de-prueba'})
         self.assertEqual(r.status_code, 404)
+
+
+
+
+class TestBorradoresNoSeDuplican(_Base):
+    """Cada clic en "Vista previa del PDF" creaba un registro y un PDF nuevos.
+
+    Caso real: una paciente quedo con 29 filas identicas en el historial (y 29
+    PDF en el disco) porque se estuvieron ajustando los valores en la pagina.
+    Con eso el historial no sirve para lo unico que importa: saber si al
+    paciente se le envio su formulario o no.
+    """
+
+    def setUp(self):
+        super().setUp()
+        seguros._save(seguros.REGISTRO_PATH, {})
+
+    def _borrador(self, **extra):
+        datos = {'rut': RUT, 'aseguradora': 'metlife', 'doctor': 'alberto',
+                 'fecha_atencion': '2026-11-03', 'email': 'ana@ejemplo.cl',
+                 'prestaciones': [{'descripcion': 'CONTROL', 'valor': 50000}]}
+        datos.update(extra)
+        return seguros.crear_o_actualizar_borrador(datos)
+
+    def test_previsualizar_dos_veces_deja_un_solo_registro(self):
+        fid1, reusado1 = self._borrador()
+        fid2, reusado2 = self._borrador(prestaciones=[{'descripcion': 'CONTROL', 'valor': 60000}])
+        self.assertFalse(reusado1)
+        self.assertTrue(reusado2)
+        self.assertEqual(fid1, fid2)
+        self.assertEqual(len(seguros.listar_registros(rut=RUT)), 1)
+        # y se queda con lo ULTIMO que se previsualizo
+        self.assertEqual(seguros.obtener_registro(fid1)['prestaciones'][0]['valor'], 60000)
+        self.assertEqual(seguros.obtener_registro(fid1)['intentos'], 2)
+
+    def test_el_token_del_pdf_sigue_sirviendo(self):
+        # el form_id no cambia, asi que el link de la vista previa no se rompe
+        fid, _ = self._borrador()
+        token = seguros.generar_token_pdf(fid)
+        self._borrador(prestaciones=[{'descripcion': 'OTRA', 'valor': 1}])
+        self.assertEqual(seguros.validar_token_pdf(token)['form_id'], fid)
+
+    def test_no_toca_lo_ya_enviado(self):
+        """Un registro enviado es el comprobante de lo que salio: corregir y
+        volver a generar despues de enviar crea uno NUEVO, no pisa el anterior."""
+        fid1, _ = self._borrador()
+        seguros.marcar_enviado(fid1, canal='email')
+        fid2, reusado = self._borrador()
+        self.assertFalse(reusado)
+        self.assertNotEqual(fid1, fid2)
+        self.assertEqual(seguros.obtener_registro(fid1)['estado'], 'enviado')
+
+    def test_otra_fecha_o_aseguradora_es_otro_formulario(self):
+        fid1, _ = self._borrador()
+        fid2, _ = self._borrador(fecha_atencion='2026-11-10')
+        fid3, _ = self._borrador(aseguradora='zurich')
+        self.assertEqual(len({fid1, fid2, fid3}), 3)
+
+    def test_compactar_deja_uno_por_formulario(self):
+        # simula el historial que ya quedo sucio: varios registros sueltos
+        ids = [seguros.crear_registro({'rut': RUT, 'aseguradora': 'metlife',
+                                       'doctor': 'alberto', 'fecha_atencion': '2026-11-03',
+                                       'prestaciones': [{'descripcion': 'X', 'valor': 1000}]})
+               for _ in range(5)]
+        enviado = seguros.crear_registro({'rut': RUT, 'aseguradora': 'metlife',
+                                          'doctor': 'alberto', 'fecha_atencion': '2026-11-03',
+                                          'prestaciones': []})
+        seguros.marcar_enviado(enviado, canal='email')
+        res = seguros.compactar_borradores()
+        self.assertEqual(res['eliminados'], 4)
+        quedan = seguros.listar_registros(rut=RUT)
+        self.assertEqual(len(quedan), 2)                      # 1 borrador + 1 enviado
+        self.assertIn(ids[-1], [q['id'] for q in quedan])     # se queda el ultimo
+        self.assertIn(enviado, [q['id'] for q in quedan])     # el enviado intacto
+        # idempotente
+        self.assertEqual(seguros.compactar_borradores()['eliminados'], 0)
+
+    def test_compactar_exige_token(self):
+        self.assertEqual(
+            self.client.post('/api/seguro/admin/compactar-borradores').status_code, 403)
 
 
 

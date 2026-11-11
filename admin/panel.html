@@ -1011,7 +1011,10 @@
             <button onclick="filtrarSegHistorial('generado', this)">Sin enviar</button>
             <button onclick="filtrarSegHistorial('enviado', this)">Enviados</button>
           </div>
-          <button class="btn btn-sm" style="background:#e2e8f0" onclick="loadSegHistorial()">🔄 Recargar</button>
+          <div>
+            <button class="btn btn-sm" style="background:#e2e8f0" onclick="compactarSegBorradores()" title="Deja una sola fila por formulario: ajustar valores y volver a previsualizar dejaba una fila por cada clic">🧹 Limpiar repetidos</button>
+            <button class="btn btn-sm" style="background:#e2e8f0;margin-left:6px" onclick="loadSegHistorial()">🔄 Recargar</button>
+          </div>
         </div>
         <div id="seg-historial">Carga la conexión para ver el historial.</div>
       </div>
@@ -5497,6 +5500,24 @@ function renderSegHistorial() {
         </td>
       </tr>`; }).join('')}</tbody>
   </table></div>`;
+}
+
+// Limpieza retroactiva del historial que ya quedo lleno de vistas previas
+// repetidas. Nunca toca lo enviado (ver seguros.compactar_borradores).
+async function compactarSegBorradores() {
+  const sueltos = SEG_HISTORIAL.filter(i => i.estado !== 'enviado').length;
+  if (!confirm(`Dejar una sola fila por formulario sin enviar?
+
+Hoy hay ${sueltos} fila(s) sin enviar. Se conserva la más reciente de cada formulario y se borran los PDF repetidos.
+Lo que ya se envió NO se toca.`)) return;
+  try {
+    const r = await fetch(_segUrl() + '/api/seguro/admin/compactar-borradores', {
+      method: 'POST', headers: _segHeaders(true)
+    });
+    const d = await r.json();
+    if (d.ok) { toast(`✅ ${d.eliminados} fila(s) repetida(s) y ${d.pdfs_borrados} PDF eliminados`); loadSegHistorial(); }
+    else toast('❌ ' + (d.error || 'Error'), false);
+  } catch (e) { toast('❌ No se pudo conectar', false); }
 }
 
 async function verSegPdf(formId) {

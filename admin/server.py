@@ -5093,7 +5093,10 @@ def seguro_previsualizar():
         app.logger.error('seguro: error generando PDF: %s', e)
         return jsonify({'ok': False, 'error': f'No se pudo generar el PDF: {e}'}), 500
 
-    form_id = seguros.crear_registro({
+    # Reutiliza el borrador si ya hay uno sin enviar de este mismo formulario:
+    # ajustar valores y volver a previsualizar no debe dejar una fila (y un PDF)
+    # por cada clic. Ver seguros.crear_o_actualizar_borrador.
+    form_id, _reutilizado = seguros.crear_o_actualizar_borrador({
         'rut': rut, 'aseguradora': aseg_key, 'doctor': doctor_key,
         'prestaciones': filas, 'fecha_atencion': data.get('fecha_atencion', ''),
         'id_agenda': str(data.get('id_agenda', '')), 'pdf_path': pdf_path,
@@ -5688,6 +5691,16 @@ def _seguro_resumen_historial(items):
         'este_mes': sum(1 for i in enviados if (i.get('enviado') or '')[:7] == mes),
         'pacientes': len({i.get('rut') for i in items if i.get('rut')}),
     }
+
+
+@app.route('/api/seguro/admin/compactar-borradores', methods=['POST'])
+def seguro_admin_compactar():
+    """Deja un solo borrador por formulario en el historial que ya quedo lleno
+    de vistas previas repetidas (ver seguros.compactar_borradores). No toca
+    nada de lo ya enviado y se puede correr las veces que sea."""
+    if not _check_admin_token():
+        return jsonify({'ok': False, 'error': 'No autorizado'}), 403
+    return jsonify({'ok': True, **seguros.compactar_borradores()})
 
 
 @app.route('/api/seguro/admin/pdf-link', methods=['GET'])
