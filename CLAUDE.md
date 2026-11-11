@@ -1058,6 +1058,21 @@ panel (card Prestaciones). background.js ganó el mensaje genérico `SEGURO_API`
 RECEMENTACION BRACKET") para que el sistema detecte cada acción — decisión del usuario
 2026-07-10.
 
+**Formulario de una atención PASADA — "🧾 Elegir boleta anterior…" (2026-11-11):**
+el flujo 1-clic trabaja sobre la boleta del DÍA, pero los formularios atrasados son
+normales (un apoderado pidió los de la instalación de septiembre más los controles de
+octubre y noviembre). El botón nuevo en la sección Seguro lista las boletas del paciente
+de los últimos 6 meses (`_boletasDelPaciente` en content.js: el filtro de DentiDesk es
+POR MES — `datos[filtro_fecha]` = primer día — así que pide mes por mes, y dentro de cada
+mes las páginas 2..N de a 4 en paralelo, porque hay que hojear los DTE de TODA la clínica:
+el listado NO filtra por RUT). Al elegir una, **los dos caminos** usan esa boleta
+(`boletaDelSeguro()`): el botón de envío y la precarga de "🔁 Elegir/cambiar
+aseguradora…". El backend no cambió — `preparar-/enviar-desde-boleta` ya aceptaban
+cualquier `fecha` y `armar_valores` la normaliza (`_fecha_ddmmyyyy`) — así que el
+formulario queda fechado con la ATENCIÓN, no con hoy. ⚠️ El `doctor` sigue saliendo del
+modal de la cita abierta: si la atención pasada fue de otro profesional, emitirlo desde
+la página `/seguro`, que deja elegirlo.
+
 **Auto-envío (vigilante de boletas, 2026-07-10):** sin que nadie toque el F2. El
 content.js corre un `setInterval` de 60s (ventana 08:50–20:00, `tickVigilante`) que lee
 los DTE del mes con la sesión del navegador y, por cada boleta NUEVA de hoy (folio no
