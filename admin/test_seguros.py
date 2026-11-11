@@ -157,9 +157,11 @@ class TestAgrupacionPorPatron(_AislamientoCatalogo):
         self.assertEqual(self.creadas, [])   # 0 creadas nuevas: ambas calzan por patron
         self.assertEqual(filas[0]['id'], 'p_control')
         self.assertEqual(filas[1]['id'], 'p_control')
-        # sin override -> sale el nombre interno de la prestacion, no la glosa cruda
-        self.assertEqual(filas[0]['descripcion'], 'Control Mensual de Ortodoncia')
-        self.assertEqual(filas[1]['descripcion'], 'Control Mensual de Ortodoncia')
+        # sin override -> sale el nombre interno de la prestacion, no la glosa cruda,
+        # pero con el MES que traia cada glosa (ver TestMesEnLaGlosa): agrupan a la
+        # misma prestacion y aun asi se distingue el control de agosto del de julio
+        self.assertEqual(filas[0]['descripcion'], 'Control Mensual de Ortodoncia Agosto')
+        self.assertEqual(filas[1]['descripcion'], 'Control Mensual de Ortodoncia Julio')
 
     def test_glosa_que_no_calza_ningun_patron_crea_una_nueva(self):
         self.catalogo = [{
@@ -193,7 +195,8 @@ class TestOverridePorAseguradora(_AislamientoCatalogo):
         filas = seguros.filas_desde_items(items, 'metlife')
 
         self.assertEqual(len(filas), 1)
-        self.assertEqual(filas[0]['descripcion'], 'Nombre Y')
+        # el renombre de la aseguradora tambien conserva el mes de la glosa
+        self.assertEqual(filas[0]['descripcion'], 'Nombre Y Septiembre')
         self.assertEqual(filas[0]['codigo'], 'X')
         self.assertEqual(filas[0]['valor'], 30000)
         self.assertEqual(self.creadas, [])   # ya existia por patron, no crea
@@ -203,7 +206,7 @@ class TestOverridePorAseguradora(_AislamientoCatalogo):
         filas = seguros.filas_desde_items(items, 'zurich')
 
         self.assertEqual(len(filas), 1)
-        self.assertEqual(filas[0]['descripcion'], 'Control Mensual de Ortodoncia')
+        self.assertEqual(filas[0]['descripcion'], 'Control Mensual de Ortodoncia Septiembre')
         self.assertEqual(filas[0]['codigo'], '')
         self.assertEqual(filas[0]['valor'], 30000)
 
@@ -216,9 +219,9 @@ class TestOverridePorAseguradora(_AislamientoCatalogo):
         filas = seguros.filas_desde_items(items, 'metlife')
 
         self.assertEqual(len(filas), 2)
-        self.assertEqual(filas[0]['descripcion'], 'Fila A')
+        self.assertEqual(filas[0]['descripcion'], 'Fila A Septiembre')
         self.assertEqual(filas[0]['valor'], 30000)
-        self.assertEqual(filas[1]['descripcion'], 'Fila B')
+        self.assertEqual(filas[1]['descripcion'], 'Fila B Septiembre')
         self.assertEqual(filas[1]['valor'], 0)
 
 
@@ -701,6 +704,65 @@ class TestApellidosYTitular(unittest.TestCase):
                     self.assertNotEqual(
                         s_.get('y'), y_titular,
                         f'{key}: {campo} volvio a caer en el ASEGURADO TITULAR')
+
+
+
+class TestMesEnLaGlosa(unittest.TestCase):
+    """La boleta dice "CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE", pero el patron
+    de glosas_boleta agrupa todas las variantes bajo "Control Mensual de
+    Ortodoncia" y el formulario salia SIN el mes. Al seguro le importa: es lo
+    que distingue el control de noviembre del de octubre en el reembolso."""
+
+    def test_saca_el_mes_de_la_glosa(self):
+        self.assertEqual(
+            seguros.periodo_de_glosa('CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE'),
+            'NOVIEMBRE')
+        self.assertEqual(
+            seguros.periodo_de_glosa('CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE 2026'),
+            'NOVIEMBRE 2026')
+        # con tilde y con "de" en medio
+        self.assertEqual(
+            seguros.periodo_de_glosa('CONTROL MENSUAL DE ORTODONCIA DE SEPTIEMBRE'),
+            'SEPTIEMBRE')
+
+    def test_una_glosa_sin_mes_no_inventa_ninguno(self):
+        self.assertEqual(seguros.periodo_de_glosa('PROFILAXIS, AMBAS ARCADAS'), '')
+        self.assertEqual(seguros.periodo_de_glosa(''), '')
+
+    def test_el_mes_se_escribe_como_la_descripcion(self):
+        # el catalogo usa capitalizacion de titulo...
+        self.assertEqual(
+            seguros._con_periodo('Control Mensual de Ortodoncia',
+                                 'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE'),
+            'Control Mensual de Ortodoncia Noviembre')
+        # ...pero una prestacion auto-descubierta queda en MAYUSCULAS
+        self.assertEqual(
+            seguros._con_periodo('CONTROL MENSUAL DE ORTODONCIA',
+                                 'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE'),
+            'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE')
+
+    def test_no_duplica_el_mes_si_ya_lo_trae(self):
+        """El informe propio (EUROAMERICA) usa la glosa CRUDA, que ya trae el mes."""
+        self.assertEqual(
+            seguros._con_periodo('CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE',
+                                 'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE'),
+            'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE')
+
+    def test_la_fila_del_formulario_sale_con_el_mes(self):
+        pid = seguros.guardar_prestacion(None, {
+            'nombre': 'Control Mensual de Ortodoncia',
+            'glosa_original': 'CONTROL MENSUAL DE ORTODONCIA',
+            'glosas_boleta': ['CONTROL MENSUAL DE ORTODONCIA']})
+        filas = seguros.filas_desde_items(
+            [{'descripcion': 'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE', 'valor': 146000}],
+            'zurich', fecha='10-11-2026')
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]['descripcion'], 'Control Mensual de Ortodoncia Noviembre')
+        self.assertEqual(filas[0]['valor'], 146000)
+        # y la glosa sigue agrupando a la MISMA prestacion (no se crea una por mes)
+        self.assertEqual(
+            seguros.prestacion_por_glosa('CONTROL MENSUAL DE ORTODONCIA OCTUBRE')['id'],
+            pid)
 
 
 

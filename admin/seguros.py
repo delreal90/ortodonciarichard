@@ -297,6 +297,51 @@ def _sin_pieza_boca(s):
     return re.sub(r'(?i)\s*pieza\s+boca\s*$', '', s or '').strip()
 
 
+# El patron de 'glosas_boleta' AGRUPA las variantes del control mensual
+# ("CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE" -> prestacion "Control Mensual de
+# Ortodoncia"), y al agrupar se perdia el MES. Al seguro le importa: es lo que
+# distingue el control de noviembre del de octubre en el reembolso. Asi que el
+# mes se recupera de la glosa y se le vuelve a pegar a la descripcion.
+_MESES = ('ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO',
+          'AGOSTO', 'SEPTIEMBRE', 'SETIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE')
+_RE_PERIODO = re.compile(
+    r'\b(' + '|'.join(_MESES) + r')\b(?:\s+(?:DE\s+)?(\d{4}|\d{2}))?')
+
+
+def periodo_de_glosa(glosa):
+    """Mes (y ano, si viene) que trae la glosa de la boleta.
+
+    'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE'      -> 'NOVIEMBRE'
+    'CONTROL MENSUAL DE ORTODONCIA NOVIEMBRE 2026' -> 'NOVIEMBRE 2026'
+    'PROFILAXIS'                                   -> ''
+    """
+    m = _RE_PERIODO.search(_normalizar_texto(glosa))
+    if not m:
+        return ''
+    return (m.group(1) + (' ' + m.group(2) if m.group(2) else '')).strip()
+
+
+def _con_periodo(descripcion, glosa):
+    """Le devuelve el mes a la descripcion agrupada, copiando la capitalizacion
+    que ya usa (el catalogo escribe 'Control Mensual de Ortodoncia', pero una
+    prestacion auto-descubierta queda en MAYUSCULAS como la glosa).
+
+    Si la descripcion ya trae un mes no se duplica: es el caso del informe
+    propio, que usa la glosa cruda."""
+    desc = (descripcion or '').strip()
+    periodo = periodo_de_glosa(glosa)
+    if not periodo or not desc:
+        return desc
+    if _RE_PERIODO.search(_normalizar_texto(desc)):
+        return desc
+    letras = [c for c in desc if c.isalpha()]
+    if letras and all(c.isupper() for c in letras):
+        txt = periodo
+    else:
+        txt = ' '.join(w.capitalize() if w.isalpha() else w for w in periodo.split())
+    return f'{desc} {txt}'
+
+
 def prestacion_por_glosa(glosa):
     """Prestación que corresponde a una glosa. (1) por PATRÓN (glosas_boleta —
     agrupa variantes tipo 'CONTROL MENSUAL … AGOSTO/JULIO'); (2) por glosa_original
@@ -363,7 +408,10 @@ def filas_desde_items(items, aseguradora_key, fecha=''):
 
     Para aseguradoras SIN formulario (informe genérico, ej. EUROAMERICA) se usa la
     glosa CRUDA de la boleta como descripción — así conserva la PIEZA tratada, que
-    esas aseguradoras exigen y que el nombre agrupado de la prestación puede perder."""
+    esas aseguradoras exigen y que el nombre agrupado de la prestación puede perder.
+
+    El MES de la glosa ("… NOVIEMBRE") se le devuelve a la descripción agrupada
+    (ver _con_periodo): al seguro le importa de qué mes es el control."""
     mapeo = mapeo_prestaciones()
     es_informe = _aseguradora_sin_formulario(aseguradora_key)
     filas = []
@@ -377,13 +425,14 @@ def filas_desde_items(items, aseguradora_key, fecha=''):
         if overrides:
             # renombre/código por aseguradora; si mapea a varios, el valor va en el 1º
             for j, ov in enumerate(overrides):
+                desc = _sin_pieza_boca(ov.get('descripcion') or p.get('nombre') or glosa)
                 filas.append({'id': p['id'], 'codigo': ov.get('codigo', ''),
-                              'descripcion': _sin_pieza_boca(ov.get('descripcion') or p.get('nombre') or glosa),
+                              'descripcion': _con_periodo(desc, glosa),
                               'valor': valor if j == 0 else 0, 'fecha': fecha})
         else:
             desc = _sin_pieza_boca(glosa if es_informe else (p.get('nombre') or glosa))
             filas.append({'id': p['id'], 'codigo': '',
-                          'descripcion': desc,
+                          'descripcion': _con_periodo(desc, glosa),
                           'valor': valor, 'fecha': fecha})
     return filas
 
