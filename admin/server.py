@@ -6166,6 +6166,9 @@ def fotos_agenda_dia():
             'nombre_agenda': c.get('PatientName') or '',
             'nombres': reg.get('nombres', ''),
             'apellidos': reg.get('apellidos', ''),
+            # El "Ficha Nº" que muestra la pantalla de DentiDesk: el observador lo lee en
+            # la foto de la ficha cuando el RUT no se alcanza a leer.
+            'id_paciente': str(reg.get('id_paciente') or ''),
         })
     return jsonify({'ok': True, 'fecha': dia.isoformat(), 'citas': citas})
 

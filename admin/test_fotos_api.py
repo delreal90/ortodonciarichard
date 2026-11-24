@@ -47,12 +47,13 @@ class TestAgendaDia(unittest.TestCase):
                 'PatientDocument': '11111111-1', 'PatientName': 'Perez Soto Juan'}
         with mock.patch.object(server.scheduling, 'load_config', return_value=cfg), \
              mock.patch.object(server.dentidesk, '_get_agenda_day', return_value=[cita]), \
-             mock.patch('pacientes.lookup', return_value={'nombres': 'Juan', 'apellidos': 'Perez Soto'}):
+             mock.patch('pacientes.lookup', return_value={'nombres': 'Juan', 'apellidos': 'Perez Soto',
+                                                          'id_paciente': 1234567}):
             r = self.c.get('/api/fotos/agenda-dia?fecha=2026-10-20', headers=H)
         self.assertEqual(r.status_code, 200)
         c = r.get_json()['citas'][0]
-        self.assertEqual((c['hora'], c['doctor'], c['nombres'], c['apellidos']),
-                         ('10:15', 'Alberto Del Real', 'Juan', 'Perez Soto'))
+        self.assertEqual((c['hora'], c['doctor'], c['nombres'], c['apellidos'], c['id_paciente']),
+                         ('10:15', 'Alberto Del Real', 'Juan', 'Perez Soto', '1234567'))
 
 
 class TestAviso(unittest.TestCase):
