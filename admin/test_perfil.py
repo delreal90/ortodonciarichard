@@ -686,6 +686,15 @@ class TestListado(unittest.TestCase):
         a = pacientes._load_index()['111111111']
         self.assertEqual((a['direccion'], a['comuna']), ('Real 45', 'Lo Barnechea'))
 
+    def test_guarda_el_id_de_paciente_del_link_de_la_ficha(self):
+        """El listado del F2 trae ficha.php?id_paciente=N en cada fila: es el "Ficha Nº"
+        que el observador de fotos lee en la pantalla. Sin id (o con basura) no pisa."""
+        pacientes.importar_listado([self.fila('11.111.111-1', id_paciente='2236001')])
+        self.assertEqual(pacientes._load_index()['111111111']['id_paciente'], '2236001')
+        pacientes.importar_listado([self.fila('11.111.111-1')])
+        pacientes.importar_listado([self.fila('11.111.111-1', id_paciente='abc')])
+        self.assertEqual(pacientes._load_index()['111111111']['id_paciente'], '2236001')
+
     def test_rut_basurero_se_descarta(self):
         filas = [self.fila('46266', nombre='Bloqueo %d' % i) for i in range(5)]
         res = pacientes.importar_listado(filas)

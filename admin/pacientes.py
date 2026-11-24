@@ -398,6 +398,7 @@ def _importar_filas(filas, cols, reemplazar=False):
     c_nom, c_rut, c_tel, c_mail = cols['nom'], cols['rut'], cols['tel'], cols['mail']
     c_gen, c_dir, c_com = cols['gen'], cols['dir'], cols['com']
     c_prev, c_conv = cols['prev'], cols['conv']
+    c_id = cols.get('id')          # solo el listado del F2 lo trae (link a la ficha)
     # RUT-BASURERO: el export de DentiDesk usa un RUT falso compartido para
     # todo lo que no es un paciente real -- bloqueos de agenda, reuniones,
     # fichas de prueba ('BLOQUEO BLOQUEO', 'SORTCH REUNION', 'xxxxx') -- y
@@ -445,9 +446,11 @@ def _importar_filas(filas, cols, reemplazar=False):
             direccion = comuna = ''
         prevision = str(r[c_prev]).strip() if c_prev is not None and r[c_prev] else ''
         convenio = str(r[c_conv]).strip() if c_conv is not None and r[c_conv] else ''
+        id_pac = str(r[c_id]).strip() if c_id is not None and r[c_id] else ''
         nuevo = {'nombres': nombres, 'apellidos': apellidos, 'email': email, 'telefono': tel,
                  'genero': genero, 'direccion': direccion, 'comuna': comuna,
-                 'prevision': prevision, 'convenio': convenio}
+                 'prevision': prevision, 'convenio': convenio,
+                 'id_paciente': id_pac if id_pac.isdigit() else ''}
         if rut not in idx:
             agregados += 1
             idx[rut] = nuevo
@@ -467,8 +470,12 @@ def _importar_filas(filas, cols, reemplazar=False):
     return {'total': len(idx), 'nuevos': agregados, 'descartados': descartados}
 
 # Orden de las columnas en las filas que manda la extension (el mismo del reporte).
+# 'id_paciente' sale del link ficha.php?id_paciente=N de cada fila (verificado
+# 2026-11-24: las 4.871 filas lo traen). Es el "Ficha Nº" que el observador de fotos
+# de DIGITAL1 lee en la pantalla de DentiDesk; antes solo venia del listado de
+# cumpleanios y cubria ~59 % de los pacientes con cita.
 _COLS_LISTADO = ('nombre', 'rut', 'genero', 'telefono', 'correo', 'direccion',
-                 'comuna', 'convenio', 'prevision')
+                 'comuna', 'convenio', 'prevision', 'id_paciente')
 
 
 def importar_listado(items):
@@ -488,7 +495,7 @@ def importar_listado(items):
     filas = [tuple(str((it or {}).get(k) or '').strip() for k in _COLS_LISTADO)
              for it in items or []]
     cols = {'nom': 0, 'rut': 1, 'gen': 2, 'tel': 3, 'mail': 4, 'dir': 5,
-            'com': 6, 'conv': 7, 'prev': 8}
+            'com': 6, 'conv': 7, 'prev': 8, 'id': 9}
     res = _importar_filas(filas, cols)
     despues = _load_index()
     res['direcciones_cambiadas'] = sum(
